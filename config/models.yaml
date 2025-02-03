@@ -1,0 +1,273 @@
+sampler_settings:
+  default:
+    temperature: 0.7
+    frequency_penalty: 0.0
+    presence_penalty: 0.0
+    repetition_penalty: 1.0
+    min_p: 0.05
+    top_p: 0.9
+    top_k: 0
+  llama3.1:
+    temperature: 0.7
+    frequency_penalty: 0.0
+    presence_penalty: 0.0
+    repetition_penalty: 1.0
+    min_p: 0.05
+  llama3.3:
+    temperature: 0.7
+    frequency_penalty: 0.0
+    presence_penalty: 0.0
+    repetition_penalty: 1.0
+    min_p: 0.05
+  llama2:
+    temperature: 0.7
+    frequency_penalty: 0.0
+    presence_penalty: 0.0
+    repetition_penalty: 1.0
+    min_p: 0.05
+  qwen2.5:
+    temperature: 0.7
+    frequency_penalty: 0.0
+    presence_penalty: 0.0
+    repetition_penalty: 1.0
+    min_p: 0.05
+  deepseekv3:
+    temperature: 0.7
+    frequency_penalty: 0.0
+    presence_penalty: 0.0
+    repetition_penalty: 1.0
+    min_p: 0.05
+  gpt4:
+    temperature: 0.7
+    frequency_penalty: 0.0
+    presence_penalty: 0.0
+    top_p: 0.9
+  gpt3.5:
+    temperature: 0.7
+    frequency_penalty: 0.0
+    presence_penalty: 0.0
+    top_p: 0.9
+  claude3:
+    temperature: 0.7
+    top_p: 0.9
+  mixtral:
+    temperature: 0.7
+    frequency_penalty: 0.0
+    presence_penalty: 0.0
+    top_p: 0.9
+  gemini:
+    temperature: 0.7
+    top_p: 0.9
+models:
+  - name: localmodel
+    architecture: local
+    provider: local
+    size: 0B
+    category:
+      - conversation
+      - analysis
+      - thought
+      - functions
+      - completion
+      - vision
+      - analysis
+  - name: compatible
+    architecture: compatible
+    provider: compatible
+    size: 0B
+    category:
+      - conversation
+      - analysis
+      - thought
+  - name: nvidia/Llama-3.1-Nemotron-70B-Instruct-HF
+    architecture: llama3.1
+    provider: featherless
+    size: 70B
+    category:
+      - conversation
+      - analysis
+  - name: maldv/Qwentile2.5-32B-Instruct
+    architecture: qwen2.5
+    provider: featherless
+    size: 32B
+    category:
+      - conversation
+      - thought
+      - analysis
+  - name: deepseek-ai/DeepSeek-R1
+    architecture: deepseekv3
+    provider: featherless
+    size: 671B
+    category:
+      - conversation
+      - thought
+      - analysis
+  - name: deepseek-ai/DeepSeek-R1-Distill-Qwen-32B
+    architecture: qwen2.5
+    provider: featherless
+    size: 32B
+    category:
+      - conversation
+      - thought
+  - name: NovaSky-AI/Sky-T1-32B-Preview
+    architecture: qwen2.5
+    provider: featherless
+    size: 32B
+    category:
+      - conversation
+      - thought
+  - name: unsloth/Llama-3.3-70B-Instruct
+    architecture: llama3.3
+    provider: featherless
+    size: 70B
+    category:
+      - conversation
+      - thought
+      - analysis
+  - name: Sao10K/72B-Qwen2.5-Kunou-v1
+    architecture: qwen2.5
+    provider: featherless
+    size: 72B
+    category:
+      - conversation
+  - name: Sao10K/L3.3-70B-Euryale-v2.3
+    architecture: llama3.3
+    provider: featherless
+    size: 70B
+    category:
+      - conversation
+  - name: Doctor-Shotgun/L3.3-70B-Magnum-v4-SE
+    architecture: llama3.3
+    provider: featherless
+    size: 70B
+    category:
+      - conversation
+      - thought
+  - name: allenai/Llama-3.1-Tulu-3-70B
+    architecture: llama3.1
+    provider: featherless
+    size: 70B
+    category:
+      - conversation
+  - name: Nexusflow/Athene-V2-Chat
+    architecture: llama3.3
+    provider: featherless
+    size: 70B
+    category:
+      - conversation
+  - name: OpenBuddy/openbuddy-llama3.3-70b-v24.1-131k
+    architecture: llama3.3
+    provider: featherless
+    size: 70B
+    category:
+      - conversation
+  - name: Qwen/QwQ-32B-Preview
+    architecture: qwen2.5
+    provider: featherless
+    size: 32B
+    category:
+      - thought
+  - name: TheDrummer/Nautilus-70B-v0.1
+    architecture: llama3.3
+    provider: featherless
+    size: 70B
+    category:
+      - conversation
+  - name: Qwen/Qwen2.5-Coder-32B-Instruct
+    architecture: qwen2.5
+    provider: featherless
+    size: 32B
+    category:
+      - thought
+      - functions
+  - name: empower-dev/llama3-empower-functions-large-v1.1
+    architecture: llama3.3
+    provider: featherless
+    size: 70B
+    category:
+      - functions
+  - name: meetkai/functionary-medium-v3.2
+    architecture: llama3.3
+    provider: featherless
+    size: 70B
+    category:
+      - functions
+  - name: gpt-4-turbo-preview
+    architecture: gpt4
+    provider: openai
+    size: 1.8T
+    category:
+      - conversation
+      - analysis
+      - thought
+      - functions
+  - name: gpt-4-vision-preview
+    architecture: gpt4
+    provider: openai
+    size: 1.8T
+    category:
+      - vision
+  - name: gpt-4
+    architecture: gpt4
+    provider: openai
+    size: 1.8T
+    category:
+      - conversation
+      - analysis
+      - thought
+  - name: gpt-3.5-turbo
+    architecture: gpt3.5
+    provider: openai
+    size: 175B
+    category:
+      - conversation
+  - name: claude-3-opus
+    architecture: claude3
+    provider: anthropic
+    size: 2.7T
+    category:
+      - conversation
+      - analysis
+      - thought
+      - functions
+  - name: claude-3-5-sonnet
+    architecture: claude3
+    provider: anthropic
+    size: 1.8T
+    category:
+      - conversation
+      - analysis
+      - thought
+      - functions
+  - name: claude-3-5-haiku
+    architecture: claude3
+    provider: anthropic
+    size: 1.2T
+    category:
+      - conversation
+      - analysis
+      - thought
+  - name: mixtral-8x7b-32768
+    architecture: mixtral
+    provider: groq
+    size: 47B
+    category:
+      - conversation
+      - thought
+      - analysis
+  - name: gemini-1.5-flash
+    architecture: gemini
+    provider: google
+    size: 1.5T
+    category:
+      - conversation
+      - analysis
+      - thought
+  - name: gemini-1.5-pro
+    architecture: gemini
+    provider: google
+    size: 1.5T
+    category:
+      - conversation
+      - analysis
+      - thought

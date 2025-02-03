@@ -1,0 +1,20 @@
+{
+    "name": "MindAI Chat",
+    "short_name": "MindAI",
+    "start_url": "/index.html",
+    "display": "standalone",
+    "background_color": "#33ff33",
+    "theme_color": "#33ff33",
+    "icons": [
+        {
+            "src": "/MindAI-192x192.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "/MindAI-512x512.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        }
+    ]
+}

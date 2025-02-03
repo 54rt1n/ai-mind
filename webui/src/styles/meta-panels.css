@@ -1,0 +1,60 @@
+
+/* src/styles/meta-panels.css */
+.meta-panel {
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    margin-bottom: 1rem;
+}
+
+.meta-panel-header {
+    background-color: #f5f5f5;
+    padding: 0.75rem 1rem;
+    font-weight: 500;
+    color: #333;
+}
+
+.meta-panel-header.collapsible {
+    width: 100%;
+    text-align: left;
+    border: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+}
+
+.meta-panel-header.collapsible:hover {
+    background-color: #eee;
+}
+
+.toggle-icon {
+    font-size: 0.8em;
+}
+
+.meta-panel-content {
+    padding: 1rem;
+}
+
+.meta-input {
+    margin-bottom: 0.75rem;
+}
+
+.meta-input:last-child {
+    margin-bottom: 0;
+}
+
+.meta-input label {
+    display: block;
+    margin-bottom: 0.25rem;
+    color: #666;
+}
+
+.meta-input input[type="text"],
+.meta-input select,
+.meta-input textarea {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 0.9rem;
+}
