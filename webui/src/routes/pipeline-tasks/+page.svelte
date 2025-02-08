@@ -4,7 +4,7 @@
     import { taskStore } from "$lib/store/taskStore";
     import { pipelineStore } from "$lib/store/pipelineStore";
     import { RefreshCw } from "lucide-svelte";
-    import PipelineSettingsPanel from "$lib/components/PipelineSettingsPanel.svelte";
+    import PipelineSettingsPanel from "$lib/components/pipeline/PipelineSettingsPanel.svelte";
 
     onMount(() => {
         taskStore.fetchTasks();

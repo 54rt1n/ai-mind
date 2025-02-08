@@ -20,7 +20,10 @@ const DEFAULT_CONFIG: ChatConfig = {
     systemMessage: '',
     location: '',
     mood: 'Delighted',
-    model: 'default',
+    chatModel: undefined,
+    completionModel: undefined,
+    thoughtModel: undefined,
+    workspaceModel: undefined,
     maxTokens: 512,
     temperature: 0.7,
     frequencyPenalty: 0.0,
@@ -34,15 +37,11 @@ const DEFAULT_CONFIG: ChatConfig = {
     showAdvanced: false,
     showControls: false,
     showHeader: true,
-    showClipboard: false, 
+    showClipboard: false,
     showThought: false,
-    thoughtModel: undefined,
-    thoughtDefaultContent: undefined,
-    thoughtPrompt: `<directive>Your next turn is a thought turn. Please update your thought block appropriately.</directive>`,
-    thoughtContent: undefined,
-    thoughtSystemMessage: undefined,
-    thoughtXml: 'andi_thoughts',
-    thoughtUserContext: undefined,
+    autoScroll: true,
+    autoThink: false,
+    thoughtContent: "",
 };
 
 
@@ -50,7 +49,7 @@ function getDefaultPrompt() {
 }
 function createConfigStore() {
     // Load initial state from localStorage only in browser environment
-    const initialConfig: ChatConfig = browser 
+    const initialConfig: ChatConfig = browser
         ? JSON.parse(localStorage.getItem('chatConfig') || 'null') || DEFAULT_CONFIG
         : DEFAULT_CONFIG;
 
@@ -66,10 +65,9 @@ function createConfigStore() {
     const formatters = {
         getEmotionalStateHeader: (config: ChatConfig): string => {
             if (!config.emotionalStateEnabled || !config.state1) return '';
-            
-            return `[== ${config.user_id ? `${config.user_id}'s ` : ''}Emotional State: +${config.state1}+${
-                config.state2 ? ` with a sense of +${config.state2}+` : ''
-            }${config.state3 ? ` and +${config.state3}+` : ''} ==]`;
+
+            return `[== ${config.user_id ? `${config.user_id}'s ` : ''}Emotional State: +${config.state1}+${config.state2 ? ` with a sense of +${config.state2}+` : ''
+                }${config.state3 ? ` and +${config.state3}+` : ''} ==]`;
         },
 
         getSentimentMeter: (config: ChatConfig): string => {
@@ -79,7 +77,7 @@ function createConfigStore() {
             const currentLevel = config.sentimentLevel || 0;
             const guidance = config.sentimentGuidance ? ` | ${config.sentimentGuidance}` : '';
             const meterAndLevel = config.sentimentName ? ` | ${config.sentimentName} Meter: ${currentLevel}%` : '';
-            
+
             return `[~~ ${personaName}Sentiment: ${config.selectedSentiment}${guidance}${meterAndLevel} ~~]`;
         }
     };

@@ -1,0 +1,22 @@
+type: knowledge_base
+functions:
+  - name: query
+    description: Query the knowledge base for information
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: The query to search in the knowledge base
+        max_results:
+          type: integer
+          description: Maximum number of results to return
+          default: 5
+      required: [query]
+      examples:
+        - query: What is the capital of France?
+        - query: How does photosynthesis work?
+          max_results: 3
+implementation:
+  module: mindai.tool.impl.passback
+  class: PassBackImplementation 

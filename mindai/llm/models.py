@@ -65,7 +65,7 @@ class ModelCategory(str, Enum):
     FUNCTIONS = "functions"
     THOUGHT = "thought"
     VISION = "vision"
-
+    WORKSPACE = "workspace"
 
 @dataclass
 class SamplerConfig:
@@ -227,3 +227,8 @@ class LanguageModelV2:
     def filter_category(models: 'list[LanguageModelV2]', category_filter: set[ModelCategory]) -> 'list[LanguageModelV2]':
         """Filter the models to only include those that match the category filter."""
         return [model for model in models if model.category.intersection(category_filter)]
+
+    @classmethod
+    def from_config(cls, config: ChatConfig) -> 'LanguageModelV2':
+        """Create a LanguageModelV2 instance from a ChatConfig."""
+        return cls.index_models(config)[config.model]

@@ -45,6 +45,7 @@ def get_env(dotenv_path: Optional[str] = None) -> Dict[str, str]:
         "top_n": int(os.getenv("TOP_N", 3)),
         "user_id": os.getenv("USER_ID", "user"),
         "workdir_folder": os.getenv("OUTPUT_FOLDER", "export"),
+        "tools_path": os.getenv("TOOLS_PATH", "config/tools"),
         "discord_app_id": os.getenv("DISCORD_APP_ID", None),
         "discord_bot_token": os.getenv("DISCORD_BOT_TOKEN", None),
         "discord_public_key": os.getenv("DISCORD_PUBLIC_KEY", None),
@@ -59,6 +60,7 @@ class ChatConfig:
     memory_path: str = "memory"
     embedding_model: str = "mixedbread-ai/mxbai-embed-large-v1"
     persona_path: str = "config/persona"
+    tools_path: str = "config/tools"
     model_config_path: str = "config/models.yaml"
     workdir_folder: str = "export"
     documents_dir: Optional[str] = None
@@ -110,6 +112,7 @@ class ChatConfig:
     stop: Optional[List[str]] = None
     stop_token_ids: Optional[List[int]] = None
     include_stop_str_in_output: Optional[bool] = False
+    response_format: Optional[str] = None
 
 
     def to_dict(self) -> Dict[str, Any]:

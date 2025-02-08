@@ -40,6 +40,9 @@ class GenerativeProviders:
         self.functions = functions
         self.completion = completion
 
+    def get(self, provider_type: str, default: str = 'analysis') -> LLMProvider:
+        return getattr(self, provider_type)
+
     @classmethod
     def from_models(cls, models: list[LanguageModelV2]) -> 'GenerativeProviders':
         return cls(
@@ -53,8 +56,9 @@ class GenerativeProviders:
 
 
 class BasePipeline:
-    def __init__(self, gen: GenerativeProviders, cvm: ConversationModel, persona: Persona, config: ChatConfig):
-        self.gen = gen
+    def __init__(self, llm: LLMProvider, cvm: ConversationModel, persona: Persona, config: ChatConfig):
+        #self.gen = gen
+        self.llm = llm
         self.cvm = cvm
         self.persona = persona
         self.config = config
@@ -84,7 +88,7 @@ class BasePipeline:
     def available_characters(self) -> int:
         return self.max_character_length - self.used_characters()
 
-    def generate_response(self, turns: list[dict[str, str]], config: ChatConfig, max_retries: int = 10,
+    def generate_response(self, provider_type: str, turns: list[dict[str, str]], config: ChatConfig, max_retries: int = 10,
                           retries: int = 0, evictions: int = 0) -> str:
         chunks = []
         print(f"Assistant: ", end='', flush=True)
@@ -104,6 +108,7 @@ class BasePipeline:
             content = my_turns[-1]['content']
             content += expansion
             logger.info(f"Processing Length: {sum([word_count(v) for e in my_turns for k, v in e.items()])}")
+            # pull the provider from the dict if it exists, otherwise use analysis
             for t in self.llm.stream_turns(my_turns, config):
                 if t is not None:
                     print(t, end='', flush=True)
@@ -121,20 +126,20 @@ class BasePipeline:
                 return self.generate_response(turns=turns, config=config, max_retries=max_retries, retries=retries, evictions=evictions)
             if retries < max_retries:
                 logger.info(f"Retrying {retries + 1}...")
-                return self.generate_response(turns=turns, config=config, max_retries=max_retries, retries=retries + 1, evictions=evictions)
+                return self.generate_response(provider_type=provider_type, turns=turns, config=config, max_retries=max_retries, retries=retries + 1, evictions=evictions)
             elif evictions < 1:
                 # We might be out of context
                 turns = self.evict_memory(turns)
                 # We should retry less times
                 max_retries = max_retries - 1
-                return self.generate_response(turns=turns, config=config, max_retries=max_retries, retries=retries, evictions=evictions + 1)
+                return self.generate_response(provider_type=provider_type, turns=turns, config=config, max_retries=max_retries, retries=retries, evictions=evictions + 1)
             else:
                 # We're out of context and retries
                 retry_ok = input("-= [ Retry? (Y/n) ] =-")
                 if retry_ok.lower() == 'n':
                     raise e
                 else:
-                    return self.generate_response(turns=turns, config=config, max_retries=max_retries, retries=0, evictions=0)
+                    return self.generate_response(provider_type=provider_type, turns=turns, config=config, max_retries=max_retries, retries=0, evictions=0)
         return response
 
     def evict_memory(self, turns: list[dict[str, str]], max_depth: int = 2, depth: int = 0, force: bool = False) -> list[dict[str, str]]:
@@ -264,7 +269,7 @@ class BasePipeline:
             logger.info(f"Removing {len(removed_item['content'])} {removed_item['doc_id']}/{removed_item['conversation_id']}/{removed_item['document_type']}")
             self.recall[step] = self.recall[step][:doc_idx] + self.recall[step][doc_idx+1:]
 
-    async def execute_turn(self, step: int, prompt: str, use_guidance: bool = False, max_tokens: int = 512,
+    async def execute_turn(self, provider_type: str, step: int, prompt: str, use_guidance: bool = False, max_tokens: int = 512,
                            retry: bool = True, top_n: int = 0, flush_memory: bool = False, add_user_turn = True,
                            query_document_type: list[str] | None = None, temporary_step: bool = False,
                            **kwargs) -> str:
@@ -313,7 +318,7 @@ class BasePipeline:
             new_content = f"{guidance}\n\n{content}"
             turns.append({"role": ROLE_USER, "content": new_content})
         
-        response = self.generate_response(turns=turns, config=self.config)
+        response = self.generate_response(provider_type=provider_type, turns=turns, config=self.config)
 
         if self.config.no_retry == False and retry == True:
             ui = input("** -=[ Enter or (r)etry ]=- **")
@@ -366,7 +371,7 @@ class BasePipeline:
             self.cvm.insert(message)
 
     @classmethod
-    def from_config(cls, config: ChatConfig, persona: Optional[Persona] = None, cvm: Optional[ConversationModel] = None, gen: Optional[GenerativeProviders] = None) -> 'BasePipeline':
+    def from_config(cls, config: ChatConfig, model: str, persona: Optional[Persona] = None, cvm: Optional[ConversationModel] = None, **kwargs) -> 'BasePipeline':
 
         if persona is None:
             persona_file = os.path.join(config.persona_path, f"{config.persona_id}.json")
@@ -374,11 +379,19 @@ class BasePipeline:
                 raise FileNotFoundError(f"Persona {config.persona_id} not found in {config.persona_path}")
             persona = Persona.from_json_file(persona_file)
 
-        if gen is None:
-            model_configs = LanguageModelV2.load_yaml_config(config.model_config_path)
-            gen = GenerativeProviders.from_models(model_configs)
+        #if gen is None:
+        #    model_configs = LanguageModelV2.load_yaml_config(config.model_config_path)
+        #    gen = GenerativeProviders.from_models(model_configs)
+        llm_list = LanguageModelV2.index_models(config)
+
+        if model not in llm_list:
+            raise ValueError(f"Model {model} not found in {llm_list}")
+
+        llm_config = llm_list[model]
+
+        llm = llm_config.llm_factory(config)
 
         if cvm is None:
             cvm = ConversationModel.from_config(config)
 
-        return cls(gen, cvm, persona, config)
+        return cls(llm, cvm, persona, config)

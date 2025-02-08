@@ -19,6 +19,7 @@ from ....chat import ChatManager, chat_strategy_for
 from ....config import ChatConfig
 from ....utils.turns import validate_turns
 from ....utils.xml import XmlFormatter
+from ....tool.formatting import ToolUser
 
 from .dto import ChatCompletionRequest, ChatCompletionResponse
 
@@ -46,6 +47,7 @@ class ModelClasses:
                  vision: Optional[list[str]] = None,
                  functions: Optional[list[str]] = None,
                  completion: Optional[list[str]] = None,
+                 workspace: Optional[list[str]] = None,
                  ):
         self.analysis = analysis
         self.conversation = conversation
@@ -53,7 +55,8 @@ class ModelClasses:
         self.vision = vision
         self.functions = functions
         self.completion = completion
-
+        self.workspace = workspace
+        
     @property
     def categories(self) -> dict[str, list[str]]:
         return {
@@ -63,6 +66,7 @@ class ModelClasses:
             "vision": [m for m in self.vision],
             "functions": [m for m in self.functions],
             "completion": [m for m in self.completion],
+            "workspace": [m for m in self.workspace],
         }
 
     @classmethod
@@ -74,6 +78,7 @@ class ModelClasses:
             vision=[m.name for m in models if ModelCategory.VISION in m.category],
             functions=[m.name for m in models if ModelCategory.FUNCTIONS in m.category],
             completion=[m.name for m in models if ModelCategory.COMPLETION in m.category],
+            workspace=[m.name for m in models if ModelCategory.WORKSPACE in m.category],
         )
 
 
@@ -127,60 +132,76 @@ class ChatModule:
             raise HTTPException(status_code=400, detail=f"Invalid model: {request.model}")
 
         if len(request.messages) == 0:
-            raise ValueError("No messages provided")
+            raise HTTPException(status_code=400, detail="No messages provided")
 
-        if request.persona_id is None or request.persona_id not in self.chat.roster.personas:
-            raise ValueError(f"Invalid persona: {request.persona_id}")
+        if request.metadata is None:
+            # TODO either use default values or just pass the request directly to the llm
+            raise HTTPException(status_code=400, detail="No metadata provided")
 
-        if request.user_id is None or request.user_id == "":
-            raise ValueError("No user ID provided")
+        metadata = request.metadata
 
-        if request.active_document is not None:
-            self.chat.current_document = request.active_document
+        if metadata.persona_id is None or metadata.persona_id not in self.chat.roster.personas:
+            raise HTTPException(status_code=400, detail=f"Invalid persona: {metadata.persona_id}")
+
+        if metadata.user_id is None or metadata.user_id == "":
+            raise HTTPException(status_code=400, detail="No user ID provided")
+
+        if metadata.active_document is not None:
+            self.chat.current_document = metadata.active_document
         else:
             self.chat.current_document = None
 
-        if request.workspace_content is not None:
-            self.chat.current_workspace = request.workspace_content
+        if metadata.workspace_content is not None:
+            self.chat.current_workspace = metadata.workspace_content
         else:
             self.chat.current_workspace = None
-        
-        self.config.user_id = request.user_id
-        self.config.persona_id = request.persona_id
-        self.config.temperature = request.temperature
-        self.config.max_tokens = request.max_tokens or self.config.max_tokens
-        self.config.repetition = request.repetition_penalty
-        disable_guidance = request.disable_guidance or False
-        disable_pif = request.disable_pif or False
-        persona = self.chat.roster.personas[request.persona_id]
-        self.config.system_message = persona.xml_decorator(XmlFormatter(),
-            mood=self.config.persona_mood,
-            user_id=request.user_id,
-            location=request.location or persona.default_location,
-            system_message=request.system_message,
-            disable_guidance=disable_guidance,
-            disable_pif=disable_pif,
-        ).render()
 
-        if request.user_id:
-            self.config.system_message = self.config.system_message.replace("{{user}}", request.user_id)
-
-        content_len = len(self.config.system_message)
-        
-        user_turn = request.messages[-1].model_dump()['content']
-        messages = [msg.model_dump() for msg in request.messages[:-1]]
-
-        if request.pinned_messages:
-            logger.info(f"Pinned messages: {request.pinned_messages}")
+        if metadata.pinned_messages:
+            logger.info(f"Pinned messages: {metadata.pinned_messages}")
             self.chat_strategy.clear_pinned()
-            for doc_id in request.pinned_messages:
+            for doc_id in metadata.pinned_messages:
                 self.chat_strategy.pin_message(doc_id)
         else:
             self.chat_strategy.clear_pinned()
-        if request.thought_content:
-            self.chat_strategy.thought_content = request.thought_content
+
+        if metadata.thought_content:
+            self.chat_strategy.thought_content = metadata.thought_content
         else:
             self.chat_strategy.thought_content = None
+
+        self.config.user_id = metadata.user_id
+        self.config.persona_id = metadata.persona_id
+        self.config.temperature = request.temperature
+        self.config.max_tokens = request.max_tokens or self.config.max_tokens
+        self.config.repetition = request.repetition_penalty
+
+        persona = self.chat.roster.personas[metadata.persona_id]
+
+        system_formatter = XmlFormatter()
+
+        if request.system_message is not None:
+            system_formatter.add_element("SystemMessage", content=request.system_message)
+
+        system_formatter = persona.xml_decorator(system_formatter,
+            mood=self.config.persona_mood,
+            user_id=metadata.user_id,
+            location=metadata.location or persona.default_location,
+            disable_guidance=metadata.disable_guidance or False,
+            disable_pif=metadata.disable_pif or False,
+        )
+
+        if request.tools is not None and len(request.tools) > 0:
+            tool_user = ToolUser(request.tools)
+            system_formatter = tool_user.xml_decorator(system_formatter)
+            self.config.response_format = "json"
+        else:
+            self.config.response_format = None
+
+        self.config.system_message = system_formatter.render().replace("{{user}}", metadata.user_id)
+
+        content_len = len(self.config.system_message)
+        user_turn = request.messages[-1].model_dump()['content']
+        messages = [msg.model_dump() for msg in request.messages[:-1]]
 
         prepared_messages = self.chat_strategy.chat_turns_for(persona=persona, user_input=user_turn, history=messages, content_len=content_len)
 

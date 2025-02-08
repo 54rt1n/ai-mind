@@ -4,55 +4,96 @@
 <script lang="ts">
     import { Send, Trash2, RotateCw, Check } from "lucide-svelte";
     import { get } from "svelte/store";
-    import { writable } from 'svelte/store';
     import { clipboardStore } from "$lib/store/clipboardStore";
     import { workspaceStore } from "$lib/store/workspaceStore";
     import { configStore } from "$lib/store/configStore";
-    import { chatStore } from "$lib/store/chatStore";
-    import ModelSelect from "./ModelSelect.svelte";
-    import Thinking from "./Thinking.svelte";
+    import { thoughtStore } from "$lib/store/thoughtStore";
+    import ModelSelect from "../model/ModelSelect.svelte";
+    import Thinking from "../ui/Thinking.svelte";
+    import { createEventDispatcher } from "svelte";
     import "$lib/../styles/meta-panels.css";
+    import type { CompletionMessage } from "$lib/types";
 
-    $: thoughtContent = $configStore.thoughtContent;
-    $: contentStream = $chatStore.contentStream;
-    const thoughtXml = writable('andi_thoughts');
-    // We are going to track an iteration depth counter
-    const iteration = writable(1);
+    const dispatch = createEventDispatcher();
+
+    let lastConversationHistory: CompletionMessage[] = [];
+    let lastWorkspaceContent: string | undefined = undefined;
+
+    $: thoughtContent = $thoughtStore.thoughtContent;
+    $: contentStream = $thoughtStore.contentStream;
     $: isValid = validateThought(contentStream);
 
-    export async function clearAndGenerate(): Promise<boolean> {
-        // console.log("clearAndGenerate");
-        handleClear();
-        const workspaceContent = $clipboardStore.includeInMessages ? $workspaceStore.content: undefined;
-        await chatStore.generateThought($configStore, workspaceContent);
-        if (!validateThought(contentStream)) {
-            return false;
+    export async function clearAndGenerate(
+        conversationHistory: CompletionMessage[],
+    ): Promise<boolean> {
+        const iters = 1;
+        if (
+            !$thoughtStore.thoughtPrompt ||
+            $thoughtStore.thoughtPrompt.length === 0
+        ) {
+            thoughtStore.setDefaults();
+            thoughtStore.reset();
         }
-        acceptThought();
-        return true;
+        //thoughtStore.reset();
+        if (conversationHistory.length === 0) {
+            console.log("clearAndGenerate failure", conversationHistory);
+            throw new Error("No conversation history");
+        }
+        const workspaceContent = $clipboardStore.includeInMessages
+            ? $workspaceStore.content
+            : undefined;
+
+        lastConversationHistory = conversationHistory;
+        lastWorkspaceContent = workspaceContent;
+
+        return await thoughtStore.generateThought(
+            $configStore,
+            conversationHistory,
+            workspaceContent,
+        );
     }
 
-    export async function advanceThought(): Promise<boolean> {
-        // console.log("advanceThought");
-        const workspaceContent = $clipboardStore.includeInMessages ? $workspaceStore.content: undefined;
-        await chatStore.generateThought($configStore, workspaceContent);
-        if (!validateThought(contentStream)) {
-            return false;
+    export async function advanceThought(
+        conversationHistory: CompletionMessage[],
+    ): Promise<boolean> {
+        if (
+            !$thoughtStore.thoughtPrompt ||
+            $thoughtStore.thoughtPrompt.length === 0
+        ) {
+            thoughtStore.setDefaults();
+            thoughtStore.reset();
         }
-        acceptThought();
-        return true;
+        const workspaceContent = $clipboardStore.includeInMessages
+            ? $workspaceStore.content
+            : undefined;
+
+        lastConversationHistory = conversationHistory;
+        lastWorkspaceContent = workspaceContent;
+        
+        return await thoughtStore.generateThought(
+            $configStore,
+            conversationHistory,
+            workspaceContent,
+        );
+    }
+
+    export async function validateAndAcceptThought(): Promise<boolean> {
+        const isValid = validateThought(contentStream);
+        if (isValid > 0) {
+            acceptThought();
+        }
+        return isValid > 0;
     }
 
     function validateThought(content: string): number {
         // check the current contentStream, and identify the beginning and end of the content within our <{thoughtXml}> tags
-        const pattern = `<${thoughtXml}(.*?)</${thoughtXml}>`;
+        const pattern = `<${$thoughtStore.thoughtXml}(.*?)</${$thoughtStore.thoughtXml}>`;
         const matcher = new RegExp(pattern, "s");
         const match = content.match(matcher);
         if (match) {
-            // console.log("match", match);
             return 1;
         }
-        const secondPattern = `<${thoughtXml}(.*?)`;
+        const secondPattern = `<${$thoughtStore.thoughtXml}(.*?)`;
         const secondMatcher = new RegExp(secondPattern, "s");
         const secondMatch = content.match(secondMatcher);
         if (secondMatch) {
@@ -67,88 +108,43 @@
         return 0;
     }
 
-    function fixThought() {
-        // check the current contentStream, and identify the beginning and end of the content within our <{thoughtXml}> tags
-        const pattern = `<${thoughtXml}(.*?)</${thoughtXml}>`;
-        const matcher = new RegExp(pattern, "s");
-        const match = contentStream.match(matcher);
-        // console.log("match", match);
-        if (match) {
-            return true;
-        }
-        const secondMatcher = /<{thoughtXml}(.*?)/s;
-        if (match) {
-            // We have a partial match. We should append a </thought>\n</{thoughtXml}> to the end of the contentStream
-            const partialMatch = match[1];
-            const newContent =
-                partialMatch + "\n</thought>\n</" + thoughtXml + ">";
-            $chatStore.contentStream = newContent;
-            return true;
-        }
-        return false;
-    }
-
     function handleThoughtChange(
         event: Event & { currentTarget: HTMLTextAreaElement },
     ) {
-        // Update the thought content in the chat store
-        $configStore.thoughtContent = event.currentTarget.value;
+        thoughtStore.updateThoughtContent(event.currentTarget.value);
     }
 
     function handleStreamChange(
         event: Event & { currentTarget: HTMLTextAreaElement },
     ) {
-        // Update the thought content in the chat store
-        $chatStore.contentStream = event.currentTarget.value;
+        const newValue = event.currentTarget.value;
+        thoughtStore.updateContentStream(newValue);
+        dispatch("streamChange", { value: newValue });
     }
 
-    async function handleGenerate() {
-        const workspaceContent = $clipboardStore.includeInMessages ? $workspaceStore.content: undefined;
-        await chatStore.generateThought($configStore, workspaceContent);
-        validateThought(contentStream);
+    async function handleGenerate(conversationHistory: CompletionMessage[]) {
+        const workspaceContent = $clipboardStore.includeInMessages
+            ? $workspaceStore.content
+            : undefined;
+        await thoughtStore.generateThought(
+            $configStore,
+            conversationHistory,
+            workspaceContent,
+        );
     }
 
     function handleClear() {
-        $configStore.thoughtContent = $configStore.thoughtDefaultContent;
-        $chatStore.contentStream = "";
-        $iteration = 1;
-        $configStore.thoughtPrompt = getThoughtPrompt(
-            $thoughtXml, $iteration, $configStore.thoughtUserContext
-        );
-    }
-
-    function getDefaultThought(entityName: string, iter: string): string {
-        let thoughts = [
-            "I will follow a chain of thought, reasoning through my ideas.",
-            "These are the most important things I should consider:",
-        ];
-        return `<${entityName} iter="${iter}">\n\t${thoughts.map((thought) => `<thought>${thought}</thought>`).join("\n\t")}\n</${entityName}>`;
-    }
-
-    function getDefaultSystemMessage(): string {
-        return `<format_override>\n\t<override>You are in your thought processes. You are only to output a thought turn.</override>\n\t<output_mode>xml</output_mode>\n\t	<description>All Thought Output Is In XML Format</description>\n</format_override>`;
-    }
-
-    function getThoughtPrompt(entityName: string, iter: number, userContext: string = ""): string {
-        const defaultThoughts = getDefaultThought(entityName, "n");
-        const thoughtPrompt = `Thought Turn Format:\n\n${defaultThoughts}\n\n<directive>Andi's next turn is a thought turn. Please update your thought block appropriately, enhancing and improving your current thoughts and reasoning${userContext}. Please output the next thoughts document. This should be an xml document.</directive>\n\nBegin Output "<${entityName} iter="${iter}">"`;
-        return thoughtPrompt;
+        thoughtStore.reset();
     }
 
     function handleResetThought() {
-        // console.log("handleResetThought", $thoughtXml);
-        $configStore.thoughtDefaultContent = getDefaultThought($thoughtXml, "0");
-        $configStore.thoughtSystemMessage = getDefaultSystemMessage();
-        $configStore.thoughtPrompt = getThoughtPrompt(
-            $thoughtXml, $iteration, $configStore.thoughtUserContext
-        );
+        thoughtStore.setDefaults();
     }
 
     function acceptThought() {
-        $iteration = $iteration + 1;
-        $configStore.thoughtPrompt = getThoughtPrompt($thoughtXml, $iteration, $configStore.thoughtUserContext);
-        $configStore.thoughtContent = $chatStore.contentStream || "";
-        $chatStore.contentStream = "";
+        $thoughtStore.thoughtContent = $thoughtStore.contentStream || "";
+        $thoughtStore.contentStream = "";
+        $thoughtStore.iteration = 1;
     }
 </script>
 
@@ -178,7 +174,7 @@
                     <div class="content-right">
                         <textarea
                             class="thought-textarea"
-                            disabled={$chatStore.loading}
+                            disabled={$thoughtStore.loading}
                             value={contentStream}
                             placeholder="Content will appear here..."
                             rows="5"
@@ -189,8 +185,8 @@
                 <div class="button-group">
                     <button
                         class="control-button generate"
-                        disabled={$chatStore.loading}
-                        on:click={handleGenerate}
+                        disabled={$thoughtStore.loading}
+                        on:click={() => handleGenerate(lastConversationHistory)}
                         title="Generate"
                     >
                         <Send size={16} />
@@ -198,9 +194,9 @@
                     <input
                         type="number"
                         class="control-input iteration"
-                        value={iteration}
+                        value={$thoughtStore.iteration}
                         on:input={(event) => {
-                            $iteration = parseInt(event.currentTarget.value);
+                            thoughtStore.updateIteration();
                         }}
                         min="1"
                         max="100"
@@ -209,81 +205,96 @@
                     <input
                         type="text"
                         class="control-input xml"
-                        value={$thoughtXml}
+                        value={$thoughtStore.thoughtXml}
                         on:input={(event) => {
-                            $thoughtXml = event.currentTarget.value;
+                            thoughtStore.setThoughtXml(
+                                event.currentTarget.value,
+                            );
                         }}
                     />
                     <button
                         class="control-button clear"
-                        disabled={$chatStore.loading}
+                        disabled={$thoughtStore.loading}
                         on:click={handleClear}
                         title="Clear"
                     >
                         <Trash2 size={16} />
                     </button>
                     {#if isValid > 0}
-                        <span class="validity-indicator valid-{isValid}">Valid</span>
+                        <span class="validity-indicator valid-{isValid}"
+                            >Valid</span
+                        >
                     {:else}
-                        <span class="validity-indicator invalid">Not Valid</span>
+                        <span class="validity-indicator invalid">Not Valid</span
+                        >
                     {/if}
                     <button
                         class="control-button accept"
-                        disabled={$chatStore.loading || !isValid}
+                        disabled={$thoughtStore.loading || !isValid}
                         on:click={acceptThought}
                         title="Accept"
                     >
                         <Check size={16} />
                     </button>
 
-                    <Thinking />
+                    {#if $thoughtStore.loading}
+                        <Thinking loading={$thoughtStore.loading} />
+                    {/if}
+
+                    <button
+                        class="control-button reset"
+                        disabled={!$thoughtStore.loading}
+                        on:click={() => ($thoughtStore.loading = false)}
+                        title="Reset"
+                        style="margin-left: auto;"
+                    >
+                        <RotateCw size={16} />
+                    </button>
                 </div>
 
-                <ModelSelect bind:value={$configStore.thoughtModel} category="thought" />
+                <ModelSelect
+                    bind:value={$configStore.thoughtModel}
+                    category="thought"
+                />
             </div>
             <label for="thought-user-context">Thought User Context</label>
-            <input type="text" 
-              class="thought-textinput"
-              value={$configStore.thoughtUserContext || ""}
-              placeholder="Thought additional prompt context..."
-              on:keyup={(event) => $configStore.thoughtUserContext = event.currentTarget.value}
-              />
+            <input
+                type="text"
+                class="thought-textinput"
+                value={$thoughtStore.thoughtUserContext || ""}
+                placeholder="Thought additional prompt context..."
+                on:keyup={(event) =>
+                    thoughtStore.setUserContext(event.currentTarget.value)}
+            />
             <label for="thought-prompt">Thought Prompt</label>
             <textarea
                 class="thought-textarea"
-                value={$configStore.thoughtPrompt || ""}
+                value={$thoughtStore.thoughtPrompt || ""}
                 placeholder="Thought prompt will appear here..."
                 rows="3"
                 on:keyup={(event) =>
-                    ($configStore.thoughtPrompt = event.currentTarget.value)}
+                    thoughtStore.updateThoughtPrompt(event.currentTarget.value)}
             />
             <label for="thought-system-message">Thought System Message</label>
             <textarea
                 class="thought-textarea"
-                value={$configStore.thoughtSystemMessage || ""}
+                value={$thoughtStore.thoughtSystemMessage || ""}
                 placeholder="Thought system message will appear here..."
                 rows="3"
                 on:keyup={(event) =>
-                    ($configStore.thoughtSystemMessage =
-                        event.currentTarget.value)}
+                    thoughtStore.updateSystemMessage(event.currentTarget.value)}
             />
             <label for="thought-default-content">Default Thought Content</label>
             <textarea
                 class="thought-textarea"
-                value={$configStore.thoughtDefaultContent || ""}
+                value={$thoughtStore.thoughtDefaultContent || ""}
                 placeholder="Set your default thought content here..."
                 rows="3"
                 on:keyup={(event) =>
-                    ($configStore.thoughtDefaultContent =
-                        event.currentTarget.value)}
+                    thoughtStore.updateDefaultContent(
+                        event.currentTarget.value,
+                    )}
             />
-            <button
-                class="control-button reset"
-                on:click={handleResetThought}
-                title="Reset"
-            >
-                <RotateCw size={16} />
-            </button>
         </div>
     {/if}
 </div>
@@ -427,5 +438,13 @@
     .validity-indicator.valid-3 {
         background-color: #facc15;
         color: #6b7280;
+    }
+
+    .control-button.reset {
+        background-color: #ef4444;
+    }
+
+    .control-button.reset:hover:not(:disabled) {
+        background-color: #dc2626;
     }
 </style>

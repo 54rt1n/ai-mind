@@ -1,0 +1,73 @@
+type: communication
+functions:
+  - name: send_email
+    description: Send an email
+    parameters:
+      type: object
+      properties:
+        to:
+          type: string
+          description: Recipient email address
+        subject:
+          type: string
+          description: Email subject
+        body:
+          type: string
+          description: Email body content
+        html:
+          type: boolean
+          description: Whether body contains HTML
+          default: false
+      required: [to, subject, body]
+      examples:
+        - to: user@example.com
+          subject: Hello
+          body: This is a test email
+        - to: admin@example.com
+          subject: Report
+          body: <h1>Monthly Report</h1>
+          html: true
+
+  - name: post_tweet
+    description: Post a tweet
+    parameters:
+      type: object
+      properties:
+        content:
+          type: string
+          description: Tweet content
+        reply_to:
+          type: string
+          description: ID of tweet to reply to (optional)
+      required: [content]
+      examples:
+        - content: Hello Twitter!
+        - content: Great point!
+          reply_to: 123456789
+
+  - name: post_discord
+    description: Post a message to Discord
+    parameters:
+      type: object
+      properties:
+        channel:
+          type: string
+          description: Discord channel ID
+        content:
+          type: string
+          description: Message content
+        embed:
+          type: object
+          description: Optional embed object
+      required: [channel, content]
+      examples:
+        - channel: general
+          content: Hello Discord!
+        - channel: announcements
+          content: New release!
+          embed:
+            title: Version 1.0.0
+            description: New features...
+implementation:
+  module: mindai.tool.impl.communication
+  class: CommunicationImplementation 

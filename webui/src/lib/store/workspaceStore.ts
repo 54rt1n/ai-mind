@@ -2,28 +2,13 @@
 import { writable, derived, get } from 'svelte/store';
 import { api } from '$lib';
 import { browser } from '$app/environment';
-
-// Define our workspace categories
-export enum WorkspaceCategory {
-    None = 'None',
-    Schedule = 'Schedule',
-    Plan = 'Plan',
-    Tasks = 'Tasks',
-    Notes = 'Notes',
-    Fitness = 'Fitness',
-    Persona = 'Persona',
-    Fun = 'Fun'
-}
-
-interface WorkspaceItem {
-    name: WorkspaceCategory;
-    content: string;
-    wordCount: number;
-}
+import type { ChatConfig, WorkspaceItem } from '$lib';
+import { WorkspaceCategory } from '$lib';
 
 const DEFAULT_WORKSPACE: WorkspaceItem = {
     name: WorkspaceCategory.None,
     content: '',
+    contentStream: '',
     wordCount: 0,
 };
 
@@ -35,7 +20,7 @@ function createWorkspaceStore() {
         return `${STORAGE_KEY_BASE}::${category}`;
     }
 
-    function loadCategory(categoryName: string | WorkspaceCategory) : WorkspaceItem {
+    function loadCategory(categoryName: string | WorkspaceCategory): WorkspaceItem {
         const category = (typeof categoryName === 'string') ? Object.values(WorkspaceCategory).find(c => c.toLowerCase() === categoryName.toLowerCase()) : categoryName;
         if (!category) {
             console.warn(`Invalid category name: ${categoryName}`);
@@ -47,21 +32,23 @@ function createWorkspaceStore() {
         const newState = {
             name: category,
             content: savedData || '',
+            contentStream: '',
             wordCount: wordCount,
+            workspaceModel: '',
         };
         return newState;
     }
 
     const initialState: WorkspaceItem = (() => {
-    if (browser) {
-        const savedCategory = localStorage.getItem(STORAGE_KEY_CATEGORY);
-        if (savedCategory) {
-            return loadCategory(savedCategory);
+        if (browser) {
+            const savedCategory = localStorage.getItem(STORAGE_KEY_CATEGORY);
+            if (savedCategory) {
+                return loadCategory(savedCategory);
+            }
+            return DEFAULT_WORKSPACE;
+        } else {
+            return DEFAULT_WORKSPACE;
         }
-        return DEFAULT_WORKSPACE;
-    } else {
-        return DEFAULT_WORKSPACE;
-    }
     })();
 
     const { subscribe, set, update } = writable<WorkspaceItem>(initialState);
@@ -73,7 +60,9 @@ function createWorkspaceStore() {
         const newState = {
             name: newCategory,
             content: savedData || '',
+            contentStream: '',
             wordCount: wordCount,
+            workspaceModel: '',
         };
         localStorage.setItem(STORAGE_KEY_CATEGORY, newCategory);
         set(newState);
@@ -84,6 +73,68 @@ function createWorkspaceStore() {
         localStorage.setItem(storageKey, content);
         const wordCount = content.split(/\s+/).length;
         update(state => ({ ...state, content, wordCount }));
+    }
+
+    function updateContentStream(content: string) {
+        update(state => ({ ...state, contentStream: content }));
+    }
+
+    function commitStreamUpdate() {
+        update(state => {
+            const newContent = state.contentStream;
+            const storageKey = getCategoryKey(state.name);
+            localStorage.setItem(storageKey, newContent);
+            const wordCount = newContent.split(/\s+/).length;
+            return { ...state, content: newContent, contentStream: '', wordCount };
+        });
+    }
+
+    async function generateWorkspaceUpdate(config: ChatConfig,
+        conversationHistory: any[],
+        systemMessage: string) {
+        update(state => ({ ...state, contentStream: '' }));
+
+        if (!config.workspaceModel) {
+            console.error('No workspace model provided');
+            return false;
+        }
+
+        const currentState = get(workspaceStore);
+
+        // Create a copy of the conversation history and add workspace context
+        const conversationWithContext = [...conversationHistory];
+
+        // Add a user message requesting the workspace update
+        conversationWithContext.push({
+            role: 'user',
+            content: `Please update the following workspace content based on our conversation:\n\n${currentState.content}\n\nProvide the complete updated content.`,
+            timestamp: Math.floor(Date.now() / 1000)
+        });
+
+        try {
+            await api.sendChatCompletion(
+                JSON.stringify({
+                    metadata: {
+                        user_id: config.user_id,
+                        persona_id: config.persona_id,
+                        workspace_content: currentState.content,
+                        active_document: config.selectedDocument?.name,
+                        thought_content: config.thoughtContent ?? undefined,
+                    },
+                    messages: conversationWithContext,
+                    model: config.workspaceModel,
+                    system_message: systemMessage,
+                    stream: true
+                }),
+                (chunk) => {
+                    updateContentStream(chunk);
+                }
+            );
+            return true;
+        } catch (error) {
+            console.error('Failed to generate workspace update:', error);
+            return false;
+        }
     }
 
     async function saveRemoteCopy(fileName: string) {
@@ -131,6 +182,9 @@ function createWorkspaceStore() {
         update,
         changeCategory,
         setContent,
+        updateContentStream,
+        commitStreamUpdate,
+        generateWorkspaceUpdate,
         getCategories: () => Object.values(WorkspaceCategory),
         deleteCategory,
         deleteCurrent,

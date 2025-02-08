@@ -12,6 +12,8 @@
         { value: 512, label: "Half CTX (512)" },
         { value: 768, label: "Large CTX (768)" },
         { value: 1024, label: "Full CTX (1024)" },
+        { value: 1536, label: "Extra Large CTX (1536)" },
+        { value: 2048, label: "Huge CTX (2048)" },
     ];
 </script>
 
@@ -28,35 +30,38 @@
     {#if $configStore.showAdvanced}
         <div class="meta-panel-content">
             {#if !hidePersona}
-            <div class="meta-input">
-                <label for="system">System Message:</label>
-                <textarea
-                    id="system"
-                    bind:value={$configStore.systemMessage}
-                    rows="2"
-                    placeholder="Optional system message..."
-                />
-            </div>
-            <div class="meta-input">
-                <label for="location">Location:</label>
-                <input
-                    type="text"
-                    id="location"
-                    bind:value={$configStore.location}
-                    placeholder="Optional location..."
-                />
-            </div>
-            <div class="meta-input">
-                <label for="mood">Mood:</label>
-                <input
-                    type="text"
-                    id="mood"
-                    bind:value={$configStore.mood}
-                    placeholder="Agent Mood..."
-                />
-            </div>
+                <div class="meta-input">
+                    <label for="system">System Message:</label>
+                    <textarea
+                        id="system"
+                        bind:value={$configStore.systemMessage}
+                        rows="2"
+                        placeholder="Optional system message..."
+                    />
+                </div>
+                <div class="meta-input">
+                    <label for="location">Location:</label>
+                    <input
+                        type="text"
+                        id="location"
+                        bind:value={$configStore.location}
+                        placeholder="Optional location..."
+                    />
+                </div>
+                <div class="meta-input">
+                    <label for="mood">Mood:</label>
+                    <input
+                        type="text"
+                        id="mood"
+                        bind:value={$configStore.mood}
+                        placeholder="Agent Mood..."
+                    />
+                </div>
             {/if}
-            <ModelSelect bind:value={$configStore.model} category="conversation" />
+            <ModelSelect
+                bind:value={$configStore.chatModel}
+                category="conversation"
+            />
             <div class="meta-input">
                 <label for="max-tokens">Max Tokens:</label>
                 <select id="max-tokens" bind:value={$configStore.maxTokens}>
@@ -79,7 +84,9 @@
                 />
             </div>
             <div class="meta-input">
-                <label for="frequencyPenalty">Frequency Penalty ({$configStore.frequencyPenalty}):</label>
+                <label for="frequencyPenalty"
+                    >Frequency Penalty ({$configStore.frequencyPenalty}):</label
+                >
                 <input
                     type="range"
                     id="frequencyPenalty"
@@ -90,7 +97,9 @@
                 />
             </div>
             <div class="meta-input">
-                <label for="presencePenalty">Presence Penalty ({$configStore.presencePenalty}):</label>
+                <label for="presencePenalty"
+                    >Presence Penalty ({$configStore.presencePenalty}):</label
+                >
                 <input
                     type="range"
                     id="presencePenalty"
@@ -101,7 +110,9 @@
                 />
             </div>
             <div class="meta-input">
-                <label for="repetitionPenalty">Repetition Penalty ({$configStore.repetitionPenalty}):</label>
+                <label for="repetitionPenalty"
+                    >Repetition Penalty ({$configStore.repetitionPenalty}):</label
+                >
                 <input
                     type="range"
                     id="repetitionPenalty"

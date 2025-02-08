@@ -92,12 +92,18 @@ class OpenAIProvider(LLMProvider):
             messages = [system_message, *messages]
             
             logger.info(f"Using system message: {system_message}")
-            for message in messages[-4:]:
-                logger.info(message)
+            for message in messages[:]:
+                logger.info(f"{message['role']}: {message['content']}")
             
         model = model_name or self.model
         #logger.info("\n".join([f"{m['role']}: {m['content']}" for m in messages]))
         logger.info(f"Using model: {model}")
+            
+        rargs = { "response_format": { "type": "json_object" } } if config.response_format == "json" else {}
+
+        progress = 0
+        lastpct = 0
+        tenpct = int(config.max_tokens * 0.1)
 
         for t in self.openai.chat.completions.create(
             model=model,
@@ -115,8 +121,14 @@ class OpenAIProvider(LLMProvider):
             #top_k=config.top_k if config.top_k is not None else NOT_GIVEN,
             #min_p=config.min_p if config.min_p is not None else NOT_GIVEN,
             #min_tokens=config.min_tokens if config.min_tokens is not None else NOT_GIVEN,
+            **rargs
         ):
             c : Optional[ChatCompletionChunk] = t
+            progress += 1
+            pct = progress / config.max_tokens
+            if pct > (lastpct + tenpct):
+                lastpct = pct
+                logger.info(f"{pct*100}% done")
             yield c.choices[0].delta.content
 
         return

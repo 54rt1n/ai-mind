@@ -15,7 +15,7 @@
         Trash2,
     } from "lucide-svelte";
     import { configStore } from "$lib/store/configStore";
-    import { type ChatMessage } from "../types";
+    import { type ChatMessage } from "../../types";
 
     export let message: ChatMessage;
     // Feature flags for different actions

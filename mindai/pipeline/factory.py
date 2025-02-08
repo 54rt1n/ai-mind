@@ -4,7 +4,7 @@
 from typing import Callable, Awaitable, Any
 
 from ..constants import (
-    PIPELINE_ANALYSIS, PIPELINE_JOURNAL, PIPELINE_DAYDREAM, PIPELINE_PONDER, PIPELINE_SUMMARY,
+    PIPELINE_ANALYSIS, PIPELINE_JOURNAL, PIPELINE_DAYDREAM, PIPELINE_PHILOSOPHER, PIPELINE_SUMMARIZER
 )
 
 from .base import BasePipeline
@@ -21,9 +21,9 @@ def pipeline_factory(pipeline_type: str) -> Callable[[Any, Any], Awaitable[BaseP
         return daydream_pipeline
     elif pipeline_type == PIPELINE_JOURNAL:
         return journal_pipeline
-    elif pipeline_type == PIPELINE_PONDER:
+    elif pipeline_type == PIPELINE_PHILOSOPHER:
         return ponder_pipeline
-    elif pipeline_type == PIPELINE_SUMMARY:
+    elif pipeline_type == PIPELINE_SUMMARIZER:
         return summary_pipeline
     else:
         raise ValueError(f"Unknown pipeline type: {pipeline_type}")

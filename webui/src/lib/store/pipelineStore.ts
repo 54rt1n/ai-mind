@@ -15,33 +15,38 @@ interface PipelineInfo {
     description: string;
     icon: string;
 }
-
 // Pipeline metadata for UI display
 const PIPELINE_INFO: PipelineInfo[] = [
     {
-        type: 'analysis',
-        name: 'Analysis',
+        type: 'analyst',
+        name: 'Analyst',
         description: 'Analyze conversation patterns and insights',
         icon: 'brain'
     },
     {
-        type: 'summary',
-        name: 'Summary',
+        type: 'summarizer',
+        name: 'Summarizer',
         description: 'Generate a concise summary of the conversation',
         icon: 'file-text'
     },
     {
-        type: 'journal',
-        name: 'Journal',
+        type: 'journaler',
+        name: 'Journaler',
         description: 'Create reflective journal entries',
         icon: 'book'
     },
     {
-        type: 'ponder',
-        name: 'Ponder',
+        type: 'philosopher',
+        name: 'Philosopher',
         description: 'Deep contemplation and analysis',
         icon: 'thought-bubble'
     },
+    {
+        type: 'dreamer',
+        name: 'Dreamer',
+        description: 'Explore imaginative scenarios',
+        icon: 'dream'
+    }
 ];
 
 // Type guard to check if a string is a valid PipelineType
@@ -50,7 +55,7 @@ function isPipelineType(value: string): value is PipelineType {
 }
 
 const DEFAULT_CONFIG: PipelineConfig = {
-    pipelineType: 'analysis',
+    pipelineType: 'analyst',
     formData: {
         user_id: undefined,
         persona_id: undefined,
@@ -65,7 +70,7 @@ const DEFAULT_CONFIG: PipelineConfig = {
 };
 
 function createPipelineStore() {
-    const initialConfig: PipelineConfig = browser 
+    const initialConfig: PipelineConfig = browser
         ? JSON.parse(localStorage.getItem('pipelineConfig') || 'null') || DEFAULT_CONFIG
         : DEFAULT_CONFIG;
 

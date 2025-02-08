@@ -1,0 +1,17 @@
+type: web
+functions:
+  - name: search
+    description: Use a search engine to find information on the web
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: The query to search the web for
+      required: [query]
+      examples:
+        - query: latest developments in quantum computing
+        - query: who won the presidential election in the United States
+implementation:
+  module: mindai.tool.impl.passback
+  class: PassBackImplementation 

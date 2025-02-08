@@ -1,0 +1,45 @@
+type: pipeline
+functions:
+  - name: list
+    description: List available pipelines
+    parameters:
+      type: object
+      properties:
+        status:
+          type: string
+          description: Filter by pipeline status (all, running, completed)
+          enum: [all, running, completed]
+          default: all
+      examples:
+        - status: running
+        - status: all
+
+  - name: run
+    description: Run a pipeline
+    parameters:
+      type: object
+      properties:
+        pipeline_id:
+          type: string
+          description: ID of the pipeline to run
+        parameters:
+          type: object
+          description: Pipeline-specific parameters
+      required: [pipeline_id]
+      examples:
+        - pipeline_id: data_processing_001
+        - pipeline_id: ml_training_002
+          parameters:
+            epochs: 100
+            batch_size: 32
+
+  - name: running
+    description: Get status of running pipelines
+    parameters:
+      type: object
+      properties: {}
+      examples:
+        - {}
+implementation:
+  module: mindai.tool.impl.pipeline
+  class: PipelineImplementation 

@@ -67,30 +67,30 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         
         # Document handling
         if self.chat.current_document is not None:
-            logger.debug(f"Current Document: {self.chat.current_document}")
+            logger.info(f"Current Document: {self.chat.current_document}")
             document_contents = self.chat.library.read_document(self.chat.current_document)
             doc_size = len(document_contents.split())
-            formatter.add_element("document", content="",
+            formatter.add_element("document", content=document_contents,
                 metadata=dict(
                     name=self.chat.current_document,
                     length=doc_size
                 )
             )
-            formatter.add_element("document", "content", content=document_contents)
         else:
-            logger.debug("No current document")
+            logger.info("No current document")
 
         # Workspace handling
         if self.chat.current_workspace is not None:
             workspace_contents = self.chat.current_workspace
             ws_size = len(workspace_contents.split())
             logger.debug(f"Workspace: {ws_size} words")
-            formatter.add_element("workspace", content="",
+            formatter.add_element("workspace", content=workspace_contents,
                 metadata=dict(
                     length=ws_size
                 )
             )
-            formatter.add_element("workspace", "content", content=workspace_contents)
+        else:
+            logger.info("No current workspace")
 
         my_emotions = defaultdict(int)
         my_keywords = defaultdict(int)
@@ -255,24 +255,24 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
 
         if len(history) > 0:
             if history[0]['role'] == 'assistant':
-                turn = [consciousness_turn, *history]
+                turns = [consciousness_turn, *history]
             else:
-                turn = [consciousness_turn, wakeup_turn, *history]
+                turns = [consciousness_turn, wakeup_turn, *history]
             
         else:
-            turn = [consciousness_turn, wakeup_turn]
+            turns = [consciousness_turn, wakeup_turn]
 
-        turn.append({"role": "user", "content": user_input + "\n\n"})
+        turns.append({"role": "user", "content": user_input + "\n\n"})
 
         if self.thought_content:
             # Go back 3 turns and insert the thought content
             # step through, making sure we find a user turn
-            for i in range(len(turn)-2, -1, -1):
-                if turn[i]['role'] == 'user':
-                    last_user_content = turn[i]['content']
+            for i in range(len(turns)-2, -1, -1):
+                if turns[i]['role'] == 'user':
+                    last_user_content = turns[i]['content']
                     last_user_content += f"\n\n{self.thought_content}"
-                    turn[i]['content'] = last_user_content
+                    turns[i]['content'] = last_user_content
                     logger.info(f"Thought inserted at {i}")
                     break
         
-        return turn
+        return turns

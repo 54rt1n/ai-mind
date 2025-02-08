@@ -1,0 +1,17 @@
+type: web
+functions:
+  - name: open_url
+    description: Open a URL in the web browser
+    parameters:
+      type: object
+      properties:
+        url:
+          type: string
+          description: The URL to open in the browser
+      required: [url]
+      examples:
+        - url: https://www.google.com
+        - url: https://github.com
+implementation:
+  module: mindai.tool.impl.passback
+  class: PassBackImplementation 

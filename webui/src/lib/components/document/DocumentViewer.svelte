@@ -3,11 +3,10 @@
     import { configStore } from '$lib/store/configStore';
     import { clipboardStore } from '$lib/store/clipboardStore';
     import { slide } from 'svelte/transition';
-    import { onMount } from 'svelte';
     import { api } from '$lib/api';
     import { WrapText, AlignJustify, Copy, FolderMinus, X as XIco } from 'lucide-svelte';
     import "$lib/../styles/notification.css";
-    import NotificationToast from './NotificationToast.svelte';
+    import NotificationToast from '../ui/NotificationToast.svelte';
     import type { NotificationParams } from '$lib/types';
 
     export let show = false;

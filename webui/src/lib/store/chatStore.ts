@@ -1,20 +1,14 @@
 // lib/store/chatStore.ts
 import { writable, derived, get } from 'svelte/store';
 import { browser } from '$app/environment';
-import type { ChatConfig, ChatMessage, DocumentInfo } from '$lib';
+import type { ChatConfig, ChatMessage, DocumentInfo, CompletionMessage } from '$lib';
 import { api } from '$lib';
-
-interface Message {
-    timestamp: number;
-    role: string;
-    content: string;
-}
 
 
 function createChatStore() {
     const { subscribe, set, update } = writable<{
         conversationId: string;
-        conversationHistory: Message[];
+        conversationHistory: CompletionMessage[];
         contentStream: string;
         loading: boolean;
     }>({
@@ -23,7 +17,7 @@ function createChatStore() {
         contentStream: '',
         loading: false,
     });
-    
+
     function generateConversationId(): string {
         return 'conv_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
     }
@@ -67,7 +61,7 @@ function createChatStore() {
 
     async function _sendMessage(
         model: string,
-        messages: Message[],
+        messages: CompletionMessage[],
         handleResponse: (response: string) => void,
         config?: ChatConfig,
         options: {
@@ -92,9 +86,17 @@ function createChatStore() {
         const body = JSON.stringify({
             messages,
             stream: true,
-            user_id: config?.user_id || undefined,
-            persona_id: config?.persona_id || undefined,
-            model: model || config?.model || undefined,
+            metadata: {
+                user_id: config?.user_id || undefined,
+                persona_id: config?.persona_id || undefined,
+                pinned_messages: options.pinnedMessages ? options.pinnedMessages.map(message => message.doc_id) : undefined,
+                active_document: options.activeDocument ? options.activeDocument.name : undefined,
+                workspace_content: options.workspaceContent || undefined,
+                thought_content: config?.thoughtContent || undefined,
+                disable_guidance: options.disableGuidance || undefined,
+                disable_pif: options.disablePif || undefined,
+            },
+            model: model || config?.chatModel || undefined,
             system_message: options.systemMessage || config?.systemMessage || undefined,
             location: options.currentLocation || config?.location || undefined,
             max_tokens: options.maxTokens || config?.maxTokens || undefined,
@@ -105,12 +107,6 @@ function createChatStore() {
             min_p: options.minP || config?.minP || undefined,
             top_p: options.topP || config?.topP || undefined,
             top_k: options.topK || config?.topK || undefined,
-            pinned_messages: options.pinnedMessages ? options.pinnedMessages.map(message => message.doc_id) : undefined,
-            active_document: options.activeDocument ? options.activeDocument.name : undefined,
-            workspace_content: options.workspaceContent || undefined,
-            thought_content: config?.thoughtContent || undefined,
-            disable_guidance: options.disableGuidance || undefined,
-            disable_pif: options.disablePif || undefined,
         });
 
         try {
@@ -134,7 +130,7 @@ function createChatStore() {
             skipAppend?: boolean,
         } = {}
     ): Promise<SendMessageCallback> {
-        const model = config.model;
+        const model = config.chatModel;
         if (!model) {
             return { status: 'error', message: "No model specified in config" };
         }
@@ -145,7 +141,7 @@ function createChatStore() {
             return { status: 'error', message: "No user specified in config" };
         }
         try {
-            update(store => ({...store, loading: true}));
+            update(store => ({ ...store, loading: true }));
             if (!options.skipAppend) {
                 appendMessage('user', userInput);
             }
@@ -167,7 +163,7 @@ function createChatStore() {
                 });
             }
 
-            await _sendMessage(model, messages, handleResponse, config, {workspaceContent: options.workspaceContent});
+            await _sendMessage(model, messages, handleResponse, config, { workspaceContent: options.workspaceContent });
 
             saveConversationData();
             return { status: 'success', message: 'Message sent successfully' };
@@ -180,56 +176,6 @@ function createChatStore() {
                 return { status: 'error', message: error.message };
             } else {
                 return { status: 'error', message: 'An unknown error occurred' };
-            }
-        } finally {
-            update(store => ({ ...store, loading: false }));
-        }
-    }
-
-    async function generateThought(config: ChatConfig, workspaceContent?: string) : Promise<SendMessageCallback> {
-        const model = config.thoughtModel;
-        if (!model) {
-            return { status: 'error', message: "No model specified in config" };
-        }
-        // Thought generation is 
-        try {
-            update(store => ({...store, loading: true, contentStream: ''}));
-            const conversation = get({ subscribe }).conversationHistory;
-            // Filter to remove all role: system messages
-            const messages = conversation.map( msg => { return {...msg} } );
-            const thoughtPrompt = config.thoughtPrompt;
-            const lastMessage = messages[messages.length - 1];
-            if (lastMessage.role == 'user') {
-                messages[messages.length - 1]['content'] += `\n\n${thoughtPrompt}`;
-
-            } else {
-                messages.push({
-                    role: 'user',
-                    content: thoughtPrompt || 'Output your thoughts.',
-                    timestamp: Math.floor(Date.now() / 1000)
-                })
-            }
-
-            const handleResponse = (response: string) => {
-                update(store => {
-                    return { ...store, contentStream: response };
-                });
-            }
-
-            await _sendMessage(model, messages, handleResponse, config, {workspaceContent, systemMessage: config.thoughtSystemMessage, disableGuidance: true});
-
-            saveConversationData();
-            return { status: 'success', message: 'Thought generated successfully' };
-        } catch (error) {
-            update(store => ({
-                ...store,
-                thoughtContent: 'An error occurred while fetching the response.'
-            }));
-            if (error instanceof Error) {
-                return { status: 'error', message: error.message };
-            } else {
-                console.error('Error:', error);
-                return { status: 'error', message: 'An unknown error occurred.' };
             }
         } finally {
             update(store => ({ ...store, loading: false }));
@@ -341,7 +287,7 @@ function createChatStore() {
                 ...store,
                 conversationHistory: store.conversationHistory.filter(msg => msg !== lastMessage)
             }));
-            sendMessage(lastMessage.content, config, {workspaceContent});
+            sendMessage(lastMessage.content, config, { workspaceContent });
         }
     }
 
@@ -382,7 +328,7 @@ function createChatStore() {
         saveConversationData();
     }
 
-    function popMessage() : Message | undefined {
+    function popMessage(): CompletionMessage | undefined {
         const newHistory = [...get({ subscribe }).conversationHistory];
         const result = newHistory.pop();
         update(store => {
@@ -420,7 +366,6 @@ function createChatStore() {
         goBack,
         popMessage,
         retry,
-        generateThought,
         updateMessage,
         swapRoles,
         appendMessage,

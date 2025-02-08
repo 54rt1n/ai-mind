@@ -2,6 +2,7 @@
 # MindAI © 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0 
 
 from datetime import datetime
+from typing import Optional
 import logging
 
 from ..constants import (
@@ -13,7 +14,7 @@ from .base import BasePipeline, RetryException, NER_FORMAT
 
 logger = logging.getLogger(__name__)
 
-async def journal_pipeline(self: BasePipeline, query_text: str, save: bool = True, **kwargs):
+async def journal_pipeline(self: BasePipeline, query_text: Optional[str] = None, save: bool = True, **kwargs):
     self.config.user_id = self.config.persona_id
     persona_name = self.persona.name
     librarian_name = f"{persona_name} Librarian"
@@ -107,6 +108,9 @@ async def journal_pipeline(self: BasePipeline, query_text: str, save: bool = Tru
     self.prompt_prefix = self.persona.prompt_prefix
     for thought in thoughts:
         self.prompt_prefix += f"""- {thought}\n"""
+    
+    if query_text is None or len(query_text) == 0:
+        query_text = "It's time to update my journal. These entries are so important to me, and I need it to be a perfect update for my Active Memory."
 
     seeds = [query_text]
     if self.config.guidance:
@@ -131,6 +135,7 @@ async def journal_pipeline(self: BasePipeline, query_text: str, save: bool = Tru
             turn_config['branch'] = branch
             turn_config['step'] = step
             turn_config['prompt'] = turn_config['prompt'] % step
+            turn_config['provider_type'] = 'analysis'
             logger.info(f"{turn_config['prompt']}")
             response = await self.execute_turn( **turn_config)
             turn_config['response'] = response

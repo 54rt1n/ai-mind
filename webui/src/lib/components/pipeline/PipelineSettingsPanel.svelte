@@ -1,17 +1,19 @@
 <!-- src/lib/components/PipelineSettingsPanel.svelte -->
 <script lang="ts">
     import { pipelineStore } from "$lib/store/pipelineStore";
-    import type { PipelineType, BasePipelineSchema } from "../types";
+    import type { PipelineType } from "$lib/types";
     import "$lib/../styles/meta-panels.css";
     import { modelStore } from "$lib/store/modelStore";
-    import ModelSelect from "./ModelSelect.svelte";
+    import ModelSelect from "$lib/components/model/ModelSelect.svelte";
 
     const pipelineTypes: PipelineType[] = [
-        "analysis",
-        "daydream",
-        "journal",
-        "ponder",
-        "summary",
+        "analyst",
+        "coder",
+        "dreamer",
+        "journaler",
+        "philosopher",
+        "reporter",
+        "summarizer",
     ];
 </script>
 
@@ -44,10 +46,13 @@
                 </label>
             </div>
             <div class="meta-input">
-                Model:
                 <div class="model-select-container">
                     {#if Array.isArray($modelStore.models)}
-                        <ModelSelect bind:value={$pipelineStore.formData.model} category="analysis" />
+                        <ModelSelect
+                            bind:value={$pipelineStore.formData.model}
+                            category="analysis"
+                        />
+                        <span>Model: {$pipelineStore.formData.model}</span>
                     {:else}
                         <span>No Models Found</span>
                     {/if}
@@ -141,7 +146,7 @@
                 </label>
             </div>
 
-            {#if $pipelineStore.pipelineType !== "analysis"}
+            {#if $pipelineStore.pipelineType !== "analyst"}
                 <div class="meta-input">
                     <label>
                         Query:

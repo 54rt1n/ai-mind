@@ -2,6 +2,8 @@
 import { writable } from 'svelte/store';
 import { api } from '$lib';
 import type { Persona, PersonaSection } from '$lib';
+import { browser } from '$app/environment';
+import { get } from 'svelte/store';
 
 interface RosterStore {
     personas: Persona[];
@@ -38,13 +40,33 @@ function sanitizePropertyName(name: string): string {
 }
 
 function createRosterStore() {
-    const { subscribe, set, update } = writable<RosterStore>({
-        personas: [],
-        activePersona: null,
-        updates: {},
-        loading: false,
-        error: null
-    });
+    const STORAGE_KEY = 'personaRoster';
+    
+    // Initialize from localStorage if in browser environment
+    const initialState: RosterStore = browser
+        ? JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null') || {
+            personas: [],
+            activePersona: null,
+            updates: null,
+            loading: false,
+            error: null
+        }
+        : {
+            personas: [],
+            activePersona: null,
+            updates: null,
+            loading: false,
+            error: null
+        };
+
+    const { subscribe, set, update } = writable<RosterStore>(initialState);
+
+    // Save to localStorage when store updates (browser only)
+    if (browser) {
+        subscribe(state => {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        });
+    }
 
     return {
         subscribe,
@@ -63,6 +85,12 @@ function createRosterStore() {
                     error: 'Failed to fetch personas',
                     loading: false
                 }));
+            }
+        },
+        initialize: async () => {
+            const state = get({ subscribe });
+            if (state.personas.length === 0) {
+                await rosterStore.fetchPersonas();
             }
         },
         getPersona: async (personaId: string) => {

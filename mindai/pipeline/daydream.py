@@ -2,10 +2,11 @@
 # MindAI © 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0 
 
 import random
-
+from dataclasses import dataclass
 from ..constants import DOC_NER, DOC_STEP, HALF_CTX, LARGE_CTX, FULL_CTX, ROLE_ASSISTANT
 from .base import BasePipeline, RetryException
 
+@dataclass
 class Partner:
     name: str
     appearance: str
@@ -33,7 +34,7 @@ async def daydream_pipeline(self: BasePipeline, query_text: str, save: bool = Tr
     }
     
     agent_task = {
-        'prompt': f'''It's {self.config.persona_id}'s turn.\n\nBegin with [== Emotional State:''',
+        'prompt': f'''It's {self.config.persona_id}'s turn.\n\nBegin with [== {self.config.persona_id}'s Emotional State:''',
         'max_tokens': FULL_CTX,
         'use_guidance': True,
         'top_n': 1,
@@ -103,6 +104,7 @@ async def daydream_pipeline(self: BasePipeline, query_text: str, save: bool = Tr
 
             turn_config['step'] = step
             turn_config['branch'] = branch
+            turn_config['provider_type'] = 'analysis'
             #turn_config['prompt'] = turn_config['prompt'] % step
             
             # Execute the turn and get the response

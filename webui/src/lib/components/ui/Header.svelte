@@ -2,9 +2,9 @@
 <script lang="ts">
     import { page } from "$app/stores";
     import { configStore } from "$lib/store/configStore";
-    import PinnedMessagesModal from "./PinnedMessagesModal.svelte";
+    import PinnedMessagesModal from "../conversation/PinnedMessagesModal.svelte";
     import { FileText } from "lucide-svelte";
-    import DocumentViewer from "./DocumentViewer.svelte";
+    import DocumentViewer from "../document/DocumentViewer.svelte";
 
     let showPinnedModal = false;
     let showViewer = false;
@@ -25,7 +25,7 @@
     }
 
     function handleKeyPress(event: KeyboardEvent) {
-        if (event.key === 'Enter') {
+        if (event.key === "Enter") {
             handleUserIdSubmit();
         }
     }
@@ -38,40 +38,55 @@
 <header>
     <nav>
         <div class="left">
-            <a href="/" class="logo">THOUGHT-AI</a>
+            <a href="/" class="logo">MIND-AI</a>
         </div>
         <div class="center">
-            <a href="/" class:active={$page.url.pathname === "/"}
-                >Home</a>
-            <a href="/completions" class:active={$page.url.pathname === "/completions"}
-                >Completions</a>
-            <a href="/chat-matrix" class:active={$page.url.pathname === "/chat-matrix"}
-                >Chat Matrix</a>
+            <a href="/" class:active={$page.url.pathname === "/"}>Home</a>
+            <a
+                href="/completions"
+                class:active={$page.url.pathname === "/completions"}
+                >Completions</a
+            >
+            <a
+                href="/chat-matrix"
+                class:active={$page.url.pathname === "/chat-matrix"}
+                >Chat Matrix</a
+            >
             <a href="/search" class:active={$page.url.pathname === "/search"}
-                >Search</a>
-            <a href="/pipeline-tasks" class:active={$page.url.pathname === "/pipeline-tasks"}
-                >Pipeline Tasks</a>
-            <a href="/documents" class:active={$page.url.pathname === "/documents"}
-                >Documents</a>
+                >Search</a
+            >
+            <a
+                href="/pipeline-tasks"
+                class:active={$page.url.pathname === "/pipeline-tasks"}
+                >Pipeline Tasks</a
+            >
+            <a
+                href="/documents"
+                class:active={$page.url.pathname === "/documents"}>Documents</a
+            >
             <a href="/roster" class:active={$page.url.pathname === "/roster"}
-                >Roster</a>
+                >Roster</a
+            >
+            <a href="/program" class:active={$page.url.pathname === "/program"}
+                >Program</a
+            >
         </div>
         <div class="right">
-{#if selectedDocument}
-    <button
-        class="active-document"
-        on:click={toggleViewer}
-        title="Click to view document contents"
-    >
-        <FileText size={16} />
-        {selectedDocument.name}
-    </button>
-{/if}
-{#if $configStore.persona}
-    <div class="active-persona">
-        Persona: {$configStore.persona}
-    </div>
-{/if}
+            {#if selectedDocument}
+                <button
+                    class="active-document"
+                    on:click={toggleViewer}
+                    title="Click to view document contents"
+                >
+                    <FileText size={16} />
+                    {selectedDocument.name}
+                </button>
+            {/if}
+            {#if $configStore.persona}
+                <div class="active-persona">
+                    Persona: {$configStore.persona}
+                </div>
+            {/if}
             <button
                 class="pinned-count"
                 on:click={() => (showPinnedModal = true)}
@@ -80,29 +95,35 @@
             </button>
             {#if showUserIdInput}
                 <div class="user-input-container">
-                    <input 
-                        type="text" 
+                    <input
+                        type="text"
                         bind:value={$configStore.user_id}
                         placeholder="Enter username"
                         class="user-input"
                         on:keypress={handleKeyPress}
                     />
-                    <button class="user-input-btn" on:click={handleUserIdSubmit}>✓</button>
+                    <button class="user-input-btn" on:click={handleUserIdSubmit}
+                        >✓</button
+                    >
                 </div>
             {:else if $configStore.user_id}
-                <span class="clickable user-display" on:click={() => (showUserIdInput = true)}>Welcome, {$configStore.user_id}</span>
+                <span
+                    class="clickable user-display"
+                    on:click={() => (showUserIdInput = true)}
+                    >Welcome, {$configStore.user_id}</span
+                >
             {:else}
-                <span class="clickable user-display" on:click={() => (showUserIdInput = true)}>No username set</span>
+                <span
+                    class="clickable user-display"
+                    on:click={() => (showUserIdInput = true)}
+                    >No username set</span
+                >
             {/if}
         </div>
     </nav>
 </header>
 
-
-<DocumentViewer 
-    show={showViewer}
-    onClose={handleCloseViewer}
-/>
+<DocumentViewer show={showViewer} onClose={handleCloseViewer} />
 <PinnedMessagesModal
     show={showPinnedModal}
     onClose={() => (showPinnedModal = false)}
@@ -169,7 +190,7 @@
         display: flex;
         align-items: center;
         gap: 0.5rem;
-        background-color: #2196F3;
+        background-color: #2196f3;
         color: white;
         border: none;
         border-radius: 0.5rem;

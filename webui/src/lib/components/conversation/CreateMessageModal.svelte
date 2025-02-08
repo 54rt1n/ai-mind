@@ -3,7 +3,7 @@
     import { fade } from "svelte/transition";
     import { X } from "lucide-svelte";
     import { createEventDispatcher } from "svelte";
-    import type { ConversationMessage, PipelineType } from "../types";
+    import type { ConversationMessage, PipelineType } from "../../types";
 
     const dispatch = createEventDispatcher<{
         close: void;

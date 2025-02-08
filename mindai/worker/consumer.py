@@ -27,7 +27,7 @@ async def process_pipeline_task(job: Job, job_token: str):
         config = ChatConfig.from_env()
         config.update(**job_config)
 
-        pipeline = BasePipeline.from_config(config)
+        pipeline = BasePipeline.from_config(config, **job_config)
         async def progress_callback(progress: int):
             await job.updateProgress(progress)
         pipeline.progrsss_callback = progress_callback

@@ -1,0 +1,62 @@
+type: file
+functions:
+  - name: read
+    description: Read contents of a file
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: Path to the file to read
+        encoding:
+          type: string
+          description: File encoding
+          default: utf-8
+      required: [path]
+      examples:
+        - path: /path/to/file.txt
+        - path: data.json
+          encoding: utf-8
+
+  - name: write
+    description: Write content to a file
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: Path to write the file to
+        content:
+          type: string
+          description: Content to write to the file
+        encoding:
+          type: string
+          description: File encoding
+          default: utf-8
+      required: [path, content]
+      examples:
+        - path: output.txt
+          content: Hello, World!
+        - path: data.json
+          content: {"key": "value"}
+          encoding: utf-8
+
+  - name: list
+    description: List contents of a directory
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: Directory path to list
+        pattern:
+          type: string
+          description: Optional glob pattern to filter files
+      required: [path]
+      examples:
+        - path: /path/to/dir
+        - path: .
+          pattern: "*.py"
+implementation:
+  module: mindai.tool.impl.file_ops
+  class: FileOperationsImplementation 

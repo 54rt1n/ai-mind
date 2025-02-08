@@ -1,6 +1,6 @@
 // lib/types.ts
 
-export type PipelineType = 'analysis' | 'journal' | 'ponder' | 'summary' | 'daydream';
+export type PipelineType = 'analyst' | 'coder' | 'dreamer' | 'journaler' | 'philosopher' | 'reporter' | 'summarizer';
 export type NotificationType = 'success' | 'loading' | 'copy' | 'info' | 'warning' | 'error';
 
 export interface NotificationParams {
@@ -84,7 +84,11 @@ export interface ChatConfig {
     selectedFooter: string;
 
     // Advanced Settings
-    model: string | null | undefined;
+    chatModel: string | null | undefined;
+    completionModel: string | null | undefined;
+    thoughtModel: string | null | undefined;
+    workspaceModel: string | null | undefined;
+
     mood: string | null | undefined;
     systemMessage: string | null | undefined;
     location: string | null | undefined;
@@ -101,21 +105,19 @@ export interface ChatConfig {
     selectedDocument: DocumentInfo | null;
     pinnedMessages: ChatMessage[];
 
+    // Auto-scroll and Auto-think
+    autoScroll: boolean;
+    autoThink: boolean;
+
+    // Thought Content
+    thoughtContent: string | null | undefined;
+
     // UI State
     showAdvanced: boolean;
     showControls: boolean;
     showHeader: boolean;
     showClipboard: boolean;
     showThought: boolean;
-        
-    // Thought Settings
-    thoughtModel: string | undefined;
-    thoughtDefaultContent: string | undefined;
-    thoughtPrompt: string | undefined;
-    thoughtContent: string | undefined;
-    thoughtSystemMessage: string | undefined;
-    thoughtXml: string | undefined;
-    thoughtUserContext: string | undefined;
 }
 
 export interface ChatModel {
@@ -148,6 +150,12 @@ export interface DocumentInfo {
     name: string;
     modified_time: number;
     size: number;
+}
+
+export interface CompletionMessage {
+    role: string;
+    content: string;
+    timestamp: number;
 }
 
 export interface CompletionConfig {
@@ -186,6 +194,37 @@ export interface CompletionResponse {
     };
 }
 
+export interface ToolFunctionParameters {
+    type: string;
+    properties: Record<string, any>;
+    required: string[];
+    examples?: Record<string, any>[];
+}
+
+export interface ToolFunction {
+    name: string;
+    description: string;
+    parameters: ToolFunctionParameters;
+}
+
+export interface Tool {
+    type: string;
+    function: ToolFunction;
+}
+
+export interface CreateToolRequest extends Tool { }
+
+export interface UpdateToolRequest {
+    type?: string;
+    function?: ToolFunction;
+}
+
+export interface ToolResponse extends Tool { }
+
+export interface ToolListResponse {
+    tools: ToolResponse[];
+}
+
 export interface PersonaSection {
     [key: string]: string;
 }
@@ -214,4 +253,23 @@ export interface Persona {
     persona_version?: string;
     system_header?: string;
     include_date?: boolean;
+}
+
+// Define our workspace categories - we should make these dynamic someday
+export enum WorkspaceCategory {
+    None = 'None',
+    Schedule = 'Schedule',
+    Plan = 'Plan',
+    Tasks = 'Tasks',
+    Notes = 'Notes',
+    Fitness = 'Fitness',
+    Persona = 'Persona',
+    Fun = 'Fun'
+}
+
+export interface WorkspaceItem {
+    name: WorkspaceCategory;
+    content: string;
+    contentStream: string;
+    wordCount: number;
 }

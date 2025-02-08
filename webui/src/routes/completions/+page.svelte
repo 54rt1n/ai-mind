@@ -1,8 +1,8 @@
 <!-- src/routes/completions/+page.svelte -->
 <script lang="ts">
-    import AdvancedSettingsPanel from '$lib/components/AdvancedSettingsPanel.svelte';
-    import CompletionPanel from '$lib/components/CompletionPanel.svelte';
-    import ClipboardPanel from '$lib/components/ClipboardPanel.svelte';
+    import AdvancedSettingsPanel from '$lib/components/model/AdvancedSettingsPanel.svelte';
+    import CompletionPanel from '$lib/components/completion/CompletionPanel.svelte';
+    import ClipboardPanel from '$lib/components/clipboard/ClipboardPanel.svelte';
 </script>
 
 <svelte:head>

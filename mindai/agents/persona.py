@@ -106,7 +106,6 @@ class Persona:
         mood: Optional[str] = None,
         location: Optional[str] = None,
         user_id: Optional[str] = None,
-        system_message: Optional[str] = None,
         disable_guidance: bool = False,
         disable_pif: bool = False,
     ) -> XmlFormatter:
@@ -127,9 +126,6 @@ class Persona:
         if user_id is not None:
             xml.add_element(self.full_name, "SystemHeader", content=f"{self.persona_id} is talking to {user_id}.", nowrap=True)
             xml.add_element(self.full_name, "SystemHeader", content=f"Stay in character, and use your memories to help you. Don't speak for {user_id}.", nowrap=True)
-
-        if system_message is not None:
-            xml.add_element(self.full_name, "SystemHeader", content=system_message)
 
         xml = self._xml_description(self.full_name, xml=xml, show_time=self.include_date, mood=mood, disable_guidance=disable_guidance, disable_pif=disable_pif)
 

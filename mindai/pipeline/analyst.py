@@ -165,6 +165,7 @@ async def analysis_pipeline(self: BasePipeline, **kwargs):
             turn_config['branch'] = branch
             turn_config['step'] = step
             turn_config['prompt'] = turn_config['base_prompt'] % step
+            turn_config['provider_type'] = 'analysis'
             logger.info(f"{turn_config['prompt']}")
             response = await self.execute_turn(**turn_config)
             if self.validate_response(response) == False:

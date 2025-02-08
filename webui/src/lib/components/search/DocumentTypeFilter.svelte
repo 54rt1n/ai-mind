@@ -1,6 +1,6 @@
 <!-- src/lib/components/DocumentTypeFilter.svelte -->
 <script lang="ts">
-    import type { ChatMessage } from '../types';
+    import type { ChatMessage } from '$lib/types';
     import { createEventDispatcher } from 'svelte';
     
     const dispatch = createEventDispatcher<{

@@ -18,6 +18,7 @@ from .modules.memory.route import MemoryModule
 from .modules.pipeline.route import PipelineModule
 from .modules.report.route import ReportModule
 from .modules.roster.route import RosterModule
+from .modules.tools.route import ToolsModule
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ class ServerApi:
         pipeline_module = PipelineModule(self.config, self.security)
         report_module = ReportModule(self.config, self.security)
         roster_module = RosterModule(self.config, self.security)
+        tools_module = ToolsModule(self.config, self.security)
         
         # Include all routers
         self.app.include_router(admin_module.router)
@@ -53,6 +55,7 @@ class ServerApi:
         self.app.include_router(pipeline_module.router)
         self.app.include_router(report_module.router)
         self.app.include_router(roster_module.router)
+        self.app.include_router(tools_module.router)
         
         # Setup CORS
         self.app.add_middleware(

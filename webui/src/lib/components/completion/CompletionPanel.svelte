@@ -8,7 +8,7 @@
     import { Copy, Send, Edit2 } from "lucide-svelte";
     import type { ChangeEventHandler } from "svelte/elements";
     import { ChevronDown, ChevronRight } from 'lucide-svelte';
-    import ModelSelect from "./ModelSelect.svelte";
+    import ModelSelect from "../model/ModelSelect.svelte";
     
     let showAdvancedSettings = false;
     
@@ -22,7 +22,7 @@
         const config = $configStore;
 
         const request: CompletionConfig = {
-            model: config.model,
+            model: config.completionModel,
             prompt: $completionStore.input,
             ...$completionStore.config,
         };

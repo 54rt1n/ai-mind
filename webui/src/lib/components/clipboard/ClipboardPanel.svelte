@@ -2,20 +2,21 @@
 <script lang="ts">
     import { clipboardStore } from "$lib/store/clipboardStore";
     import { configStore } from "$lib/store/configStore";
-    import { workspaceStore, WorkspaceCategory } from "$lib/store/workspaceStore";
     import {
-        Copy,
-        Trash2,
-        ArrowRightCircle,
-        ArrowUpCircle, CircleX
-    } from "lucide-svelte";
+        workspaceStore,
+    } from "$lib/store/workspaceStore";
+    import { get } from "svelte/store";
+    import { Copy, Trash2, ArrowRightCircle, ArrowUpCircle, CircleX, Check, Hammer } from "lucide-svelte";
     import "$lib/../styles/meta-panels.css";
-    import type { NotificationParams } from "$lib/types";
-    import NotificationToast from "$lib/components/NotificationToast.svelte";
+    import type { NotificationParams, CompletionMessage } from "$lib/types";
+    import { WorkspaceCategory } from "$lib/types";
+    import NotificationToast from "$lib/components/ui/NotificationToast.svelte";
+    import ModelSelect from "../model/ModelSelect.svelte";
 
     let extractedContent = "";
     let uploadFileName = "";
     $: defaultFilename = `${$workspaceStore.name}.${new Date().toISOString().split("T")[0]}.txt`;
+    let lastConversationHistory: CompletionMessage[] = [];
 
     let notificationProps: NotificationParams = {
         show: false,
@@ -150,6 +151,60 @@
     }
 
     $: workspaceSelected = $workspaceStore.name !== WorkspaceCategory.None;
+
+    export function setConversationHistory(
+        conversationHistory: CompletionMessage[],
+    ) {
+        lastConversationHistory = conversationHistory;
+    }
+
+    export async function clearAndGenerate(conversationHistory: CompletionMessage[]): Promise<boolean> {
+        lastConversationHistory = conversationHistory;
+        if (conversationHistory.length === 0) {
+            console.log("clearAndGenerate failure", conversationHistory);
+            throw new Error("No conversation history");
+        }
+        return await workspaceStore.generateWorkspaceUpdate(
+            get(configStore),
+            conversationHistory,
+            "You are to update the workspace content based on the conversation. Output only the new content."
+        );
+    }
+
+    export async function validateAndAcceptWorkspace(): Promise<boolean> {
+        if ($workspaceStore.contentStream.trim().length > 0) {
+            commitStreamUpdate();
+            return true;
+        }
+        return false;
+    }
+
+    function commitStreamUpdate() {
+        workspaceStore.commitStreamUpdate();
+    }
+
+    async function handleWorkspaceUpdate(autoValidate: boolean = false) {
+        if (lastConversationHistory.length === 0) {
+            alert(
+                "No conversation history available. Please use the Work button in the main chat first.",
+            );
+            return;
+        }
+        console.log("Running workspace update...");
+
+        if (!(await clearAndGenerate(lastConversationHistory))) {
+            console.error("Failed to generate workspace update.");
+            if (!(await clearAndGenerate(lastConversationHistory))) {
+                alert("Failed to generate workspace update.");
+                console.error("Failed to generate workspace update.");
+                return;
+            }
+        }
+        if (autoValidate && !(await validateAndAcceptWorkspace())) {
+            console.error("Failed to validate workspace update.");
+            return;
+        }
+    }
 </script>
 
 <div class="meta-panel">
@@ -241,14 +296,37 @@
                             </button>
                         {/each}
                     </div>
-                    <textarea
-                        class="workspace-textarea"
-                        bind:value={$workspaceStore.content}
-                        on:input={handleWorkspaceChange}
-                        placeholder="Use this workspace for notes, drafts, or any text you want to keep handy..."
-                    />
+                    <div class="workspace-content">
+                        <textarea
+                            class="workspace-textarea"
+                            bind:value={$workspaceStore.content}
+                            on:input={handleWorkspaceChange}
+                            placeholder="Use this workspace for notes, drafts, or any text you want to keep handy..."
+                        />
+                        <textarea
+                            class="workspace-textarea"
+                            bind:value={$workspaceStore.contentStream}
+                            placeholder="Generated content will appear here..."
+                            disabled={true}
+                        />
+                        {#if $workspaceStore.contentStream}
+                            <div class="workspace-stream-controls">
+                                <button
+                                    class="control-button accept"
+                                    on:click={commitStreamUpdate}
+                                    title="Accept changes"
+                                >
+                                    <Check size={16} />
+                                </button>
+                            </div>
+                        {/if}
+                    </div>
                     <div>Word Count: {$workspaceStore.wordCount}</div>
                 </div>
+                <ModelSelect
+                    bind:value={$configStore.workspaceModel}
+                    category="workspace"
+                />
             </div>
             <div class="workspace-include">
                 <div class="workspace-actions">
@@ -294,6 +372,23 @@
                         >
                             <Trash2 size={16} />
                         </button>
+                        <button
+                            class="workspace-button work"
+                            on:click={() => handleWorkspaceUpdate(false)}
+                            disabled={!workspaceSelected ||
+                                lastConversationHistory.length === 0}
+                            title="Update workspace from conversation"
+                        >
+                            <Hammer size={16} />
+                        </button>
+                        {#if lastConversationHistory.length > 0}
+                            <span
+                                class="conversation-count"
+                                title="Available conversation turns"
+                            >
+                                ({lastConversationHistory.length})
+                            </span>
+                        {/if}
                     </div>
                 </div>
             </div>
@@ -568,5 +663,44 @@
         outline: none;
         border-color: #3b82f6;
         box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+
+    .workspace-content {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+        margin-bottom: 1rem;
+    }
+
+    .workspace-stream-controls {
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.5rem;
+        margin-top: 0.5rem;
+    }
+
+    .control-button.accept {
+        background-color: #10b981;
+    }
+
+    .control-button.accept:hover:not(:disabled) {
+        background-color: #059669;
+    }
+
+    .workspace-button.work {
+        background-color: #8b5cf6;
+        color: white;
+    }
+
+    .workspace-button.work:hover:not(:disabled) {
+        background-color: #7c3aed;
+    }
+
+    .conversation-count {
+        color: #6b7280;
+        font-size: 0.875rem;
+        padding: 0 0.5rem;
+        display: flex;
+        align-items: center;
     }
 </style>

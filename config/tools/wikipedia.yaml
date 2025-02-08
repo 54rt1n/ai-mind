@@ -1,0 +1,17 @@
+type: wikipedia
+functions:
+  - name: search
+    description: Search Wikipedia for information
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: The query to search Wikipedia for
+      required: [query]
+      examples:
+        - query: United States Constitution
+        - query: Remote procedure call
+implementation:
+  module: mindai.tool.impl.passback
+  class: PassBackImplementation 

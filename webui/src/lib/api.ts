@@ -5,6 +5,8 @@ import type {
     ChatModel, ChatMessage, DocumentInfo,
     CompletionConfig, CompletionResponse,
     Persona, ModelCategory,
+    ToolListResponse, ToolResponse,
+    CreateToolRequest, UpdateToolRequest,
 } from './types';
 
 declare const window: Window;
@@ -118,7 +120,7 @@ class Api {
             method: 'POST',
             body: JSON.stringify({
                 messages,
-                model: config.model || 'default',
+                model: config.chatModel || 'default',
                 system_message: config.systemMessage,
                 location: config.location,
                 max_tokens: config.maxTokens,
@@ -251,7 +253,40 @@ class Api {
         const blob = await response.blob();
         return await blob.text();
     }
-        
+
+    async getTools(): Promise<ToolListResponse> {
+        const response = await this.fetch('/api/tools');
+        return response.json();
+    }
+
+    async getTool(toolType: string): Promise<ToolResponse> {
+        const response = await this.fetch(`/api/tools/${toolType}`);
+        return response.json();
+    }
+
+    async createTool(request: CreateToolRequest): Promise<{ status: string; message: string; data: ToolResponse }> {
+        const response = await this.fetch('/api/tools', {
+            method: 'POST',
+            body: JSON.stringify(request)
+        });
+        return response.json();
+    }
+
+    async updateTool(toolType: string, request: UpdateToolRequest): Promise<{ status: string; message: string; data: ToolResponse }> {
+        const response = await this.fetch(`/api/tools/${toolType}`, {
+            method: 'PUT',
+            body: JSON.stringify(request)
+        });
+        return response.json();
+    }
+
+    async deleteTool(toolType: string): Promise<{ status: string; message: string }> {
+        const response = await this.fetch(`/api/tools/${toolType}`, {
+            method: 'DELETE'
+        });
+        return response.json();
+    }
+
     async sendChatCompletion(body: string, handleResponse: (response: string) => void): Promise<any> {
         const API_URL = this.baseUrl + '/v1/chat/completions';
         const response = await fetch(API_URL, {

@@ -1,0 +1,52 @@
+type: system
+functions:
+  - name: process_info
+    description: Get information about running processes
+    parameters:
+      type: object
+      properties:
+        pid:
+          type: integer
+          description: Process ID to get info for (optional, if not provided returns all processes)
+        format:
+          type: string
+          description: Output format
+          enum: [short, full]
+          default: short
+      examples:
+        - pid: 1234
+        - format: full
+
+  - name: env_var
+    description: Get environment variable value
+    parameters:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Name of the environment variable
+      required: [name]
+      examples:
+        - name: PATH
+        - name: HOME
+
+  - name: run_command
+    description: Run a bash command
+    parameters:
+      type: object
+      properties:
+        command:
+          type: string
+          description: The command to run
+        working_dir:
+          type: string
+          description: Working directory for command execution
+          default: .
+      required: [command]
+      examples:
+        - command: ls -la
+        - command: ps aux
+          working_dir: /tmp
+implementation:
+  module: mindai.tool.impl.system
+  class: SystemImplementation 

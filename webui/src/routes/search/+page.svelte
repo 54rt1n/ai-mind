@@ -4,7 +4,7 @@
     import { goto } from '$app/navigation';
     import { configStore } from '$lib/store/configStore';
     import { type ChatMessage } from '$lib/types';
-    import ChatMessageCard from '$lib/components/ChatMessageCard.svelte';
+    import ChatMessageCard from '$lib/components/conversation/ChatMessageCard.svelte';
 
     let searchQuery = '';
     let searchResults: any[] = [];

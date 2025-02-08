@@ -179,6 +179,7 @@ async def summary_pipeline(self: BasePipeline, density_iterations: int = 2, max_
             turn_config['branch'] = q + branch
             turn_config['step'] = step
             turn_config['timestamp'] = int(time.time())
+            turn_config['provider_type'] = 'analysis'
             try:
                 response = await self.execute_turn(**turn_config)
                 if self.validate_response(response) == False:

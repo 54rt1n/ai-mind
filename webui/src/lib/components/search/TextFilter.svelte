@@ -1,7 +1,7 @@
 <!-- src/lib/components/TextFilter.svelte -->
 <script lang="ts">
     import { createEventDispatcher } from 'svelte';
-    import type { ChatMessage } from '../types';
+    import type { ChatMessage } from '$lib/types';
     import { Search, X } from 'lucide-svelte';
     
     const dispatch = createEventDispatcher<{

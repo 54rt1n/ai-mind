@@ -1,0 +1,22 @@
+type: weather
+functions:
+  - name: get_current_weather
+    description: Get the current weather
+    parameters:
+      type: object
+      properties:
+        location:
+          type: string
+          description: The city and state/country, eg. Kansas City, MO
+        format:
+          type: string
+          enum: [fahrenheit, celsius]
+      required: [location, format]
+      examples:
+        - location: Overland Park, KS
+          format: fahrenheit
+        - location: London, UK
+          format: celsius
+implementation:
+  module: mindai.tool.impl.weather
+  class: WeatherImplementation 

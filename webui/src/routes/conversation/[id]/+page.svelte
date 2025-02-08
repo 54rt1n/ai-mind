@@ -8,14 +8,14 @@
     import { type ChatMessage } from "$lib/types";
     import { taskStore } from "$lib/store/taskStore";
     import { pipelineStore } from "$lib/store/pipelineStore";
-    import EditModal from "$lib/components/EditModal.svelte";
-    import ChatMessageCard from "$lib/components/ChatMessageCard.svelte";
-    import DocumentTypeFilter from "$lib/components/DocumentTypeFilter.svelte";
-    import BranchFilter from "$lib/components/BranchFilter.svelte";
-    import TextFilter from '$lib/components/TextFilter.svelte';
-    import CreateMessageModal from '$lib/components/CreateMessageModal.svelte';
-    import PipelineTriggers from '$lib/components/PipelineTriggers.svelte';
-    import EmotionFilter from '$lib/components/EmotionFilter.svelte';
+    import EditModal from "$lib/components/conversation/EditModal.svelte";
+    import ChatMessageCard from "$lib/components/conversation/ChatMessageCard.svelte";
+    import DocumentTypeFilter from "$lib/components/search/DocumentTypeFilter.svelte";
+    import BranchFilter from "$lib/components/search/BranchFilter.svelte";
+    import TextFilter from '$lib/components/search/TextFilter.svelte';
+    import CreateMessageModal from '$lib/components/conversation/CreateMessageModal.svelte';
+    import PipelineTriggers from '$lib/components/pipeline/PipelineTriggers.svelte';
+    import EmotionFilter from '$lib/components/search/EmotionFilter.svelte';
 
     let conversation: ChatMessage[] = [];
     let loading = true;
@@ -162,7 +162,7 @@
                 query_text: $pipelineStore.formData.query_text,
             });
 
-            await taskStore.submitTask("analysis", $pipelineStore.formData);
+            await taskStore.submitTask("analyst", $pipelineStore.formData);
             await goto("/pipeline-tasks");
         } catch (e) {
             error = "Failed to start analysis";
@@ -189,7 +189,7 @@
                 query_text: $pipelineStore.formData.query_text,
             });
 
-            await taskStore.submitTask("summary", $pipelineStore.formData);
+            await taskStore.submitTask("summarizer", $pipelineStore.formData);
             await goto("/pipeline-tasks");
         } catch (e) {
             error = "Failed to start summary";

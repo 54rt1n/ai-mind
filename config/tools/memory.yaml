@@ -1,0 +1,30 @@
+type: memory
+functions:
+  - name: pin
+    description: Pin a piece of information to memory
+    parameters:
+      type: object
+      properties:
+        content:
+          type: string
+          description: The content to pin to memory
+        key:
+          type: string
+          description: Optional key to identify the pinned memory
+      required: [content]
+      examples:
+        - content: Remember to check the weather forecast
+        - content: User prefers celsius temperature
+          key: user_temp_pref
+
+  - name: unpin
+    description: Remove a piece of information from pinned memory
+    parameters:
+      type: object
+      properties:
+        key:
+          type: string
+          description: The key of the memory to unpin
+      required: [key]
+      examples:
+        - key: user_temp_pref

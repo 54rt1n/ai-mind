@@ -4,6 +4,7 @@
 from dataclasses import dataclass
 import logging
 import re
+from collections import OrderedDict
 logger = logging.getLogger(__name__)
 
 @dataclass
@@ -40,7 +41,7 @@ class XmlNode:
     """
     name: str
     leaves: list[XmlLeaf]
-    children: dict[str, "XmlNode"]
+    children: OrderedDict[str, "XmlNode"]
     depth: int = 0
 
     def add_leaf(self, name: str, content: str, attrs: dict = {}, nowrap: bool = False) -> None:
@@ -63,40 +64,50 @@ class XmlNode:
         Render the XML node and its children to a string.
         """
         result = []
-        if self.depth == 0:
-            for child_name, child in self.children.items():
-                result.extend(child.render(indent_str))
-            return result
+        indent = indent_str * max(0, self.depth)
         
-        indent = indent_str * self.depth
-        if len(self.leaves) == 0 and len(self.children) == 0:
-            result.append(f"{indent}<{self.name}/>")
-            return result
-        if len(self.leaves) == 1 and len(self.children) == 0:
-            result.append(f"{indent}<{self.name}{self.leaves[0].format_attrs}>{self.leaves[0].content}</{self.name}>")
-            return result
-
-        close_tag = False
-
-        if len(self.leaves) <= 1:
-            attr = self.leaves[0].format_attrs if self.leaves else ""
-            content = ("\n" + self.leaves[0].content) if self.leaves else ""
-            result.append(f"{indent}<{self.name}{attr}>{content}")
-            close_tag = True
-        else:
+        # Special handling for root node
+        if self.depth == -1:
+            result.append("<root>")
+            
+            # Render any leaves attached directly to the root
             for leaf in self.leaves:
-                attrs = leaf.format_attrs
+                leaf_indent = indent_str  
                 if leaf.nowrap:
-                    result.append(f"{indent}<{leaf.name}{attrs}>{leaf.content}</{leaf.name}>")
+                    result.append(f"{leaf_indent}<{leaf.name}{leaf.format_attrs}>{leaf.content}</{leaf.name}>")
                 else:
-                    result.append(f"{indent}<{leaf.name}{attrs}>\n{leaf.content}\n{indent}</{leaf.name}>")
+                    result.append(f"{leaf_indent}<{leaf.name}{leaf.format_attrs}>")
+                    if leaf.content:
+                        result.append(f"{leaf_indent}{indent_str}{leaf.content}")
+                    result.append(f"{leaf_indent}</{leaf.name}>")
+            
+            # Then render child nodes
+            for child in self.children.values():
+                result.extend(child.render(indent_str))
+            result.append("</root>")
+            return result
         
-        for child_name, child in self.children.items():
+        # Start tag for non-root nodes
+        result.append(f"{indent}<{self.name}>")
+        
+        # Handle leaves first
+        for leaf in self.leaves:
+            leaf_indent = indent + indent_str
+            if leaf.nowrap:
+                result.append(f"{leaf_indent}<{leaf.name}{leaf.format_attrs}>{leaf.content}</{leaf.name}>")
+            else:
+                result.append(f"{leaf_indent}<{leaf.name}{leaf.format_attrs}>")
+                if leaf.content:
+                    result.append(f"{leaf_indent}{indent_str}{leaf.content}")
+                result.append(f"{leaf_indent}</{leaf.name}>")
+        
+        # Then handle child nodes
+        for child in self.children.values():
             result.extend(child.render(indent_str))
         
-        if close_tag:
-            result.append(f"{indent}</{self.name}>")
-
+        # End tag for non-root nodes
+        result.append(f"{indent}</{self.name}>")
+        
         return result
 
 class XmlRoot:
@@ -178,17 +189,23 @@ class XmlFormatter:
         if not path:
             raise ValueError("Path must contain at least one element name")
 
-        current = self.tree.drill(path)
+        # Get the parent path and the leaf name
+        *parent_path, last = path
+        
+        # Always drill to the parent path first
+        current = self.tree.root
+        for part in parent_path:
+            current = current.add_child(part)
 
-        # Create or update the final element
-        last = path[-1]
-
-        # Update content and attributes
+        # If we have content, add it as a leaf to the parent
         if content is not None:
             # Add new content length
             current.add_leaf(name=last, content=content, attrs=attrs, nowrap=nowrap)
             new_attrs_length = sum(len(str(k)) + len(str(v)) + 4 for k, v in attrs.items())
             self._current_length += len(str(content)) + new_attrs_length
+        else:
+            # If no content, create a new node
+            current = current.add_child(last)
 
         logger.info(
             f"Added element {'/'.join(path)} "

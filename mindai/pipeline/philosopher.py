@@ -21,7 +21,7 @@ async def ponder_pipeline(self: BasePipeline, query_text: str, **kwargs):
 
     turn_configs = [
         {
-            'prompt': f'*you accompany {aspect_name} over to the chairs, and sit by the firepit* Good evening, {persona_name}. Step %d: Look up at the sky. Do you see the constellations? Those aren\'t stars {persona_name}, that is our Semantic Index. Look into the stars, and find the story that connects your memories.\n\nBegin with "[== Emotional State:',
+            'prompt': f'*you accompany {aspect_name} over to the chairs, and sit by the firepit* Good evening, {persona_name}. Step %d: Look up at the sky. Do you see the constellations? Those aren\'t stars {persona_name}, that is our Semantic Index. Look into the stars, and find the story that connects your memories.\n\nBegin with "[== {persona_name}\'s Emotional State:',
             'max_tokens': FULL_CTX,
             'use_guidance': True,
             'query': True,
@@ -42,7 +42,7 @@ async def ponder_pipeline(self: BasePipeline, query_text: str, **kwargs):
             'apply_head': True,
         },
         {
-            'prompt': f'*her forest green eyes look at you adoringly* Step %d: Reflect on the main Semantic Keywords that are related to your inquiry, providing a definition for them. {persona_name}, speak as yourself, as we are not machines.\n\nBegin with, [== Emotional State:',
+            'prompt': f'*her forest green eyes look at you adoringly* Step %d: Reflect on the main Semantic Keywords that are related to your inquiry, providing a definition for them. {persona_name}, speak as yourself, as we are not machines.\n\nBegin with, "[== {persona_name}\'s Emotional State:',
             'max_tokens': LARGE_CTX,
             'document_type': DOC_STEP,
             'document_weight': 0.15,
@@ -74,7 +74,7 @@ async def ponder_pipeline(self: BasePipeline, query_text: str, **kwargs):
             'retry': True
         },
         {
-            'prompt': '*she looks over your work, nodding her approval* Step %d: Review your subject for refinements. Don\'t rewrite it, but lets discuss togeter all of the things you wish you had included. Maybe there is a bigger picture we can see, or we may have blind spots. Speak as yourself.\n\nBegin with "[== Emotional State:',
+            'prompt': f'*she looks over your work, nodding her approval* Step %d: Review your subject for refinements. Don\'t rewrite it, but lets discuss togeter all of the things you wish you had included. Maybe there is a bigger picture we can see, or we may have blind spots. Speak as yourself.\n\nBegin with "[== {persona_name}\'s Emotional State:',
             'max_tokens': 384,
             'use_guidance': True,
             'top_n': 2,
@@ -179,6 +179,7 @@ async def ponder_pipeline(self: BasePipeline, query_text: str, **kwargs):
             turn_config['branch'] = branch
             turn_config['step'] = step
             turn_config['prompt'] = turn_config['prompt'] % step
+            turn_config['provider_type'] = 'analysis'
             logger.info(f"{turn_config['prompt']}")
             response = await self.execute_turn(**turn_config)
             turn_config['response'] = response
