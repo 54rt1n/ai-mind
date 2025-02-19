@@ -1,6 +1,6 @@
 type: system
 functions:
-  - name: process_info
+  - name: system_process_info
     description: Get information about running processes
     parameters:
       type: object
@@ -14,23 +14,19 @@ functions:
           enum: [short, full]
           default: short
       examples:
-        - pid: 1234
-        - format: full
+        - {system_process_info: {pid: 1234}}
+        - {system_process_info: {format: full}}
 
-  - name: env_var
+  - name: system_env_var
     description: Get environment variable value
     parameters:
       type: object
-      properties:
-        name:
-          type: string
-          description: Name of the environment variable
-      required: [name]
+      properties: {}
+      required: []
       examples:
-        - name: PATH
-        - name: HOME
+        - {system_env_var: {}}
 
-  - name: run_command
+  - name: system_run_command
     description: Run a bash command
     parameters:
       type: object
@@ -44,9 +40,8 @@ functions:
           default: .
       required: [command]
       examples:
-        - command: ls -la
-        - command: ps aux
-          working_dir: /tmp
+        - {system_run_command: {command: "ls -la"}}
+        - {system_run_command: {command: "ps aux", working_dir: "/tmp"}}
 implementation:
-  module: mindai.tool.impl.system
+  module: aim.tool.impl.system
   class: SystemImplementation 

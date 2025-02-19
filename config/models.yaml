@@ -118,6 +118,16 @@ models:
       - analysis
       - thought
       - workspace
+  - name: cognitivecomputations/Dolphin3.0-R1-Mistral-24B
+    architecture: mistral
+    provider: featherless
+    size: 24B
+    category:
+      - conversation
+      - thought
+      - workspace
+      - analysis
+      - functions
   - name: deepseek-ai/DeepSeek-R1-Distill-Qwen-32B
     architecture: qwen2.5
     provider: featherless
@@ -148,6 +158,7 @@ models:
     provider: featherless
     size: 72B
     category:
+      - analysis
       - conversation
       - workspace
   - name: Sao10K/L3.3-70B-Euryale-v2.3
@@ -155,6 +166,7 @@ models:
     provider: featherless
     size: 70B
     category:
+      - analysis
       - conversation
   - name: Doctor-Shotgun/L3.3-70B-Magnum-v4-SE
     architecture: llama3.3
@@ -162,6 +174,7 @@ models:
     size: 70B
     category:
       - conversation
+      - analysis
       - thought
   - name: allenai/Llama-3.1-Tulu-3-70B
     architecture: llama3.1

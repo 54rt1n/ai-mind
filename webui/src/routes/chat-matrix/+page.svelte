@@ -95,7 +95,7 @@
 </script>
 
 <svelte:head>
-    <title>Chat Matrix | MindAI</title>
+    <title>Chat Matrix | </title>
 </svelte:head>
 
 <main>

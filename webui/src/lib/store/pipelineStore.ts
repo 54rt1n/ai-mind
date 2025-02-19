@@ -59,9 +59,9 @@ const DEFAULT_CONFIG: PipelineConfig = {
     formData: {
         user_id: undefined,
         persona_id: undefined,
-        model: undefined,
         conversation_id: undefined,
         mood: undefined,
+        model: undefined,
         guidance: undefined,
         top_n: undefined,
         query_text: undefined,

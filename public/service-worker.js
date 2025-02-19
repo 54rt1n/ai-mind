@@ -3,8 +3,8 @@ const urlsToCache = [
     '/',
     '/index.html',
     '/prax-ai-chat.js',
-    '/MindAI-192x192.png',
-    '/MindAI-512x512.png'
+    '/aim-192x192.png',
+    '/aim-512x512.png'
 ];
 
 self.addEventListener('install', event => {

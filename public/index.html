@@ -1,12 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MindAI Chat</title>
+    <title>AI-Mind Chat</title>
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#ffffff">
-    <link rel="apple-touch-icon" href="/mindai-192x192.png">
+    <link rel="apple-touch-icon" href="/aim-192x192.png">
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -14,6 +15,7 @@
             margin: 0 auto;
             padding: 20px;
         }
+
         #message-container {
             border: 1px solid #ccc;
             height: 400px;
@@ -22,52 +24,73 @@
             margin-bottom: 20px;
             position: relative;
         }
+
         #chat-container {
             height: auto;
             width: auto;
         }
+
         #user-input {
             width: 100%;
             padding: 10px;
             margin-bottom: 10px;
         }
+
         #conversation-id {
             width: 100%;
             padding: 10px;
             margin-bottom: 10px;
         }
+
         .button-container {
             display: flex;
             gap: 10px;
             margin-bottom: 10px;
         }
+
         button {
             padding: 10px 20px;
         }
+
         button:disabled {
             opacity: 0.5;
             cursor: not-allowed;
         }
+
         .message {
             margin-bottom: 10px;
         }
+
         .user {
             color: blue;
         }
+
         .assistant {
             color: green;
         }
+
         #loading-indicator {
             display: none;
             align-items: center;
             font-weight: bold;
-            height: 38px; /* Match the height of the buttons */
+            height: 38px;
+            /* Match the height of the buttons */
         }
+
         @keyframes ellipsis {
-            0% { content: '.'; }
-            33% { content: '..'; }
-            66% { content: '...'; }
+            0% {
+                content: '.';
+            }
+
+            33% {
+                content: '..';
+            }
+
+            66% {
+                content: '...';
+            }
         }
+
         #loading-indicator::after {
             content: '.';
             display: inline-block;
@@ -75,8 +98,9 @@
         }
     </style>
 </head>
+
 <body>
-    <h1>MindAI Chat</h1>
+    <h1>AI-Mind Chat</h1>
     <div id="message-container">
         <div id="chat-container">
         </div>
@@ -94,7 +118,7 @@
         </div>
     </div>
 
-    <script src="/mind-ai-chat.js"></script>
+    <script src="/aim-chat.js"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
@@ -109,4 +133,5 @@
         }
     </script>
 </body>
+
 </html>

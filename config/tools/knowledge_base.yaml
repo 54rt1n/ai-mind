@@ -1,6 +1,6 @@
 type: knowledge_base
 functions:
-  - name: query
+  - name: query_knowledge_base
     description: Query the knowledge base for information
     parameters:
       type: object
@@ -14,9 +14,8 @@ functions:
           default: 5
       required: [query]
       examples:
-        - query: What is the capital of France?
-        - query: How does photosynthesis work?
-          max_results: 3
+        - {query_knowledge_base: {query: "What is the capital of France?"}}
+        - {query_knowledge_base: {query: "How does photosynthesis work?", max_results: 3}}
 implementation:
-  module: mindai.tool.impl.passback
+  module: aim.tool.impl.passback
   class: PassBackImplementation 

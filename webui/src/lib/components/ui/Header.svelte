@@ -38,7 +38,7 @@
 <header>
     <nav>
         <div class="left">
-            <a href="/" class="logo">MIND-AI</a>
+            <a href="/" class="logo">AI-MIND</a>
         </div>
         <div class="center">
             <a href="/" class:active={$page.url.pathname === "/"}>Home</a>

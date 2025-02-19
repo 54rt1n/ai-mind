@@ -151,11 +151,16 @@
                 );
             }
 
+            if (!$configStore.pipelineModel) {
+                return await alertRedirect("No pipeline model set");
+            }
+
             // Use the pipeline store to update form data with conversation values
             pipelineStore.updateFormData({
                 user_id: latestPersonaId,
                 persona_id: latestPersonaId,
                 conversation_id: conversationId,
+                model: $configStore.pipelineModel,
                 mood: $pipelineStore.formData.mood || "Delighted",
                 top_n: $pipelineStore.formData.top_n,
                 guidance: $pipelineStore.formData.guidance,
@@ -178,11 +183,16 @@
                 );
             }
 
+            if (!$configStore.pipelineModel) {
+                return await alertRedirect("No pipeline model set");
+            }
+
             // Use the pipeline store to update form data with conversation values
             pipelineStore.updateFormData({
                 user_id: latestPersonaId,
                 persona_id: latestPersonaId,
                 conversation_id: conversationId,
+                model: $configStore.pipelineModel,
                 mood: $pipelineStore.formData.mood || "Delighted",
                 top_n: $pipelineStore.formData.top_n,
                 guidance: $pipelineStore.formData.guidance,

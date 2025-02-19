@@ -9,11 +9,13 @@
     import AdvancedSettingsPanel from "$lib/components/model/AdvancedSettingsPanel.svelte";
     import ConversationSettingsPanel from "$lib/components/chat/ConversationSettingsPanel.svelte";
     import ThoughtPanel from "$lib/components/thought/ThoughtPanel.svelte";
+    import ToolPanel from "$lib/components/tool/ToolPanel.svelte";
+    import ClipboardPanel from "$lib/components/clipboard/ClipboardPanel.svelte";
     import { thoughtStore } from "$lib/store/thoughtStore";
     import { chatStore, canRetry } from "$lib/store/chatStore";
     import { clipboardStore } from "$lib/store/clipboardStore";
     import { workspaceStore } from "$lib/store/workspaceStore";
-    import ClipboardPanel from "$lib/components/clipboard/ClipboardPanel.svelte";
+    import WorkspacePanel from "$lib/components/clipboard/WorkspacePanel.svelte";
     import CopyButton from "$lib/components/clipboard/CopyButton.svelte";
     import Thinking from "$lib/components/ui/Thinking.svelte";
 
@@ -26,25 +28,59 @@
     let previousMessageCount = 0;
 
     let thoughtPanelComponent: ThoughtPanel;
+    let workspacePanelComponent: WorkspacePanel;
+    let toolPanelComponent: ToolPanel;
     let clipboardPanelComponent: ClipboardPanel;
 
     // Model validation
     $: canChat = !!$configStore.chatModel;
     $: canThink = !!$configStore.thoughtModel && !!$configStore.chatModel;
     $: canWork = !!$configStore.workspaceModel;
+    $: hasUser = !!$configStore.user_id;
+    $: hasPersona = !!$configStore.persona_id;
 
-    $: modelWarning = !canChat
-        ? "No chat model selected"
-        : $configStore.autoThink && !canThink
-          ? "Both chat and thought models must be selected for thinking"
-          : "";
+    $: modelWarning = !hasUser
+        ? "No user set"
+        : !hasPersona
+          ? "No persona set"
+          : !canChat
+            ? "No chat model selected"
+            : $configStore.autoThink && !canThink
+              ? "Both chat and thought models must be selected for thinking"
+              : "";
 
     // Button tooltips
-    $: sendTooltip = !canChat ? "No chat model selected" : "";
-    $: thinkTooltip = !canThink
-        ? "Chat and thought models must be selected"
-        : "";
-    $: workTooltip = !canWork ? "No workspace model selected" : "";
+    $: sendTooltip = !hasUser
+        ? "No user set"
+        : !hasPersona
+          ? "No persona set"
+          : !canChat
+            ? "No chat model selected"
+            : $chatStore.loading
+              ? "Processing..."
+              : !userInput.trim()
+                ? "Please enter a message"
+                : "";
+
+    $: thinkTooltip = !hasUser
+        ? "No user set"
+        : !hasPersona
+          ? "No persona set"
+          : !canThink
+            ? "Chat and thought models must be selected"
+            : $chatStore.loading
+              ? "Processing..."
+              : "";
+
+    $: workTooltip = !hasUser
+        ? "No user set"
+        : !hasPersona
+          ? "No persona set"
+          : !canWork
+            ? "No workspace model selected"
+            : $chatStore.loading
+              ? "Processing..."
+              : "";
 
     function prepareMessage(inputMessage: string) {
         if ($configStore.emotionalStateEnabled) {
@@ -239,7 +275,7 @@
     async function runWork() {
         console.log("Running workspace update...");
         if (
-            !(await clipboardPanelComponent.clearAndGenerate(
+            !(await workspacePanelComponent.clearAndGenerate(
                 $chatStore.conversationHistory,
             ))
         ) {
@@ -251,12 +287,14 @@
 </script>
 
 <svelte:head>
-    <title>MindAI Chat</title>
+    <title>AI-Mind Chat</title>
 </svelte:head>
 
 <main class="main-chat">
-    <h1>MindAI Chat</h1>
+    <h1>AI-Mind Chat</h1>
     <ClipboardPanel bind:this={clipboardPanelComponent} />
+    <ToolPanel bind:this={toolPanelComponent} />
+    <WorkspacePanel bind:this={workspacePanelComponent} />
     <ThoughtPanel bind:this={thoughtPanelComponent} />
     <div class="message-container-wrapper">
         <div class="message-container" bind:this={messageContainer}>
@@ -335,10 +373,12 @@
                             <button
                                 class="control-button send"
                                 type="submit"
-                                disabled={$chatStore.loading || !canChat}
-                                title={$chatStore.loading
-                                    ? "Processing..."
-                                    : sendTooltip}
+                                disabled={$chatStore.loading ||
+                                    !canChat ||
+                                    !userInput.trim() ||
+                                    !hasUser ||
+                                    !hasPersona}
+                                title={sendTooltip}
                             >
                                 Send
                             </button>
@@ -348,12 +388,16 @@
                                 on:click={retrySendMessage}
                                 disabled={$chatStore.loading ||
                                     !$canRetry ||
-                                    !canChat}
-                                title={$chatStore.loading
-                                    ? "Processing..."
-                                    : !$canRetry
-                                      ? "No message to retry"
-                                      : sendTooltip}
+                                    !canChat ||
+                                    !hasUser ||
+                                    !hasPersona}
+                                title={!$canRetry
+                                    ? "No message to retry"
+                                    : !hasUser
+                                      ? "No user set"
+                                      : !hasPersona
+                                        ? "No persona set"
+                                        : sendTooltip}
                             >
                                 Retry
                             </button>
@@ -364,12 +408,12 @@
                                 on:click={runThink}
                                 disabled={$chatStore.loading ||
                                     !userInput.trim() ||
-                                    !canThink}
-                                title={$chatStore.loading
-                                    ? "Processing..."
-                                    : !userInput.trim()
-                                      ? "Please enter a message"
-                                      : thinkTooltip}
+                                    !canThink ||
+                                    !hasUser ||
+                                    !hasPersona}
+                                title={!userInput.trim()
+                                    ? "Please enter a message"
+                                    : thinkTooltip}
                             >
                                 Think
                             </button>
@@ -379,12 +423,16 @@
                                 on:click={reThink}
                                 disabled={$chatStore.loading ||
                                     !$canRetry ||
-                                    !canThink}
-                                title={$chatStore.loading
-                                    ? "Processing..."
-                                    : !$canRetry
-                                      ? "No message to rethink"
-                                      : thinkTooltip}
+                                    !canThink ||
+                                    !hasUser ||
+                                    !hasPersona}
+                                title={!$canRetry
+                                    ? "No message to rethink"
+                                    : !hasUser
+                                      ? "No user set"
+                                      : !hasPersona
+                                        ? "No persona set"
+                                        : thinkTooltip}
                             >
                                 Rethink
                             </button>
@@ -394,11 +442,9 @@
                             type="button"
                             on:click={appendMessage}
                             disabled={$chatStore.loading || !userInput.trim()}
-                            title={$chatStore.loading
-                                ? "Processing..."
-                                : !userInput.trim()
-                                  ? "Please enter a message"
-                                  : ""}
+                            title={!userInput.trim()
+                                ? "Please enter a message"
+                                : ""}
                         >
                             Append
                         </button>
@@ -407,11 +453,7 @@
                             type="button"
                             on:click={() => chatStore.swapRoles()}
                             disabled={$chatStore.loading || !$canRetry}
-                            title={$chatStore.loading
-                                ? "Processing..."
-                                : !$canRetry
-                                  ? "No messages to swap"
-                                  : ""}
+                            title={!$canRetry ? "No messages to swap" : ""}
                         >
                             Swap
                         </button>
@@ -420,11 +462,7 @@
                             type="button"
                             on:click={() => chatStore.popMessage()}
                             disabled={$chatStore.loading || !$canRetry}
-                            title={$chatStore.loading
-                                ? "Processing..."
-                                : !$canRetry
-                                  ? "No messages to remove"
-                                  : ""}
+                            title={!$canRetry ? "No messages to remove" : ""}
                         >
                             Pop
                         </button>
@@ -432,10 +470,11 @@
                             class="control-button work"
                             type="button"
                             on:click={runWork}
-                            disabled={$chatStore.loading || !canWork}
-                            title={$chatStore.loading
-                                ? "Processing..."
-                                : workTooltip}
+                            disabled={$chatStore.loading ||
+                                !canWork ||
+                                !hasUser ||
+                                !hasPersona}
+                            title={workTooltip}
                         >
                             Work
                         </button>

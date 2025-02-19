@@ -1,21 +1,16 @@
 type: memory
 functions:
-  - name: pin
+  - name: pin_memory
     description: Pin a piece of information to memory
     parameters:
       type: object
       properties:
-        content:
+        conversation_id:
           type: string
-          description: The content to pin to memory
-        key:
-          type: string
-          description: Optional key to identify the pinned memory
-      required: [content]
+          description: The conversation id
+      required: [conversation_id]
       examples:
-        - content: Remember to check the weather forecast
-        - content: User prefers celsius temperature
-          key: user_temp_pref
+        - {pin_memory: {conversation_id: "conv_memory_12345"}}
 
   - name: unpin
     description: Remove a piece of information from pinned memory
@@ -27,4 +22,4 @@ functions:
           description: The key of the memory to unpin
       required: [key]
       examples:
-        - key: user_temp_pref
+        - {unpin_memory: {key: "user_temp_pref"}}

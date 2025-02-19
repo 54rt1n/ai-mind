@@ -1,0 +1,17 @@
+type: self_rag
+functions:
+  - name: query_self_rag
+    description: Use self-RAG to look up information
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: The query to search in the self-RAG
+      required: [query]
+      examples:
+        - {query_self_rag: {query: "What is the capital of France?"}}
+        - {query_self_rag: {query: "How does photosynthesis work?"}}
+implementation:
+  module: aim.tool.impl.passback
+  class: PassBackImplementation 

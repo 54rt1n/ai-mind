@@ -1,4 +1,4 @@
-# MindAI Backend
+# AI-Mind Backend
 
 The backend is a Python FastAPI application that provides a chat completion API, as well as other REST APIs for managing conversations, memories, and documents.
 
@@ -6,15 +6,16 @@ The backend is a Python FastAPI application that provides a chat completion API,
 
 ```bash
 # Clone the repository
-git clone https://github.com/54rt1n/mindai.git
-cd mindai
+git clone https://github.com/54rt1n/ai-mind.git
+cd ai-mind
 
 # Create a virtual environment
 python -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
 # Install dependencies
-pip install -r requirements.txt
+pip install poetry
+poetry install --no-root
 ```
 
 ## Quick Start
@@ -35,7 +36,7 @@ PERSONA_PATH=configs/personas
 2. Start the server:
 
 ```bash
-python -m mindai.server
+python -m aim.server
 ```
 
 ## Core Components
@@ -45,8 +46,8 @@ python -m mindai.server
 The ChatManager handles conversation state, history management, and interaction with the underlying models:
 
 ```python
-from mindai.chat import ChatManager
-from mindai.config import ChatConfig
+from aim.chat import ChatManager
+from aim.config import ChatConfig
 
 config = ChatConfig.from_env()
 chat = ChatManager.from_config(config)
@@ -57,7 +58,7 @@ chat = ChatManager.from_config(config)
 The ConversationModel manages long-term memory and conversation storage:
 
 ```python
-from mindai.conversation.model import ConversationModel
+from aim.conversation.model import ConversationModel
 
 cvm = ConversationModel.from_config(config)
 results = cvm.query(["your search query"], top_n=5)
@@ -108,12 +109,12 @@ You will need to install redis, and update the .env file with the correct inform
 To start the pipeline worker, run the following command:
 
 ```bash
-python -m mindai.app.worker
+python -m aim.app.worker
 ```
 
 ### Pipelines
 
-MindAI includes several built-in pipelines for conversation processing:
+AI-Mind includes several built-in pipelines for conversation processing:
 
 - `analyst` - Analyze the conversation, and the summary if it exists, and create a new summary.
 - `daydream` - Create a daydream from the conversation.

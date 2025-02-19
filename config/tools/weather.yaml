@@ -13,10 +13,8 @@ functions:
           enum: [fahrenheit, celsius]
       required: [location, format]
       examples:
-        - location: Overland Park, KS
-          format: fahrenheit
-        - location: London, UK
-          format: celsius
+        - {get_current_weather: {location: "Overland Park, KS", format: "fahrenheit"}}
+        - {get_current_weather: {location: "London, UK", format: "celsius"}}
 implementation:
-  module: mindai.tool.impl.weather
+  module: aim.tool.impl.weather
   class: WeatherImplementation 

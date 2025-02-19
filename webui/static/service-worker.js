@@ -2,8 +2,8 @@ const CACHE_NAME = 'prax-ai-chat-v1';
 const urlsToCache = [
     '/',
     '/index.html',
-    '/MindAI-192x192.png',
-    '/MindAI-512x512.png'
+    '/aim-192x192.png',
+    '/-512x512.png'
 ];
 
 self.addEventListener('install', (event) => {

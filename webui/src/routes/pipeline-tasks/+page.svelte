@@ -2,6 +2,7 @@
 <script lang="ts">
     import { onMount, onDestroy } from "svelte";
     import { taskStore } from "$lib/store/taskStore";
+    import { configStore } from "$lib/store/configStore";
     import { pipelineStore } from "$lib/store/pipelineStore";
     import { RefreshCw } from "lucide-svelte";
     import PipelineSettingsPanel from "$lib/components/pipeline/PipelineSettingsPanel.svelte";
@@ -11,6 +12,12 @@
     });
 
     function submitTask() {
+        if (!$configStore.pipelineModel) {
+            return alert("No pipeline model set");
+        }
+
+        $pipelineStore.formData.model = $configStore.pipelineModel;
+
         taskStore.submitTask(
             $pipelineStore.pipelineType,
             $pipelineStore.formData,

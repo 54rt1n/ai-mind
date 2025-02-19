@@ -1,4 +1,4 @@
-# MindAI Frontend
+# AI-Mind Frontend
 
 The frontend is a SvelteKit application that provides a chat interface with the ability to build and inject thoughts in to the conversation stream; in addition to conversation, document, and agent management.
 

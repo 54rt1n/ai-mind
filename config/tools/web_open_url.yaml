@@ -1,7 +1,7 @@
 type: web
 functions:
-  - name: open_url
-    description: Open a URL in the web browser
+  - name: scrape_web_url
+    description: Scrape a URL and return the content
     parameters:
       type: object
       properties:
@@ -10,8 +10,8 @@ functions:
           description: The URL to open in the browser
       required: [url]
       examples:
-        - url: https://www.google.com
-        - url: https://github.com
+        - {scrape_web_url: {url: "https://www.google.com"}}
+        - {scrape_web_url: {url: "https://github.com"}}
 implementation:
-  module: mindai.tool.impl.passback
+  module: aim.tool.impl.passback
   class: PassBackImplementation 

@@ -1,6 +1,7 @@
 <!-- src/lib/components/PipelineSettingsPanel.svelte -->
 <script lang="ts">
     import { pipelineStore } from "$lib/store/pipelineStore";
+    import { configStore } from "$lib/store/configStore";
     import type { PipelineType } from "$lib/types";
     import "$lib/../styles/meta-panels.css";
     import { modelStore } from "$lib/store/modelStore";
@@ -49,10 +50,10 @@
                 <div class="model-select-container">
                     {#if Array.isArray($modelStore.models)}
                         <ModelSelect
-                            bind:value={$pipelineStore.formData.model}
+                            bind:value={$configStore.pipelineModel}
                             category="analysis"
                         />
-                        <span>Model: {$pipelineStore.formData.model}</span>
+                        <span>Model: {$configStore.pipelineModel}</span>
                     {:else}
                         <span>No Models Found</span>
                     {/if}

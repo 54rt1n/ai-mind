@@ -115,23 +115,6 @@ class Api {
         return response.json();
     }
 
-    async getChatCompletions(messages: any[], config: ChatConfig): Promise<any> {
-        const response = await this.fetch('/v1/chat/completions', {
-            method: 'POST',
-            body: JSON.stringify({
-                messages,
-                model: config.chatModel || 'default',
-                system_message: config.systemMessage,
-                location: config.location,
-                max_tokens: config.maxTokens,
-                temperature: config.temperature,
-                pinned_messages: config.pinnedMessages.map(message => message.doc_id),
-                stream: true
-            }),
-        });
-        return response.json();
-    }
-
     async getChatModels(): Promise<{ models: ChatModel[], categories: ModelCategory[] }> {
         const response = await this.fetch('/v1/chat/models');
         return response.json();

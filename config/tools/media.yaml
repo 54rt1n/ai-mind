@@ -20,10 +20,8 @@ functions:
           default: false
       required: [source]
       examples:
-        - source: https://example.com/song.mp3
-          volume: 75
-        - source: "Mozart Symphony No. 40"
-          repeat: true
+        - {play_music: {source: "https://example.com/song.mp3", volume: 75}}
+        - {play_music: {source: "Mozart Symphony No. 40", repeat: true}}
 implementation:
-  module: mindai.tool.impl.passback
+  module: aim.tool.impl.passback
   class: PassBackImplementation 

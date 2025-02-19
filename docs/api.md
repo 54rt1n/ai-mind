@@ -1,4 +1,4 @@
-# MindAI API Documentation
+# AI-Mind API Documentation
 
 ## Authentication
 

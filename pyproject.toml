@@ -1,6 +1,6 @@
 [tool.poetry]
-name = "mindai"
-version = "0.1.0"
+name = "ai-mind"
+version = "0.1.1"
 description = "An agentic AI with Active Memory"
 authors = ["Martin Bukowski <4502632+54rt1n@users.noreply.github.co>"]
 license = "CC-BY-NC-SA-4.0"

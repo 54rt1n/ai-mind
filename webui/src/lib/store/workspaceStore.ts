@@ -34,7 +34,6 @@ function createWorkspaceStore() {
             content: savedData || '',
             contentStream: '',
             wordCount: wordCount,
-            workspaceModel: '',
         };
         return newState;
     }
@@ -62,7 +61,6 @@ function createWorkspaceStore() {
             content: savedData || '',
             contentStream: '',
             wordCount: wordCount,
-            workspaceModel: '',
         };
         localStorage.setItem(STORAGE_KEY_CATEGORY, newCategory);
         set(newState);
@@ -89,7 +87,8 @@ function createWorkspaceStore() {
         });
     }
 
-    async function generateWorkspaceUpdate(config: ChatConfig,
+    async function generateWorkspaceUpdate(
+        config: ChatConfig,
         conversationHistory: any[],
         systemMessage: string) {
         update(state => ({ ...state, contentStream: '' }));
@@ -124,6 +123,14 @@ function createWorkspaceStore() {
                     messages: conversationWithContext,
                     model: config.workspaceModel,
                     system_message: systemMessage,
+                    max_tokens: config.maxTokens,
+                    temperature: config.temperature,
+                    top_p: config.topP,
+                    top_k: config.topK,
+                    min_p: config.minP,
+                    frequency_penalty: config.frequencyPenalty,
+                    presence_penalty: config.presencePenalty,
+                    repetition_penalty: config.repetitionPenalty,
                     stream: true
                 }),
                 (chunk) => {

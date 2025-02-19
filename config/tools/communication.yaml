@@ -20,13 +20,8 @@ functions:
           default: false
       required: [to, subject, body]
       examples:
-        - to: user@example.com
-          subject: Hello
-          body: This is a test email
-        - to: admin@example.com
-          subject: Report
-          body: <h1>Monthly Report</h1>
-          html: true
+        - {send_email: {to: user@example.com, subject: Hello, body: This is a test email}}
+        - {send_email: {to: admin@example.com, subject: Report, body: <h1>Monthly Report</h1>, html: true}}
 
   - name: post_tweet
     description: Post a tweet
@@ -41,9 +36,8 @@ functions:
           description: ID of tweet to reply to (optional)
       required: [content]
       examples:
-        - content: Hello Twitter!
-        - content: Great point!
-          reply_to: 123456789
+        - {post_tweet: {content: Hello Twitter!}}
+        - {post_tweet: {content: Great point!, reply_to: 123456789}}
 
   - name: post_discord
     description: Post a message to Discord
@@ -61,13 +55,8 @@ functions:
           description: Optional embed object
       required: [channel, content]
       examples:
-        - channel: general
-          content: Hello Discord!
-        - channel: announcements
-          content: New release!
-          embed:
-            title: Version 1.0.0
-            description: New features...
+        - {post_discord: {channel: "general", content: "Hello Discord!"}}
+        - {post_discord: {channel: "announcements", content: "New release!", embed: {title: "Version 1.0.0", description: "New features..."}}}
 implementation:
-  module: mindai.tool.impl.communication
+  module: aim.tool.impl.communication
   class: CommunicationImplementation 

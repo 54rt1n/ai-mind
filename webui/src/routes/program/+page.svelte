@@ -142,6 +142,14 @@
     function handleTypeSelect(type: "simple" | "tool") {
         const user_id = $configStore.user_id;
         const persona_id = $configStore.persona_id;
+
+        if (user_id === null || persona_id === null) {
+            toastMessage = "Please select a user and persona first.";
+            toastType = "error";
+            showToast = true;
+            return;
+        }
+
         let system_message = "";
         if (type === "tool") {
             system_message =

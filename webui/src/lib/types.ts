@@ -63,31 +63,33 @@ export interface ConversationMessage {
 }
 
 export interface ChatConfig {
-    user_id: string;
-    persona: string;
-    persona_id: string;
+    user_id: string | null | undefined;
+    persona: string | null | undefined;
+    persona_id: string | null | undefined;
 
     // Emotional State Settings
     emotionalStateEnabled: boolean;
-    state1: string;
-    state2: string;
-    state3: string;
+    state1: string | null | undefined;
+    state2: string | null | undefined;
+    state3: string | null | undefined;
 
     // Sentiment Meter Settings
     sentimentMeterEnabled: boolean;
-    selectedSentiment: string;
-    sentimentName: string;
-    sentimentGuidance: string;
-    sentimentLevel: number;
+    selectedSentiment: string | null | undefined;
+    sentimentName: string | null | undefined;
+    sentimentGuidance: string | null | undefined;
+    sentimentLevel: number | null | undefined;
 
     // Footer Settings
-    selectedFooter: string;
+    selectedFooter: string | null | undefined;
 
     // Advanced Settings
     chatModel: string | null | undefined;
     completionModel: string | null | undefined;
     thoughtModel: string | null | undefined;
     workspaceModel: string | null | undefined;
+    pipelineModel: string | null | undefined;
+    toolModel: string | null | undefined;
 
     mood: string | null | undefined;
     systemMessage: string | null | undefined;
@@ -117,7 +119,10 @@ export interface ChatConfig {
     showControls: boolean;
     showHeader: boolean;
     showClipboard: boolean;
+    showWorkspace: boolean;
     showThought: boolean;
+    showTools: boolean;
+    includeWorkspaceInMessages: boolean;
 }
 
 export interface ChatModel {
