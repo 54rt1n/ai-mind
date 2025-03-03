@@ -245,6 +245,17 @@ models:
       - conversation
       - analysis
       - workspace
+      - completion
+  - name: unsloth/Mistral-Small-24B-Base-2501
+    architecture: mistral
+    provider: featherless
+    size: 24B
+    category:
+      - functions
+      - conversation
+      - analysis
+      - workspace
+      - completion
   - name: empower-dev/llama3-empower-functions-large-v1.1
     architecture: llama3.3
     provider: featherless

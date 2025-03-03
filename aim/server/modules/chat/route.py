@@ -169,6 +169,11 @@ class ChatModule:
         else:
             self.chat_strategy.thought_content = None
 
+        if metadata.scratch_pad:
+            self.chat_strategy.scratch_pad = metadata.scratch_pad
+        else:
+            self.chat_strategy.scratch_pad = None
+
         self.config.user_id = metadata.user_id
         self.config.persona_id = metadata.persona_id
         self.config.temperature = request.temperature
@@ -180,7 +185,7 @@ class ChatModule:
         system_formatter = XmlFormatter()
 
         if request.system_message is not None:
-            system_formatter.add_element("SystemMessage", content=request.system_message)
+            system_formatter.add_element("SystemMessage", content=request.system_message, priority=3)
 
         system_formatter = persona.xml_decorator(system_formatter,
             mood=self.config.persona_mood,

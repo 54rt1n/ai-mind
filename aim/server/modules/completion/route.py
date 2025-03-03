@@ -37,29 +37,33 @@ class CompletionModule:
         async def completions(request: CompletionRequest):
             try:
                 provider = self.models[request.model].completion_factory(self.config)
-
                 completion_params = request.model_dump(exclude_unset=True)
                 response_id = str(uuid.uuid4())
                 created_time = int(time.time())
 
-                if completion_params.get("stream", False):
+                # Explicitly check stream parameter
+                stream = completion_params.get("stream", False)
+                if isinstance(stream, str):
+                    stream = stream.lower() == "true"
+
+                if stream:
                     return StreamingResponse(
                         self._stream_response(provider, request, response_id, created_time),
-                        media_type="text/event-stream"
+                        media_type="text/event-stream",
+                        headers={
+                            "Cache-Control": "no-cache",
+                            "Connection": "keep-alive",
+                        }
                     )
 
                 # Non-streaming response
                 full_response = ""
-                print("Response: ", end="")
                 for chunk in provider.stream_completion(
                     config=self.config,
                     **completion_params
                 ):
-                    print(chunk, flush=True, end="")
                     if chunk:
                         full_response += chunk
-                        
-                print()  # Print a newline after the response is complete
 
                 return CompletionResponse(
                     id=response_id,
@@ -81,7 +85,6 @@ class CompletionModule:
             except LLMProviderError as e:
                 logger.error(f"Provider error: {str(e)}")
                 raise HTTPException(status_code=400, detail=str(e))
-
             except Exception as e:
                 logger.error(f"Completion error: {str(e)}")
                 raise HTTPException(status_code=500, detail=str(e))
@@ -94,15 +97,21 @@ class CompletionModule:
         created_time: int
     ) -> AsyncGenerator[str, None]:
         completion_params = request.model_dump(exclude_unset=True)
-        full_response = ""
 
         try:
-            for chunk in provider.stream_completion(
+            # Create the generator before starting to stream
+            completion_generator = provider.stream_completion(
                 config=self.config,
                 **completion_params
-            ):
+            )
+
+            # Process chunks from the generator
+            for chunk in completion_generator:
+                if not provider.running:
+                    logger.info("Client lost connection.")
+                    break
+                    
                 if chunk:
-                    full_response += chunk
                     chunk_data = {
                         "id": response_id,
                         "object": "text_completion.chunk",
@@ -116,9 +125,10 @@ class CompletionModule:
                         }]
                     }
                     yield f"data: {json.dumps(chunk_data)}\n\n"
+                    # Allow other tasks to run
                     await asyncio.sleep(0)
 
-            # Send final chunk
+            # Send final chunk with finish_reason
             final_chunk = {
                 "id": response_id,
                 "object": "text_completion.chunk",
@@ -133,6 +143,11 @@ class CompletionModule:
             }
             yield f"data: {json.dumps(final_chunk)}\n\n"
             yield "data: [DONE]\n\n"
+
         except asyncio.CancelledError:
-            print("Client lost connection.")
+            logger.info("Client disconnected")
             provider.running = False
+        except Exception as e:
+            logger.error(f"Error during streaming: {str(e)}")
+            provider.running = False
+            raise

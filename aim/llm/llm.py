@@ -104,6 +104,7 @@ class OpenAIProvider(LLMProvider):
         progress = 0
         lastpct = 0
         tenpct = int(config.max_tokens * 0.1)
+        logger.info(f"Request: {len(str(messages))} characters. Generating {config.max_tokens} tokens.")
 
         for t in self.openai.chat.completions.create(
             model=model,

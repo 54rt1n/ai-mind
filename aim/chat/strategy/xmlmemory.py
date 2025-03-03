@@ -20,8 +20,7 @@ logger = logging.getLogger(__name__)
 
 class XMLMemoryTurnStrategy(ChatTurnStrategy):
     def __init__(self, chat : ChatManager):
-        self.chat = chat
-        self.pinned : list[str] = []
+        super().__init__(chat)
         # TODO We need to calculate the actual tokens. This guesstimating is not working well.
         self.max_character_length = int((16384 - 4096) * (TOKEN_CHARS - 2.00))
         self.hud_name = "HUD Display Output"
@@ -64,7 +63,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         logger.info(f"Initial Conscious Memory Length: {total_len}")
         document_content = []
 
-        formatter.add_element("PraxOS", content="--== PraxOS Conscious Memory **Online** ==--", nowrap=True)
+        formatter.add_element("PraxOS", content="--== PraxOS Conscious Memory **Online** ==--", nowrap=True, priority=3)
         
         # Document handling
         if self.chat.current_document is not None:
@@ -75,23 +74,27 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                 metadata=dict(
                     name=self.chat.current_document,
                     length=doc_size
-                )
+                ), priority=2
             )
         else:
             logger.info("No current document")
 
         # Workspace handling
         if self.chat.current_workspace is not None:
-            workspace_contents = self.chat.current_workspace
-            ws_size = len(workspace_contents.split())
+            ws_size = len(self.chat.current_workspace.split())
+            content_len += ws_size
             logger.debug(f"Workspace: {ws_size} words")
-            formatter.add_element("workspace", content=workspace_contents,
-                metadata=dict(
-                    length=ws_size
-                )
-            )
         else:
+            ws_size = 0
             logger.info("No current workspace")
+
+        if self.scratch_pad:
+            scratch_pad_size = len(self.scratch_pad.split())
+            content_len += scratch_pad_size
+            logger.debug(f"Scratch Pad: {scratch_pad_size} words")
+        else:
+            scratch_pad_size = 0
+            logger.info("No scratch pad")
 
         my_emotions = defaultdict(int)
         my_keywords = defaultdict(int)
@@ -111,7 +114,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                     logger.info(f"MOTD is older than 3 days, skipping: {row['date']}")
                     continue
                 row_entry = f"xoxo MOTD: {row['date']}: {row['content']} oxox"
-                formatter.add_element(self.hud_name, "Active Memory", "MOTD", content=row_entry)
+                formatter.add_element(self.hud_name, "Active Memory", "MOTD", content=row_entry, priority=2)
                 logger.debug(f"CMemory: {len(row_entry)} {row['conversation_id']}/{row['document_type']}/{row['date']}/{row['doc_id']}")
                 parse_row(row)
 
@@ -119,7 +122,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
 
         conscious = self.chat.cvm.get_conscious(persona.persona_id, top_n=self.chat.config.recall_size)
         for thought in persona.thoughts:
-            formatter.add_element(self.hud_name, "thought", content=thought, nowrap=True)
+            formatter.add_element(self.hud_name, "thought", content=thought, nowrap=True, priority=2)
         
         seen_docs = set()
         if not conscious.empty:
@@ -130,7 +133,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                 row_entry = row['content']
                 formatter.add_element(self.hud_name, "Active Memory", "Journal",
                                       date=row['date'], type=row['document_type'],
-                                      content=row_entry)
+                                      content=row_entry, priority=2)
                 parse_row(row)
                 logger.debug(f"CMemory: {len(row_entry)} {row['conversation_id']}/{row['document_type']}/{row['date']}/{row['doc_id']}")
 
@@ -141,7 +144,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                 row_entry = row['content']
                 formatter.add_element(self.hud_name, "Active Memory", "memory",
                                       date=row['date'], type=row['document_type'],
-                                      content=row_entry)
+                                      content=row_entry, priority=1)
                 parse_row(row)
                 logger.debug(f"PMemory: {len(row_entry)} {row['conversation_id']}/{row['document_type']}/{row['date']}/{row['doc_id']}")
 
@@ -160,7 +163,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                 row_entry = row['content']
                 formatter.add_element(self.hud_name, "Active Memory", "memory",
                                       date=row['date'], type=row['document_type'],
-                                      content=row_entry)
+                                      content=row_entry, priority=1)
                 parse_row(row)
                 logger.debug(f"AMemory: {len(row_entry)} {row['conversation_id']}/{row['document_type']}/{row['date']}/{row['doc_id']}")
         
@@ -171,16 +174,32 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                 row_entry = row['content']
                 formatter.add_element(self.hud_name, "Active Memory", "memory",
                                       date=row['date'], type=row['document_type'],
-                                      content=row_entry)
+                                      content=row_entry, priority=1)
                 parse_row(row)
                 logger.debug(f"UMemory: {len(row_entry)} {row['conversation_id']}/{row['document_type']}/{row['date']}/{row['doc_id']}")
 
         logger.info(f"Total Conscious Memory Length: {formatter.current_length}")
 
         if len(my_emotions) > 0:
-            formatter.add_element(self.hud_name, "emotions", content=", ".join(e for e in my_emotions.keys() if e is not None))
+            formatter.add_element(self.hud_name, "emotions", content=", ".join(e for e in my_emotions.keys() if e is not None), priority=1)
         if len(my_keywords) > 0:
-            formatter.add_element(self.hud_name, "keywords", content=", ".join(k for k in my_keywords.keys() if k is not None))
+            formatter.add_element(self.hud_name, "keywords", content=", ".join(k for k in my_keywords.keys() if k is not None), priority=1)
+
+        if self.chat.current_workspace is not None:
+            formatter.add_element(self.hud_name, "workspace", content="The user is sharing a workspace with you.", priority=3)
+            formatter.add_element(self.hud_name, "workspace", content=self.chat.current_workspace,
+                metadata=dict(
+                    length=ws_size
+                ), priority=3
+            )
+
+        if self.scratch_pad:
+            formatter.add_element(self.hud_name, "scratchpad", content="You are sharding a scrachpad with yourself.", priority=3)
+            formatter.add_element(self.hud_name, "scratchpad", content=self.scratch_pad,
+                metadata=dict(
+                    length=scratch_pad_size
+                ), priority=3
+            )
 
         logger.debug(f"Conscious Memory: Total Length: {formatter.current_length}/{self.max_character_length}")
 
@@ -253,6 +272,8 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                 assistant_queries=assistant_turn_history,
                 content_len=(content_len or 0)+history_len+thought_len
                 )
+
+        logger.info(f"Consciousness Length: {len(consciousness)}")
         
         consciousness_turn = {"role": "user", "content": consciousness}
         

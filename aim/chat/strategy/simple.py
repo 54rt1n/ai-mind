@@ -8,7 +8,7 @@ from .base import ChatTurnStrategy
 
 class SimpleTurnStrategy(ChatTurnStrategy):
     def __init__(self, chat : ChatManager):
-        self.chat = chat
+        super().__init__(chat)
 
     def user_turn_for(self, persona: Persona, user_input: str, history: list[dict[str, str]] = []) -> dict[str, str]:
         return {"role": "user", "content": user_input}

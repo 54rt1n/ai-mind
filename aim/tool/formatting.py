@@ -86,9 +86,10 @@ class ToolUser:
             return xml
 
         # Add tools section with header
-        xml.add_element("Tools", content="Available tools for your use:")
+        xml.add_element("Tools", content="Available tools for your use:", nowrap=True, priority=0)
         xml.add_element("Tools", "Format",
             content="To use a tool, output a JSON object in the following format:",
+            nowrap=True, priority=1,
         )
 
         # Document each tool with example
@@ -119,21 +120,21 @@ class ToolUser:
 
             # Add tool documentation
             xml.add_element(
-                "Tools", "functions", tool.function.name, "Name", content=tool.function.name, nowrap=True,
+                "Tools", "functions", tool.function.name, "Name", content=tool.function.name, nowrap=True, priority=1,
             )
             xml.add_element(
-                "Tools", "functions", tool.function.name, "Type", content=tool.type, nowrap=True,
+                "Tools", "functions", tool.function.name, "Type", content=tool.type, nowrap=True, priority=1,
             )
             xml.add_element(
-                "Tools", "functions", tool.function.name, "Description", content=tool.function.description, nowrap=True,
+                "Tools", "functions", tool.function.name, "Description", content=tool.function.description, nowrap=True, priority=1,
             )
             xml.add_element(
-                "Tools", "functions", tool.function.name, "Example", content=f"```json\n{json.dumps(example, indent=2)}\n```", nowrap=True,
+                "Tools", "functions", tool.function.name, "Example", content=f"```json\n{json.dumps(example, indent=2)}\n```", nowrap=True, priority=1,
             )
 
             # Add parameter details
             xml.add_element(
-                "Tools", "functions", tool.function.name, "Parameters", content="Required parameters and their descriptions:", nowrap=True,
+                "Tools", "functions", tool.function.name, "Parameters", content="Required parameters and their descriptions:", nowrap=True, priority=1,
             )
             for param_name, param_info in tool.function.parameters.properties.items():
                 required = "[Required]" if param_name in tool.function.parameters.required else "[Optional]"
@@ -143,7 +144,7 @@ class ToolUser:
                 description = param_info.get("description", "")
                 xml.add_element(
                     "Tools", "functions", tool.function.name, "Parameters", "Parameter",
-                    content=f"{param_name} ({param_type}): {description} {required}", nowrap=True,
+                    content=f"{param_name} ({param_type}): {description} {required}", nowrap=True, priority=1,
                 )
 
         return xml
