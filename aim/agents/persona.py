@@ -82,19 +82,19 @@ class Persona:
 
     def _xml_description(self, *base_path, xml: XmlFormatter, show_time: bool = True, mood: Optional[str] = None, disable_pif: bool = False, disable_guidance: bool = False) -> str:
         for k, v in self.attributes.items():
-            xml.add_element(*base_path, 'Attributes', k[:3], content=v, nowrap=True)
+            xml.add_element(*base_path, 'Attributes', k[:3], content=v, nowrap=True, priority=1)
         for k, v in self.features.items():
-            xml.add_element(*base_path, 'Features', k, content=v, nowrap=True)
+            xml.add_element(*base_path, 'Features', k, content=v, nowrap=True, priority=1)
         if not disable_pif:
             for k, v in self.pif.items():
                 if disable_guidance:
                     if k[:7] == "Example":
                         continue
-                xml.add_element(*base_path, 'PIF', k, content=v)
+                xml.add_element(*base_path, 'PIF', k, content=v, priority=3)
         for k, v in self.nshot.items():
             if 'human' in v and 'assistant' in v:
-                xml.add_element(*base_path, 'NShot', k, 'Human', content=v['human'])
-                xml.add_element(*base_path, 'NShot', k, 'Assistant', content=v['assistant'])
+                xml.add_element(*base_path, 'NShot', k, 'Human', content=v['human'], priority=1)
+                xml.add_element(*base_path, 'NShot', k, 'Assistant', content=v['assistant'], priority=1)
             else:
                 logger.warning(f"NShot {k} is missing human or assistant")
 
@@ -117,15 +117,15 @@ class Persona:
         location = location or self.default_location
         # We need to add each item as 'content', with the full name being our root key
         xml.add_element(self.full_name, version=self.persona_version,
-                        content=f"You are {self.full_name} v{self.persona_version} - Active Memory Enabled. This is your cognative persona:")
-        xml.add_element(self.full_name, "PersonaId", content=self.persona_id, nowrap=True)
-        xml.add_element(self.full_name, "Location", content=location, nowrap=True)
+                        content=f"You are {self.full_name} v{self.persona_version} - Active Memory Enabled. This is your cognative persona:", priority=3)
+        xml.add_element(self.full_name, "PersonaId", content=self.persona_id, nowrap=True, priority=1)
+        xml.add_element(self.full_name, "Location", content=location, nowrap=True, priority=2)
         if len(self.system_header) > 0:
-            xml.add_element(self.full_name, "SystemHeader", content=self.system_header, nowrap=True)
+            xml.add_element(self.full_name, "SystemHeader", content=self.system_header, nowrap=True, priority=2)
 
         if user_id is not None:
-            xml.add_element(self.full_name, "SystemHeader", content=f"{self.persona_id} is talking to {user_id}.", nowrap=True)
-            xml.add_element(self.full_name, "SystemHeader", content=f"Stay in character, and use your memories to help you. Don't speak for {user_id}.", nowrap=True)
+            xml.add_element(self.full_name, "SystemHeader", content=f"{self.persona_id} is talking to {user_id}.", nowrap=True, priority=2)
+            xml.add_element(self.full_name, "SystemHeader", content=f"Stay in character, and use your memories to help you. Don't speak for {user_id}.", nowrap=True, priority=2)
 
         xml = self._xml_description(self.full_name, xml=xml, show_time=self.include_date, mood=mood, disable_guidance=disable_guidance, disable_pif=disable_pif)
 
@@ -193,7 +193,7 @@ class Persona:
         thoughts = [*self.base_thoughts]
         if self.include_date:
             current_time = int(time.time())
-            strtime = datetime.fromtimestamp(current_time).strftime("%Y-%m-%d %H:%M:%S")
+            strtime = datetime.fromtimestamp(current_time).strftime("%A, %Y-%m-%d %H:%M:%S")
             logger.info(f"Using Current date: {strtime}")
             thoughts.append(f"Current Time [{strtime} ({current_time})]")
         return thoughts

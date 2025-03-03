@@ -17,6 +17,7 @@ class XmlLeaf:
     content: str
     attrs: dict
     nowrap: bool
+    priority: int
 
     @property
     def format_attrs(self) -> str:
@@ -44,11 +45,11 @@ class XmlNode:
     children: OrderedDict[str, "XmlNode"]
     depth: int = 0
 
-    def add_leaf(self, name: str, content: str, attrs: dict = {}, nowrap: bool = False) -> None:
+    def add_leaf(self, name: str, content: str, attrs: dict = {}, nowrap: bool = False, priority: int = 0) -> None:
         """
         Add a leaf node to the current node.
         """
-        self.leaves.append(XmlLeaf(depth=self.depth, name=name, content=content, attrs=attrs, nowrap=nowrap))
+        self.leaves.append(XmlLeaf(depth=self.depth, name=name, content=content, attrs=attrs, nowrap=nowrap, priority=priority))
 
     def add_child(self, name: str) -> "XmlNode":
         """
@@ -175,7 +176,7 @@ class XmlFormatter:
         """
         return self._current_length
 
-    def add_element(self, *path: str, content: str = None, nowrap: bool = False, **attrs):
+    def add_element(self, *path: str, content: str = None, nowrap: bool = False, priority: int = 0, **attrs):
         """
         Add an element with content and optional attributes at the specified path.
 
@@ -184,6 +185,8 @@ class XmlFormatter:
         Args:
             *path (str): Variable length path to the element location
             content (str): The text content of the element (optional)
+            nowrap (bool): Whether to wrap the content in a new line (default: False)
+            priority (int): Priority level for the element (default: 0)
             **attrs: Optional attributes for the element as keyword arguments
         """
         if not path:
@@ -200,7 +203,7 @@ class XmlFormatter:
         # If we have content, add it as a leaf to the parent
         if content is not None:
             # Add new content length
-            current.add_leaf(name=last, content=content, attrs=attrs, nowrap=nowrap)
+            current.add_leaf(name=last, content=content, attrs=attrs, nowrap=nowrap, priority=priority)
             new_attrs_length = sum(len(str(k)) + len(str(v)) + 4 for k, v in attrs.items())
             self._current_length += len(str(content)) + new_attrs_length
         else:

@@ -23,6 +23,21 @@ from .loader import ConversationLoader
 logger = logging.getLogger(__name__)
 
 
+def sanitize_timestamp(timestamp: int) -> int:
+    """
+    Sanitizes a timestamp to ensure it's within valid datetime range.
+    Max timestamp is set to year 9999 to stay within datetime limits.
+    Min timestamp is set to year 1970 (Unix epoch start).
+    """
+    max_timestamp = 253402300799  # 9999-12-31 23:59:59
+    min_timestamp = 0  # 1970-01-01 00:00:00
+    
+    if not isinstance(timestamp, (int, float)):
+        return min_timestamp
+    
+    return max(min(int(timestamp), max_timestamp), min_timestamp)
+
+
 class ConversationModel:
     collection_name : str = 'memory'
 
@@ -275,7 +290,7 @@ class ConversationModel:
                            results['weight'] * \
                            results['temporal_decay'] + results['length_score']
 
-        results['date'] = results['timestamp'].apply(lambda d: datetime.fromtimestamp(d).strftime('%Y-%m-%d %H:%M:%S'))
+        results['date'] = results['timestamp'].apply(lambda d: datetime.fromtimestamp(sanitize_timestamp(d)).strftime('%Y-%m-%d %H:%M:%S'))
 
         # if the role is user, we use the user_id as the speaker, if the role is assistant, we use the persona_id
         results['speaker'] = results.apply(lambda row: row['user_id'] if row['role'] == 'user' else row['persona_id'], axis=1)
@@ -308,7 +323,7 @@ class ConversationModel:
         """
         Fixes the given DataFrame by adding the missing columns and removing the unnecessary ones.
         """
-        results['date'] = results['timestamp'].apply(lambda d: datetime.fromtimestamp(d).strftime('%Y-%m-%d %H:%M:%S'))
+        results['date'] = results['timestamp'].apply(lambda d: datetime.fromtimestamp(sanitize_timestamp(d)).strftime('%Y-%m-%d %H:%M:%S'))
         results['speaker'] = results.apply(lambda row: row['user_id'] if row['role'] == 'user' else row['persona_id'], axis=1)
         return results
         
@@ -388,7 +403,7 @@ class ConversationModel:
         # Load our conversation file
         results : pd.DataFrame = self._query_conversation(conversation_id, query_document_type, filter_document_type, **kwargs)
 
-        results['date'] = results['timestamp'].apply(lambda d: datetime.fromtimestamp(d).strftime('%Y-%m-%d %H:%M:%S'))
+        results['date'] = results['timestamp'].apply(lambda d: datetime.fromtimestamp(sanitize_timestamp(d)).strftime('%Y-%m-%d %H:%M:%S'))
         results['speaker'] = results.apply(lambda row: row['user_id'] if row['role'] == 'user' else row['persona_id'], axis=1)
 
         return results[VISIBLE_COLUMNS + ['date', 'speaker']]

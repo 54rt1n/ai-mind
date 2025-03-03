@@ -37,33 +37,32 @@ class OpenAICompletionProvider(CompletionProvider):
         completion_params = {
             "model": kwargs.get("model", self.model),
             "prompt": prompt,
-            #"min_tokens": kwargs.get("min_tokens", 1),
             "max_tokens": kwargs.get("max_tokens", config.max_tokens),
             "temperature": kwargs.get("temperature", config.temperature),
             "presence_penalty": kwargs.get("presence_penalty", config.presence),
             "frequency_penalty": kwargs.get("frequency_penalty", config.repetition),
-            "repetition_penalty": kwargs.get("repetition_penalty", config.repetition),
             "top_p": kwargs.get("top_p", None),
-            "top_k": kwargs.get("top_k", None),
             "stop": kwargs.get("stop", config.stop_sequences),
-            "stop_token_ids": kwargs.get("stop_token_ids", None),
-            #"include_stop_str_in_output": kwargs.get("include_stop_str_in_output", False),
-            "stream": True
         }
+
+        completion_params["stop"].append("[DONE]")
+        logger.info(completion_params)
 
         # Filter out None values
         completion_params = {k: v for k, v in completion_params.items() if v is not None}
         self.running = True
 
-        stream : Stream[Completion] = self.openai.completions.create(**completion_params)
-
-        for chunk in stream:
-            if not self.running:
-                stream.close()
-                break
-            if type(chunk) is Completion:
-                if chunk.choices[0].text:
-                    yield chunk.choices[0].text
+        try:
+            response : Completion = self.openai.completions.create(
+                stream=False,
+                **completion_params)
+            logger.info(response)
+            yield response.choices[0].text
+        except Exception as e:
+            logger.error(f"Error during completion streaming: {e}")
+            raise
+        finally:
+            self.running = False
 
     @classmethod
     def from_url(cls, url: str, api_key: str, model_name: Optional[str] = None):

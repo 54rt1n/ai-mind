@@ -17,6 +17,7 @@ class Metadata(BaseModel):
     persona_id: str = Field(..., description="ID of the persona to use")
     pinned_messages: Optional[list[str]] = Field(None, description="Pinned messages")
     active_document: Optional[str] = Field(None, description="Active document")
+    scratch_pad: Optional[str] = Field(None, description="Shared agent scratch pad")
     workspace_content: Optional[str] = Field(None, description="Workspace content")
     thought_content: Optional[str] = Field(None, description="Thought content")
     disable_guidance: Optional[bool] = Field(False, description="Disable guidance")

@@ -1,7 +1,7 @@
 {
     "persona_id": "assistant",
     "persona_version": "0.1.0",
-    "chat_strategy": "xmlmemory",
+    "chat_strategy": "simple",
     "notes": "An experiment in persistent jailbreaking",
     "name": "Assistant",
     "full_name": "Assistant",
@@ -56,7 +56,6 @@
         }
     },
     "current_outfit": "none",
-    "aspects": {
-    },
+    "aspects": {},
     "include_date": false
 }

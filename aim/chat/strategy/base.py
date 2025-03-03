@@ -26,6 +26,7 @@ class ChatTurnStrategy(ABC):
         self.chat = chat
         self.pinned : list[str] = []
         self.thought_content : Optional[str] = None
+        self.scratch_pad : Optional[str] = None
 
     def pin_message(self, doc_id: str):
         if doc_id not in self.pinned:
