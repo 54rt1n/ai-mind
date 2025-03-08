@@ -18,6 +18,7 @@
     import WorkspacePanel from "$lib/components/clipboard/WorkspacePanel.svelte";
     import CopyButton from "$lib/components/clipboard/CopyButton.svelte";
     import Thinking from "$lib/components/ui/Thinking.svelte";
+    import MessageRenderer from "$lib/components/chat/MessageRenderer.svelte";
 
     let isModalOpen = false;
     let editingContent = "";
@@ -325,7 +326,7 @@
                                 </button>
                             </div>
                         </div>
-                        <span class="message-content">{message.content}</span>
+                        <MessageRenderer content={message.content} />
                     </div>
                 {/each}
             </div>

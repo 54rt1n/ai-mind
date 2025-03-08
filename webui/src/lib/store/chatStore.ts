@@ -80,6 +80,7 @@ function createChatStore() {
             topK?: number | null,
             disableGuidance?: boolean | null,
             disablePif?: boolean | null,
+            onComplete?: () => void,
         } = {}
     ) {
         update(store => ({ ...store, loading: true }));
@@ -112,6 +113,9 @@ function createChatStore() {
         try {
             await api.sendChatCompletion(body, handleResponse);
             saveConversationData();
+            if (options.onComplete) {
+                options.onComplete();
+            }
         } catch (error) {
             console.error('Error:', error);
         } finally {
@@ -163,7 +167,29 @@ function createChatStore() {
                 });
             }
 
-            await _sendMessage(model, messages, handleResponse, config, { workspaceContent: options.workspaceContent });
+            // Handle final response with think extraction when complete
+            const handleComplete = () => {
+                update(store => {
+                    const newHistory = [...store.conversationHistory];
+                    const lastMessage = newHistory[newHistory.length - 1];
+
+                    // Process the think content when streaming is complete
+                    if (lastMessage && lastMessage.content) {
+                        const { content, think } = extractThinkContent(lastMessage.content);
+                        if (think) {
+                            // If think tags were found, preserve the original content but add think metadata
+                            lastMessage.think = think;
+                        }
+                    }
+
+                    return { ...store, conversationHistory: newHistory };
+                });
+            }
+
+            await _sendMessage(model, messages, handleResponse, config, {
+                workspaceContent: options.workspaceContent,
+                onComplete: handleComplete
+            });
 
             saveConversationData();
             return { status: 'success', message: 'Message sent successfully' };
@@ -196,9 +222,29 @@ function createChatStore() {
         update(store => ({ ...store, loading: true }));
 
         try {
+            // Process each message before saving
+            const processedHistory = get({ subscribe }).conversationHistory.map(message => {
+                // Only process if not already processed
+                if (message.content) {
+                    const { content, think } = extractThinkContent(message.content);
+
+                    // If think content was found, return modified message with separated content
+                    if (think) {
+                        return {
+                            ...message,
+                            content, // Clean content without think tags
+                            think,   // Extracted think content
+                        };
+                    }
+                }
+
+                // Return message unchanged if no think tags or already processed
+                return message;
+            });
+
             const response = await api.saveConversation(
                 get({ subscribe }).conversationId,
-                get({ subscribe }).conversationHistory
+                processedHistory
             )
 
             if (!response.ok) {
@@ -355,6 +401,36 @@ function createChatStore() {
             };
         });
         saveConversationData();
+    }
+
+    // Extract think content from message text
+    function extractThinkContent(text: string): { content: string, think: string | null } {
+        // First check for complete think tags
+        const completeThinkRegex = /<think>([\s\S]*?)<\/think>/;
+        const completeMatch = completeThinkRegex.exec(text);
+
+        if (completeMatch && completeMatch[1]) {
+            // Complete think tag found - extract content
+            const thinkContent = completeMatch[1].trim();
+            // Remove think tags for display
+            const cleanContent = text.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+            return { content: cleanContent, think: thinkContent };
+        }
+
+        // If no complete tag, check for partial think tag (open without close)
+        const partialThinkRegex = /<think>([\s\S]*?)$/;
+        const partialMatch = partialThinkRegex.exec(text);
+
+        if (partialMatch && partialMatch[1]) {
+            // Partial think tag found - extract content
+            const thinkContent = partialMatch[1].trim();
+            // Remove partial think tag for display
+            const cleanContent = text.replace(/<think>[\s\S]*?$/, "").trim();
+            return { content: cleanContent, think: thinkContent };
+        }
+
+        // No think tags found
+        return { content: text, think: null };
     }
 
     return {

@@ -20,7 +20,8 @@
     width: auto;
 }
 
-textarea, input[type="text"] {
+textarea,
+input[type="text"] {
     width: 100%;
     margin-bottom: 10px;
     box-sizing: border-box;
@@ -43,6 +44,7 @@ button:disabled {
 
 .message {
     margin-bottom: 10px;
+    position: relative;
 }
 
 .user {
@@ -56,4 +58,29 @@ button:disabled {
 .message-content {
     white-space: pre-wrap;
     word-wrap: break-word;
+}
+
+/* Animation for the slide transition */
+.slide-transition {
+    transition: all 0.2s ease-in-out;
+}
+
+/* Dark theme for think blocks */
+.dark-theme .think-block {
+    background-color: #1e262f;
+    color: #c9d1d9;
+}
+
+.light-theme .think-block {
+    background-color: #f0f4f9;
+    color: #1f2937;
+}
+
+/* Focus styling for the think-header button */
+.think-header:focus {
+    outline: none;
+}
+
+.think-header:focus-visible {
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5);
 }

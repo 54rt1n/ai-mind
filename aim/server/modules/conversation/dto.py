@@ -8,6 +8,7 @@ class SimpleConversationMessage(BaseModel):
     role: str
     content: str
     timestamp: int = 0
+    think: str | None = None
 
 
 class SaveConversationRequest(BaseModel):
