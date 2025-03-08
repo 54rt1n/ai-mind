@@ -161,7 +161,7 @@ function createThoughtStore() {
                         system_message: state.thoughtSystemMessage,
                         temperature: 0.9,
                         min_p: 0.05,
-                        max_tokens: 1024,
+                        max_tokens: 2048,
                         stream: true
                     }),
                     (chunk) => {

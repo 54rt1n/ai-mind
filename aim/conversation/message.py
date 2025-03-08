@@ -41,6 +41,7 @@ class ConversationMessage:
     role: str
     content: str
     timestamp: int
+    think: str | None = None
 
     # Our turn emotion values
     emotion_a: str | None = None
@@ -120,6 +121,7 @@ class ConversationMessage:
                weight: float = 1.0, timestamp: int = int(time.time()), metadata: str = "", status: int = 0,
                emotion_a: Optional[str] = None, emotion_b: Optional[str] = None, emotion_c: Optional[str] = None, emotion_d: Optional[str] = None,
                sentiment_v: float = 0.0, sentiment_a: float = 0.0, sentiment_d: float = 0.0,
+               think: Optional[str] = None,
                ) -> 'ConversationMessage':
         """
         Creates a new conversation message.
@@ -162,6 +164,7 @@ class ConversationMessage:
             "inference_model": inference_model,
             "metadata": metadata,
             "status": status,
+            "think": think,
         }
 
         return cls(**data)
@@ -181,6 +184,7 @@ class ConversationMessage:
             reference_id=data.get("reference_id"),
             role=data["role"],
             content=data["content"],
+            think=data.get("think"),
             emotion_a=data.get("emotion_a"),
             emotion_b=data.get("emotion_b"),
             emotion_c=data.get("emotion_c"),
@@ -215,6 +219,7 @@ class ConversationMessage:
 
         # Add optional fields if they're not None
         optional_fields = [
+            "think",
             "emotion_a",
             "emotion_b",
             "emotion_c",
@@ -230,6 +235,7 @@ class ConversationMessage:
         ]
         
         default_fields = {
+            "think": None,
             "emotion_a": None,
             "emotion_b": None,
             "emotion_c": None,

@@ -60,11 +60,12 @@ class ConversationModule:
                         conversation_id=request.conversation_id,
                         branch=0,
                         sequence_no=i,
-                        speaker_id=self.config.user_id if  msg.role == "user" else self.config.persona_id,
+                        speaker_id=self.config.user_id if msg.role == "user" else self.config.persona_id,
                         listener_id=self.config.persona_id if msg.role == "user" else self.config.user_id,
                         role=msg.role,
                         content=msg.content,
                         timestamp=timestamp,
+                        think=msg.think,
                     )
                     self.chat.cvm.insert(message)
 

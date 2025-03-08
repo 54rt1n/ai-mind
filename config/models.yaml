@@ -89,6 +89,16 @@ models:
       - conversation
       - analysis
       - workspace
+  - name: Qwen/QwQ-32B
+    architecture: qwen2.5
+    provider: featherless
+    size: 32B
+    category:
+      - conversation
+      - thought
+      - analysis
+      - functions
+      - workspace
   - name: maldv/Qwentile2.5-32B-Instruct
     architecture: qwen2.5
     provider: featherless
@@ -169,6 +179,22 @@ models:
       - analysis
       - conversation
   - name: Doctor-Shotgun/L3.3-70B-Magnum-v4-SE
+    architecture: llama3.3
+    provider: featherless
+    size: 70B
+    category:
+      - conversation
+      - analysis
+      - thought
+  - name: anthracite-org/magnum-v4-72b
+    architecture: qwen2.5
+    provider: featherless
+    size: 72B
+    category:
+      - conversation
+      - analysis
+      - thought
+  - name: LatitudeGames/Wayfarer-Large-70B-Llama-3.3
     architecture: llama3.3
     provider: featherless
     size: 70B

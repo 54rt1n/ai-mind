@@ -161,6 +161,7 @@ export interface CompletionMessage {
     role: string;
     content: string;
     timestamp: number;
+    think?: string;
 }
 
 export interface CompletionConfig {
