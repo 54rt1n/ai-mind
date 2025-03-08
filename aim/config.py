@@ -39,6 +39,25 @@ def get_env(dotenv_path: Optional[str] = None) -> Dict[str, str]:
         "persona_location": os.getenv("PERSONA_LOCATION", None),
         "persona_mood": os.getenv("PERSONA_MOOD", "Inquisitive"),
         "persona_path": os.getenv("PERSONA_PATH", "configs/personas"),
+        
+        # Redis configuration
+        "redis_host": os.getenv("REDIS_HOST", "localhost"),
+        "redis_port": int(os.getenv("REDIS_PORT", 6379)),
+        "redis_db": int(os.getenv("REDIS_DB", 0)),
+        "redis_password": os.getenv("REDIS_PASSWORD", None),
+        "redis_namespace": os.getenv("REDIS_NAMESPACE", "aim:cache:"),
+        "redis_cache_expiry": int(os.getenv("REDIS_CACHE_EXPIRY", 604800)),  # 1 week in seconds
+        
+        # Summarizer configuration
+        "summarizer_model": os.getenv("SUMMARIZER_MODEL", "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B"),
+        "summarizer_use_gpu": os.getenv("SUMMARIZER_USE_GPU", "false").lower() == "true",
+        "summarizer_num_generations": int(os.getenv("SUMMARIZER_NUM_GENERATIONS", 2)),
+        "summarizer_num_beams": int(os.getenv("SUMMARIZER_NUM_BEAMS", 3)),
+        "summarizer_temperature": float(os.getenv("SUMMARIZER_TEMPERATURE", 0.7)),
+        
+        # History management
+        "history_management_strategy": os.getenv("HISTORY_MANAGEMENT_STRATEGY", "sparsify"),
+        
         "recall_size": int(os.getenv("RECALL_SIZE", 3)),
         "server_api_key": os.getenv("SERVER_API_KEY", None),
         "temperature": float(os.getenv("TEMPERATURE", 0.7)),
@@ -80,6 +99,25 @@ class ChatConfig:
     groq_api_key: Optional[str] = None
     openai_api_key: Optional[str] = None
     openrouter_api_key: Optional[str] = None
+    
+    # Redis cache configuration
+    redis_host: str = "localhost"
+    redis_port: int = 6379
+    redis_db: int = 0
+    redis_password: Optional[str] = None
+    redis_namespace: str = "aim:cache:"
+    redis_cache_expiry: int = 604800  # 1 week in seconds
+    
+    # Summarizer configuration
+    summarizer_model: str = "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B"
+    summarizer_use_gpu: bool = False
+    summarizer_num_generations: int = 2
+    summarizer_num_beams: int = 3
+    summarizer_temperature: float = 0.7
+    
+    # History management
+    history_management_strategy: str = "sparsify"  # Options: sparsify, random_removal, ai_summarize
+    
     top_n: int = 3
     recall_size: int = 3
     memory_window: int = 8
