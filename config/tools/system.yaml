@@ -46,23 +46,6 @@ functions:
         - {system_env_var: {var_name: "PATH"}}
         - {system_env_var: {}}
 
-  - name: system_get_datetime
-    description: Get current date and time information
-    parameters:
-      type: object
-      properties:
-        format:
-          type: string
-          description: Output format (iso, readable, unix)
-          enum: [iso, readable, unix]
-          default: readable
-        timezone:
-          type: string
-          description: Timezone (default is system timezone)
-      examples:
-        - {system_get_datetime: {format: "readable"}}
-        - {system_get_datetime: {format: "iso", timezone: "UTC"}}
-
 implementation:
   module: aim.tool.impl.system
   class: SystemImplementation 
