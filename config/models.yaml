@@ -89,7 +89,126 @@ models:
       - conversation
       - analysis
       - workspace
+  - name: bespokelabs/Bespoke-Stratos-32B
+    architecture: qwen2.5
+    provider: featherless
+    size: 32B
+    category:
+      - conversation
+      - thought
+      - analysis
+      - functions
+      - workspace
+  - name: maldv/Loqwqtus2.5-32B-Instruct
+    architecture: qwen2.5
+    provider: featherless
+    size: 32B
+    category:
+      - conversation
+      - thought
+      - analysis
+      - functions
+      - workspace
+  - name: open-thoughts/OpenThinker-32B
+    architecture: qwen2.5
+    provider: featherless
+    size: 32B
+    category:
+      - conversation
+      - thought
+      - analysis
+      - functions
+      - workspace
+  - name: qihoo360/TinyR1-32B-Preview
+    architecture: qwen2.5
+    provider: featherless
+    size: 32B
+    category:
+      - conversation
+      - thought
+      - analysis
+      - functions
+      - workspace
+  - name: maldv/Qwenstein2.5-32B-Instruct
+    architecture: qwen2.5
+    provider: featherless
+    size: 32B
+    category:
+      - conversation
+      - thought
+      - analysis
+      - functions
+      - workspace
   - name: Qwen/QwQ-32B
+    architecture: qwen2.5
+    provider: featherless
+    size: 32B
+    category:
+      - conversation
+      - thought
+      - analysis
+      - functions
+      - workspace
+  - name: allura-org/Bigger-Body-70b
+    architecture: llama3.3
+    provider: featherless
+    size: 70B
+    category:
+      - conversation
+      - analysis
+      - thought
+      - workspace
+  - name: open-r1/OlympicCoder-32B
+    architecture: qwen2.5
+    provider: featherless
+    size: 32B
+    category:
+      - conversation
+      - thought
+      - analysis
+      - functions
+      - workspace
+  - name: ReadyArt/Forgotten-Abomination-24B-v1.2
+    architecture: mistral
+    provider: featherless
+    size: 24B
+    category:
+      - conversation
+      - thought
+      - analysis
+      - functions
+      - workspace
+  - name: OpenPipe/Deductive-Reasoning-Qwen-32B
+    architecture: qwen2.5
+    provider: featherless
+    size: 32B
+    category:
+      - conversation
+      - thought
+      - analysis
+      - functions
+      - workspace
+  - name: fluently-lm/FluentlyLM-Prinum
+    architecture: qwen2.5
+    provider: featherless
+    size: 32B
+    category:
+      - conversation
+      - thought
+      - analysis
+      - functions
+      - workspace
+  - name: huihui-ai/QwQ-32B-abliterated
+    architecture: qwen2.5
+    provider: featherless
+    size: 32B
+    category:
+      - conversation
+      - thought
+      - analysis
+      - functions
+      - workspace
+  - name: prithivMLmods/Sombrero-QwQ-32B-Elite9
     architecture: qwen2.5
     provider: featherless
     size: 32B
@@ -113,6 +232,25 @@ models:
     architecture: deepseekv3
     provider: featherless
     size: 671B
+    category:
+      - conversation
+      - thought
+      - analysis
+      - functions
+      - workspace
+  - name: jdh-algo/Citrus1.0-llama-70B
+    architecture: llama3.3
+    provider: featherless
+    size: 70B
+    category:
+      - conversation
+      - analysis
+      - thought
+      - workspace
+  - name: Aryanne/QwentileSwap
+    architecture: qwen2.5
+    provider: featherless
+    size: 32B
     category:
       - conversation
       - thought
