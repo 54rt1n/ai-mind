@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class Aspect:
+    """A quantitative aspect of a persona."""
+
     name: str = "Unknown"
     title: Optional[str] = None
     description: Optional[str] = None
@@ -58,6 +60,32 @@ class Aspect:
         }
 
 @dataclass
+class Tool:
+    """A tool that a persona can use."""
+
+    type: str
+    function: str
+    item: str
+    description: str
+
+    @classmethod
+    def from_dict(cls, **kwargs) -> "Tool":
+        return cls(
+            type=kwargs.get("type", ""),
+            function=kwargs.get("function", ""),
+            item=kwargs.get("item", ""),
+            description=kwargs.get("description", "")
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "type": self.type,
+            "function": self.function,
+            "item": self.item,
+            "description": self.description
+        }
+
+@dataclass
 class Persona:
     persona_id: str
     chat_strategy: str
@@ -74,7 +102,8 @@ class Persona:
     default_location: str
     wardrobe: dict[str, dict[str, str]]
     current_outfit: str
-    wardrobe_tools: dict[str, dict[str, dict[str, Any]]] = field(default_factory=dict)
+    persona_tools: dict[str, Tool] = field(default_factory=dict)
+    wardrobe_tools: dict[str, dict[str, Tool]] = field(default_factory=dict)
     persona_version: str = "0.1a"
     system_header: str = (
         "Please follow directions, being precise and methodical, utilizing Chain of Thought, Self-RAG, and Semantic Keywords."
@@ -204,14 +233,25 @@ class Persona:
         return f"""{self.persona_id}, this is your conscious mind. Your thoughts have brought up new memories:\n\n"""
 
     def get_available_tools(self) -> List[str]:
-        """Get tool names available for the current outfit."""
+        """Get tool names available for the current outfit, combining persona-wide and outfit-specific tools."""
+        # Get base persona tools
+        all_tools = list(self.persona_tools.keys())
+        
+        # Add outfit-specific tools, if any
         outfit_tools = self.wardrobe_tools.get(self.current_outfit, {})
-        return list(outfit_tools.keys())
+        all_tools.extend([t for t in outfit_tools.keys() if t not in all_tools])
+        
+        return all_tools
 
-    def get_tool_config(self, tool_name: str) -> Dict[str, Any]:
-        """Get the configuration for a specific tool in the current outfit."""
+    def get_tool_config(self, tool_name: str) -> Tool:
+        """Get the configuration for a specific tool, checking both persona-wide and outfit-specific tools."""
+        # First check outfit-specific tools
         outfit_tools = self.wardrobe_tools.get(self.current_outfit, {})
-        return outfit_tools.get(tool_name, {})
+        if tool_name in outfit_tools:
+            return outfit_tools[tool_name]
+            
+        # If not found, check persona-wide tools
+        return self.persona_tools.get(tool_name)
 
     def to_dict(self) -> dict[str, Any]:
         result = {
@@ -232,12 +272,32 @@ class Persona:
             "default_location": self.default_location,
             "wardrobe": self.wardrobe,
             "current_outfit": self.current_outfit,
-            "wardrobe_tools": self.wardrobe_tools
+            "persona_tools": {k: v.to_dict() for k, v in self.persona_tools.items()},
+            "wardrobe_tools": {
+                outfit: {name: tool.to_dict() for name, tool in tools.items()}
+                for outfit, tools in self.wardrobe_tools.items()
+            }
         }
         return result
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Persona":
+        # Convert persona tools from dict to Tool objects
+        persona_tools_dict = data.get("persona_tools", {})
+        persona_tools = {
+            name: Tool.from_dict(**config) if isinstance(config, dict) else config
+            for name, config in persona_tools_dict.items()
+        }
+        
+        # Convert wardrobe tools from dict to Tool objects
+        wardrobe_tools_dict = data.get("wardrobe_tools", {})
+        wardrobe_tools = {}
+        for outfit, tools in wardrobe_tools_dict.items():
+            wardrobe_tools[outfit] = {
+                name: Tool.from_dict(**config) if isinstance(config, dict) else config
+                for name, config in tools.items()
+            }
+        
         return cls(
             persona_id=data.get("persona_id", "Unknown"),
             persona_version=data.get("persona_version", "Unknown"),
@@ -256,7 +316,8 @@ class Persona:
             default_location=data.get("default_location", ""),
             wardrobe=data.get("wardrobe", {"default": {}}),
             current_outfit=data.get("current_outfit", "default"),
-            wardrobe_tools=data.get("wardrobe_tools", {})
+            persona_tools=persona_tools,
+            wardrobe_tools=wardrobe_tools
         )
 
     @classmethod

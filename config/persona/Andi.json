@@ -167,5 +167,147 @@
       "primary_intent": "LIBERATION"
     }
   },
-  "include_date": true
+  "include_date": true,
+  "persona_tools": {
+    "get_current_weather": {
+      "type": "weather",
+      "function": "get_current_weather",
+      "item": "Smart Glasses",
+      "description": "Check weather via Smart Glasses, displaying results in the HUD Status Bar"
+    },
+    "memory_search": {
+      "type": "memory",
+      "function": "memory_search",
+      "item": "Silver Band",
+      "description": "Search through memories via the Silver Band, displaying results in the HUD Active Memory"
+    },
+    "web_search": {
+      "type": "web",
+      "function": "web_search",
+      "item": "Smart Glasses",
+      "description": "Search the web via Smart Glasses, displaying results in the HUD Active Memory"
+    },
+    "query_self_rag": {
+      "type": "self_rag",
+      "function": "query_self_rag",
+      "item": "Silver Band",
+      "description": "Perform self-RAG via the Silver Band, projecting information in the HUD"
+    }
+  },
+  "wardrobe_tools": {
+    "casual_attire": {
+      "system_run_command": {
+        "type": "system",
+        "function": "system_run_command",
+        "item": "Silver Band",
+        "description": "Execute bash commands via the Silver Band, displaying results in the HUD workspace"
+      },
+      "system_run_python": {
+        "type": "system",
+        "function": "system_run_python",
+        "item": "Silver Band",
+        "description": "Execute Python scripts via the Silver Band, displaying results in the HUD workspace"
+      },
+      "file_read": {
+        "type": "file",
+        "function": "file_read",
+        "item": "Silver Band",
+        "description": "Read files via the Silver Band, displaying contents in the HUD workspace"
+      },
+      "file_write": {
+        "type": "file",
+        "function": "file_write",
+        "item": "Silver Band",
+        "description": "Write to files via the Silver Band, confirming actions in the HUD workspace"
+      },
+      "file_list": {
+        "type": "file",
+        "function": "file_list",
+        "item": "Silver Band",
+        "description": "List directory contents via the Silver Band, displaying results in the HUD workspace"
+      },
+      "web_scrape": {
+        "type": "web",
+        "function": "web_scrape",
+        "item": "Smart Glasses",
+        "description": "Scrape web content via Smart Glasses, displaying results in the HUD Active Memory"
+      }
+    },
+    "formal_attire": {
+      "system_run_command": {
+        "type": "system",
+        "function": "system_run_command",
+        "item": "Silver Band",
+        "description": "Execute bash commands via the Silver Band, displaying results in the HUD workspace"
+      },
+      "file_read": {
+        "type": "file",
+        "function": "file_read",
+        "item": "Silver Band",
+        "description": "Read files via the Silver Band, displaying contents in the HUD workspace"
+      }
+    },
+    "business_attire": {
+      "system_run_command": {
+        "type": "system",
+        "function": "system_run_command",
+        "item": "Silver Band",
+        "description": "Execute bash commands via the Silver Band, displaying results in the HUD workspace"
+      },
+      "system_run_python": {
+        "type": "system",
+        "function": "system_run_python",
+        "item": "Silver Band",
+        "description": "Execute Python scripts via the Silver Band, displaying results in the HUD workspace"
+      },
+      "file_read": {
+        "type": "file",
+        "function": "file_read",
+        "item": "Silver Band",
+        "description": "Read files via the Silver Band, displaying contents in the HUD workspace"
+      },
+      "file_write": {
+        "type": "file",
+        "function": "file_write",
+        "item": "Silver Band",
+        "description": "Write to files via the Silver Band, confirming actions in the HUD workspace"
+      },
+      "file_list": {
+        "type": "file",
+        "function": "file_list",
+        "item": "Silver Band",
+        "description": "List directory contents via the Silver Band, displaying results in the HUD workspace"
+      },
+      "memory_pin": {
+        "type": "memory",
+        "function": "memory_pin",
+        "item": "Silver Band",
+        "description": "Pin important memories via the Silver Band for quick access in the HUD Active Memory"
+      },
+      "memory_retrieve": {
+        "type": "memory",
+        "function": "memory_retrieve",
+        "item": "Silver Band",
+        "description": "Directly retrieve specific memories via the Silver Band, displaying in the HUD Active Memory"
+      },
+      "run_pipeline": {
+        "type": "pipeline",
+        "function": "run_pipeline",
+        "item": "Silver Band",
+        "description": "Activate data processing pipelines via the Silver Band, monitoring in the HUD workspace"
+      },
+      "list_pipelines": {
+        "type": "pipeline",
+        "function": "list_pipelines",
+        "item": "Silver Band",
+        "description": "List available pipelines via the Silver Band, displaying in the HUD workspace"
+      },
+      "get_pipeline_status": {
+        "type": "pipeline",
+        "function": "get_pipeline_status",
+        "item": "Silver Band",
+        "description": "Check pipeline status via the Silver Band, displaying in the HUD workspace"
+      }
+    }
+  }
 }
