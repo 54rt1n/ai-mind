@@ -15,6 +15,29 @@ functions:
       examples:
         - {get_current_weather: {location: "Overland Park, KS", format: "fahrenheit"}}
         - {get_current_weather: {location: "London, UK", format: "celsius"}}
+
+  - name: get_forecast
+    description: Get weather forecast for upcoming days
+    parameters:
+      type: object
+      properties:
+        location:
+          type: string
+          description: The city and state/country, eg. Kansas City, MO
+        format:
+          type: string
+          enum: [fahrenheit, celsius]
+        days:
+          type: integer
+          description: Number of days to forecast
+          default: 5
+          minimum: 1
+          maximum: 10
+      required: [location, format]
+      examples:
+        - {get_forecast: {location: "San Francisco, CA", format: "fahrenheit"}}
+        - {get_forecast: {location: "Tokyo, Japan", format: "celsius", days: 7}}
+
 implementation:
   module: aim.tool.impl.weather
   class: WeatherImplementation 

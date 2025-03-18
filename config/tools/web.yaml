@@ -1,0 +1,52 @@
+type: web
+functions:
+  - name: web_search
+    description: Use a search engine to find information on the web
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: The query to search the web for
+      required: [query]
+      examples:
+        - {web_search: {query: "latest developments in quantum computing"}}
+        - {web_search: {query: "who won the presidential election in the United States"}}
+
+  - name: web_scrape
+    description: Scrape a specific URL and return the content
+    parameters:
+      type: object
+      properties:
+        url:
+          type: string
+          description: The URL to scrape
+        selector:
+          type: string
+          description: Optional CSS selector to target specific content
+      required: [url]
+      examples:
+        - {web_scrape: {url: "https://www.example.com"}}
+        - {web_scrape: {url: "https://news.ycombinator.com", selector: ".storylink"}}
+
+  - name: web_browse
+    description: Interactively browse a website with navigation capabilities
+    parameters:
+      type: object
+      properties:
+        url:
+          type: string
+          description: Starting URL for browsing session
+        actions:
+          type: array
+          description: Sequence of browse actions to perform
+          items:
+            type: object
+      required: [url]
+      examples:
+        - {web_browse: {url: "https://www.example.com"}}
+        - {web_browse: {url: "https://www.github.com", actions: [{click: ".login"}, {input: {selector: "#username", value: "user"}}]}}
+
+implementation:
+  module: aim.tool.impl.web
+  class: WebImplementation 
