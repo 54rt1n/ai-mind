@@ -1,14 +1,14 @@
 # aim/agents/persona.py
 # AI-Mind © 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0 
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 import json
 import logging
 import os
 import random
 import time
-from typing import Optional, Any
+from typing import Optional, Any, Dict, List
 
 from ..config import ChatConfig
 from ..utils.xml import XmlFormatter
@@ -74,6 +74,7 @@ class Persona:
     default_location: str
     wardrobe: dict[str, dict[str, str]]
     current_outfit: str
+    wardrobe_tools: dict[str, dict[str, dict[str, Any]]] = field(default_factory=dict)
     persona_version: str = "0.1a"
     system_header: str = (
         "Please follow directions, being precise and methodical, utilizing Chain of Thought, Self-RAG, and Semantic Keywords."
@@ -202,8 +203,18 @@ class Persona:
     def prompt_prefix(self) -> str:
         return f"""{self.persona_id}, this is your conscious mind. Your thoughts have brought up new memories:\n\n"""
 
+    def get_available_tools(self) -> List[str]:
+        """Get tool names available for the current outfit."""
+        outfit_tools = self.wardrobe_tools.get(self.current_outfit, {})
+        return list(outfit_tools.keys())
+
+    def get_tool_config(self, tool_name: str) -> Dict[str, Any]:
+        """Get the configuration for a specific tool in the current outfit."""
+        outfit_tools = self.wardrobe_tools.get(self.current_outfit, {})
+        return outfit_tools.get(tool_name, {})
+
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "persona_id": self.persona_id,
             "persona_version": self.persona_version,
             "notes": self.notes,
@@ -221,7 +232,9 @@ class Persona:
             "default_location": self.default_location,
             "wardrobe": self.wardrobe,
             "current_outfit": self.current_outfit,
+            "wardrobe_tools": self.wardrobe_tools
         }
+        return result
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Persona":
@@ -243,6 +256,7 @@ class Persona:
             default_location=data.get("default_location", ""),
             wardrobe=data.get("wardrobe", {"default": {}}),
             current_outfit=data.get("current_outfit", "default"),
+            wardrobe_tools=data.get("wardrobe_tools", {})
         )
 
     @classmethod

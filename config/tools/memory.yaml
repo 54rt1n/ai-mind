@@ -1,18 +1,22 @@
 type: memory
 functions:
-  - name: pin_memory
+  - name: memory_pin
     description: Pin a piece of information to memory
     parameters:
       type: object
       properties:
-        conversation_id:
+        key:
           type: string
-          description: The conversation id
-      required: [conversation_id]
+          description: The key to identify this pinned memory
+        content:
+          type: string
+          description: The content to pin to memory
+      required: [key, content]
       examples:
-        - {pin_memory: {conversation_id: "conv_memory_12345"}}
+        - {memory_pin: {key: "user_preference", content: "User prefers dark mode"}}
+        - {memory_pin: {key: "important_date", content: "Meeting on Friday at 3PM"}}
 
-  - name: unpin
+  - name: memory_unpin
     description: Remove a piece of information from pinned memory
     parameters:
       type: object
@@ -22,4 +26,66 @@ functions:
           description: The key of the memory to unpin
       required: [key]
       examples:
-        - {unpin_memory: {key: "user_temp_pref"}}
+        - {memory_unpin: {key: "user_preference"}}
+        - {memory_unpin: {key: "important_date"}}
+
+  - name: memory_search
+    description: Search through memories
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: The search query
+        memory_type:
+          type: string
+          description: Type of memory to search (all, codex, daydream)
+          enum: [all, codex, daydream]
+          default: all
+        max_results:
+          type: integer
+          description: Maximum number of results to return
+          default: 5
+      required: [query]
+      examples:
+        - {memory_search: {query: "birthday"}}
+        - {memory_search: {query: "recent travel plans", memory_type: "daydream", max_results: 3}}
+
+  - name: memory_retrieve
+    description: Directly retrieve a specific memory by ID
+    parameters:
+      type: object
+      properties:
+        memory_id:
+          type: string
+          description: ID of the memory to retrieve
+      required: [memory_id]
+      examples:
+        - {memory_retrieve: {memory_id: "mem_12345"}}
+
+  - name: memory_save
+    description: Save a new memory
+    parameters:
+      type: object
+      properties:
+        content:
+          type: string
+          description: Content of the memory to save
+        memory_type:
+          type: string
+          description: Type of memory (codex, daydream)
+          enum: [codex, daydream]
+          default: codex
+        tags:
+          type: array
+          description: Optional tags for categorization
+          items:
+            type: string
+      required: [content, memory_type]
+      examples:
+        - {memory_save: {content: "User mentioned they have a dog named Max", memory_type: "codex"}}
+        - {memory_save: {content: "I should learn more about quantum physics", memory_type: "daydream", tags: ["learning", "science"]}}
+
+implementation:
+  module: aim.tool.impl.memory
+  class: MemoryImplementation

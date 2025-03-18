@@ -30,13 +30,30 @@ functions:
         - {run_pipeline: {pipeline_id: "data_processing_001"}}
         - {run_pipeline: {pipeline_id: "ml_training_002", parameters: {epochs: 100, batch_size: 32}}}
 
-  - name: get_running_pipelines
-    description: Get status of running pipelines
+  - name: get_pipeline_status
+    description: Get detailed status of a specific pipeline
     parameters:
       type: object
-      properties: {}
+      properties:
+        pipeline_id:
+          type: string
+          description: ID of the pipeline to check
+      required: [pipeline_id]
       examples:
-        - {get_running_pipelines: {}}
+        - {get_pipeline_status: {pipeline_id: "data_processing_001"}}
+
+  - name: cancel_pipeline
+    description: Cancel a running pipeline
+    parameters:
+      type: object
+      properties:
+        pipeline_id:
+          type: string
+          description: ID of the pipeline to cancel
+      required: [pipeline_id]
+      examples:
+        - {cancel_pipeline: {pipeline_id: "data_processing_001"}}
+
 implementation:
   module: aim.tool.impl.pipeline
   class: PipelineImplementation 

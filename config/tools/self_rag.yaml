@@ -1,17 +1,27 @@
 type: self_rag
 functions:
   - name: query_self_rag
-    description: Use self-RAG to look up information
+    description: Use self-RAG to look up information from the model's knowledge
     parameters:
       type: object
       properties:
         query:
           type: string
           description: The query to search in the self-RAG
+        max_tokens:
+          type: integer
+          description: Maximum tokens to generate in response
+          default: 500
+        style:
+          type: string
+          description: Style of the response (informative, concise, detailed)
+          enum: [informative, concise, detailed]
+          default: informative
       required: [query]
       examples:
         - {query_self_rag: {query: "What is the capital of France?"}}
-        - {query_self_rag: {query: "How does photosynthesis work?"}}
+        - {query_self_rag: {query: "How does photosynthesis work?", style: "detailed", max_tokens: 800}}
+
 implementation:
-  module: aim.tool.impl.passback
-  class: PassBackImplementation 
+  module: aim.tool.impl.self_rag
+  class: SelfRagImplementation 

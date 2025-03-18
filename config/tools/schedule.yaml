@@ -1,0 +1,93 @@
+type: schedule
+functions:
+  - name: schedule_get
+    description: View calendar/schedule events
+    parameters:
+      type: object
+      properties:
+        start_date:
+          type: string
+          description: Start date (ISO format YYYY-MM-DD)
+        end_date:
+          type: string
+          description: End date (ISO format YYYY-MM-DD)
+        filter:
+          type: string
+          description: Filter by event type or tag
+      examples:
+        - {schedule_get: {start_date: "2023-10-01", end_date: "2023-10-31"}}
+        - {schedule_get: {filter: "meetings"}}
+
+  - name: schedule_add
+    description: Add an event to the schedule
+    parameters:
+      type: object
+      properties:
+        title:
+          type: string
+          description: Event title
+        start_time:
+          type: string
+          description: Start time (ISO format YYYY-MM-DDTHH:MM:SS)
+        end_time:
+          type: string
+          description: End time (ISO format YYYY-MM-DDTHH:MM:SS)
+        description:
+          type: string
+          description: Event description
+        location:
+          type: string
+          description: Event location
+        tags:
+          type: array
+          description: Event tags
+          items:
+            type: string
+      required: [title, start_time]
+      examples:
+        - {schedule_add: {title: "Team Meeting", start_time: "2023-10-15T14:00:00", end_time: "2023-10-15T15:00:00", location: "Conference Room A"}}
+        - {schedule_add: {title: "Doctor Appointment", start_time: "2023-11-02T10:30:00", tags: ["health", "personal"]}}
+
+  - name: schedule_update
+    description: Update an existing event
+    parameters:
+      type: object
+      properties:
+        event_id:
+          type: string
+          description: ID of the event to update
+        title:
+          type: string
+          description: New event title
+        start_time:
+          type: string
+          description: New start time (ISO format)
+        end_time:
+          type: string
+          description: New end time (ISO format)
+        description:
+          type: string
+          description: New event description
+        location:
+          type: string
+          description: New event location
+      required: [event_id]
+      examples:
+        - {schedule_update: {event_id: "evt_12345", title: "Updated Meeting", location: "Virtual"}}
+        - {schedule_update: {event_id: "evt_67890", start_time: "2023-11-05T15:00:00", end_time: "2023-11-05T16:30:00"}}
+
+  - name: schedule_remove
+    description: Remove an event from the schedule
+    parameters:
+      type: object
+      properties:
+        event_id:
+          type: string
+          description: ID of the event to remove
+      required: [event_id]
+      examples:
+        - {schedule_remove: {event_id: "evt_12345"}}
+
+implementation:
+  module: aim.tool.impl.schedule
+  class: ScheduleImplementation 
