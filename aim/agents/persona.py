@@ -232,16 +232,14 @@ class Persona:
     def prompt_prefix(self) -> str:
         return f"""{self.persona_id}, this is your conscious mind. Your thoughts have brought up new memories:\n\n"""
 
-    def get_available_tools(self) -> List[str]:
-        """Get tool names available for the current outfit, combining persona-wide and outfit-specific tools."""
-        # Get base persona tools
-        all_tools = list(self.persona_tools.keys())
+    def get_available_tools(self) -> List[Tool]:
+        """Get all tools available to this persona.
         
-        # Add outfit-specific tools, if any
-        outfit_tools = self.wardrobe_tools.get(self.current_outfit, {})
-        all_tools.extend([t for t in outfit_tools.keys() if t not in all_tools])
-        
-        return all_tools
+        Returns:
+            A list of tool objects
+        """
+        # Return persona tools as a list
+        return list(self.persona_tools.values())
 
     def get_tool_config(self, tool_name: str) -> Tool:
         """Get the configuration for a specific tool, checking both persona-wide and outfit-specific tools."""
