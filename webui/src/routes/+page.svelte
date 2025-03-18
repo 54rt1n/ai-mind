@@ -146,6 +146,7 @@
         const workspaceContent = $clipboardStore.includeInMessages
             ? $workspaceStore.content
             : undefined;
+        $configStore.thoughtContent = $thoughtStore.thoughtContent;
         await chatStore.sendMessage(fullMessage, $configStore, {
             workspaceContent,
             skipAppend,
@@ -161,6 +162,7 @@
             if ($configStore.autoThink) {
                 runThink();
             } else {
+                $configStore.thoughtContent = $thoughtStore.thoughtContent;
                 _SendMessage(fullMessage);
             }
         }
@@ -171,6 +173,7 @@
         const workspaceContent = $clipboardStore.includeInMessages
             ? $workspaceStore.content
             : undefined;
+        $configStore.thoughtContent = $thoughtStore.thoughtContent;
         chatStore.retry($configStore, workspaceContent);
     }
 
@@ -258,6 +261,7 @@
         }
         const fullMessage = appendMessage();
         await thinkPanel(fullMessage);
+        $configStore.thoughtContent = $thoughtStore.thoughtContent;
     }
 
     async function reThink() {
@@ -271,6 +275,7 @@
         }
         const fullMessage = lastTurn.content;
         await thinkPanel(fullMessage);
+        $configStore.thoughtContent = $thoughtStore.thoughtContent;
     }
 
     async function runWork() {
