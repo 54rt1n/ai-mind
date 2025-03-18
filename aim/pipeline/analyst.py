@@ -21,6 +21,7 @@ async def analysis_pipeline(self: BasePipeline, **kwargs):
     coder = persona.aspects.get('coder', None)
     librarian = persona.aspects.get('librarian', None)
     if coder is None or librarian is None:
+        logger.error(f"Coder or Librarian aspect not found for {persona_name}: {[aspect.name for aspect in persona.aspects]}")
         raise ValueError("Coder or Librarian aspect not found")
 
     turn_configs = [
