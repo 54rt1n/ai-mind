@@ -49,4 +49,4 @@ functions:
 
 implementation:
   module: aim.tool.impl.web
-  class: WebImplementation 
+  class: WebTool 

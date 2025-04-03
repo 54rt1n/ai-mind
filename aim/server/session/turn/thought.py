@@ -6,23 +6,20 @@ from ....utils.xml import XmlFormatter
 from ....tool.formatting import ToolUser
 from ....agents import Persona
 from ..state import SessionState, CurrentState
-from ..utils import convert_persona_tools_to_dto
 
 
 class ThoughtTurn(BaseTurn):
     """Represents an internal thought process turn for the agent."""
     
-    def __init__(self, persona: Persona):
+    def __init__(self, persona: Persona, dto_tools=None):
         super().__init__("thought", persona)
+        self.dto_tools = dto_tools
     
     def _update_formatter(self, formatter: XmlFormatter, session_state: SessionState, current_state: CurrentState) -> XmlFormatter:
         """Update the formatter with turn-specific elements."""
-        # Add tools if the persona has any (thought turns can use tools)
-        persona_tools = self.persona.get_available_tools()
-        if persona_tools and len(persona_tools) > 0:
-            # Convert persona tools to DTO format and create ToolUser
-            formatted_tools = convert_persona_tools_to_dto(persona_tools)
-            tool_user = ToolUser(formatted_tools)
+        # Add tools if they were passed in the constructor
+        if self.dto_tools:
+            tool_user = ToolUser(self.dto_tools)
             formatter = tool_user.xml_decorator(formatter)
             
         return formatter
@@ -32,6 +29,7 @@ class ThoughtTurn(BaseTurn):
         # Adjust settings for thought generation
         # Typically want higher temperature for more creative thinking
         config.temperature = max(0.7, getattr(config, 'temperature', 0.7) + 0.1)
+        config.max_tokens = 2048
         
         # Add specific system message for thought mode
         thought_system = self._get_system_message()

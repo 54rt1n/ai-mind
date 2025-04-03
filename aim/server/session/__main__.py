@@ -3,6 +3,7 @@ import json
 import sys
 import os
 from typing import Dict, List, Any, AsyncGenerator, Optional
+import logging
 
 from ...config import ChatConfig
 from ...llm.models import LanguageModelV2
@@ -78,9 +79,9 @@ async def main():
     # Example chat completion request
     request = {
         "messages": [
-            {"role": "user", "content": "Hey Andi, what is the weather today?"}
+            {"role": "user", "content": "Hey Andi, what is the weather today here in Kansas City?"}
         ],
-        "model": "Qwen/QwQ-32B",
+        "model": "Qwen/QwQ-32B", 
         "stream": True,
         "user_id": "Prax",
         "persona_id": "Andi",
@@ -90,13 +91,34 @@ async def main():
         "enable_tool_turn": False
     }
     
+    # Add debug logging level for ALL modules
+    logging.basicConfig(level=logging.DEBUG, 
+                        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                        handlers=[logging.FileHandler("workflow_debug.log"),
+                                  logging.StreamHandler()])
+    
+    # Special marker for subprocess visibility
+    print("===== STARTING TEST RUN WITH DEBUGGING =====", file=sys.stderr)
     print("Processing request...", file=sys.stderr)
     
     # Process request and print tokens
-    async for token in process_chat_completion(**request):
-        print(token, end="", flush=True)
+    token_count = 0
+    turn_count = 0
+    try:
+        async for token in process_chat_completion(**request):
+            print(token, end="", flush=True)
+            token_count += 1
+            # Count turn transitions by looking for special tokens
+            if "[==" in token:
+                turn_count += 1
+                print(f"\nDETECTED TURN TRANSITION: {token}\n", file=sys.stderr)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"\nError during processing: {str(e)}", file=sys.stderr)
     
-    print("\nRequest completed.", file=sys.stderr)
+    print(f"\nRequest completed. Generated {token_count} tokens across {turn_count} turns.", file=sys.stderr)
+    print("===== ENDING TEST RUN =====", file=sys.stderr)
 
 
 if __name__ == "__main__":

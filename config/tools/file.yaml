@@ -83,4 +83,4 @@ functions:
 
 implementation:
   module: aim.tool.impl.file_ops
-  class: FileOperationsImplementation 
+  class: FileTool 

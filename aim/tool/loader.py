@@ -8,7 +8,6 @@ import importlib
 from pathlib import Path
 import logging
 from .dto import Tool, ToolFunction, ToolFunctionParameters
-from .impl.passback import PassBackImplementation
 from .impl.base import ToolImplementation
 from ..config import ChatConfig
 
@@ -42,7 +41,7 @@ class ToolLoader:
                     continue
                 
                 # Load implementation class if specified
-                impl_class = PassBackImplementation
+                impl_class : Optional[Type[ToolImplementation]] = None
                 if "implementation" in config:
                     try:
                         module = importlib.import_module(config["implementation"]["module"])

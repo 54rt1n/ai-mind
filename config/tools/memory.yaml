@@ -88,4 +88,4 @@ functions:
 
 implementation:
   module: aim.tool.impl.memory
-  class: MemoryImplementation
+  class: MemoryTool

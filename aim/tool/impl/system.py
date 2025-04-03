@@ -3,68 +3,21 @@
 
 import os
 import subprocess
-import psutil
-from typing import Dict, Optional, List
+import sys
+from typing import Dict, Any, Optional
 from .base import ToolImplementation
 
 
-class SystemImplementation(ToolImplementation):
+class SystemTool(ToolImplementation):
     """Implementation of system operations."""
     
-    def _get_process_info(self, pid: Optional[int] = None, format: str = "basic") -> List[Dict]:
-        """Get process information.
+    def system_run_command(self, command: str, working_dir: str = ".", **kwargs: Any) -> Dict[str, Any]:
+        """Run a bash command.
         
         Args:
-            pid: Optional specific process ID to query
-            format: Output format ('basic' or 'detailed')
-            
-        Returns:
-            List of process information dictionaries
-        """
-        processes = []
-        try:
-            if pid:
-                proc = psutil.Process(pid)
-                processes.append(self._format_process(proc, format))
-            else:
-                for proc in psutil.process_iter(['pid', 'name', 'status', 'cpu_percent', 'memory_percent']):
-                    processes.append(self._format_process(proc, format))
-        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-            pass
-        return processes
-
-    def _format_process(self, proc: psutil.Process, format: str) -> Dict:
-        """Format process information based on requested format."""
-        try:
-            if format == "basic":
-                return {
-                    "pid": proc.pid,
-                    "name": proc.name(),
-                    "status": proc.status()
-                }
-            else:  # detailed
-                return {
-                    "pid": proc.pid,
-                    "name": proc.name(),
-                    "status": proc.status(),
-                    "cpu_percent": proc.cpu_percent(),
-                    "memory_percent": proc.memory_percent(),
-                    "create_time": proc.create_time(),
-                    "username": proc.username()
-                }
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            return {"pid": proc.pid, "name": "Access Denied", "status": "unknown"}
-
-    def _get_env_var(self, name: str) -> str:
-        """Get environment variable value safely."""
-        return os.environ.get(name, "")
-
-    def _run_command(self, command: str, working_dir: Optional[str] = None) -> Dict[str, str]:
-        """Run system command safely.
-        
-        Args:
-            command: Command to execute
-            working_dir: Optional working directory
+            command: The command to run
+            working_dir: Working directory for command execution
+            **kwargs: Additional parameters that will be ignored
             
         Returns:
             Dictionary with command output and exit code
@@ -96,19 +49,77 @@ class SystemImplementation(ToolImplementation):
         except subprocess.SubprocessError as e:
             raise RuntimeError(f"Command execution failed: {str(e)}")
 
-    def execute(self, parameters: Dict[str, str]) -> Dict[str, str]:
+    def system_run_python(self, code: str, working_dir: str = ".", **kwargs: Any) -> Dict[str, Any]:
+        """Execute a Python script.
+        
+        Args:
+            code: Python code to execute
+            working_dir: Working directory for execution
+            **kwargs: Additional parameters that will be ignored
+            
+        Returns:
+            Dictionary with execution result
+            
+        Raises:
+            RuntimeError: If execution fails
+        """
+        # Create a temporary file for the code
+        import tempfile
+        
+        try:
+            with tempfile.NamedTemporaryFile(suffix='.py', mode='w', delete=False) as temp:
+                temp_path = temp.name
+                temp.write(code)
+                
+            # Run the script with captured output
+            result = subprocess.run(
+                [sys.executable, temp_path],
+                cwd=working_dir,
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            return {
+                "output": result.stdout,
+                "error": result.stderr,
+                "exit_code": result.returncode
+            }
+        except Exception as e:
+            raise RuntimeError(f"Python execution failed: {str(e)}")
+        finally:
+            # Clean up the temporary file
+            try:
+                os.unlink(temp_path)
+            except:
+                pass
+
+    def system_env_var(self, var_name: Optional[str] = None, **kwargs: Any) -> Dict[str, Any]:
+        """Get environment variable values.
+        
+        Args:
+            var_name: Specific environment variable to get (optional)
+            **kwargs: Additional parameters that will be ignored
+            
+        Returns:
+            Dictionary with variable values
+        """
+        if var_name:
+            return {
+                "value": os.environ.get(var_name, "")
+            }
+        else:
+            # Return all environment variables
+            return {
+                "variables": dict(os.environ)
+            }
+
+    def execute(self, function_name: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
         """Execute system operations.
         
         Args:
-            parameters: Dictionary containing:
-                For process_info:
-                    - pid: Process ID (optional)
-                    - format: Output format (optional)
-                For env_var:
-                    - name: Environment variable name
-                For run_command:
-                    - command: Command to run
-                    - working_dir: Working directory (optional)
+            function_name: Name of the function to execute
+            parameters: Dictionary of parameter names and values
                 
         Returns:
             Dictionary containing operation-specific results
@@ -118,28 +129,26 @@ class SystemImplementation(ToolImplementation):
             RuntimeError: If command execution fails
             PermissionError: If lacking required permissions
         """
-        operation = parameters.get("operation", "process_info")
-        
-        if operation == "process_info":
-            pid = parameters.get("pid")
-            if pid:
-                pid = int(pid)
-            format = parameters.get("format", "basic")
-            return {
-                "processes": self._get_process_info(pid, format)
-            }
-        elif operation == "env_var":
-            if "name" not in parameters:
-                raise ValueError("Environment variable name is required")
-            return {
-                "value": self._get_env_var(parameters["name"])
-            }
-        elif operation == "run_command":
+        if function_name == "system_run_command":
             if "command" not in parameters:
                 raise ValueError("Command is required")
-            return self._run_command(
-                parameters["command"],
-                parameters.get("working_dir")
+            return self.system_run_command(
+                command=parameters["command"],
+                working_dir=parameters.get("working_dir", "."),
+                **parameters
+            )
+        elif function_name == "system_run_python":
+            if "code" not in parameters:
+                raise ValueError("Python code is required")
+            return self.system_run_python(
+                code=parameters["code"],
+                working_dir=parameters.get("working_dir", "."),
+                **parameters
+            )
+        elif function_name == "system_env_var":
+            return self.system_env_var(
+                var_name=parameters.get("var_name"),
+                **parameters
             )
         else:
-            raise ValueError(f"Unknown operation: {operation}") 
+            raise ValueError(f"Unknown function: {function_name}") 

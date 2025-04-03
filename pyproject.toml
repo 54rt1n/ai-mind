@@ -36,6 +36,7 @@ faiss-cpu = "^1.9.0.post1"
 pydantic = "^2.10.6"
 pyyaml = "^6.0.2"
 psutil = "^6.1.1"
+torchvision = "^0.21.0"
 
 [build-system]
 requires = ["poetry-core"]

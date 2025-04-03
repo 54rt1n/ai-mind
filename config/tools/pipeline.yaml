@@ -56,4 +56,4 @@ functions:
 
 implementation:
   module: aim.tool.impl.pipeline
-  class: PipelineImplementation 
+  class: PipelineTool 

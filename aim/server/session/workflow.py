@@ -11,16 +11,16 @@ from dataclasses import dataclass
 from ...chat import ChatManager, chat_strategy_for
 from ...llm.models import LanguageModelV2
 from ...config import ChatConfig
-from ...utils.turns import validate_turns
-from ...utils.xml import XmlFormatter
-from ...tool.formatting import ToolUser
-from ...agents import Persona
+from ...agents import Persona, Tool as PersonaTool
 
 from .state import SessionState, CurrentState
 from .turn.base import BaseTurn
 from .turn.conversation import ConversationTurn
 from .turn.thought import ThoughtTurn
 from .turn.tool import ToolTurn
+from ...tool.dto import Tool as DtoTool
+from ...tool.loader import ToolLoader
+        
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +50,7 @@ class SessionWorkflow:
         self.chat = ChatManager.from_config(config)
         self.chat_strategy = chat_strategy_for("xmlmemory", self.chat)
         self.models = LanguageModelV2.index_models(config)
-        
+    
     def _update_chat_strategy_context(self):
         """Update the chat strategy with current context from the workflow."""
         # Set current workspace if available
@@ -65,6 +65,34 @@ class SessionWorkflow:
         if self.current.current_scratch_pad:
             self.chat_strategy.scratch_pad = self.current.current_scratch_pad
     
+    def _convert_persona_tools_to_dto(self, persona_tools: List[PersonaTool]) -> List[DtoTool]:
+        """Convert persona tools to DTO format expected by ToolUser.
+        
+        Args:
+            persona_tools: List of persona Tool objects
+            
+        Returns:
+            List of DTO Tool objects compatible with ToolUser
+        """
+        formatted_tools = []
+        
+        try:
+            # Initialize the tool loader with our configuration
+            tool_loader = ToolLoader.from_config(self.config)
+            
+            for tool in persona_tools:
+                # Look up the tool by type and function name (item)
+                dto_tool = tool_loader.get_tool(tool.type, tool.function)
+                if dto_tool:
+                    formatted_tools.append(dto_tool)
+                else:
+                    logger.warning(f"Tool {tool.type}/{tool.function} not found in tool configuration")
+            
+        except Exception as e:
+            logger.error(f"Error loading tools: {str(e)}")
+            
+        return formatted_tools
+        
     async def run(self, request: WorkflowRequest) -> AsyncGenerator[str, None]:
         """Run the session workflow."""
 
@@ -91,26 +119,29 @@ class SessionWorkflow:
         if not persona or type(persona) != Persona:
             raise ValueError("No persona found")
             
+        # Convert persona tools to DTO format for chat strategy
+        dto_tools = self._convert_persona_tools_to_dto(persona.get_available_tools())
+        
         # 2. Build a list of turns to use
         turns : List[BaseTurn] = []
         
         # Add thought turn if enabled 
         if request.use_thought_turn:
-            thought_turn = ThoughtTurn(persona)
+            thought_turn = ThoughtTurn(persona, dto_tools)
             turns.append(thought_turn)
         
         # Add tool turn if enabled and the persona has tools available
-        if request.use_tool_turn:
-            # Get persona to check for available tools
-            if len(persona.get_available_tools()) > 0:
-                tool_turn = ToolTurn(persona)
-                turns.append(tool_turn)
+        if request.use_tool_turn and dto_tools:
+            tool_turn = ToolTurn(persona, dto_tools)
+            turns.append(tool_turn)
 
         # Always add conversation turn
         conversation_turn = ConversationTurn(
             user_input=user_input,
             persona=persona,
-            system_message=request.system_message
+            system_message=request.system_message,
+            max_tokens=request.max_tokens,
+            temperature=request.temperature
         )
         turns.append(conversation_turn)
         
@@ -120,15 +151,14 @@ class SessionWorkflow:
             
             # Get the specific config for this turn - apply any request-specific settings
             local_config = copy.deepcopy(self.config)
-            if request.temperature is not None:
-                local_config.temperature = request.temperature
-            if request.max_tokens is not None:
-                local_config.max_tokens = request.max_tokens
                 
             turn_config = turn.get_config(local_config, self.state, self.current)
             if not turn_config:
                 logger.warning(f"No valid config for turn type: {turn.turn_type}")
                 continue
+                
+            # Log the token limit for debugging
+            logger.info(f"Turn {turn.turn_type} config: max_tokens={turn_config.max_tokens}, temperature={turn_config.temperature}")
                 
             # Get the prompt for the turn
             prompt = turn.get_prompt()
@@ -188,18 +218,32 @@ class SessionWorkflow:
                         
                     response += token
                     
-                    # Only yield tokens from the final turn (usually conversation)
+                    # Yield tokens from the current turn if it's the final turn
+                    # This way we still see the output from the conversation turn
                     if turn == turns[-1]:
                         yield token
+                    else:
+                        # For debugging non-final turns
+                        logger.info(f"Generated token in non-final turn: {turn.turn_type} (not yielding to user)")
                 
                 # Process the response using the turn's logic
                 self.state, self.current = turn.process_response(response, self.state, self.current)
+                
+                # Make sure we're actually completing the current turn before moving to the next
+                # This ensures we don't exit prematurely
+                if turn.turn_type == "thought":
+                    logger.info(f"Completed thought turn with {len(response)} characters")
+                    # Ensure the thought was properly processed before continuing
+                    if not response or not response.strip():
+                        logger.warning("Empty thought response, may indicate generation issues")
+                    else:
+                        logger.info(f"Successfully completed thought turn, continuing to next turn")
                 
             except Exception as e:
                 logger.error(f"Error in turn {turn.turn_type}: {str(e)}")
                 yield f"\nError processing {turn.turn_type}: {str(e)}\n"
                 continue
-        
+
         # NOTE: IF YOU HAVE PUT ANY CUSTOM BUSINESS LOGIC HERE, YOU HAD BETTER BE ABLE TO JUSTIFY IT STRONGLY. IF YOU CAN'T, IT NEEDS TO BE MOVED INTO A TURN.
         
         # 5. Save the conversation if requested (this is just persistence, not business logic)

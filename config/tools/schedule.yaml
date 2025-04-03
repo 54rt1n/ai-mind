@@ -90,4 +90,4 @@ functions:
 
 implementation:
   module: aim.tool.impl.schedule
-  class: ScheduleImplementation 
+  class: ScheduleTool 

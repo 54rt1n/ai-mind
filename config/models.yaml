@@ -81,6 +81,25 @@ models:
       - analysis
       - thought
       - workspace
+  - name: deepseek-ai/DeepSeek-V3-0324
+    architecture: deepseekv3
+    provider: featherless
+    size: 671B
+    category:
+      - conversation
+      - analysis
+      - thought
+      - workspace
+  - name: deepseek-ai/DeepSeek-R1
+    architecture: deepseekv3
+    provider: featherless
+    size: 671B
+    category:
+      - conversation
+      - thought
+      - analysis
+      - functions
+      - workspace
   - name: nvidia/Llama-3.1-Nemotron-70B-Instruct-HF
     architecture: llama3.1
     provider: featherless
@@ -89,37 +108,7 @@ models:
       - conversation
       - analysis
       - workspace
-  - name: bespokelabs/Bespoke-Stratos-32B
-    architecture: qwen2.5
-    provider: featherless
-    size: 32B
-    category:
-      - conversation
-      - thought
-      - analysis
-      - functions
-      - workspace
   - name: maldv/Loqwqtus2.5-32B-Instruct
-    architecture: qwen2.5
-    provider: featherless
-    size: 32B
-    category:
-      - conversation
-      - thought
-      - analysis
-      - functions
-      - workspace
-  - name: open-thoughts/OpenThinker-32B
-    architecture: qwen2.5
-    provider: featherless
-    size: 32B
-    category:
-      - conversation
-      - thought
-      - analysis
-      - functions
-      - workspace
-  - name: qihoo360/TinyR1-32B-Preview
     architecture: qwen2.5
     provider: featherless
     size: 32B
@@ -149,16 +138,7 @@ models:
       - analysis
       - functions
       - workspace
-  - name: allura-org/Bigger-Body-70b
-    architecture: llama3.3
-    provider: featherless
-    size: 70B
-    category:
-      - conversation
-      - analysis
-      - thought
-      - workspace
-  - name: open-r1/OlympicCoder-32B
+  - name: maldv/Qwentile2.5-32B-Instruct
     architecture: qwen2.5
     provider: featherless
     size: 32B
@@ -168,17 +148,67 @@ models:
       - analysis
       - functions
       - workspace
-  - name: ReadyArt/Forgotten-Abomination-24B-v1.2
-    architecture: mistral
+  - name: maldv/QReasoner2.5-32B-Instruct
+    architecture: qwen2.5
     provider: featherless
-    size: 24B
+    size: 32B
     category:
       - conversation
       - thought
       - analysis
       - functions
       - workspace
-  - name: OpenPipe/Deductive-Reasoning-Qwen-32B
+  - name: bespokelabs/Bespoke-Stratos-32B
+    architecture: qwen2.5
+    provider: featherless
+    size: 32B
+    category:
+      - conversation
+      - thought
+      - analysis
+      - functions
+      - workspace
+  - name: open-thoughts/OpenThinker-32B
+    architecture: qwen2.5
+    provider: featherless
+    size: 32B
+    category:
+      - conversation
+      - thought
+      - analysis
+      - functions
+      - workspace
+  - name: qihoo360/TinyR1-32B-Preview
+    architecture: qwen2.5
+    provider: featherless
+    size: 32B
+    category:
+      - conversation
+      - thought
+      - analysis
+      - functions
+      - workspace
+  - name: alpindale/WizardLM-2-8x22B
+    architecture: mistral
+    provider: featherless
+    size: 8x22B
+    category:
+      - conversation
+      - thought
+      - analysis
+      - functions
+      - workspace
+  - name: Delta-Vector/Hamanasu-Magnum-QwQ-32B
+    architecture: qwen2.5
+    provider: featherless
+    size: 32B
+    category:
+      - conversation
+      - thought
+      - analysis
+      - functions
+      - workspace
+  - name: open-r1/OlympicCoder-32B
     architecture: qwen2.5
     provider: featherless
     size: 32B
@@ -198,43 +228,11 @@ models:
       - analysis
       - functions
       - workspace
-  - name: huihui-ai/QwQ-32B-abliterated
-    architecture: qwen2.5
-    provider: featherless
-    size: 32B
-    category:
-      - conversation
-      - thought
-      - analysis
-      - functions
-      - workspace
   - name: prithivMLmods/Sombrero-QwQ-32B-Elite9
     architecture: qwen2.5
     provider: featherless
     size: 32B
     category:
-      - conversation
-      - thought
-      - analysis
-      - functions
-      - workspace
-  - name: maldv/Qwentile2.5-32B-Instruct
-    architecture: qwen2.5
-    provider: featherless
-    size: 32B
-    category:
-      - conversation
-      - thought
-      - analysis
-      - functions
-      - workspace
-  - name: deepseek-ai/DeepSeek-R1
-    architecture: deepseekv3
-    provider: featherless
-    size: 671B
-    category:
-      - conversation
-      - thought
       - analysis
       - functions
       - workspace
@@ -247,16 +245,6 @@ models:
       - analysis
       - thought
       - workspace
-  - name: Aryanne/QwentileSwap
-    architecture: qwen2.5
-    provider: featherless
-    size: 32B
-    category:
-      - conversation
-      - thought
-      - analysis
-      - functions
-      - workspace
   - name: nvidia/AceInstruct-72B
     architecture: qwen2.5
     provider: featherless
@@ -266,31 +254,6 @@ models:
       - analysis
       - thought
       - workspace
-  - name: cognitivecomputations/Dolphin3.0-R1-Mistral-24B
-    architecture: mistral
-    provider: featherless
-    size: 24B
-    category:
-      - conversation
-      - thought
-      - workspace
-      - analysis
-      - functions
-  - name: deepseek-ai/DeepSeek-R1-Distill-Qwen-32B
-    architecture: qwen2.5
-    provider: featherless
-    size: 32B
-    category:
-      - conversation
-      - thought
-      - workspace
-  - name: NovaSky-AI/Sky-T1-32B-Preview
-    architecture: qwen2.5
-    provider: featherless
-    size: 32B
-    category:
-      - conversation
-      - thought
   - name: unsloth/Llama-3.3-70B-Instruct
     architecture: llama3.3
     provider: featherless
@@ -346,42 +309,12 @@ models:
     size: 70B
     category:
       - conversation
-  - name: xwen-team/Xwen-72B-Chat
-    architecture: qwen2.5
-    provider: featherless
-    size: 72B
-    category:
-      - conversation
-  - name: Nexusflow/Athene-V2-Chat
-    architecture: llama3.3
-    provider: featherless
-    size: 70B
-    category:
-      - conversation
   - name: Nexusflow/Athene-V2-Agent
     architecture: llama3.3
     provider: featherless
     size: 70B
     category:
       - functions
-  - name: OpenBuddy/openbuddy-llama3.3-70b-v24.1-131k
-    architecture: llama3.3
-    provider: featherless
-    size: 70B
-    category:
-      - conversation
-  - name: Qwen/QwQ-32B-Preview
-    architecture: qwen2.5
-    provider: featherless
-    size: 32B
-    category:
-      - thought
-  - name: TheDrummer/Nautilus-70B-v0.1
-    architecture: llama3.3
-    provider: featherless
-    size: 70B
-    category:
-      - conversation
   - name: Qwen/Qwen2.5-Coder-32B-Instruct
     architecture: qwen2.5
     provider: featherless
