@@ -24,4 +24,4 @@ functions:
 
 implementation:
   module: aim.tool.impl.self_rag
-  class: SelfRagImplementation 
+  class: SelfRagTool 

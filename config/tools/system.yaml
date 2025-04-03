@@ -48,4 +48,4 @@ functions:
 
 implementation:
   module: aim.tool.impl.system
-  class: SystemImplementation 
+  class: SystemTool 

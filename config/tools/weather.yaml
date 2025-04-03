@@ -1,6 +1,6 @@
 type: weather
 functions:
-  - name: get_current_weather
+  - name: weather_current
     description: Get the current weather
     parameters:
       type: object
@@ -13,10 +13,10 @@ functions:
           enum: [fahrenheit, celsius]
       required: [location, format]
       examples:
-        - {get_current_weather: {location: "Overland Park, KS", format: "fahrenheit"}}
-        - {get_current_weather: {location: "London, UK", format: "celsius"}}
+        - {weather_current: {location: "Overland Park, KS", format: "fahrenheit"}}
+        - {weather_current: {location: "London, UK", format: "celsius"}}
 
-  - name: get_forecast
+  - name: weather_forecast
     description: Get weather forecast for upcoming days
     parameters:
       type: object
@@ -35,9 +35,9 @@ functions:
           maximum: 10
       required: [location, format]
       examples:
-        - {get_forecast: {location: "San Francisco, CA", format: "fahrenheit"}}
-        - {get_forecast: {location: "Tokyo, Japan", format: "celsius", days: 7}}
+        - {weather_forecast: {location: "San Francisco, CA", format: "fahrenheit"}}
+        - {weather_forecast: {location: "Tokyo, Japan", format: "celsius", days: 7}}
 
 implementation:
   module: aim.tool.impl.weather
-  class: WeatherImplementation 
+  class: WeatherTool

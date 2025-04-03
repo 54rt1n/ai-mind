@@ -6,25 +6,22 @@ from ....utils.xml import XmlFormatter
 from ....tool.formatting import ToolUser
 from ....agents import Persona
 from ..state import SessionState, CurrentState
-from ..utils import convert_persona_tools_to_dto
 
 
 class ToolTurn(BaseTurn):
     """Represents a tool usage turn in the session."""
     
-    def __init__(self, persona: Persona):
+    def __init__(self, persona: Persona, dto_tools=None):
         super().__init__("tool", persona)
         self.parameters = {}
         self.tool_name = "unknown_tool"
+        self.dto_tools = dto_tools
         
     def _update_formatter(self, formatter: XmlFormatter, session_state: SessionState, current_state: CurrentState) -> XmlFormatter:
         """Update the formatter with turn-specific elements."""
-        # Add tools from the persona
-        persona_tools = self.persona.get_available_tools()
-        if persona_tools and len(persona_tools) > 0:
-            # Convert persona tools to DTO format and create ToolUser
-            formatted_tools = convert_persona_tools_to_dto(persona_tools)
-            tool_user = ToolUser(formatted_tools)
+        # Add tools if they were passed in the constructor
+        if self.dto_tools:
+            tool_user = ToolUser(self.dto_tools)
             formatter = tool_user.xml_decorator(formatter)
             
         return formatter
@@ -36,7 +33,8 @@ class ToolTurn(BaseTurn):
         
         # Temperature should be lower for more deterministic tool usage
         config.temperature = 0.2
-        
+        config.max_tokens = 256
+
         # Add tool-specific system message
         tool_system = self._get_system_message()
         config.system_message = f"{config.system_message}\n\n{tool_system}"

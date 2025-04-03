@@ -169,9 +169,9 @@
   },
   "include_date": true,
   "persona_tools": {
-    "get_current_weather": {
+    "weather_current": {
       "type": "weather",
-      "function": "get_current_weather",
+      "function": "weather_current",
       "item": "Smart Glasses",
       "description": "Check weather via Smart Glasses, displaying results in the HUD Status Bar"
     },
