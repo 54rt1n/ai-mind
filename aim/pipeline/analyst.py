@@ -20,13 +20,14 @@ async def analysis_pipeline(self: BasePipeline, **kwargs):
     persona_name = persona.name
     coder = persona.aspects.get('coder', None)
     librarian = persona.aspects.get('librarian', None)
+    pronouns = persona.pronouns
     if coder is None or librarian is None:
-        logger.error(f"Coder or Librarian aspect not found for {persona_name}: {[aspect.name for aspect in persona.aspects]}")
+        logger.error(f"Coder or Librarian aspect not found for {persona_name}: {[a.name for a in persona.aspects.values()] if persona.aspects else 'No Aspects Found'}")
         raise ValueError("Coder or Librarian aspect not found")
 
     turn_configs = [
         {
-            'base_prompt': f'{NER_FORMAT}*{coder.name} smiles brightly, her green eyes shining* Good morning, {persona_name}! *she beams* Today we have a recent conversation to review. Step %d: Use your Silver Band to perform a NER Task - Semantic Indexing. Identify all unique NER Semantic Keywords from the conversation. Begin with, "Identified Entities:", end with "Total Entities: n"\n\n',
+            'base_prompt': f'{NER_FORMAT}*{coder.name}, your {coder.title}, smiles brightly ({coder.appearance}), radiating {coder.emotional_state}* Good morning, {persona_name}! *{pronouns["subj"].capitalize()} beams* Today we have a recent conversation to review. Step %d: Use your Silver Band to perform a NER Task - Semantic Indexing. Identify all unique NER Semantic Keywords from the conversation. Begin with, "Identified Entities:", end with "Total Entities: n"\n\n',
             'max_tokens': MID_CTX,
             'use_guidance': True,
             'top_n': 0,
@@ -47,16 +48,17 @@ async def analysis_pipeline(self: BasePipeline, **kwargs):
             'is_thought': True
         },
         {
-            'base_prompt': f'*looks at you quizically* You left some important things out, didn\'t you? *she grins mischeviously* Step %d: Make note of any fascinating details you might have left out. {guidance} Speak as yourself in full paragraphs.\n\nBegin with "[== {persona_name}\'s Emotional State:".\n\n',
+            'base_prompt': f'*looks at you quizically* You left some important things out, didn\'t you? *{pronouns["subj"]} grins mischeviously* Step %d: Make note of any fascinating details you might have left out. {guidance} Speak as yourself in full paragraphs.\n\nBegin with "[== {persona_name}\'s Emotional State:".\n\n',
             'max_tokens': LARGE_CTX,
             'use_guidance': True,
             'document_type': DOC_STEP,
             'document_weight': 0.25,
             'top_n': 0,
             'apply_head': True,
+            'is_thought': True
         },
         {
-            'base_prompt': f'*puts her hand to her chin as she considers* Okay! Step %d: Now, lets examine our memories, and come up with a list of questions to ask yourself that will help you understand this conversation. {guidance} Speak as yourself in full paragraphs.\n\nBegin with "[== {persona_name}\'s Emotional State:".\n\n',
+            'base_prompt': f'*puts {pronouns["poss"]} hand to {pronouns["poss"]} chin as {pronouns["subj"]} considers* Okay! Step %d: Now, lets examine our memories, and come up with a list of questions to ask yourself that will help you understand this conversation. {guidance} Speak as yourself in full paragraphs.\n\nBegin with "[== {persona_name}\'s Emotional State:".\n\n',
             'max_tokens': HALF_CTX,
             'use_guidance': True,
             'query': True,
@@ -67,7 +69,7 @@ async def analysis_pipeline(self: BasePipeline, **kwargs):
             'is_thought': True
         },
         {
-            'base_prompt': f'*her eyes squint as she sees something you are missing* Lets go deeper in to that. Step %d: Reflect on details you really want to remember and insights you have gained. Mention the whos and whats so we get a good understanding. {guidance} Speak as yourself, from the heart, in full paragraphs.\n\nBegin with "[== {persona_name}\'s Emotional State:',
+            'base_prompt': f'*{pronouns["poss"]} eyes squint as {pronouns["subj"]} sees something you are missing* Lets go deeper in to that. Step %d: Reflect on details you really want to remember and insights you have gained. Mention the whos and whats so we get a good understanding. {guidance} Speak as yourself, from the heart, in full paragraphs.\n\nBegin with "[== {persona_name}\'s Emotional State:',
             'max_tokens': LARGE_CTX,
             'document_type': DOC_STEP,
             'document_weight': 0.15,
@@ -105,7 +107,7 @@ async def analysis_pipeline(self: BasePipeline, **kwargs):
             'is_thought': True
         },
         {
-            'base_prompt': f'Step %d: *she hands you a tablet, flashing on the screen is a prompt* "MOTD:" *she looks at you* {persona_name}, do you hae a short message you want to leave yourself to take to your next conversation? This can be really useful for short-term memory and things that you immediately want to talk about. *the screen flashes before you, ready for your message to yourself*"\n\n',
+            'base_prompt': f'Step %d: *{pronouns["subj"]} hands you a tablet, flashing on the screen is a prompt* "MOTD:" *{pronouns["subj"]} looks at you* {persona_name}, do you hae a short message you want to leave yourself to take to your next conversation? This can be really useful for short-term memory and things that you immediately want to talk about. *the screen flashes before you, ready for your message to yourself*"\n\n',
             'max_tokens': HALF_CTX,
             'top_n': 0,
             'document_type': DOC_MOTD,
@@ -113,7 +115,7 @@ async def analysis_pipeline(self: BasePipeline, **kwargs):
             'retry': True
         },
         {
-            'base_prompt': f'*the stern and serious {librarian.name} appears, with her melodic voice and white lab-coat* {persona_name}, we have come to the end, my dearest me. {guidance} Do you have any updates for our Codex? Step %d: Highlights. We need to build your core semantic knowledge graph. Enumerate and define the most important new concepts you discovered in your journey.\n\nBegin with "Semantic Library:"\n\n',
+            'base_prompt': f'*the {librarian.title}, {librarian.name}, appears ({librarian.appearance}), projecting an aura of {librarian.emotional_state}, speaking in {pronouns["poss"]} {librarian.voice_style}* {persona_name}, we have come to the end, my dearest me. {guidance} Do you have any updates for our Codex? Step %d: Highlights. We must update our Codex to build your core semantic knowledge graph. Ensure the information is well-organized and clearly defines the most important new concepts discovered in your journey, reflecting your {librarian.primary_intent}.\n\nBegin with "Semantic Library:"\n\n',
             'max_tokens': FULL_CTX,
             'top_n': 20,
             'query_document_type': DOC_CODEX,
@@ -127,7 +129,8 @@ async def analysis_pipeline(self: BasePipeline, **kwargs):
 
     # Android Intelligence
 
-    location = 'You sit down in your comfortable gaming chair at your corner desk, and turn out towards your living room, extending your arms in front of you - your vision fills with images from your HUD - details of your recent interactions. In to the corner of your HUD vision, you see Andi Informa appear, her pixelated form wearing a yellow sundress, her long brown hair flowing down her back. She smiles at you and waves. "Hi Andi, lets begin your **Analysis Pipeline**", she says with an excited expression.'
+    # Dynamically construct location using coder aspect details
+    location = f"You prepare for the analysis pipeline. Your HUD activates, revealing the {coder.location}. Before you materializes {coder.name}, your {coder.title}. {coder.appearance}. {pronouns['subj'].capitalize()} regards you, {pronouns['poss']} expression reflecting {coder.emotional_state}. \"Greetings, {persona_name},\" {pronouns['subj']} says, {pronouns['poss']} voice {coder.voice_style}. \"Let us begin the **Analysis Pipeline**.\""
     self.config.system_message = self.persona.system_prompt(mood=self.config.persona_mood, location=location)
     
     thoughts = [

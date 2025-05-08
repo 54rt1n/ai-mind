@@ -1,4 +1,4 @@
-# aim/chat/strategy/memory.py
+# aim/chat/strategy/xmlmemory.py
 # AI-Mind © 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0 
 
 from collections import defaultdict
@@ -60,11 +60,12 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         formatter = XmlFormatter()
         # First, lets add up the length of all the user queries and assistant queries.
         total_len = content_len
-        my_emotions = defaultdict(int)
-        my_keywords = defaultdict(int)
+        # These will store aggregated emotions/keywords for the global <emotions> and <keywords> tags
+        aggregated_emotions = defaultdict(int)
+        aggregated_keywords = defaultdict(int)
 
         logger.info(f"Initial Conscious Memory Length: {total_len}")
-        document_content = []
+        # document_content = [] # This variable was unused
 
         formatter.add_element("PraxOS", content="--== PraxOS Conscious Memory **Online** ==--", nowrap=True, priority=3)
         
@@ -85,31 +86,18 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         # Workspace handling
         if self.chat.current_workspace is not None:
             ws_size = len(self.chat.current_workspace.split())
-            content_len += ws_size
             logger.debug(f"Workspace: {ws_size} words")
         else:
             ws_size = 0
             logger.info("No current workspace")
 
-        content_len += ws_size
-
         if self.scratch_pad:
             scratch_pad_size = len(self.scratch_pad.split())
-            content_len += scratch_pad_size
             logger.debug(f"Scratch Pad: {scratch_pad_size} words")
         else:
-            scratch_pad_size = 0
+            scratch_pad_size = 0 # Added for consistency, though not strictly needed if self.scratch_pad is None
             logger.info("No scratch pad")
 
-        my_emotions = defaultdict(int)
-        my_keywords = defaultdict(int)
-        def parse_row(row: pd.Series):
-            emotions, keywords = self.extract_memory_metadata(row)
-            for e in emotions:
-                my_emotions[e] += 1
-            for k in keywords:
-                my_keywords[k] += 1
-            
         motd = self.chat.cvm.get_motd(3)
         if not motd.empty:
             logger.debug(f"MOTD: Found {len(motd)}")
@@ -119,10 +107,72 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                 if motd_date < datetime.now() - timedelta(days=3):
                     logger.info(f"MOTD is older than 3 days, skipping: {row['date']}")
                     continue
-                row_entry = f"xoxo MOTD: {row['date']}: {row['content']} oxox"
-                formatter.add_element(self.hud_name, "Active Memory", "MOTD", content=row_entry, priority=2)
-                logger.debug(f"XMemory: {len(row_entry)} {row['conversation_id']}/{row['document_type']}/{row['date']}/{row['doc_id']}")
-                parse_row(row)
+                row_entry_content = f"xoxo MOTD: {row['date']}: {row['content']} oxox"
+                
+                formatter.add_element(self.hud_name, "Active Memory", "MOTD", content=row_entry_content, priority=2, noindent=True)
+
+                emotions, keywords = self.extract_memory_metadata(row)
+                
+                # Aggregate emotions and keywords for the global tags
+                for e in emotions:
+                    if e is not None:
+                        aggregated_emotions[e] += 1
+                for k in keywords:
+                    if k is not None:
+                        aggregated_keywords[k] += 1
+
+                logger.debug(f"XMemory: {len(row_entry_content)} {row['conversation_id']}/{row['document_type']}/{row['date']}/{row['doc_id']}")
+
+        # Process Pinned Messages
+        if self.pinned:
+            logger.info(f"Processing {len(self.pinned)} pinned messages.")
+            pinned_docs_data = []
+            # Collect all doc_ids and fetch them in one go
+            all_pinned_doc_ids = list(self.pinned)
+            if all_pinned_doc_ids:
+                pinned_docs_df = self.chat.cvm.get_documents(all_pinned_doc_ids)
+                if not pinned_docs_df.empty:
+                    # Iterate over the rows of the DataFrame
+                    for _, pinned_doc_row in pinned_docs_df.iterrows():
+                        # Check if this doc_id was actually in our self.pinned set, 
+                        # as get_documents might return other docs if IDs are reused elsewhere or not found
+                        if pinned_doc_row['doc_id'] in self.pinned:
+                            pinned_docs_data.append(pinned_doc_row)
+                        else:
+                            # This case should ideally not happen if get_documents is strict, 
+                            # but good for robustness
+                            logger.debug(f"Document {pinned_doc_row['doc_id']} from batch was not in the requested pinned set.")
+                else:
+                    logger.warning(f"Could not retrieve any pinned documents for ids: {all_pinned_doc_ids}")
+            else:
+                logger.info("No document IDs in self.pinned to process.")
+            
+            if pinned_docs_data:
+                for row in pinned_docs_data: # Iterating over list of Series
+                    # Ensure row is a Series, if get_doc_by_id might return something else adjust here
+                    if not isinstance(row, pd.Series):
+                        logger.error(f"Pinned document data for {row.get('doc_id', 'Unknown ID')} is not a pandas Series. Skipping.")
+                        continue
+
+                    row_entry_content = row.get('content', "Error: Pinned content not found.")
+                    # Use a distinct tag for pinned messages, e.g., "Pinned"
+                    # Include relevant attributes like date and type if available in the row Series
+                    formatter.add_element(self.hud_name, "Active Memory", "Pinned",
+                                          date=row.get('date'), 
+                                          type=row.get('document_type'),
+                                          doc_id=row.get('doc_id'), # Adding doc_id for clarity in XML
+                                          content=row_entry_content, 
+                                          noindent=True,
+                                          priority=2 # High priority
+                                         )
+                    emotions, keywords = self.extract_memory_metadata(row)
+                    for e in emotions:
+                        if e is not None:
+                            aggregated_emotions[e] += 1
+                    for k in keywords:
+                        if k is not None:
+                            aggregated_keywords[k] += 1
+                    logger.debug(f"PinnedMsg: {len(row_entry_content)} {row.get('conversation_id')}/{row.get('document_type')}/{row.get('date')}/{row.get('doc_id')}")
 
         logger.info(f"Total Conscious Memory Length: {total_len}")
 
@@ -135,40 +185,57 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
             for _, row in conscious.iterrows():
                 if row['doc_id'] in seen_docs:
                     continue
-                row_entry = row['content']
+                row_entry_content = row['content']
+                
                 formatter.add_element(self.hud_name, "Active Memory", "Journal",
                                       date=row['date'], type=row['document_type'],
-                                      content=row_entry, priority=2)
-                parse_row(row)
+                                      noindent=True,
+                                      content=row_entry_content, priority=2)
+
+                emotions, keywords = self.extract_memory_metadata(row)
+                
+                # Aggregate emotions and keywords for the global tags
+                for e in emotions:
+                    if e is not None:
+                        aggregated_emotions[e] += 1
+                for k in keywords:
+                    if k is not None:
+                        aggregated_keywords[k] += 1
                 seen_docs.add(row['doc_id'])
-                logger.debug(f"CMemory: {len(row_entry)} {row['conversation_id']}/{row['document_type']}/{row['date']}/{row['doc_id']}")
+                logger.debug(f"CMemory: {len(row_entry_content)} {row['conversation_id']}/{row['document_type']}/{row['date']}/{row['doc_id']}")
 
         logger.info(f"Total Conscious Memory Length: {formatter.current_length}")
 
-        if len(my_emotions) > 0:
-            formatter.add_element(self.hud_name, "emotions", content=", ".join(e for e in my_emotions.keys() if e is not None), priority=1)
-        if len(my_keywords) > 0:
-            formatter.add_element(self.hud_name, "keywords", content=", ".join(k for k in my_keywords.keys() if k is not None), priority=1)
+        if len(aggregated_emotions) > 0:
+            formatter.add_element(self.hud_name, "emotions", content=", ".join(e for e in aggregated_emotions.keys() if e is not None), priority=1, nowrap=True)
+        if len(aggregated_keywords) > 0:
+            formatter.add_element(self.hud_name, "keywords", content=", ".join(k for k in aggregated_keywords.keys() if k is not None), priority=1, nowrap=True)
 
         if self.chat.current_workspace is not None:
-            formatter.add_element(self.hud_name, "workspace", content="The user is sharing a workspace with you.", priority=3)
-            formatter.add_element(self.hud_name, "workspace", content=self.chat.current_workspace,
-                metadata=dict(
-                    length=ws_size
-                ), priority=3
-            )
+            full_workspace_content = f"*The user is sharing a workspace with you.*\n{self.chat.current_workspace}"
+            formatter.add_element(self.hud_name, "workspace",
+                                content=full_workspace_content,
+                                metadata=dict(
+                                    length=ws_size
+                                ), 
+                                priority=3,
+                                noindent=True
+                            )
 
         if self.scratch_pad:
-            formatter.add_element(self.hud_name, "scratchpad", content="You are sharding a scrachpad with yourself.", priority=3)
-            formatter.add_element(self.hud_name, "scratchpad", content=self.scratch_pad,
-                metadata=dict(
-                    length=scratch_pad_size
-                ), priority=3
-            )
+            full_scratchpad_content = f"*You are sharing a scratchpad with yourself.*\n{self.scratch_pad}"
+            formatter.add_element(self.hud_name, "scratchpad",
+                                content=full_scratchpad_content,
+                                metadata=dict(
+                                    length=scratch_pad_size
+                                ), 
+                                priority=3,
+                                noindent=True
+                            )
 
         logger.debug(f"Conscious Memory: Total Length: {formatter.current_length}/{self.max_character_length}")
 
-        return "\n".join(document_content) + formatter.render()
+        return formatter.render() # Removed "\n".join(document_content)
         
     def chat_turns_for(self, persona: Persona, user_input: str, history: list[dict[str, str]] = [], content_len: Optional[int] = None) -> list[dict[str, str]]:
         """

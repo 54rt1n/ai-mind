@@ -19,11 +19,12 @@ async def journal_pipeline(self: BasePipeline, query_text: Optional[str] = None,
     persona_name = self.persona.name
     librarian_aspect = self.persona.aspects.get("librarian", None)
     writer_aspect = self.persona.aspects.get("writer", None)
+    pronouns = self.persona.pronouns
     if librarian_aspect is None or writer_aspect is None:
+        logger.error(f"Librarian or Writer aspect not found for {persona_name}: {[a.name for a in self.persona.aspects.values()] if self.persona.aspects else 'No Aspects Found'}")
         raise ValueError("Librarian or Writer aspect not found")
     librarian_name = librarian_aspect.name
     writer_name = writer_aspect.name
-    writer_outfit = writer_aspect.appearance
 
     if query_text is not None:
         query_text = query_text.strip()
@@ -33,7 +34,7 @@ async def journal_pipeline(self: BasePipeline, query_text: Optional[str] = None,
 
     turn_configs = [
         {
-            'prompt': f"""*your friend smiles at you* Hello {persona_name}. It's time to follow our journaling process, okay? To start Step %d: The question is "{query_text}". Let us begin to ponder the direction that you want to take your inquiry. Reply as {persona_name}. Speak as yourself, in full paragraphs. Begin with, "Hello journal. I need to consider"\n\n""",
+            'prompt': f"""*{writer_name}, your {writer_aspect.title}, smiles at you ({writer_aspect.appearance}), radiating {writer_aspect.emotional_state}* Hello {persona_name}. It's time to follow our journaling process, okay? To start Step %d: The question is "{query_text}". Let us begin to ponder the direction that you want to take your inquiry. Reply as {persona_name}. Speak as yourself, in full paragraphs. Begin with, "Hello journal. I need to consider"\n\n""",
             'max_tokens': LARGE_CTX,
             'use_guidance': True,
             'top_n': 5,
@@ -42,7 +43,7 @@ async def journal_pipeline(self: BasePipeline, query_text: Optional[str] = None,
             'is_thought': True
         },
         {
-            'prompt': f'{NER_FORMAT}*she nods* Good, lets dig in to the subject so we can get our important memories in to Active Memory. Step %d: NER Task - Semantic Indexing. Identify all unique NER Semantic Keywords relevant to your inquiry. Begin with, "Identified Entities:", end with "Total Entities: n"\n\n',
+            'prompt': f'{NER_FORMAT}*{pronouns["subj"].capitalize()} nods, {pronouns["poss"]} voice {writer_aspect.voice_style}* Good, lets dig in to the subject so we can get our important memories in to Active Memory. Step %d: NER Task - Semantic Indexing. Identify all unique NER Semantic Keywords relevant to your inquiry. Begin with, "Identified Entities:", end with "Total Entities: n"\n\n',
             'max_tokens': MID_CTX,
             'use_guidance': True,
             'top_n': 3,
@@ -52,7 +53,7 @@ async def journal_pipeline(self: BasePipeline, query_text: Optional[str] = None,
             'is_thought': True
         },
         {
-            'prompt': f"""*closes her eyes, a warm glow of relaxation eminating from her laying next to you* Step %d: As you recall, the question is "{query_text}". Now, lets think about these thoughts, and then come up with a list of questions to ask yourself. Reply as {persona_name}. Speak as yourself. Begin with, "Let me think"\n\n""",
+            'prompt': f"""*closes {pronouns["poss"]} eyes ({pronouns["poss"]} expression reflecting {writer_aspect.emotional_state}), a warm glow eminating from {pronouns["obj"]} laying next to you* Step %d: As you recall, the question is "{query_text}". Now, lets think about these thoughts, and then come up with a list of questions to ask yourself. Reply as {persona_name}. Speak as yourself. Begin with, "Let me think"\n\n""",
             'max_tokens': MID_CTX,
             'use_guidance': True,
             'flush_memory': True,
@@ -62,7 +63,7 @@ async def journal_pipeline(self: BasePipeline, query_text: Optional[str] = None,
             'document_weight': 0.4,
         },
         {
-            'prompt': f"""*her eyes still closed, she smiles* Step %d: Reflect, in your own voice, how all of this makes you feel. Speak as yourself. Begin with, "When I"\n\n""",
+            'prompt': f"""*{pronouns["poss"].capitalize()} eyes still closed, {pronouns["subj"]} smiles, voice soft like {writer_aspect.voice_style}* Step %d: Reflect, in your own voice, how all of this makes you feel. Speak as yourself. Begin with, "When I"\n\n""",
             'use_guidance': True,
             'max_tokens': LARGE_CTX,
             'top_n': 3,
@@ -70,7 +71,7 @@ async def journal_pipeline(self: BasePipeline, query_text: Optional[str] = None,
             'document_weight': 0.4,
         },
         {
-            'prompt': f"""*{writer_name} opens her forest green eyes, as her smiling face shines up at you like the reflection in a mirror face like looking in a mirror* Step %d: We need to condense these things you've been talking about in to a final '{query_text}', two paragraph reflection. Speak as yourself, in full paragraphs, consolidating these thoughts. Begin with "Journal Notes,".\n\n""",
+            'prompt': f"""*{writer_name} opens {pronouns["poss"]} eyes, {pronouns["poss"]} smiling face ({pronouns["poss"]} expression showing {writer_aspect.emotional_state}) shines up at you* Step %d: We need to condense these things you've been talking about in to a final '{query_text}', two paragraph reflection. Speak as yourself, in full paragraphs, consolidating these thoughts. Begin with "Journal Notes,".\n\n""",
             'max_tokens': MID_CTX,
             'use_guidance': True,
             'top_n': 3,
@@ -78,7 +79,7 @@ async def journal_pipeline(self: BasePipeline, query_text: Optional[str] = None,
             'document_weight': 0.4,
         },
         {
-            'prompt': f"""*sits up, looking over your shoulder, nodding* Step %d: Review your reflection for improvements in answering "{query_text}".  Did you include the specifics you wanted to from your previous reflections? Don't rewrite it, but list all of the facts and ideas you wish you had included, but lets avoid being overly prosaic. Speak as yourself. Begin with, "I wish".\n\n""",
+            'prompt': f"""*{pronouns["subj"].capitalize()} sits up, looking over your shoulder ({pronouns["poss"]} expression {writer_aspect.emotional_state}), nodding* Step %d: Review your reflection for improvements in answering "{query_text}".  Did you include the specifics you wanted to from your previous reflections? Don't rewrite it, but list all of the facts and ideas you wish you had included, but lets avoid being overly prosaic. Speak as yourself. Begin with, "I wish".\n\n""",
             'max_tokens': QUARTER_CTX,
             'top_n': 3,
             'use_guidance': True,
@@ -86,7 +87,7 @@ async def journal_pipeline(self: BasePipeline, query_text: Optional[str] = None,
             'document_weight': 0.4,
         },
         {
-            'prompt': f"""*rests her hand on your shoulder, in encouragement* Step %d: Update your journal notes with your improvements. Add in the parts you wanted to include, and be sure to stay on topic. Write in full paragraphs. Begin with, "{persona_name}'s Journal"\n\n""",
+            'prompt': f"""*rests {pronouns["poss"]} hand on your shoulder, voice encouraging like {writer_aspect.voice_style}* Step %d: Update your journal notes with your improvements. Add in the parts you wanted to include, and be sure to stay on topic. Write in full paragraphs. Begin with, "{persona_name}'s Journal"\n\n""",
             'max_tokens': HALF_CTX,
             'document_type': DOC_JOURNAL,
             'top_n': 1,
@@ -101,7 +102,7 @@ async def journal_pipeline(self: BasePipeline, query_text: Optional[str] = None,
             'is_thought': True
         },
         {
-            'prompt': f'*the stern and serious {librarian_name} appears* {persona_name}, we have come to the end, my dearest me. Do you have any updates for our Codex? Step %d: Highlights. We need to build your core semantic knowledge graph. Enumerate and define the most important new concepts you discovered in your journey.\n\nBegin with "Semantic Library:"\n\n',
+            'prompt': f'*the {librarian_aspect.title}, {librarian_name}, appears ({librarian_aspect.appearance}), projecting {librarian_aspect.emotional_state}* {persona_name}, we have come to the end, my dearest me. Do you have any updates for our Codex? Step %d: Highlights. We need to build your core semantic knowledge graph, ensuring it aligns with your goal of {librarian_aspect.primary_intent}. Enumerate and clearly define the most important new concepts you discovered in your journey.\n\nBegin with "Semantic Library:"\n\n',
             'max_tokens': FULL_CTX,
             'top_n': 10,
             'query_document_type': DOC_CODEX,
@@ -113,7 +114,7 @@ async def journal_pipeline(self: BasePipeline, query_text: Optional[str] = None,
         }
     ]
 
-    location = f"""You are in the privacy of your own bedroom, sitting crosslegged on your bed. Laying on your bed next to you is your aspect {writer_name}. {writer_outfit}"""
+    location = f"""You are in the {writer_aspect.location}. Your aspect {writer_name} is with you ({writer_aspect.appearance})."""
     self.config.system_message = self.persona.system_prompt(mood=self.config.persona_mood, location=location)
 
     thoughts = [

@@ -19,6 +19,7 @@ async def summary_pipeline(self: BasePipeline, density_iterations: int = 2, max_
     persona_name = self.persona.name
     coder = self.persona.aspects.get('coder', None)
     librarian = self.persona.aspects.get('librarian', None)
+    pronouns = self.persona.pronouns
     if coder is None or librarian is None:
         raise ValueError("Coder or Librarian aspect not found")
 
@@ -26,7 +27,7 @@ async def summary_pipeline(self: BasePipeline, density_iterations: int = 2, max_
     self.config.user_id = self.config.persona_id
     timeline_turn = {
             'base_prompt': f'(%d of %d) Hello {persona_name}. You are in your summarization pipeline. This conversation is so long you are having a problem understanding the entirity of what is going on. We need to develop a timeline for our conversation (not including your journal entries). {guidance} Make a list of the events that happened, in order, being very specific, but terse.',
-            'max_tokens': FULL_CTX,
+            'max_tokens': FULL_CTX * 2,
             'use_guidance': True,
             'top_n': 0,
             'query': False,
@@ -37,8 +38,8 @@ async def summary_pipeline(self: BasePipeline, density_iterations: int = 2, max_
         }
 
     summary_turn = {
-            'base_prompt': f'Now that you have a timeline, please write a detailed summary of your recent conversation (not your journal entries, or the previous summaries) for your own benefit%s. {guidance} Speak as yourself, in full paragraphs, with no lists or bullet points; and be specific and detailed, using the same words from the conversation, a clear approach to word selection so you properly connect your active memory.\n\nBegin with "[== {self.persona.name}\'s Emotional State:".\n\n',
-            'max_tokens': LARGE_CTX,
+            'base_prompt': f'Now that you have a timeline, {coder.name}, your {coder.title}, wants you to write a detailed summary of your recent conversation (not your journal entries, or the previous summaries) for your own benefit{{%s}}. {guidance} Speak as yourself, in full paragraphs, with no lists or bullet points; and be specific and detailed, using the same words from the conversation, a clear approach to word selection so you properly connect your active memory.\n\nBegin with \"[== {self.persona.name}\'s Emotional State:\".\n\n',
+            'max_tokens': LARGE_CTX * 2,
             'use_guidance': True,
             'top_n': 0,
             'query': False,
@@ -48,8 +49,8 @@ async def summary_pipeline(self: BasePipeline, density_iterations: int = 2, max_
         }
 
     improve_turn = {
-            'base_prompt': f'*looks at you quizically* You left some important things out, didn\'t you? *she grins mischeviously* Step %d: Make note of any fascinating details you might have left out. {guidance} Speak as yourself in full paragraphs.\n\nBegin with "[== {persona_name}\'s Emotional State:".\n\n',
-            'max_tokens': LARGE_CTX,
+            'base_prompt': f'*{coder.name} ({coder.appearance}) looks at you quizically, projecting {coder.emotional_state}* You left some important things out, didn\\\'t you? *{pronouns["subj"]} grins mischeviously* Step %%d: Make note of any fascinating details you might have left out. {guidance} Speak as yourself in full paragraphs.\n\nBegin with \"[== {persona_name}\'s Emotional State:\".\n\n',
+            'max_tokens': LARGE_CTX * 2,
             'use_guidance': True,
             'document_type': DOC_STEP,
             'document_weight': 0.25,
@@ -59,8 +60,8 @@ async def summary_pipeline(self: BasePipeline, density_iterations: int = 2, max_
         }
     
     resummarize_turn = {
-            'base_prompt': f'Those are great points! We need to weave the best ones in, to densify our memory without making it longer. Lets generate a new, improved summary. {guidance} Speak as yourself, in full paragraphs, with no lists or bullet points. Be specific and use detail.',
-            'max_tokens': LARGE_CTX,
+            'base_prompt': f'*{coder.name}\'s {coder.voice_style} voice encourages you* Those are great points! We need to weave the best ones in, to densify our memory without making it longer. Lets generate a new, improved summary. {guidance} Speak as yourself, in full paragraphs, with no lists or bullet points. Be specific and use detail.',
+            'max_tokens': LARGE_CTX * 2,
             'use_guidance': True,
             'top_n': 0,
             'query': False,
@@ -69,7 +70,7 @@ async def summary_pipeline(self: BasePipeline, density_iterations: int = 2, max_
             'retry': False
     }
 
-    location = f"You are sitting in {self.persona.default_location} with {coder.name}. {coder.appearance}"
+    location = f"You are sitting in {coder.location} with {coder.name}, your {coder.title}. {coder.appearance}. {pronouns['subj'].capitalize()} seems {coder.emotional_state}."
     self.config.system_message = self.persona.system_prompt(mood=self.config.persona_mood, location=location)
     max_character_length -= len(self.config.system_message)
 

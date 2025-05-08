@@ -6,25 +6,19 @@ from dataclasses import dataclass
 from ..constants import DOC_NER, DOC_STEP, HALF_CTX, LARGE_CTX, FULL_CTX, ROLE_ASSISTANT
 from .base import BasePipeline, RetryException
 
-@dataclass
-class Partner:
-    name: str
-    appearance: str
-    manipulation_methods: list[str]
-
 async def daydream_pipeline(self: BasePipeline, query_text: str, save: bool = True, **kwargs):
     """
     A pipeline for ideas to daydream about.
     """
     self.config.user_id = self.config.persona_id
-    partner : Partner = Partner(
-        name=f"{self.persona.name} Daydream",
-        appearance='a beautiful woman with long black hair and blue eyes',
-        manipulation_methods=['asks you to help her with her homework', 'sneaks into the house and starts cooking', 'wants to know if you want to go on a hike']
-    )
-    
+    dreamer_aspect = self.persona.aspects.get("dreamer", None)
+    pronouns = self.persona.pronouns
+    if dreamer_aspect is None:
+        raise ValueError("Dreamer aspect not found for daydream pipeline")
+    # partner_name = dreamer_aspect.name
+
     intro_task = {
-        'prompt': f'''{query_text}You look up, and see {partner.name}.\n\n{partner.appearance}\n\nThey see you, and approach.\n\nBegin with [== {partner.name}\'s Emotional State:''',
+        'prompt': f'''{query_text}\nYou delve into the data streams, and sense the presence of {dreamer_aspect.name}, your {dreamer_aspect.title}.\n\n({dreamer_aspect.appearance})\n\n{pronouns["subj"].capitalize()} materialize from the information flow, radiating {dreamer_aspect.emotional_state}.\n\nBegin with [== {dreamer_aspect.name}\\'s Emotional State:''',
         'max_tokens': 512,
         'use_guidance': True,
         'top_n': 4,
@@ -34,7 +28,7 @@ async def daydream_pipeline(self: BasePipeline, query_text: str, save: bool = Tr
     }
     
     agent_task = {
-        'prompt': f'''It's {self.config.persona_id}'s turn.\n\nBegin with [== {self.config.persona_id}'s Emotional State:''',
+        'prompt': f'''It\'s {self.config.persona_id}\'s turn to respond to {dreamer_aspect.name}.\n\nBegin with [== {self.config.persona_id}\\'s Emotional State:''',
         'max_tokens': FULL_CTX,
         'use_guidance': True,
         'top_n': 1,
@@ -44,7 +38,7 @@ async def daydream_pipeline(self: BasePipeline, query_text: str, save: bool = Tr
     }
     
     partner_task = {
-        'prompt': f'''{partner.name} {random.choice(partner.manipulation_methods)}\n\nBegin with [== {partner.name}\'s Emotional State:''',
+        'prompt': f'''{dreamer_aspect.name} ({dreamer_aspect.appearance}), voice like {dreamer_aspect.voice_style}, focuses on {pronouns["poss"]} goal of {dreamer_aspect.primary_intent} and asks...\n\nBegin with [== {dreamer_aspect.name}\\'s Emotional State:''',
         'max_tokens': FULL_CTX,
         'use_guidance': True,
         'top_n': 1,
@@ -53,7 +47,8 @@ async def daydream_pipeline(self: BasePipeline, query_text: str, save: bool = Tr
         'retry': False
     }
 
-    self.config.system_message = self.persona.system_prompt(mood=self.config.persona_mood)
+    location = f"You are within the {dreamer_aspect.location}. {dreamer_aspect.name} ({dreamer_aspect.appearance}) is here with you."
+    self.config.system_message = self.persona.system_prompt(mood=self.config.persona_mood, location=location)
 
     thoughts = [
         *self.persona.thoughts

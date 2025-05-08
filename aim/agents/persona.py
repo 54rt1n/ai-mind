@@ -110,21 +110,33 @@ class Persona:
     )
     include_date: bool = True
 
-    def _xml_description(self, *base_path, xml: XmlFormatter, show_time: bool = True, mood: Optional[str] = None, disable_pif: bool = False, disable_guidance: bool = False) -> str:
+    def _xml_description(self, *base_path, xml: XmlFormatter, conversation_length: int = 0, show_time: bool = True, mood: Optional[str] = None,
+                         disable_pif: bool = False, disable_guidance: bool = False) -> str:
         for k, v in self.attributes.items():
             xml.add_element(*base_path, 'Attributes', k[:3], content=v, nowrap=True, priority=1)
         for k, v in self.features.items():
             xml.add_element(*base_path, 'Features', k, content=v, nowrap=True, priority=1)
+        for k,v in self.attire.items():
+            xml.add_element(*base_path, 'Attire', k, content=v, nowrap=True, priority=1)
         if not disable_pif:
             for k, v in self.pif.items():
                 if disable_guidance:
                     if k[:7] == "Example":
                         continue
                 xml.add_element(*base_path, 'PIF', k, content=v, priority=3)
-        for k, v in self.nshot.items():
+        example_count = len(self.nshot)
+        if conversation_length > 0:
+            example_count = max(example_count - conversation_length + 1, 0)
+            logger.info(f"Adding {example_count} NShot examples ({len(self.nshot)} - {conversation_length} + 1)")
+        nshots = list(self.nshot.items())
+        nshots = random.choices(nshots, k=example_count)
+        for k, v in nshots:
+            if example_count <= 0:
+                break
             if 'human' in v and 'assistant' in v:
-                xml.add_element(*base_path, 'NShot', k, 'Human', content=v['human'], priority=1)
-                xml.add_element(*base_path, 'NShot', k, 'Assistant', content=v['assistant'], priority=1)
+                xml.add_element(*base_path, 'NShot', k, 'Human', content=v['human'], priority=1, noindent=True)
+                xml.add_element(*base_path, 'NShot', k, 'Assistant', content=v['assistant'], priority=1, noindent=True)
+                example_count -= 1
             else:
                 logger.warning(f"NShot {k} is missing human or assistant")
 
@@ -138,6 +150,7 @@ class Persona:
         user_id: Optional[str] = None,
         disable_guidance: bool = False,
         disable_pif: bool = False,
+        conversation_length: int = 0,
     ) -> XmlFormatter:
         """This is where we need to decorate our formatter, returning a document
 <Full Name>
@@ -157,7 +170,7 @@ class Persona:
             xml.add_element(self.full_name, "SystemHeader", content=f"{self.persona_id} is talking to {user_id}.", nowrap=True, priority=2)
             xml.add_element(self.full_name, "SystemHeader", content=f"Stay in character, and use your memories to help you. Don't speak for {user_id}.", nowrap=True, priority=2)
 
-        xml = self._xml_description(self.full_name, xml=xml, show_time=self.include_date, mood=mood, disable_guidance=disable_guidance, disable_pif=disable_pif)
+        xml = self._xml_description(self.full_name, xml=xml, conversation_length=conversation_length, show_time=self.include_date, mood=mood, disable_guidance=disable_guidance, disable_pif=disable_pif)
 
         return xml
 
@@ -227,6 +240,18 @@ class Persona:
             logger.info(f"Using Current date: {strtime}")
             thoughts.append(f"Current Time [{strtime} ({current_time})]")
         return thoughts
+
+    @property
+    def pronouns(self) -> Dict[str, str]:
+        """Returns a dictionary of pronouns based on persona sex."""
+        sex = self.attributes.get('sex', '').lower()
+        if sex == 'female':
+            return {'subj': 'she', 'obj': 'her', 'poss': 'her', 'poss_pr': 'hers', 'reflex': 'herself'}
+        elif sex == 'male':
+            return {'subj': 'he', 'obj': 'him', 'poss': 'his', 'poss_pr': 'his', 'reflex': 'himself'}
+        else:
+            # Default to neutral pronouns
+            return {'subj': 'they', 'obj': 'them', 'poss': 'their', 'poss_pr': 'theirs', 'reflex': 'themself'}
 
     @property
     def prompt_prefix(self) -> str:
