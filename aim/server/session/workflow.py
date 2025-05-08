@@ -146,13 +146,13 @@ class SessionWorkflow:
         turns.append(conversation_turn)
         
         # 3. Run each turn in sequence - each turn handles its own config preparation
-        for turn in turns:
+        for i, turn in enumerate(turns):
             logger.info(f"Processing turn: {turn.turn_type}")
             
             # Get the specific config for this turn - apply any request-specific settings
             local_config = copy.deepcopy(self.config)
                 
-            turn_config = turn.get_config(local_config, self.state, self.current)
+            turn_config = turn.get_config(local_config, self.state, self.current, conversation_length=i)
             if not turn_config:
                 logger.warning(f"No valid config for turn type: {turn.turn_type}")
                 continue

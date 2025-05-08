@@ -8,6 +8,7 @@
     import { workspaceStore } from "$lib/store/workspaceStore";
     import { configStore } from "$lib/store/configStore";
     import { thoughtStore } from "$lib/store/thoughtStore";
+    import { chatStore } from "$lib/store/chatStore";
     import ModelSelect from "../model/ModelSelect.svelte";
     import Thinking from "../ui/Thinking.svelte";
     import { createEventDispatcher } from "svelte";
@@ -47,9 +48,13 @@
         lastWorkspaceContent = workspaceContent;
 
         return await thoughtStore.generateThought(
-            $configStore,
             conversationHistory,
-            workspaceContent,
+            $configStore,
+            {
+                workspaceContent,
+                pinnedMessages: $configStore.pinnedMessages,
+                activeDocument: $configStore.selectedDocument,
+            }
         );
     }
 
@@ -71,9 +76,13 @@
         lastWorkspaceContent = workspaceContent;
         
         return await thoughtStore.generateThought(
-            $configStore,
             conversationHistory,
-            workspaceContent,
+            $configStore,
+            {
+                workspaceContent,
+                pinnedMessages: $configStore.pinnedMessages,
+                activeDocument: $configStore.selectedDocument,
+            }
         );
     }
 
@@ -127,9 +136,13 @@
             ? $workspaceStore.content
             : undefined;
         await thoughtStore.generateThought(
-            $configStore,
             conversationHistory,
-            workspaceContent,
+            $configStore,
+            {
+                workspaceContent,
+                pinnedMessages: $configStore.pinnedMessages,
+                activeDocument: $configStore.selectedDocument,
+            }
         );
     }
 

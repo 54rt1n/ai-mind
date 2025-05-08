@@ -28,7 +28,7 @@ class BaseTurn(ABC):
         """Update the config for the session."""
         pass
 
-    def get_config(self, config: ChatConfig, session_state: SessionState, current_state: CurrentState) -> ChatConfig | None:
+    def get_config(self, config: ChatConfig, session_state: SessionState, current_state: CurrentState, conversation_length: int) -> ChatConfig | None:
         """Get the config for the session."""
 
         # We need a deep copy of the config
@@ -54,6 +54,7 @@ class BaseTurn(ABC):
             mood=local_config.persona_mood,
             user_id=session_state.user_id,
             location=session_state.location or self.persona.default_location,
+            conversation_length=conversation_length,
         )
 
         system_formatter = self._update_formatter(system_formatter, session_state, current_state)

@@ -58,7 +58,6 @@ function createChatStore() {
         });
     }
 
-
     async function _sendMessage(
         model: string,
         messages: CompletionMessage[],
@@ -132,6 +131,20 @@ function createChatStore() {
         options: {
             workspaceContent?: string,
             skipAppend?: boolean,
+            systemMessage?: string | null;
+            currentLocation?: string | null;
+            pinnedMessages?: ChatMessage[] | null;
+            activeDocument?: DocumentInfo | null;
+            temperature?: number | null;
+            maxTokens?: number | null;
+            frequencyPenalty?: number | null;
+            presencePenalty?: number | null;
+            repetitionPenalty?: number | null;
+            minP?: number | null;
+            topP?: number | null;
+            topK?: number | null;
+            disableGuidance?: boolean | null;
+            disablePif?: boolean | null;
         } = {}
     ): Promise<SendMessageCallback> {
         const model = config.chatModel;
@@ -188,7 +201,21 @@ function createChatStore() {
 
             await _sendMessage(model, messages, handleResponse, config, {
                 workspaceContent: options.workspaceContent,
-                onComplete: handleComplete
+                onComplete: handleComplete,
+                systemMessage: options.systemMessage,
+                currentLocation: options.currentLocation,
+                pinnedMessages: options.pinnedMessages,
+                activeDocument: options.activeDocument,
+                temperature: options.temperature,
+                maxTokens: options.maxTokens,
+                frequencyPenalty: options.frequencyPenalty,
+                presencePenalty: options.presencePenalty,
+                repetitionPenalty: options.repetitionPenalty,
+                minP: options.minP,
+                topP: options.topP,
+                topK: options.topK,
+                disableGuidance: options.disableGuidance,
+                disablePif: options.disablePif,
             });
 
             saveConversationData();
@@ -333,7 +360,23 @@ function createChatStore() {
                 ...store,
                 conversationHistory: store.conversationHistory.filter(msg => msg !== lastMessage)
             }));
-            sendMessage(lastMessage.content, config, { workspaceContent });
+            sendMessage(lastMessage.content, config, {
+                workspaceContent,
+                systemMessage: config.systemMessage,
+                currentLocation: config.location,
+                pinnedMessages: config.pinnedMessages,
+                activeDocument: config.selectedDocument,
+                temperature: config.temperature,
+                maxTokens: config.maxTokens,
+                frequencyPenalty: config.frequencyPenalty,
+                presencePenalty: config.presencePenalty,
+                repetitionPenalty: config.repetitionPenalty,
+                minP: config.minP,
+                topP: config.topP,
+                topK: config.topK,
+                disableGuidance: false,
+                disablePif: false,
+            });
         }
     }
 

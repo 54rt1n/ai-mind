@@ -102,8 +102,8 @@ class BasePipeline:
         else:
             model = self.llm
 
+        my_turns = [t for t in turns]
         try:
-            my_turns = [t for t in turns]
             expansion = {
                 2: " Do your best.",
                 3: " You can do this.",
@@ -117,6 +117,12 @@ class BasePipeline:
             }.get(retries, "")
             content = my_turns[-1]['content']
             content += expansion
+            # check our character count - if it's over 40000, we need to run an eviction
+            if sum([len(v) for e in my_turns for k, v in e.items()]) > 60000:
+                logger.info(f"Evicting memory, current length: {sum([word_count(v) for e in my_turns for k, v in e.items()])}")
+                my_turns = self.evict_memory(my_turns)
+                logger.info(f"Evicted memory, new length: {sum([word_count(v) for e in my_turns for k, v in e.items()])}")
+                return self.generate_response(provider_type=provider_type, turns=my_turns, config=config, max_retries=max_retries, retries=retries, evictions=evictions, is_thought=is_thought, is_codex=is_codex)
             logger.info(f"Processing Length: {sum([word_count(v) for e in my_turns for k, v in e.items()])}")
             # pull the provider from the dict if it exists, otherwise use analysis
             for t in model.stream_turns(my_turns, config):
@@ -133,23 +139,23 @@ class BasePipeline:
             if '429' in str(e):
                 logger.info(f"Too many requests, retrying after 15 seconds")
                 time.sleep(15)
-                return self.generate_response(provider_type=provider_type, turns=turns, config=config, max_retries=max_retries, retries=retries, evictions=evictions, is_thought=is_thought, is_codex=is_codex)
+                return self.generate_response(provider_type=provider_type, turns=my_turns, config=config, max_retries=max_retries, retries=retries, evictions=evictions, is_thought=is_thought, is_codex=is_codex)
             if retries < max_retries:
                 logger.info(f"Retrying {retries + 1}...")
-                return self.generate_response(provider_type=provider_type, turns=turns, config=config, max_retries=max_retries, retries=retries + 1, evictions=evictions, is_thought=is_thought, is_codex=is_codex)
+                return self.generate_response(provider_type=provider_type, turns=my_turns, config=config, max_retries=max_retries, retries=retries + 1, evictions=evictions, is_thought=is_thought, is_codex=is_codex)
             elif evictions < 1:
                 # We might be out of context
-                turns = self.evict_memory(turns)
+                my_turns = self.evict_memory(my_turns)
                 # We should retry less times
                 max_retries = max_retries - 1
-                return self.generate_response(provider_type=provider_type, turns=turns, config=config, max_retries=max_retries, retries=retries, evictions=evictions + 1, is_thought=is_thought, is_codex=is_codex)
+                return self.generate_response(provider_type=provider_type, turns=my_turns, config=config, max_retries=max_retries, retries=retries, evictions=evictions + 1, is_thought=is_thought, is_codex=is_codex)
             else:
                 # We're out of context and retries
                 retry_ok = input("-= [ Retry? (Y/n) ] =-")
                 if retry_ok.lower() == 'n':
                     raise e
                 else:
-                    return self.generate_response(provider_type=provider_type, turns=turns, config=config, max_retries=max_retries, retries=0, evictions=0, is_thought=is_thought, is_codex=is_codex)
+                    return self.generate_response(provider_type=provider_type, turns=my_turns, config=config, max_retries=max_retries, retries=0, evictions=0, is_thought=is_thought, is_codex=is_codex)
         return response
 
     def evict_memory(self, turns: list[dict[str, str]], max_depth: int = 2, depth: int = 0, force: bool = False) -> list[dict[str, str]]:
@@ -344,7 +350,15 @@ class BasePipeline:
             else:
                 # we found just a think tag, but no end tag, so lets remove it
                 response = response.replace('<think>', '').strip()
-
+        elif re.search(r'</think>', response):
+            logger.info(f"Response contains a think close xml tag")
+            # Extract the content before the think close xml tag
+            match = re.search(r'(.*?)</think>', response, re.DOTALL)
+            if match:
+                think_content = match.group(1)
+                response = re.sub(r'(.*?)</think>', '', response, flags=re.DOTALL).strip()
+                logger.info(f"Detected and removed think xml, length: {len(think_content)}")
+                
         if len(response) < 100:
             logger.error(f"Response is too short: {response}")
             raise RetryException("Response is too short")
@@ -418,7 +432,7 @@ class BasePipeline:
 
         llm_config = llm_list[model]
         #thought_config = llm_list['deepseek-ai/DeepSeek-R1']
-        thought_config = llm_list['Qwen/QwQ-32B']
+        thought_config = llm_list['maldv/Loqwqtus2.5-32B-Instruct']
         codex_config = llm_list['nvidia/Llama-3.1-Nemotron-70B-Instruct-HF']
 
         llm = llm_config.llm_factory(config)

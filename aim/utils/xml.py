@@ -17,6 +17,7 @@ class XmlLeaf:
     content: str
     attrs: dict
     nowrap: bool
+    noindent: bool
     priority: int
 
     @property
@@ -45,11 +46,11 @@ class XmlNode:
     children: OrderedDict[str, "XmlNode"]
     depth: int = 0
 
-    def add_leaf(self, name: str, content: str, attrs: dict = {}, nowrap: bool = False, priority: int = 0) -> None:
+    def add_leaf(self, name: str, content: str, attrs: dict = {}, nowrap: bool = False, noindent: bool = False, priority: int = 0) -> None:
         """
         Add a leaf node to the current node.
         """
-        self.leaves.append(XmlLeaf(depth=self.depth, name=name, content=content, attrs=attrs, nowrap=nowrap, priority=priority))
+        self.leaves.append(XmlLeaf(depth=self.depth, name=name, content=content, attrs=attrs, nowrap=nowrap, noindent=noindent, priority=priority))
 
     def add_child(self, name: str) -> "XmlNode":
         """
@@ -99,7 +100,8 @@ class XmlNode:
             else:
                 result.append(f"{leaf_indent}<{leaf.name}{leaf.format_attrs}>")
                 if leaf.content:
-                    result.append(f"{leaf_indent}{indent_str}{leaf.content}")
+                    content_indent = f"{leaf_indent}{indent_str}" if not leaf.noindent else ""
+                    result.append(f"{content_indent}{leaf.content}")
                 result.append(f"{leaf_indent}</{leaf.name}>")
         
         # Then handle child nodes
@@ -176,7 +178,7 @@ class XmlFormatter:
         """
         return self._current_length
 
-    def add_element(self, *path: str, content: str = None, nowrap: bool = False, priority: int = 0, **attrs):
+    def add_element(self, *path: str, content: str = None, nowrap: bool = False, noindent: bool = False, priority: int = 0, **attrs):
         """
         Add an element with content and optional attributes at the specified path.
 
@@ -186,6 +188,7 @@ class XmlFormatter:
             *path (str): Variable length path to the element location
             content (str): The text content of the element (optional)
             nowrap (bool): Whether to wrap the content in a new line (default: False)
+            noindent (bool): Whether to indent the content (default: False)
             priority (int): Priority level for the element (default: 0)
             **attrs: Optional attributes for the element as keyword arguments
         """
@@ -203,7 +206,7 @@ class XmlFormatter:
         # If we have content, add it as a leaf to the parent
         if content is not None:
             # Add new content length
-            current.add_leaf(name=last, content=content, attrs=attrs, nowrap=nowrap, priority=priority)
+            current.add_leaf(name=last, content=content, attrs=attrs, nowrap=nowrap, noindent=noindent, priority=priority)
             new_attrs_length = sum(len(str(k)) + len(str(v)) + 4 for k, v in attrs.items())
             self._current_length += len(str(content)) + new_attrs_length
         else:

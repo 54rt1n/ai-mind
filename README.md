@@ -24,12 +24,14 @@ The frontend is a SvelteKit application that provides a chat interface with the 
 git clone https://github.com/54rt1n/ai-mind.git
 cd ai-mind
 
-# Create a virtual environment
-python -m venv .venv
+# Create a virtual environment using uv
+uv venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
-# Install dependencies
-pip install -r requirements.txt
+# Install dependencies using uv
+uv pip install -e . 
+# To install test dependencies as well, you can run:
+# uv pip install -e .[test]
 
 cp .env.example .env
 

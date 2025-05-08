@@ -1,7 +1,7 @@
 import { writable, get } from 'svelte/store';
 import { browser } from '$app/environment';
 import { api } from '$lib/api';
-import type { CompletionMessage } from '$lib/types';
+import type { CompletionMessage, ChatConfig, ChatMessage, DocumentInfo } from '$lib/types';
 
 interface ThoughtState {
     thoughtContent: string;
@@ -129,11 +129,29 @@ function createThoughtStore() {
         updateDefaultContent: (content: string) => {
             update(store => ({ ...store, thoughtDefaultContent: content }));
         },
-        generateThought: async (config: any, conversationHistory: CompletionMessage[], workspaceContent?: string) => {
+        generateThought: async (
+            messages: CompletionMessage[],
+            config?: ChatConfig,
+            options: {
+                workspaceContent?: string | null,
+                pinnedMessages?: ChatMessage[] | null,
+                activeDocument?: DocumentInfo | null,
+                temperature?: number | null,
+                maxTokens?: number | null,
+                frequencyPenalty?: number | null,
+                presencePenalty?: number | null,
+                repetitionPenalty?: number | null,
+                minP?: number | null,
+                topP?: number | null,
+                topK?: number | null,
+                disableGuidance?: boolean | null,
+                disablePif?: boolean | null,
+            } = {}
+        ) => {
             const state = get({ subscribe });
             update(store => ({ ...store, loading: true, error: null }));
 
-            const conversationCopy = conversationHistory.map(message => ({
+            const conversationCopy = messages.map(message => ({
                 role: message.role,
                 content: message.content
             }));
@@ -146,7 +164,22 @@ function createThoughtStore() {
 
             conversationCopy[conversationCopy.length - 1] = lastMessage;
 
+            const temperature = options.temperature || 0.9;
+            const maxTokens = options.maxTokens || 2048;
+            const frequencyPenalty = options.frequencyPenalty || undefined;
+            const presencePenalty = options.presencePenalty || undefined;
+            const repetitionPenalty = options.repetitionPenalty || undefined;
+            const minP = options.minP || 0.05;
+            const topP = options.topP || undefined;
+            const topK = options.topK || undefined;
+
             try {
+                if (!config?.user_id || !config?.persona_id) {
+                    throw new Error("User ID and Persona ID are required");
+                }
+                if (!config?.thoughtModel) {
+                    throw new Error("Thought Model is required");
+                }
                 let response = '';
                 await api.sendChatCompletion(
                     JSON.stringify({
@@ -154,14 +187,23 @@ function createThoughtStore() {
                             user_id: config.user_id,
                             persona_id: config.persona_id,
                             thought_content: state.thoughtContent,
-                            workspace_content: workspaceContent
+                            workspace_content: options.workspaceContent,
+                            pinned_messages: options.pinnedMessages ? options.pinnedMessages.map(message => message.doc_id) : undefined,
+                            active_document: options.activeDocument ? options.activeDocument.name : undefined,
+                            disable_guidance: options.disableGuidance || undefined,
+                            disable_pif: options.disablePif || undefined,
                         },
                         messages: conversationCopy,
                         model: config.thoughtModel,
                         system_message: state.thoughtSystemMessage,
-                        temperature: 0.9,
-                        min_p: 0.05,
-                        max_tokens: 2048,
+                        temperature: temperature,
+                        min_p: minP,
+                        max_tokens: maxTokens,
+                        frequency_penalty: frequencyPenalty,
+                        presence_penalty: presencePenalty,
+                        repetition_penalty: repetitionPenalty,
+                        top_p: topP,
+                        top_k: topK,
                         stream: true
                     }),
                     (chunk) => {

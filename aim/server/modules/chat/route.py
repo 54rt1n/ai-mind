@@ -147,13 +147,17 @@ class ChatModule:
             raise HTTPException(status_code=400, detail="No user ID provided")
 
         if metadata.active_document is not None:
+            logger.info(f"Found active document: {metadata.active_document}")
             self.chat.current_document = metadata.active_document
         else:
+            logger.info("No active document found")
             self.chat.current_document = None
 
         if metadata.workspace_content is not None:
+            logger.info(f"Found workspace content: {len(metadata.workspace_content)}")
             self.chat.current_workspace = metadata.workspace_content
         else:
+            logger.info("No workspace content found")
             self.chat.current_workspace = None
 
         if metadata.pinned_messages:
@@ -162,16 +166,21 @@ class ChatModule:
             for doc_id in metadata.pinned_messages:
                 self.chat_strategy.pin_message(doc_id)
         else:
+            logger.info("Clearing pinned messages")
             self.chat_strategy.clear_pinned()
 
         if metadata.thought_content:
+            logger.info(f"Found thought content: {len(metadata.thought_content)}")
             self.chat_strategy.thought_content = metadata.thought_content
         else:
+            logger.info("No thought content found")
             self.chat_strategy.thought_content = None
 
         if metadata.scratch_pad:
+            logger.info(f"Found scratch pad: {len(metadata.scratch_pad)}")
             self.chat_strategy.scratch_pad = metadata.scratch_pad
         else:
+            logger.info("No scratch pad found")
             self.chat_strategy.scratch_pad = None
 
         self.config.user_id = metadata.user_id
@@ -193,6 +202,7 @@ class ChatModule:
             location=metadata.location or persona.default_location,
             disable_guidance=metadata.disable_guidance or False,
             disable_pif=metadata.disable_pif or False,
+            conversation_length=len(request.messages),
         )
 
         if request.tools is not None and len(request.tools) > 0:
