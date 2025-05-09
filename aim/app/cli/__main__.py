@@ -18,6 +18,10 @@ from ...chat.app import ChatApp
 from ...conversation.model import ConversationModel
 from ...io.jsonl import write_jsonl, read_jsonl
 from ...llm.llm import LLMProvider, OpenAIProvider, ChatConfig
+from ...pipeline.factory import pipeline_factory, BasePipeline
+from ...conversation.message import ConversationMessage
+from ...utils.turns import process_think_tag_in_message, extract_and_update_emotions_from_header
+from ...conversation.loader import ConversationLoader
 
 logger = logging.getLogger(__name__)
 
@@ -330,6 +334,149 @@ def rebuild_index(co: ContextObject, conversations_dir: str, index_dir: str, dev
             import traceback
             click.echo(traceback.format_exc())
         raise click.Abort()
+
+@cli.command()
+@click.option('--conversation-id', 'target_conversation_id', default=None, help='ID of a specific conversation to repair.')
+@click.option('--all-conversations', is_flag=True, help='Repair all conversations.')
+@click.option('--dry-run', is_flag=True, help='Show what would change without writing to files.')
+@click.pass_obj
+def repair_conversation(co: ContextObject, target_conversation_id: Optional[str], all_conversations: bool, dry_run: bool):
+    """
+    Scans conversation messages to perform repairs:
+    - Extracts </think> tag content into the 'think' field.
+    - Extracts emotions from 'Emotional State:' headers into emotion fields.
+    Writes changes back to the conversation files unless --dry-run is specified.
+    """
+    if not target_conversation_id and not all_conversations:
+        click.echo("Please specify either --conversation-id or --all-conversations.", err=True)
+        return
+    if target_conversation_id and all_conversations:
+        click.echo("Cannot use both --conversation-id and --all-conversations.", err=True)
+        return
+
+    # Ensure CVM and loader are initialized
+    if co.cvm is None:
+        co.init_cvm() # This should initialize the loader as well
+    if co.cvm.loader is None:
+        # This case shouldn't happen if CVM init works, but as a safeguard:
+        if not hasattr(co.config, 'memory_path') or not co.config.memory_path:
+            click.echo("ERROR: Cannot initialize loader - memory_path not configured.", err=True)
+            return
+        conversations_dir = os.path.join(co.config.memory_path, 'conversations')
+        co.cvm.loader = ConversationLoader(conversations_dir=conversations_dir)
+        click.echo(f"Initialized loader with path: {conversations_dir}", err=True) # Info/Debug log
+
+    loader = co.cvm.loader
+    conversations_dir_path = loader.conversations_dir
+
+    conversation_ids_to_process = []
+    if target_conversation_id:
+        target_file_path = conversations_dir_path / f"{target_conversation_id}.jsonl"
+        if not target_file_path.exists():
+            click.echo(f"Conversation file '{target_file_path}' not found.", err=True)
+            return
+        conversation_ids_to_process.append(target_conversation_id)
+    elif all_conversations:
+        found_files = list(conversations_dir_path.glob("*.jsonl"))
+        if not found_files:
+            click.echo(f"No conversation files found in {conversations_dir_path}.")
+            return
+        conversation_ids_to_process = [f.stem for f in found_files]
+
+    click.echo(f"Found {len(conversation_ids_to_process)} conversations to process in {conversations_dir_path}.")
+    if dry_run:
+        click.echo("DRY RUN: No changes will be written.")
+
+    overall_messages_changed_count = 0
+
+    for conv_id in conversation_ids_to_process:
+        click.echo(f"Processing conversation: {conv_id}")
+        conversation_file_path = conversations_dir_path / f"{conv_id}.jsonl"
+        try:
+            # Load directly using the loader
+            original_messages: list[ConversationMessage] = loader.load_conversation(conv_id)
+            
+            if not original_messages:
+                click.echo(f"  No messages loaded for conversation {conv_id} (file might be empty or only contain invalid lines). Skipping.")
+                continue
+
+            updated_messages_for_conv: list[ConversationMessage] = []
+            conversation_modified_locally = False
+            messages_changed_in_conv_count = 0
+
+            # Process the list of ConversationMessage objects directly
+            for original_msg in original_messages:
+                current_msg = original_msg
+                think_updated = False
+                emotion_updated = False
+                
+                # 1. Process think tag
+                msg_after_think_proc = process_think_tag_in_message(current_msg)
+                if msg_after_think_proc:
+                    current_msg = msg_after_think_proc
+                    think_updated = True
+                    
+                # 2. Process emotions (on the potentially updated message)
+                msg_after_emotion_proc = extract_and_update_emotions_from_header(current_msg)
+                if msg_after_emotion_proc:
+                    current_msg = msg_after_emotion_proc
+                    emotion_updated = True
+                    
+                # Check if any update occurred for this message
+                if think_updated or emotion_updated:
+                    updated_messages_for_conv.append(current_msg) # Append the final state of the message
+                    conversation_modified_locally = True
+                    messages_changed_in_conv_count += 1
+                    if dry_run:
+                        click.echo(f"  [DRY RUN] Message seq={original_msg.sequence_no} (doc={original_msg.doc_id}) needs update.")
+                        if think_updated:
+                            click.echo(f"      Think tag processed.")
+                        if emotion_updated:
+                            click.echo(f"      Emotions extracted/updated: a={current_msg.emotion_a}, b={current_msg.emotion_b}, c={current_msg.emotion_c}, d={current_msg.emotion_d}")
+                else:
+                    updated_messages_for_conv.append(original_msg) # No changes, append original
+
+            if conversation_modified_locally:
+                overall_messages_changed_count += messages_changed_in_conv_count
+                click.echo(f"  Conversation {conv_id}: {messages_changed_in_conv_count} message(s) marked for update.")
+                if not dry_run:
+                    messages_to_write_dicts = [msg.to_dict() for msg in updated_messages_for_conv]
+                    try:
+                        # Ensure directory exists (though loader init should handle base dir)
+                        if not conversations_dir_path.exists():
+                            conversations_dir_path.mkdir(parents=True, exist_ok=True)
+                            
+                        write_jsonl(messages_to_write_dicts, str(conversation_file_path))
+                        click.echo(f"  SUCCESS: Conversation {conv_id} updated and saved to {conversation_file_path}.")
+                        # Note: This does not update the ConversationModel's internal index or cache if it has one.
+                        # Consider adding co.cvm.index.update_documents(...) or similar if needed.
+                    except Exception as e:
+                        click.echo(f"  ERROR: Failed to write updated conversation {conv_id} to {conversation_file_path}: {e}", err=True)
+            else:
+                click.echo(f"  Conversation {conv_id}: No messages needed updates.")
+
+        except FileNotFoundError:
+            click.echo(f"  ERROR: File not found for conversation {conv_id} at {conversation_file_path}. Skipping.", err=True)
+        except Exception as e:
+            click.echo(f"  ERROR processing conversation {conv_id}: {e}", err=True)
+            # Safely check for debug_mode
+            debug_is_on = False
+            if hasattr(co.config, 'debug_mode') and co.config.debug_mode:
+                debug_is_on = True
+            elif hasattr(co.config, 'env_config') and hasattr(co.config.env_config, 'debug') and co.config.env_config.debug:
+                debug_is_on = True # Example of checking a nested debug flag
+            
+            if debug_is_on:
+                 import traceback
+                 click.echo(traceback.format_exc())
+
+    if overall_messages_changed_count > 0:
+        if dry_run:
+            click.echo(f"\nDRY RUN SUMMARY: {overall_messages_changed_count} message(s) across all processed conversations would be updated.")
+        else:
+            click.echo(f"\nSUMMARY: {overall_messages_changed_count} message(s) across all processed conversations were updated and saved.")
+    else:
+        click.echo("\nNo messages required updates across all processed conversations.")
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)

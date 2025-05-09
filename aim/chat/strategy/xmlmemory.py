@@ -58,17 +58,15 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         """
 
         formatter = XmlFormatter()
-        # First, lets add up the length of all the user queries and assistant queries.
         total_len = content_len
-        # These will store aggregated emotions/keywords for the global <emotions> and <keywords> tags
         aggregated_emotions = defaultdict(int)
         aggregated_keywords = defaultdict(int)
+        seen_docs = set() # Keep track of doc_ids we've already included
 
         logger.info(f"Initial Conscious Memory Length: {total_len}")
-        # document_content = [] # This variable was unused
 
         formatter.add_element("PraxOS", content="--== PraxOS Conscious Memory **Online** ==--", nowrap=True, priority=3)
-        
+
         # Document handling
         if self.chat.current_document is not None:
             logger.info(f"Current Document: {self.chat.current_document}")
@@ -83,7 +81,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         else:
             logger.info("No current document")
 
-        # Workspace handling
+        # Workspace handling (size calculation, actual element added later)
         if self.chat.current_workspace is not None:
             ws_size = len(self.chat.current_workspace.split())
             logger.debug(f"Workspace: {ws_size} words")
@@ -91,151 +89,205 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
             ws_size = 0
             logger.info("No current workspace")
 
+        # Scratchpad handling (size calculation, actual element added later)
         if self.scratch_pad:
             scratch_pad_size = len(self.scratch_pad.split())
             logger.debug(f"Scratch Pad: {scratch_pad_size} words")
         else:
-            scratch_pad_size = 0 # Added for consistency, though not strictly needed if self.scratch_pad is None
+            scratch_pad_size = 0
             logger.info("No scratch pad")
-
-        motd = self.chat.cvm.get_motd(3)
+        
+        # --- Start Processing Specific Memory Types ---
+        
+        # 1. MOTD
+        motd = self.chat.cvm.get_motd(1)
         if not motd.empty:
             logger.debug(f"MOTD: Found {len(motd)}")
             for _, row in motd.iterrows():
                 # Check the date of the MOTD, if it's older than 3 days, skip it
-                motd_date = datetime.strptime(row['date'], '%Y-%m-%d %H:%M:%S')
-                if motd_date < datetime.now() - timedelta(days=3):
-                    logger.info(f"MOTD is older than 3 days, skipping: {row['date']}")
-                    continue
-                row_entry_content = f"xoxo MOTD: {row['date']}: {row['content']} oxox"
-                
+                motd_date = row['date']
+                row_entry_content = f"xoxo MOTD: {motd_date}: {row['content']} oxox"
                 formatter.add_element(self.hud_name, "Active Memory", "MOTD", content=row_entry_content, priority=2, noindent=True)
-
                 emotions, keywords = self.extract_memory_metadata(row)
-                
-                # Aggregate emotions and keywords for the global tags
-                for e in emotions:
-                    if e is not None:
-                        aggregated_emotions[e] += 1
-                for k in keywords:
-                    if k is not None:
-                        aggregated_keywords[k] += 1
+                for e in emotions: aggregated_emotions[e] += 1 if e else 0 # Check for None
+                for k in keywords: aggregated_keywords[k] += 1 if k else 0 # Check for None
+                seen_docs.add(row['doc_id'])
+                logger.debug(f"MOTD: {len(row_entry_content)} {row['conversation_id']}/{row['document_type']}/{row['date']}/{row['doc_id']}")
 
-                logger.debug(f"XMemory: {len(row_entry_content)} {row['conversation_id']}/{row['document_type']}/{row['date']}/{row['doc_id']}")
-
-        # Process Pinned Messages
+        # 2. Pinned Messages
         if self.pinned:
             logger.info(f"Processing {len(self.pinned)} pinned messages.")
-            pinned_docs_data = []
-            # Collect all doc_ids and fetch them in one go
             all_pinned_doc_ids = list(self.pinned)
-            if all_pinned_doc_ids:
+            if len(all_pinned_doc_ids) > 0:
                 pinned_docs_df = self.chat.cvm.get_documents(all_pinned_doc_ids)
                 if not pinned_docs_df.empty:
-                    # Iterate over the rows of the DataFrame
-                    for _, pinned_doc_row in pinned_docs_df.iterrows():
-                        # Check if this doc_id was actually in our self.pinned set, 
-                        # as get_documents might return other docs if IDs are reused elsewhere or not found
-                        if pinned_doc_row['doc_id'] in self.pinned:
-                            pinned_docs_data.append(pinned_doc_row)
-                        else:
-                            # This case should ideally not happen if get_documents is strict, 
-                            # but good for robustness
-                            logger.debug(f"Document {pinned_doc_row['doc_id']} from batch was not in the requested pinned set.")
+                    for _, row in pinned_docs_df.iterrows():
+                         if row['doc_id'] in self.pinned:
+                             row_entry_content = row.get('content', "Error: Pinned content not found.")
+                             formatter.add_element(self.hud_name, "Active Memory", "Pinned",
+                                                   date=row.get('date'), type=row.get('document_type'),
+                                                   doc_id=row.get('doc_id'), content=row_entry_content,
+                                                   noindent=True, priority=2)
+                             emotions, keywords = self.extract_memory_metadata(row)
+                             for e in emotions: aggregated_emotions[e] += 1 if e else 0 # Check for None
+                             for k in keywords: aggregated_keywords[k] += 1 if k else 0 # Check for None
+                             seen_docs.add(row['doc_id'])
+                             logger.debug(f"PinnedMsg: {len(row_entry_content)} {row.get('conversation_id')}/{row.get('document_type')}/{row.get('date')}/{row.get('doc_id')}")
                 else:
                     logger.warning(f"Could not retrieve any pinned documents for ids: {all_pinned_doc_ids}")
             else:
                 logger.info("No document IDs in self.pinned to process.")
-            
-            if pinned_docs_data:
-                for row in pinned_docs_data: # Iterating over list of Series
-                    # Ensure row is a Series, if get_doc_by_id might return something else adjust here
-                    if not isinstance(row, pd.Series):
-                        logger.error(f"Pinned document data for {row.get('doc_id', 'Unknown ID')} is not a pandas Series. Skipping.")
-                        continue
 
-                    row_entry_content = row.get('content', "Error: Pinned content not found.")
-                    # Use a distinct tag for pinned messages, e.g., "Pinned"
-                    # Include relevant attributes like date and type if available in the row Series
-                    formatter.add_element(self.hud_name, "Active Memory", "Pinned",
-                                          date=row.get('date'), 
-                                          type=row.get('document_type'),
-                                          doc_id=row.get('doc_id'), # Adding doc_id for clarity in XML
-                                          content=row_entry_content, 
-                                          noindent=True,
-                                          priority=2 # High priority
-                                         )
-                    emotions, keywords = self.extract_memory_metadata(row)
-                    for e in emotions:
-                        if e is not None:
-                            aggregated_emotions[e] += 1
-                    for k in keywords:
-                        if k is not None:
-                            aggregated_keywords[k] += 1
-                    logger.debug(f"PinnedMsg: {len(row_entry_content)} {row.get('conversation_id')}/{row.get('document_type')}/{row.get('date')}/{row.get('doc_id')}")
 
-        logger.info(f"Total Conscious Memory Length: {total_len}")
-
+        # 3. Journal/Conscious Entries
         conscious = self.chat.cvm.get_conscious(persona.persona_id, top_n=self.chat.config.recall_size)
+        if not conscious.empty:
+             for _, row in conscious.iterrows():
+                 if row['doc_id'] in seen_docs: continue
+                 row_entry_content = row['content']
+                 formatter.add_element(self.hud_name, "Active Memory", "Journal",
+                                      date=row['date'], type=row['document_type'],
+                                      noindent=True, content=row_entry_content, priority=2)
+                 emotions, keywords = self.extract_memory_metadata(row)
+                 for e in emotions: aggregated_emotions[e] += 1 if e else 0 # Check for None
+                 for k in keywords: aggregated_keywords[k] += 1 if k else 0 # Check for None
+                 seen_docs.add(row['doc_id'])
+                 logger.debug(f"CMemory: {len(row_entry_content)} {row['conversation_id']}/{row['document_type']}/{row['date']}/{row['doc_id']}")
+
+        # --- *NEW* Add back the dynamic memory search based on queries ---
+        logger.info(f"Memory before dynamic query: {formatter.current_length} chars used.")
+        # Estimate space for thoughts/tags: assume each thought is ~50 chars, plus some buffer for global tags
+        thought_estimate = sum(len(t) for t in persona.thoughts) + 100 # More accurate thought length + buffer
+        available_chars_for_query = self.max_character_length - formatter.current_length - thought_estimate
+
+        if available_chars_for_query > 200 and (user_queries or assistant_queries): # Only search if space and queries exist
+             top_n = self.chat.config.memory_window # Use configured window size
+             
+             # Rough split, could be smarter based on query list lengths or actual content
+             num_user_queries = len(user_queries or [])
+             num_assistant_queries = len(assistant_queries or [])
+             total_queries = num_user_queries + num_assistant_queries
+
+             if total_queries > 0:
+                 u_top_ratio = num_user_queries / total_queries if total_queries > 0 else 0.5
+                 a_top_ratio = num_assistant_queries / total_queries if total_queries > 0 else 0.5
+                 
+                 u_top = int(top_n * u_top_ratio)
+                 a_top = top_n - u_top # Ensure total is top_n
+
+                 u_max_ratio = u_top_ratio # Use same ratio for length allocation for simplicity
+                 a_max_ratio = a_top_ratio
+                 
+                 u_max = int(available_chars_for_query * u_max_ratio)
+                 a_max = available_chars_for_query - u_max
+             else: # Should not happen if (user_queries or assistant_queries) is true, but as fallback
+                 u_top = top_n // 2
+                 a_top = top_n - u_top
+                 u_max = available_chars_for_query // 2
+                 a_max = available_chars_for_query - u_max
+
+
+             logger.debug(f"Querying dynamic memory: total_top_n={top_n}, u_top={u_top}, a_top={a_top}, available_chars={available_chars_for_query}, u_max={u_max}, a_max={a_max}")
+
+             # Query based on Assistant History
+             if assistant_queries and a_max > 100: # Check space for assistant queries
+                 a_results = self.chat.cvm.query(
+                     assistant_queries, 
+                     filter_doc_ids=seen_docs, 
+                     top_n=a_top, 
+                     filter_metadocs=True, 
+                     length_boost_factor=0, 
+                     max_length=a_max
+                 )
+                 if not a_results.empty:
+                     for _, row in a_results.reset_index().iterrows(): # Use reset_index if 'doc_id' is index
+                         if row['doc_id'] in seen_docs: continue 
+                         row_entry_content = row['content']
+                         formatter.add_element(self.hud_name, "Active Memory", "memory",
+                                               date=row['date'], type=row['document_type'],
+                                               doc_id=row.get('doc_id'), 
+                                               content=row_entry_content, 
+                                               priority=1, 
+                                               noindent=True) 
+                         emotions, keywords = self.extract_memory_metadata(row)
+                         for e in emotions: aggregated_emotions[e] += 1 if e else 0 # Check for None
+                         for k in keywords: aggregated_keywords[k] += 1 if k else 0 # Check for None
+                         seen_docs.add(row['doc_id'])
+                         logger.debug(f"AMemory: {len(row_entry_content)} {row['conversation_id']}/{row['document_type']}/{row['date']}/{row['doc_id']}")
+
+             logger.info(f"Memory after assistant query: {formatter.current_length} chars used.")
+             # Update available length for user query
+             thought_estimate_remaining = sum(len(t) for t in persona.thoughts) + 100 # Recalculate for accuracy
+             u_max = self.max_character_length - formatter.current_length - thought_estimate_remaining
+
+             # Query based on User History
+             if user_queries and u_max > 100: # Check space again for user queries
+                 u_results = self.chat.cvm.query(
+                     user_queries, 
+                     filter_doc_ids=seen_docs, 
+                     top_n=u_top, 
+                     filter_metadocs=True, 
+                     length_boost_factor=0.05, 
+                     max_length=u_max
+                 )
+                 if not u_results.empty:
+                      for _, row in u_results.reset_index().iterrows(): # Use reset_index if 'doc_id' is index
+                         if row['doc_id'] in seen_docs: continue
+                         row_entry_content = row['content']
+                         formatter.add_element(self.hud_name, "Active Memory", "memory",
+                                               date=row['date'], type=row['document_type'],
+                                               doc_id=row.get('doc_id'),
+                                               content=row_entry_content, 
+                                               priority=1,
+                                               noindent=True)
+                         emotions, keywords = self.extract_memory_metadata(row)
+                         for e in emotions: aggregated_emotions[e] += 1 if e else 0 # Check for None
+                         for k in keywords: aggregated_keywords[k] += 1 if k else 0 # Check for None
+                         seen_docs.add(row['doc_id'])
+                         logger.debug(f"UMemory: {len(row_entry_content)} {row['conversation_id']}/{row['document_type']}/{row['date']}/{row['doc_id']}")
+        else:
+             logger.info(f"Skipping dynamic memory query due to insufficient space ({available_chars_for_query} chars) or no query texts (user: {bool(user_queries)}, assistant: {bool(assistant_queries)}).")
+
+        # --- End Dynamic Memory Search ---
+
+
+        # Add Persona Thoughts (as before)
         for thought in persona.thoughts:
             formatter.add_element(self.hud_name, "thought", content=thought, nowrap=True, priority=2)
-        
-        seen_docs = set()
-        if not conscious.empty:
-            for _, row in conscious.iterrows():
-                if row['doc_id'] in seen_docs:
-                    continue
-                row_entry_content = row['content']
-                
-                formatter.add_element(self.hud_name, "Active Memory", "Journal",
-                                      date=row['date'], type=row['document_type'],
-                                      noindent=True,
-                                      content=row_entry_content, priority=2)
 
-                emotions, keywords = self.extract_memory_metadata(row)
-                
-                # Aggregate emotions and keywords for the global tags
-                for e in emotions:
-                    if e is not None:
-                        aggregated_emotions[e] += 1
-                for k in keywords:
-                    if k is not None:
-                        aggregated_keywords[k] += 1
-                seen_docs.add(row['doc_id'])
-                logger.debug(f"CMemory: {len(row_entry_content)} {row['conversation_id']}/{row['document_type']}/{row['date']}/{row['doc_id']}")
-
-        logger.info(f"Total Conscious Memory Length: {formatter.current_length}")
-
+        # Add Aggregated Emotions/Keywords (as before, but now includes dynamic results)
         if len(aggregated_emotions) > 0:
-            formatter.add_element(self.hud_name, "emotions", content=", ".join(e for e in aggregated_emotions.keys() if e is not None), priority=1, nowrap=True)
+            formatter.add_element(self.hud_name, "emotions", content=", ".join(e for e in aggregated_emotions.keys() if e is not None), priority=1, nowrap=True) # Filter None keys
         if len(aggregated_keywords) > 0:
-            formatter.add_element(self.hud_name, "keywords", content=", ".join(k for k in aggregated_keywords.keys() if k is not None), priority=1, nowrap=True)
+            formatter.add_element(self.hud_name, "keywords", content=", ".join(k for k in aggregated_keywords.keys() if k is not None), priority=1, nowrap=True) # Filter None keys
 
+        # Add Workspace/Scratchpad (as before)
         if self.chat.current_workspace is not None:
             full_workspace_content = f"*The user is sharing a workspace with you.*\n{self.chat.current_workspace}"
             formatter.add_element(self.hud_name, "workspace",
                                 content=full_workspace_content,
                                 metadata=dict(
-                                    length=ws_size
+                                    length=ws_size # Use pre-calculated ws_size
                                 ), 
                                 priority=3,
                                 noindent=True
                             )
 
         if self.scratch_pad:
-            full_scratchpad_content = f"*You are sharing a scratchpad with yourself.*\n{self.scratch_pad}"
-            formatter.add_element(self.hud_name, "scratchpad",
+             full_scratchpad_content = f"*You are sharing a scratchpad with yourself.*\n{self.scratch_pad}"
+             formatter.add_element(self.hud_name, "scratchpad",
                                 content=full_scratchpad_content,
                                 metadata=dict(
-                                    length=scratch_pad_size
+                                    length=scratch_pad_size # Use pre-calculated scratch_pad_size
                                 ), 
                                 priority=3,
                                 noindent=True
                             )
 
-        logger.debug(f"Conscious Memory: Total Length: {formatter.current_length}/{self.max_character_length}")
 
-        return formatter.render() # Removed "\n".join(document_content)
+        logger.debug(f"Final Conscious Memory: Total Length: {formatter.current_length}/{self.max_character_length}")
+
+        return formatter.render()
         
     def chat_turns_for(self, persona: Persona, user_input: str, history: list[dict[str, str]] = [], content_len: Optional[int] = None) -> list[dict[str, str]]:
         """

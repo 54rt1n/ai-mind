@@ -9,7 +9,7 @@ import os
 import random
 import time
 from typing import Optional, Any, Dict, List
-
+import pytz
 from ..config import ChatConfig
 from ..utils.xml import XmlFormatter
 
@@ -109,6 +109,7 @@ class Persona:
         "Please follow directions, being precise and methodical, utilizing Chain of Thought, Self-RAG, and Semantic Keywords."
     )
     include_date: bool = True
+    user_timezone: Optional[str] = None
 
     def _xml_description(self, *base_path, xml: XmlFormatter, conversation_length: int = 0, show_time: bool = True, mood: Optional[str] = None,
                          disable_pif: bool = False, disable_guidance: bool = False) -> str:
@@ -236,7 +237,8 @@ class Persona:
         thoughts = [*self.base_thoughts]
         if self.include_date:
             current_time = int(time.time())
-            strtime = datetime.fromtimestamp(current_time).strftime("%A, %Y-%m-%d %H:%M:%S")
+            tzinfo = pytz.timezone(self.user_timezone) if self.user_timezone is not None else None
+            strtime = datetime.fromtimestamp(current_time, tzinfo).strftime("%A, %Y-%m-%d %H:%M:%S")
             logger.info(f"Using Current date: {strtime}")
             thoughts.append(f"Current Time [{strtime} ({current_time})]")
         return thoughts
@@ -304,7 +306,7 @@ class Persona:
         return result
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Persona":
+    def from_dict(cls, data: dict[str, Any], user_timezone: Optional[str] = None) -> "Persona":
         # Convert persona tools from dict to Tool objects
         persona_tools_dict = data.get("persona_tools", {})
         persona_tools = {
@@ -340,13 +342,15 @@ class Persona:
             wardrobe=data.get("wardrobe", {"default": {}}),
             current_outfit=data.get("current_outfit", "default"),
             persona_tools=persona_tools,
-            wardrobe_tools=wardrobe_tools
+            wardrobe_tools=wardrobe_tools,
+            user_timezone=user_timezone
         )
 
     @classmethod
-    def from_json_file(cls, file_path: str) -> "Persona":
+    def from_json_file(cls, file_path: str, user_timezone: Optional[str] = None) -> "Persona":
         data = json.load(open(file_path, "r", encoding="utf-8"))
-        return cls.from_dict(data)
+        self = cls.from_dict(data, user_timezone)
+        return self
 
     @classmethod
     def from_config(cls, config: ChatConfig) -> "Persona":
@@ -357,4 +361,4 @@ class Persona:
         if not os.path.exists(persona_file):
             raise ValueError(f"Persona {persona_id} not found in {config.persona_path}")
 
-        return Persona.from_json_file(persona_file)
+        return Persona.from_json_file(persona_file, config.user_timezone)
