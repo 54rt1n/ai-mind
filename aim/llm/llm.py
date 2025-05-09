@@ -71,10 +71,11 @@ class GroqProvider(LLMProvider):
 
 
 class OpenAIProvider(LLMProvider):
-    def __init__(self, *, api_key: Optional[str] = None, base_url: Optional[str] = None, model_name: Optional[str] = None):
+    def __init__(self, *, api_key: Optional[str] = None, base_url: Optional[str] = None, model_name: Optional[str] = None, show_llm_messages: bool = False):
         import openai
         self.openai = openai.OpenAI(api_key=api_key, base_url=base_url)
         self.model_name = model_name
+        self.show_llm_messages = show_llm_messages
 
     @property
     def model(self):
@@ -91,9 +92,10 @@ class OpenAIProvider(LLMProvider):
         if system_message:
             messages = [system_message, *messages]
             
-            logger.info(f"Using system message: {system_message}")
-            for message in messages[:]:
-                logger.info(f"{message['role']}: {message['content']}")
+            if self.show_llm_messages:
+                logger.info(f"Using system message: {system_message}")
+                for message in messages[:]:
+                    logger.info(f"{message['role']}: {message['content']}")
             
         model = model_name or self.model
         #logger.info("\n".join([f"{m['role']}: {m['content']}" for m in messages]))

@@ -200,34 +200,68 @@ class ConversationModel:
     
     def query(self, query_texts: List[str], filter_doc_ids: Optional[Set[str]] = None, top_n: Optional[int] = None,
               query_document_type: Optional[str | list[str]] = None, query_conversation_id: Optional[str] = None,
-              max_length: Optional[int] = None,
-              turn_decay: float = 0.7, temporal_decay: float = 0.99, length_boost_factor: float = 0.0,
-              filter_metadocs: bool = True, **kwargs) -> pd.DataFrame:
+              max_length: Optional[int] = None, turn_decay: float = 0.7, temporal_decay: float = 0.99, length_boost_factor: float = 0.0,
+              filter_metadocs: bool = True, chunk_size: int = -1, **kwargs) -> pd.DataFrame:
         """
         Queries the conversation collection and returns a DataFrame containing the top `top_n` most relevant conversation entries based on the given query texts, filters, and decay factors.
         
         The query is performed using the collection's search functionality, with optional filters applied to exclude certain document types, document IDs, and text content. The relevance score for each entry is calculated as a combination of the text similarity to the query texts, the temporal decay based on the entry's timestamp, and the entry's weight.
         
         The returned DataFrame includes the following columns:
-        - `content`: The content of the conversation entry.
-        - `timestamp`: The timestamp of the conversation entry.
-        - `weight`: The weight of the conversation entry.
-        - `role`: The role of the speaker (either 'user' or 'assistant').
-        - `user_id`: The ID of the user who made the conversation entry.
-        - `persona_id`: The ID of the persona associated with the conversation entry.
-        - `document_type`: The type of the document.
-        - `date`: The date and time of the conversation entry.
-        - `speaker`: The speaker of the conversation entry (either the user's ID or the persona's ID).
-        - `score`: The relevance score of the conversation entry.
+            - `query_text`: The query text.
+            - `filter_doc_ids`: The document IDs to filter.
+            - `top_n`: The number of results to return.
+            - `query_document_type`: The document type to query.
+            - `query_conversation_id`: The conversation ID to query.
+            - `max_length`: The maximum length of the results.
+            - `turn_decay`: The decay factor for the turn.
+            - `temporal_decay`: The decay factor for the temporal.
+            - `length_boost_factor`: The boost factor for the length.
+            - `filter_metadocs`: Whether to filter the metadocs.
+            - `chunk_size`: The size of the chunk to query.
         """
 
+        # `query_limit` is how many results to fetch from the underlying search index.
+        # `top_n` is how many results to return to the caller after processing.
+        # Setting query_limit slightly higher than top_n can be beneficial if post-filtering or re-ranking occurs.
+        # Using top_n * 2 here as a heuristic.
+        query_limit = top_n * 2 if top_n is not None else None # Allow top_n to be None for unlimited internal fetch
+
+        original_query_texts = list(query_texts) if query_texts is not None else [] # Keep a copy for reranking
+
+        if chunk_size > 0 and original_query_texts:
+            # Define get_chunks helper inside this block as it's only used here
+            def get_chunks(text: str, size: int) -> List[str]:
+                if not isinstance(text, str) or not text:
+                    return []
+                if size <= 0 or len(text) <= size:
+                    return [text]
+                return [text[i:i+size] for i in range(0, len(text), size)]
+
+            all_chunks = []
+            for q_text in original_query_texts:
+                if isinstance(q_text, str) and q_text:
+                    all_chunks.extend(get_chunks(q_text, chunk_size))
+            
+            if not all_chunks:
+                logger.warning("No valid chunks generated from query texts, returning empty DataFrame")
+                return pd.DataFrame(columns=VISIBLE_COLUMNS + ['date', 'speaker', 'score'])
+            
+            #logger.info(f"Generated {len(all_chunks)} chunks for searching.")
+            query_texts_for_index_search = all_chunks
+            # The rest of the function will now proceed as if these chunks were the original query_texts,
+            # but reranking will use original_query_texts[-1]
+            query_texts = query_texts_for_index_search # Modify query_texts for self.index.search call
+
+        # Original logic starts here (or continues with chunked query_texts)
         filter_document_type = [DOC_NER, DOC_STEP] if filter_metadocs and not query_document_type else None
 
-        if len(query_texts) == 0:
+        if not query_texts: # Handles empty list and ensures it's not None for len()
             logger.warning("No query texts provided, returning empty DataFrame")
             return pd.DataFrame(columns=VISIBLE_COLUMNS + ['date', 'speaker', 'score'])
+
         results = self.index.search(query_texts, query_document_type=query_document_type, filter_doc_ids=filter_doc_ids, filter_document_type=filter_document_type, query_conversation_id=query_conversation_id,
-                                    query_limit=top_n * 2)
+                                    query_limit=query_limit)
 
         if query_conversation_id is not None:
             conversation = self._query_conversation(conversation_id=query_conversation_id, query_document_type=query_document_type)
@@ -257,21 +291,36 @@ class ConversationModel:
             return pd.DataFrame(columns=VISIBLE_COLUMNS + ['date', 'speaker', 'score'])
 
         #print(results)
-        logger.info(f"Found {len(results)} results")
+        #logger.info(f"Found {len(results)} results")
         
         # Our results come back with hits, representing the number of matches for a single document. We need to boost the score as the hits go up; but not as linearly as the hits do.
         results['hits_score'] = np.log2(results['hits'] + 1)
 
         # Vectorize our query texts and get the similarity scores
-        query_vectors = np.array(self.index.vectorizer.transform([query_texts[-1]]))
-        faiss_index = faiss.IndexFlatL2(query_vectors[0].shape[0])
-        result_indices = np.stack(results['index_a'].to_numpy())
-        faiss_index.add(result_indices)
-        distance, index = faiss_index.search(query_vectors, results.shape[0])
-        distance_index = zip(distance[0], index[0])
+        # IMPORTANT: Use the LAST of the ORIGINAL query texts for reranking, even if chunks were used for search
+        rerank_query_text = original_query_texts[-1] if original_query_texts and isinstance(original_query_texts[-1], str) and original_query_texts[-1] else None
 
-        distance_index = sorted(distance_index, key=lambda x: x[1])
-        results['rerank'] = [1 / d if d > 0 else 0 for d, _ in distance_index]
+        if rerank_query_text and not results.empty:
+            query_vectors = np.array(self.index.vectorizer.transform([rerank_query_text]))
+            
+            # Check if query_vectors is empty or has zero dimension
+            if query_vectors.size == 0 or query_vectors.shape[-1] == 0:
+                logger.warning(f"Could not generate valid query vector for reranking from: {rerank_query_text}. Skipping FAISS reranking.")
+                results['rerank'] = 1.0 # Neutral rerank score
+            else:
+                faiss_index = faiss.IndexFlatL2(query_vectors[0].shape[0])
+                result_indices = np.stack(results['index_a'].to_numpy())
+                faiss_index.add(result_indices)
+                distance, index = faiss_index.search(query_vectors, results.shape[0])
+                distance_index = zip(distance[0], index[0])
+
+                distance_index = sorted(distance_index, key=lambda x: x[1])
+                results['rerank'] = [1 / d if d > 0 else 0 for d, _ in distance_index]
+        elif results.empty:
+            results['rerank'] = 1.0 # Neutral rerank score, or handle as appropriate if results is empty
+        else: # No rerank_query_text or results is empty
+            logger.warning("Skipping FAISS reranking due to no valid rerank_query_text or empty results.")
+            results['rerank'] = 1.0 # Neutral rerank score
 
         results['length_score'] = (np.log2(results['content'].str.len() + 1) * length_boost_factor) + 1
         # Scale with the following rules - 
@@ -298,11 +347,23 @@ class ConversationModel:
         results['speaker'] = results.apply(lambda row: row['user_id'] if row['role'] == 'user' else row['persona_id'], axis=1)
 
         # return our filtered results
-        results = results.sort_values(by='score', ascending=False).head(top_n)#[COLUMNS + ['date', 'speaker', 'score']]
-        results['cumlen'] = results['content'].str.len().cumsum()
+        # Sort by score first, then apply top_n
+        results = results.sort_values(by='score', ascending=False)
+        if top_n is not None:
+            results = results.head(top_n)
+            
+        if not results.empty and 'content' in results.columns:
+            results['cumlen'] = results['content'].astype(str).str.len().cumsum()
+            if max_length is not None:
+                results = results[results['cumlen'] <= max_length]
+        elif not results.empty: # content column missing
+            logger.warning("'content' column missing for cumlen calculation. Setting cumlen to 0.")
+            results['cumlen'] = 0
+            if max_length is not None:
+                 results = results[results['cumlen'] <= max_length]
 
-        if max_length is not None:
-            results = results[results['cumlen'] <= max_length]
+        if results.empty: # If filters made results empty
+            return pd.DataFrame(columns=VISIBLE_COLUMNS + ['date', 'speaker', 'score'])
             
         return results[VISIBLE_COLUMNS + ['date', 'speaker', 'score']]
 

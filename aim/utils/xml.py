@@ -213,11 +213,11 @@ class XmlFormatter:
             # If no content, create a new node
             current = current.add_child(last)
 
-        logger.info(
-            f"Added element {'/'.join(path)} "
-            f"with content length {len(str(content)) if content else 0} "
-            f"(total {self._current_length})"
-        )
+        #logger.info(
+        #    f"Added element {'/'.join(path)} "
+        #    f"with content length {len(str(content)) if content else 0} "
+        #    f"(total {self._current_length})"
+        #)
 
     def substitute(self, match_regex: str, replacement: str) -> None:
         """

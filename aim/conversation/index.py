@@ -138,7 +138,7 @@ class SearchIndex:
             text_subqueries = []
             for query_text in query_texts:
                 query_text = re.sub(r"\s+", ' ', re.sub(r'[^\w\s]|\n', ' ', query_text)).lower()
-                logger.info(f"Parsing query: {len(query_text)}")
+                #logger.info(f"Parsing query: {len(query_text)}")
                 text_query = self.index.parse_query(query=query_text, default_field_names=["content"])
                 text_subqueries.append((Occur.Should, text_query))
             subqueries.append((Occur.Must, Query.boolean_query(text_subqueries)))

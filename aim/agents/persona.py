@@ -128,7 +128,7 @@ class Persona:
         example_count = len(self.nshot)
         if conversation_length > 0:
             example_count = max(example_count - conversation_length + 1, 0)
-            logger.info(f"Adding {example_count} NShot examples ({len(self.nshot)} - {conversation_length} + 1)")
+            #logger.info(f"Adding {example_count} NShot examples ({len(self.nshot)} - {conversation_length} + 1)")
         nshots = list(self.nshot.items())
         nshots = random.choices(nshots, k=example_count)
         for k, v in nshots:
@@ -239,7 +239,7 @@ class Persona:
             current_time = int(time.time())
             tzinfo = pytz.timezone(self.user_timezone) if self.user_timezone is not None else None
             strtime = datetime.fromtimestamp(current_time, tzinfo).strftime("%A, %Y-%m-%d %H:%M:%S")
-            logger.info(f"Using Current date: {strtime}")
+            #logger.info(f"Using Current date: {strtime}")
             thoughts.append(f"Current Time [{strtime} ({current_time})]")
         return thoughts
 
