@@ -23,6 +23,7 @@ def get_env(dotenv_path: Optional[str] = None) -> Dict[str, str]:
         "llm_provider": os.getenv("LLM_PROVIDER", "openai"),
         "max_tokens": int(os.getenv("MAX_TOKENS", 256)),
         "memory_window": int(os.getenv("MEMORY_WINDOW", 12)),
+
         "compat_api_key": os.getenv("COMPAT_API_KEY", None),
         "compat_model_url": os.getenv("COMPAT_MODEL_URL", None),
         "compat_model_name": os.getenv("COMPAT_MODEL_NAME", None),
@@ -35,10 +36,14 @@ def get_env(dotenv_path: Optional[str] = None) -> Dict[str, str]:
         "groq_api_key": os.getenv("GROQ_API_KEY", None),
         "openai_api_key": os.getenv("OPENAI_API_KEY", None),
         "openrouter_api_key": os.getenv("OPENROUTE_API_KEY", None),
+        "meta_api_key": os.getenv("META_API_KEY", None),
+
         "persona_id": os.getenv("PERSONA_ID", "assistant"),
         "persona_location": os.getenv("PERSONA_LOCATION", None),
         "persona_mood": os.getenv("PERSONA_MOOD", "Inquisitive"),
         "persona_path": os.getenv("PERSONA_PATH", "configs/personas"),
+
+        "user_timezone": os.getenv("USER_TIMEZONE", None),
         
         # Redis configuration
         "redis_host": os.getenv("REDIS_HOST", "localhost"),
@@ -97,6 +102,7 @@ class ChatConfig:
     cohere_api_key: Optional[str] = None
     featherless_api_key: Optional[str] = None
     groq_api_key: Optional[str] = None
+    meta_api_key: Optional[str] = None
     openai_api_key: Optional[str] = None
     openrouter_api_key: Optional[str] = None
     
@@ -117,7 +123,7 @@ class ChatConfig:
     
     # History management
     history_management_strategy: str = "sparsify"  # Options: sparsify, random_removal, ai_summarize
-    
+    user_timezone: Optional[str] = None
     top_n: int = 3
     recall_size: int = 3
     memory_window: int = 8

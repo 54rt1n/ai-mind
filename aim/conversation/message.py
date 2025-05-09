@@ -171,6 +171,10 @@ class ConversationMessage:
 
     @classmethod
     def from_dict(cls, data: dict) -> "ConversationMessage":
+        # Log a warning if timestamp is missing and being defaulted
+        if "timestamp" not in data:
+            logger.warning(f"Timestamp missing in message data (doc_id: {data.get('doc_id', 'Unknown')}). Defaulting to 0.")
+        
         return cls(
             doc_id=data["doc_id"],
             document_type=data["document_type"],
@@ -195,7 +199,7 @@ class ConversationMessage:
             importance=data.get("importance", 0.0),
             observer=data.get("observer"),
             weight=data.get("weight", 1.0),
-            timestamp=data["timestamp"],
+            timestamp=data.get("timestamp", 0),
             inference_model=data.get("inference_model"),
             metadata=data.get("metadata"),
             status=data.get("status", 0),
@@ -232,6 +236,8 @@ class ConversationMessage:
             "observer",
             "inference_model",
             "metadata",
+            "speaker_id",
+            "listener_id",
         ]
         
         default_fields = {

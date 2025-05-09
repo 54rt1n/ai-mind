@@ -47,7 +47,7 @@ class ConversationLoader:
                     messages.append(message)
                 except json.JSONDecodeError as e:
                     logger.error(f"JSON decode error in {conversation_path}:{line_num}: {e}")
-                    raise
+                    continue
                 except KeyError as e:
                     logger.error(f"Missing required field in {conversation_path}:{line_num}: {e}")
                     raise
@@ -78,32 +78,3 @@ class ConversationLoader:
             for message in messages:
                 json.dump(message.to_dict(), f)
                 f.write('\n')
-
-def load_test_conversation() -> list[ConversationMessage]:
-    """Create a test conversation for integration testing"""
-    return [
-        ConversationMessage(
-            doc_id="test-1",
-            conversation_id="test-convo",
-            content="Hello, this is a test message with **Semantic Keywords**",
-            role="user",
-            user_id="test-user",
-            persona_id="assistant",
-            sequence_no=1,
-            branch=0,
-            timestamp=1000,
-            document_type="conversation"
-        ),
-        ConversationMessage(
-            doc_id="test-2",
-            conversation_id="test-convo", 
-            content="Hello! I see you used **Semantic Keywords** there.",
-            role="assistant",
-            user_id="test-user",
-            persona_id="assistant",
-            sequence_no=2,
-            branch=0,
-            timestamp=1001,
-            document_type="conversation"
-        )
-    ]

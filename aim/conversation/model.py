@@ -11,6 +11,7 @@ import os
 import pandas as pd
 from pathlib import Path
 import time
+import pytz
 from typing import Optional, Set, List, Dict, Any
 from wonderwords import RandomWord
 
@@ -41,12 +42,13 @@ def sanitize_timestamp(timestamp: int) -> int:
 class ConversationModel:
     collection_name : str = 'memory'
 
-    def __init__(self, memory_path: str, embedding_model: str, **kwargs):
+    def __init__(self, memory_path: str, embedding_model: str, user_timezone: Optional[str] = None, **kwargs):
         super().__init__(**kwargs)
 
         self.index = SearchIndex(Path('.', memory_path, 'indices'), embedding_model=embedding_model)
         self.memory_path = memory_path
         self.loader = ConversationLoader(conversations_dir=os.path.join(memory_path, 'conversations'))
+        self.user_timezone = pytz.timezone(user_timezone) if user_timezone is not None else None
 
     @classmethod
     def init_folders(cls, memory_path: str):
@@ -66,7 +68,7 @@ class ConversationModel:
         Creates a new conversation model from the given config.
         """
         cls.init_folders(config.memory_path)
-        return cls(memory_path=config.memory_path, embedding_model=config.embedding_model)
+        return cls(memory_path=config.memory_path, embedding_model=config.embedding_model, user_timezone=config.user_timezone)
 
     @property
     def collection_path(self) -> Path:
@@ -290,7 +292,7 @@ class ConversationModel:
                            results['weight'] * \
                            results['temporal_decay'] + results['length_score']
 
-        results['date'] = results['timestamp'].apply(lambda d: datetime.fromtimestamp(sanitize_timestamp(d)).strftime('%Y-%m-%d %H:%M:%S'))
+        results['date'] = results['timestamp'].apply(lambda d: datetime.fromtimestamp(sanitize_timestamp(d), self.user_timezone).strftime('%Y-%m-%d %H:%M:%S'))
 
         # if the role is user, we use the user_id as the speaker, if the role is assistant, we use the persona_id
         results['speaker'] = results.apply(lambda row: row['user_id'] if row['role'] == 'user' else row['persona_id'], axis=1)
@@ -323,7 +325,7 @@ class ConversationModel:
         """
         Fixes the given DataFrame by adding the missing columns and removing the unnecessary ones.
         """
-        results['date'] = results['timestamp'].apply(lambda d: datetime.fromtimestamp(sanitize_timestamp(d)).strftime('%Y-%m-%d %H:%M:%S'))
+        results['date'] = results['timestamp'].apply(lambda d: datetime.fromtimestamp(sanitize_timestamp(d), self.user_timezone).strftime('%Y-%m-%d %H:%M:%S'))
         results['speaker'] = results.apply(lambda row: row['user_id'] if row['role'] == 'user' else row['persona_id'], axis=1)
         return results
         
@@ -403,7 +405,7 @@ class ConversationModel:
         # Load our conversation file
         results : pd.DataFrame = self._query_conversation(conversation_id, query_document_type, filter_document_type, **kwargs)
 
-        results['date'] = results['timestamp'].apply(lambda d: datetime.fromtimestamp(sanitize_timestamp(d)).strftime('%Y-%m-%d %H:%M:%S'))
+        results['date'] = results['timestamp'].apply(lambda d: datetime.fromtimestamp(sanitize_timestamp(d), self.user_timezone).strftime('%Y-%m-%d %H:%M:%S'))
         results['speaker'] = results.apply(lambda row: row['user_id'] if row['role'] == 'user' else row['persona_id'], axis=1)
 
         return results[VISIBLE_COLUMNS + ['date', 'speaker']]

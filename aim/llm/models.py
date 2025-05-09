@@ -25,6 +25,7 @@ class ModelProvider(str, Enum):
     GOOGLE = "google"
     GROQ = "groq"
     LOCAL = "local"
+    META = "meta"
     OPENAI = "openai"
     OPENROUTER = "openrouter"
 
@@ -36,8 +37,6 @@ class ModelProvider(str, Enum):
             return not emptyornone(config.cohere_api_key)
         elif self == ModelProvider.COMPATIBLE:
             return not emptyornone(config.compat_model_url) and not emptyornone(config.compat_api_key) and not emptyornone(config.compat_model_name)
-        elif self == ModelProvider.LOCAL:
-            return not emptyornone(config.local_model_url) and not emptyornone(config.local_api_key)
         elif self == ModelProvider.FEATHERLESS:
             return not emptyornone(config.featherless_api_key)
         elif self == ModelProvider.OPENAI:
@@ -46,6 +45,10 @@ class ModelProvider(str, Enum):
             return not emptyornone(config.ai_studio_api_key)
         elif self == ModelProvider.GROQ:
             return not emptyornone(config.groq_api_key)
+        elif self == ModelProvider.LOCAL:
+            return not emptyornone(config.local_model_url) and not emptyornone(config.local_api_key)
+        elif self == ModelProvider.META:
+            return not emptyornone(config.meta_api_key)
         elif self == ModelProvider.OPENROUTER:
             return not emptyornone(config.openrouter_api_key)
         return False
@@ -94,6 +97,7 @@ class LanguageModelV2:
     provider: ModelProvider
     architecture: str
     size: str
+    nsfw: bool
     category: set[ModelCategory]
     sampler: Optional[SamplerConfig] = None
 
@@ -138,6 +142,8 @@ class LanguageModelV2:
             return OpenAIProvider.from_url("https://openrouter.ai/api/v1", config.openrouter_api_key, model_name=self.name)
         elif self.provider == ModelProvider.LOCAL:
             return OpenAIProvider.from_url(config.compat_model_url, config.compat_api_key, model_name=self.name)
+        elif self.provider == ModelProvider.META:
+            return OpenAIProvider.from_url("https://api.llama.com/compat/v1/", config.meta_api_key, model_name=self.name)
         else:
             raise LLMProviderError(f"Unknown LLM provider: {self.provider}", self.provider)
 
@@ -210,6 +216,7 @@ class LanguageModelV2:
                 provider=provider,
                 architecture=arch,
                 size=model_config['size'],
+                nsfw=model_config.get('nsfw', True),
                 category=categories,
                 sampler=sampler
             )
