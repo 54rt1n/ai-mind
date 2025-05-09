@@ -63,7 +63,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         aggregated_keywords = defaultdict(int)
         seen_docs = set() # Keep track of doc_ids we've already included
 
-        logger.info(f"Initial Conscious Memory Length: {total_len}")
+        #logger.info(f"Initial Conscious Memory Length: {total_len}")
 
         formatter.add_element("PraxOS", content="--== PraxOS Conscious Memory **Online** ==--", nowrap=True, priority=3)
 
@@ -79,15 +79,17 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                 ), priority=2
             )
         else:
-            logger.info("No current document")
+            #logger.info("No current document")
+            pass
 
         # Workspace handling (size calculation, actual element added later)
         if self.chat.current_workspace is not None:
             ws_size = len(self.chat.current_workspace.split())
-            logger.debug(f"Workspace: {ws_size} words")
+            #logger.debug(f"Workspace: {ws_size} words")
         else:
             ws_size = 0
-            logger.info("No current workspace")
+            #logger.info("No current workspace")
+            pass
 
         # Scratchpad handling (size calculation, actual element added later)
         if self.scratch_pad:
@@ -95,14 +97,14 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
             logger.debug(f"Scratch Pad: {scratch_pad_size} words")
         else:
             scratch_pad_size = 0
-            logger.info("No scratch pad")
+            #logger.info("No scratch pad")
         
         # --- Start Processing Specific Memory Types ---
         
         # 1. MOTD
         motd = self.chat.cvm.get_motd(1)
         if not motd.empty:
-            logger.debug(f"MOTD: Found {len(motd)}")
+            #logger.debug(f"MOTD: Found {len(motd)}")
             for _, row in motd.iterrows():
                 # Check the date of the MOTD, if it's older than 3 days, skip it
                 motd_date = row['date']
@@ -126,8 +128,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                              row_entry_content = row.get('content', "Error: Pinned content not found.")
                              formatter.add_element(self.hud_name, "Active Memory", "Pinned",
                                                    date=row.get('date'), type=row.get('document_type'),
-                                                   doc_id=row.get('doc_id'), content=row_entry_content,
-                                                   noindent=True, priority=2)
+                                                   content=row_entry_content, noindent=True, priority=2)
                              emotions, keywords = self.extract_memory_metadata(row)
                              for e in emotions: aggregated_emotions[e] += 1 if e else 0 # Check for None
                              for k in keywords: aggregated_keywords[k] += 1 if k else 0 # Check for None
@@ -154,99 +155,160 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                  seen_docs.add(row['doc_id'])
                  logger.debug(f"CMemory: {len(row_entry_content)} {row['conversation_id']}/{row['document_type']}/{row['date']}/{row['doc_id']}")
 
-        # --- *NEW* Add back the dynamic memory search based on queries ---
-        logger.info(f"Memory before dynamic query: {formatter.current_length} chars used.")
-        # Estimate space for thoughts/tags: assume each thought is ~50 chars, plus some buffer for global tags
-        thought_estimate = sum(len(t) for t in persona.thoughts) + 100 # More accurate thought length + buffer
-        available_chars_for_query = self.max_character_length - formatter.current_length - thought_estimate
+        # --- Add back the dynamic memory search based on queries ---
+        #logger.info(f"Memory before dynamic query: {formatter.current_length} chars used.")
+        thought_estimate = sum(len(t) for t in persona.thoughts) + 100 
+        available_chars_overall_for_dynamic_queries = self.max_character_length - formatter.current_length - thought_estimate
 
-        if available_chars_for_query > 200 and (user_queries or assistant_queries): # Only search if space and queries exist
-             top_n = self.chat.config.memory_window # Use configured window size
-             
-             # Rough split, could be smarter based on query list lengths or actual content
-             num_user_queries = len(user_queries or [])
-             num_assistant_queries = len(assistant_queries or [])
-             total_queries = num_user_queries + num_assistant_queries
+        if available_chars_overall_for_dynamic_queries > 200: # Min threshold for any dynamic querying
+            query_sources_data = []
+            workspace_content_for_query = self.chat.current_workspace if self.chat.current_workspace and self.chat.current_workspace.strip() else None
 
-             if total_queries > 0:
-                 u_top_ratio = num_user_queries / total_queries if total_queries > 0 else 0.5
-                 a_top_ratio = num_assistant_queries / total_queries if total_queries > 0 else 0.5
-                 
-                 u_top = int(top_n * u_top_ratio)
-                 a_top = top_n - u_top # Ensure total is top_n
+            if workspace_content_for_query:
+                query_sources_data.append({
+                    "name": "Workspace", 
+                    "queries": [workspace_content_for_query], 
+                    "length_boost": 0.05, 
+                    "log_prefix": "WSMemory",
+                    "chunk_size": 512,
+                    "memory_type_tag": "memory_ws" # XML tag for this source
+                })
+            
+            if assistant_queries:
+                query_sources_data.append({
+                    "name": "AssistantHistory", 
+                    "queries": assistant_queries, 
+                    "length_boost": 0, 
+                    "log_prefix": "AMemory",
+                    "chunk_size": 512,
+                    "memory_type_tag": "memory_asst" # XML tag for this source
+                })
 
-                 u_max_ratio = u_top_ratio # Use same ratio for length allocation for simplicity
-                 a_max_ratio = a_top_ratio
-                 
-                 u_max = int(available_chars_for_query * u_max_ratio)
-                 a_max = available_chars_for_query - u_max
-             else: # Should not happen if (user_queries or assistant_queries) is true, but as fallback
-                 u_top = top_n // 2
-                 a_top = top_n - u_top
-                 u_max = available_chars_for_query // 2
-                 a_max = available_chars_for_query - u_max
+            if user_queries:
+                query_sources_data.append({
+                    "name": "UserHistory", 
+                    "queries": user_queries, 
+                    "length_boost": 0.05, 
+                    "log_prefix": "UMemory",
+                    "chunk_size": 512,
+                    "memory_type_tag": "memory_user" # XML tag for this source
+                })
+            
+            # Add thought_content as a query source if it exists
+            if self.thought_content and self.thought_content.strip():
+                query_sources_data.append({
+                    "name": "PersonaThoughts",
+                    "queries": [self.thought_content.strip()],
+                    "length_boost": 0.0,  # Thoughts are often concise, less need for length boosting
+                    "log_prefix": "ThoughtMemory",
+                    "chunk_size": 384,
+                    "memory_type_tag": "memory_thought" # XML tag for this source
+                })
+
+            all_dynamic_results_dfs = []
+
+            if query_sources_data:
+                # Fetch results from all sources
+                generous_top_n_per_source = self.chat.config.memory_window * 2 # Get more candidates
+                if generous_top_n_per_source == 0 and self.chat.config.memory_window > 0 : generous_top_n_per_source = 2 # ensure at least a few if window is 1
+                if self.chat.config.memory_window == 0 : generous_top_n_per_source = 0 # respect if window is 0
 
 
-             logger.debug(f"Querying dynamic memory: total_top_n={top_n}, u_top={u_top}, a_top={a_top}, available_chars={available_chars_for_query}, u_max={u_max}, a_max={a_max}")
+                for source_data in query_sources_data:
+                    if not source_data["queries"]:
+                        logger.debug(f"Skipping dynamic memory query for {source_data['name']} due to no queries.")
+                        continue
+                    if generous_top_n_per_source == 0:
+                        logger.debug(f"Skipping dynamic memory query for {source_data['name']} as memory_window is 0.")
+                        continue
 
-             # Query based on Assistant History
-             if assistant_queries and a_max > 100: # Check space for assistant queries
-                 a_results = self.chat.cvm.query(
-                     assistant_queries, 
-                     filter_doc_ids=seen_docs, 
-                     top_n=a_top, 
-                     filter_metadocs=True, 
-                     length_boost_factor=0, 
-                     max_length=a_max
-                 )
-                 if not a_results.empty:
-                     for _, row in a_results.reset_index().iterrows(): # Use reset_index if 'doc_id' is index
-                         if row['doc_id'] in seen_docs: continue 
-                         row_entry_content = row['content']
-                         formatter.add_element(self.hud_name, "Active Memory", "memory",
-                                               date=row['date'], type=row['document_type'],
-                                               doc_id=row.get('doc_id'), 
-                                               content=row_entry_content, 
-                                               priority=1, 
-                                               noindent=True) 
-                         emotions, keywords = self.extract_memory_metadata(row)
-                         for e in emotions: aggregated_emotions[e] += 1 if e else 0 # Check for None
-                         for k in keywords: aggregated_keywords[k] += 1 if k else 0 # Check for None
-                         seen_docs.add(row['doc_id'])
-                         logger.debug(f"AMemory: {len(row_entry_content)} {row['conversation_id']}/{row['document_type']}/{row['date']}/{row['doc_id']}")
+                    #logger.debug(f"Querying dynamic memory ({source_data['name']}): queries_count={len(source_data['queries'])}, top_n_fetch={generous_top_n_per_source}, chunk_size=100")
+                    
+                    results_df = self.chat.cvm.query(
+                        source_data["queries"], 
+                        filter_doc_ids=seen_docs, # Avoid re-fetching docs already in XML (MOTD, Pinned, Journal)
+                        top_n=generous_top_n_per_source, 
+                        filter_metadocs=True, 
+                        length_boost_factor=source_data["length_boost"], 
+                        max_length=None, # No max_length filtering at this stage per source
+                        chunk_size=source_data["chunk_size"] # Use configured chunk_size for cvm.query's internal recursion
+                    )
 
-             logger.info(f"Memory after assistant query: {formatter.current_length} chars used.")
-             # Update available length for user query
-             thought_estimate_remaining = sum(len(t) for t in persona.thoughts) + 100 # Recalculate for accuracy
-             u_max = self.max_character_length - formatter.current_length - thought_estimate_remaining
+                    if not results_df.empty:
+                        results_df['source_tag'] = source_data["memory_type_tag"] # Tag results with their source
+                        results_df['log_prefix'] = source_data["log_prefix"] # For logging later
+                        all_dynamic_results_dfs.append(results_df)
+                        #logger.info(f"Fetched {len(results_df)} results from {source_data['name']}.")
+                    else:
+                        logger.info(f"No results from {source_data['name']}.")
 
-             # Query based on User History
-             if user_queries and u_max > 100: # Check space again for user queries
-                 u_results = self.chat.cvm.query(
-                     user_queries, 
-                     filter_doc_ids=seen_docs, 
-                     top_n=u_top, 
-                     filter_metadocs=True, 
-                     length_boost_factor=0.05, 
-                     max_length=u_max
-                 )
-                 if not u_results.empty:
-                      for _, row in u_results.reset_index().iterrows(): # Use reset_index if 'doc_id' is index
-                         if row['doc_id'] in seen_docs: continue
-                         row_entry_content = row['content']
-                         formatter.add_element(self.hud_name, "Active Memory", "memory",
-                                               date=row['date'], type=row['document_type'],
-                                               doc_id=row.get('doc_id'),
-                                               content=row_entry_content, 
-                                               priority=1,
-                                               noindent=True)
-                         emotions, keywords = self.extract_memory_metadata(row)
-                         for e in emotions: aggregated_emotions[e] += 1 if e else 0 # Check for None
-                         for k in keywords: aggregated_keywords[k] += 1 if k else 0 # Check for None
-                         seen_docs.add(row['doc_id'])
-                         logger.debug(f"UMemory: {len(row_entry_content)} {row['conversation_id']}/{row['document_type']}/{row['date']}/{row['doc_id']}")
+            if all_dynamic_results_dfs:
+                aggregated_results_df = pd.concat(all_dynamic_results_dfs, ignore_index=True)
+                
+                if not aggregated_results_df.empty:
+                    #logger.info(f"Total dynamic results before deduplication: {len(aggregated_results_df)}")
+                    # Sort by score (desc) then drop duplicates by doc_id, keeping the highest score entry
+                    aggregated_results_df = aggregated_results_df.sort_values('score', ascending=False).drop_duplicates(subset=['doc_id'], keep='first')
+                    #logger.info(f"Total dynamic results after deduplication: {len(aggregated_results_df)}")
+
+                    dynamic_entries_added_count = 0
+                    dynamic_chars_added_to_formatter = 0 # Tracks formatter length increase from dynamic items
+                    max_dynamic_entries_to_add = self.chat.config.memory_window
+
+                    if max_dynamic_entries_to_add == 0:
+                        logger.info("Max dynamic entries (memory_window) is 0, skipping addition of dynamic results.")
+                    else:
+                        logger.info(f"Processing {len(aggregated_results_df)} unique dynamic results. Budget: {available_chars_overall_for_dynamic_queries} chars for new content, max_entries: {max_dynamic_entries_to_add}.")
+
+                        for _, row in aggregated_results_df.iterrows():
+                            if row['doc_id'] in seen_docs: # Already added by MOTD, Pinned, Journal or an earlier dynamic item
+                                continue
+
+                            if dynamic_entries_added_count >= max_dynamic_entries_to_add:
+                                logger.debug(f"Reached max dynamic entries limit ({max_dynamic_entries_to_add}).")
+                                break
+                            
+                            row_entry_content = row['content']
+                            
+                            # Estimate formatter increase for this item
+                            temp_formatter = XmlFormatter()
+                            temp_formatter.add_element(self.hud_name, "Active Memory", row['source_tag'], 
+                                                       date=row['date'], type=row['document_type'],
+                                                       content=row_entry_content, priority=1, noindent=True)
+                            estimated_formatter_increase = temp_formatter.current_length
+
+                            if (dynamic_chars_added_to_formatter + estimated_formatter_increase) > available_chars_overall_for_dynamic_queries:
+                                #logger.debug(f"Dynamic entry '{row['doc_id']}' from {row['log_prefix']} (est. formatter increase {estimated_formatter_increase} chars, content len {len(row_entry_content)}) would exceed dynamic content budget ({available_chars_overall_for_dynamic_queries - dynamic_chars_added_to_formatter} remaining). Trying next item.")
+                                continue 
+
+                            # Add to the main formatter
+                            formatter.add_element(self.hud_name, "Active Memory", row['source_tag'],
+                                                  date=row['date'], type=row['document_type'],
+                                                  content=row_entry_content, priority=1, noindent=True) 
+                            
+                            # Update budget and counts
+                            # It's hard to get exact increase from formatter.add_element without re-rendering.
+                            # Using the estimate and relying on the overall check.
+                            dynamic_chars_added_to_formatter += estimated_formatter_increase 
+                            
+                            emotions, keywords = self.extract_memory_metadata(row)
+                            for e in emotions: aggregated_emotions[e] += 1 if e else 0
+                            for k in keywords: aggregated_keywords[k] += 1 if k else 0
+                            seen_docs.add(row['doc_id']) # Mark as added to XML
+                            dynamic_entries_added_count += 1
+                            
+                            logger.debug(f"Added dynamic result ({row['log_prefix']}/{row['doc_id']}): content {len(row_entry_content)} chars, est. formatter increase {estimated_formatter_increase}. Total dynamic entries: {dynamic_entries_added_count}/{max_dynamic_entries_to_add}. Dynamic budget used: {dynamic_chars_added_to_formatter}/{available_chars_overall_for_dynamic_queries}. Overall formatter length: {formatter.current_length}")
+
+                            # Final check against overall max length
+                            if formatter.current_length + thought_estimate >= self.max_character_length:
+                                logger.warning(f"Overall max character length ({self.max_character_length}) likely reached or exceeded after adding dynamic entry. Formatter: {formatter.current_length}, Thought_est: {thought_estimate}. Stopping dynamic additions.")
+                                break
+                else:
+                    logger.info("No dynamic results to process after aggregation (aggregated_results_df is empty).")
+            else:
+                logger.info("No dynamic query sources had results, or no query sources were active.")
         else:
-             logger.info(f"Skipping dynamic memory query due to insufficient space ({available_chars_for_query} chars) or no query texts (user: {bool(user_queries)}, assistant: {bool(assistant_queries)}).")
+             logger.info(f"Skipping all dynamic memory queries due to insufficient initial space for dynamic content ({available_chars_overall_for_dynamic_queries} chars available, need > 200).")
 
         # --- End Dynamic Memory Search ---
 
@@ -376,7 +438,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                     last_user_content = turns[i]['content']
                     last_user_content += f"\n\n{self.thought_content}"
                     turns[i]['content'] = last_user_content
-                    logger.info(f"Thought inserted at {i}")
+                    #logger.info(f"Thought inserted at {i}")
                     break
         
         return turns

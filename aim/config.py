@@ -158,6 +158,8 @@ class ChatConfig:
     include_stop_str_in_output: Optional[bool] = False
     response_format: Optional[str] = None
 
+    show_llm_messages: bool = False
+
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
