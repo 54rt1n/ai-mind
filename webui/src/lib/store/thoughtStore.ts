@@ -130,9 +130,11 @@ function createThoughtStore() {
             update(store => ({ ...store, thoughtDefaultContent: content }));
         },
         generateThought: async (
+            thoughtModel: string,
             messages: CompletionMessage[],
-            config?: ChatConfig,
             options: {
+                user_id?: string,
+                persona_id?: string,
                 workspaceContent?: string | null,
                 pinnedMessages?: ChatMessage[] | null,
                 activeDocument?: DocumentInfo | null,
@@ -174,18 +176,18 @@ function createThoughtStore() {
             const topK = options.topK || undefined;
 
             try {
-                if (!config?.user_id || !config?.persona_id) {
+                if (!options.user_id || !options.persona_id) {
                     throw new Error("User ID and Persona ID are required");
                 }
-                if (!config?.thoughtModel) {
+                if (!thoughtModel) {
                     throw new Error("Thought Model is required");
                 }
                 let response = '';
                 await api.sendChatCompletion(
                     JSON.stringify({
                         metadata: {
-                            user_id: config.user_id,
-                            persona_id: config.persona_id,
+                            user_id: options.user_id,
+                            persona_id: options.persona_id,
                             thought_content: state.thoughtContent,
                             workspace_content: options.workspaceContent,
                             pinned_messages: options.pinnedMessages ? options.pinnedMessages.map(message => message.doc_id) : undefined,
@@ -194,7 +196,7 @@ function createThoughtStore() {
                             disable_pif: options.disablePif || undefined,
                         },
                         messages: conversationCopy,
-                        model: config.thoughtModel,
+                        model: thoughtModel,
                         system_message: state.thoughtSystemMessage,
                         temperature: temperature,
                         min_p: minP,

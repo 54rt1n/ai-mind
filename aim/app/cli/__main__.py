@@ -22,6 +22,7 @@ from ...pipeline.factory import pipeline_factory, BasePipeline
 from ...conversation.message import ConversationMessage
 from ...utils.turns import process_think_tag_in_message, extract_and_update_emotions_from_header
 from ...conversation.loader import ConversationLoader
+from ...constants import DOC_STEP, DOC_NER
 
 logger = logging.getLogger(__name__)
 
@@ -290,8 +291,9 @@ def pipeline(co: ContextObject, pipeline_type, persona_id, conversation_id, mood
 @click.option('--index-dir', default="memory/indices", help='Directory for storing indices')
 @click.option('--debug', is_flag=True, help='Enable debug output')
 @click.option('--device', default="cpu", help='Device to use for indexing')
+@click.option('--batch-size', default=64, help='Batch size for indexing')
 @click.pass_obj
-def rebuild_index(co: ContextObject, conversations_dir: str, index_dir: str, device:str, debug: bool):
+def rebuild_index(co: ContextObject, conversations_dir: str, index_dir: str, device:str, debug: bool, batch_size: int):
     """Rebuild search indices from conversation JSONL files"""
     from ...conversation.loader import ConversationLoader
     from ...conversation.index import SearchIndex
@@ -317,6 +319,12 @@ def rebuild_index(co: ContextObject, conversations_dir: str, index_dir: str, dev
         click.echo("Converting to index documents...")
         documents = [msg.to_dict() for msg in messages]
         
+        # filter out step documents
+        documents = [doc for doc in documents if doc['document_type'] != DOC_STEP]
+        documents = [doc for doc in documents if doc['document_type'] != DOC_NER]
+        for doc in documents:
+            click.echo(f"Document: {doc['doc_id']} - {doc['document_type']}")
+
         # Build the index
         click.echo("Building index...")
         if debug:
@@ -324,7 +332,7 @@ def rebuild_index(co: ContextObject, conversations_dir: str, index_dir: str, dev
             click.echo(f"ID: {documents[0]['doc_id']}")
             click.echo(f"Content: {documents[0]['content'][:100]}")
             
-        index.add_documents(documents)
+        index.add_documents(documents, use_tqdm=True, batch_size=batch_size)
         
         click.echo("Index rebuild complete!")
         
@@ -339,6 +347,7 @@ def rebuild_index(co: ContextObject, conversations_dir: str, index_dir: str, dev
 @click.option('--conversation-id', 'target_conversation_id', default=None, help='ID of a specific conversation to repair.')
 @click.option('--all-conversations', is_flag=True, help='Repair all conversations.')
 @click.option('--dry-run', is_flag=True, help='Show what would change without writing to files.')
+@click.option('--skip-steps', is_flag=True, help='Skip processing messages identified as step documents.')
 @click.pass_obj
 def repair_conversation(co: ContextObject, target_conversation_id: Optional[str], all_conversations: bool, dry_run: bool):
     """
