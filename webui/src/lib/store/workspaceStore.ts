@@ -2,7 +2,7 @@
 import { writable, derived, get } from 'svelte/store';
 import { api } from '$lib';
 import { browser } from '$app/environment';
-import type { ChatConfig, WorkspaceItem } from '$lib';
+import type { ChatConfig, WorkspaceItem, ChatMessage, DocumentInfo } from '$lib';
 import { WorkspaceCategory } from '$lib';
 
 const DEFAULT_WORKSPACE: WorkspaceItem = {
@@ -88,12 +88,33 @@ function createWorkspaceStore() {
     }
 
     async function generateWorkspaceUpdate(
-        config: ChatConfig,
+        workspaceModel: string,
         conversationHistory: any[],
-        systemMessage: string) {
+        options: {
+            workspaceContent?: string | null,
+            systemMessage?: string | null,
+            currentLocation?: string | null,
+            pinnedMessages?: ChatMessage[] | null,
+            activeDocument?: DocumentInfo | null,
+            user_id?: string | null,
+            persona_id?: string | null,
+            thoughtContent?: string | null,
+            temperature?: number | null,
+            maxTokens?: number | null,
+            frequencyPenalty?: number | null,
+            presencePenalty?: number | null,
+            repetitionPenalty?: number | null,
+            minP?: number | null,
+            topP?: number | null,
+            topK?: number | null,
+            disableGuidance?: boolean | null,
+            disablePif?: boolean | null,
+            onComplete?: () => void,
+        } = {}
+    ) {
         update(state => ({ ...state, contentStream: '' }));
 
-        if (!config.workspaceModel) {
+        if (!workspaceModel) {
             console.error('No workspace model provided');
             return false;
         }
@@ -114,23 +135,24 @@ function createWorkspaceStore() {
             await api.sendChatCompletion(
                 JSON.stringify({
                     metadata: {
-                        user_id: config.user_id,
-                        persona_id: config.persona_id,
-                        workspace_content: currentState.content,
-                        active_document: config.selectedDocument?.name,
-                        thought_content: config.thoughtContent ?? undefined,
+                        user_id: options.user_id,
+                        persona_id: options.persona_id,
+                        workspace_content: options.workspaceContent,
+                        active_document: options.activeDocument?.name,
+                        pinned_messages: options.pinnedMessages?.map(message => message.doc_id),
+                        thought_content: options.thoughtContent ?? undefined,
                     },
                     messages: conversationWithContext,
-                    model: config.workspaceModel,
-                    system_message: systemMessage,
-                    max_tokens: config.maxTokens,
-                    temperature: config.temperature,
-                    top_p: config.topP,
-                    top_k: config.topK,
-                    min_p: config.minP,
-                    frequency_penalty: config.frequencyPenalty,
-                    presence_penalty: config.presencePenalty,
-                    repetition_penalty: config.repetitionPenalty,
+                    model: workspaceModel,
+                    system_message: options.systemMessage,
+                    max_tokens: options.maxTokens,
+                    temperature: options.temperature,
+                    top_p: options.topP,
+                    top_k: options.topK,
+                    min_p: options.minP,
+                    frequency_penalty: options.frequencyPenalty,
+                    presence_penalty: options.presencePenalty,
+                    repetition_penalty: options.repetitionPenalty,
                     stream: true
                 }),
                 (chunk) => {

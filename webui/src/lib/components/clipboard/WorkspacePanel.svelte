@@ -129,23 +129,31 @@
             console.log("clearAndGenerate failure", conversationHistory);
             throw new Error("No conversation history");
         }
-        const config = get(configStore);
-        // We need to make a copy of the config to avoid mutating the store
-        const configCopy = {
-            ...config,
-            maxTokens: 4096,
-            temperature: 0.7,
-            topP: undefined,
-            topK: undefined,
-            frequencyPenalty: undefined,
-            presencePenalty: undefined,
-            repetitionPenalty: undefined,
-            minP: undefined,
-        };
+        const model = $configStore.workspaceModel;
+        if (!model) {
+            throw new Error("No workspace model");
+        }
         return await workspaceStore.generateWorkspaceUpdate(
-            configCopy,
+            model,
             conversationHistory,
-            "You are to update the workspace content based on the conversation. Output only the new content.",
+            {
+                currentLocation: $configStore.location,
+                user_id: $configStore.user_id,
+                persona_id: $configStore.persona_id,
+                thoughtContent: $configStore.thoughtContent,
+                systemMessage: "You are to update the workspace content based on the conversation. Output only the new content.",
+                workspaceContent: $workspaceStore.content,
+                pinnedMessages: $configStore.pinnedMessages,
+                activeDocument: $configStore.selectedDocument,
+                maxTokens: 4096,
+                temperature: 0.7,
+                topP: undefined,
+                topK: undefined,
+                frequencyPenalty: undefined,
+                presencePenalty: undefined,
+                repetitionPenalty: undefined,
+                minP: 0.05,
+            }
         );
     }
 

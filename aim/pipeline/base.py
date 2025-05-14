@@ -433,7 +433,7 @@ class BasePipeline:
         llm_config = llm_list[model]
         #thought_config = llm_list['deepseek-ai/DeepSeek-R1']
         thought_config = llm_list['maldv/Loqwqtus2.5-32B-Instruct']
-        codex_config = llm_list['nvidia/Llama-3.1-Nemotron-70B-Instruct-HF']
+        codex_config = llm_list['maldv/Loqwqtus2.5-32B-Instruct']
 
         llm = llm_config.llm_factory(config)
         thought = thought_config.llm_factory(config)

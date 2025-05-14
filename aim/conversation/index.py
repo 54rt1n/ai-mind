@@ -106,17 +106,42 @@ class SearchIndex:
         writer.commit()
         self.index.reload()
 
-    def add_documents(self, documents: list[dict]) -> None:
+    def add_documents(self, documents: list[dict], use_tqdm: bool = False, batch_size: int = 64) -> None:
         """Add multiple documents to the index efficiently"""
         writer = self.index.writer()
 
-        # vectorize all documents first
-        indices = self.vectorizer.transform([doc["content"] for doc in documents])
+        if use_tqdm:
+            # Assume tqdm is installed if use_tqdm is True
+            from tqdm import tqdm 
 
-        for i, doc in enumerate(documents):
-            index_a = indices[i]
-            tantivy_doc = self.to_doc(doc, index_a=index_a)
-            writer.add_document(tantivy_doc)
+            num_documents = len(documents)
+            num_batches = (num_documents + batch_size - 1) // batch_size
+            
+            # Iterate over batch indices with tqdm
+            for i in tqdm(range(num_batches), total=num_batches, desc="Adding Documents in Batches"):
+                start_idx = i * batch_size
+                end_idx = min((i + 1) * batch_size, num_documents)
+                batch_docs = documents[start_idx:end_idx]
+
+                if not batch_docs:
+                    continue 
+
+                # Vectorize the content of the current batch
+                contents = [doc["content"] for doc in batch_docs]
+                indices = self.vectorizer.transform(contents)
+
+                # Add documents from the batch to the writer
+                for j, doc in enumerate(batch_docs):
+                    index_a = indices[j]
+                    tantivy_doc = self.to_doc(doc, index_a=index_a)
+                    writer.add_document(tantivy_doc)
+        else:
+            # vectorize all documents first
+            indices = self.vectorizer.transform([doc["content"] for doc in documents])
+            for i, doc in enumerate(documents):
+                index_a = indices[i]
+                tantivy_doc = self.to_doc(doc, index_a=index_a)
+                writer.add_document(tantivy_doc)
 
         writer.commit()
         self.index.reload()

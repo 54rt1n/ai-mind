@@ -46,16 +46,35 @@
 
         lastConversationHistory = conversationHistory;
         lastWorkspaceContent = workspaceContent;
-
-        return await thoughtStore.generateThought(
+        if (!$configStore.thoughtModel) {
+            throw new Error("Thought model is not set");
+        }
+        if (!$configStore.user_id) {
+            throw new Error("User ID is not set");
+        }
+        if (!$configStore.persona_id) {
+            throw new Error("Persona ID is not set");
+        }
+        await thoughtStore.generateThought(
+            $configStore.thoughtModel,
             conversationHistory,
-            $configStore,
             {
+                user_id: $configStore.user_id,
+                persona_id: $configStore.persona_id,
                 workspaceContent,
                 pinnedMessages: $configStore.pinnedMessages,
                 activeDocument: $configStore.selectedDocument,
+                temperature: $configStore.temperature,
+                maxTokens: $configStore.maxTokens,
+                frequencyPenalty: $configStore.frequencyPenalty,
+                presencePenalty: $configStore.presencePenalty,
+                repetitionPenalty: $configStore.repetitionPenalty,
+                minP: $configStore.minP,
+                topP: $configStore.topP,
+                topK: $configStore.topK,
             }
         );
+        return true;
     }
 
     export async function advanceThought(
@@ -74,16 +93,36 @@
 
         lastConversationHistory = conversationHistory;
         lastWorkspaceContent = workspaceContent;
+        if (!$configStore.thoughtModel) {
+            throw new Error("Thought model is not set");
+        }
+        if (!$configStore.user_id) {
+            throw new Error("User ID is not set");
+        }
+        if (!$configStore.persona_id) {
+            throw new Error("Persona ID is not set");
+        }
         
-        return await thoughtStore.generateThought(
+        await thoughtStore.generateThought(
+            $configStore.thoughtModel,
             conversationHistory,
-            $configStore,
             {
+                user_id: $configStore.user_id,
+                persona_id: $configStore.persona_id,
                 workspaceContent,
                 pinnedMessages: $configStore.pinnedMessages,
                 activeDocument: $configStore.selectedDocument,
+                temperature: $configStore.temperature,
+                maxTokens: $configStore.maxTokens,
+                frequencyPenalty: $configStore.frequencyPenalty,
+                presencePenalty: $configStore.presencePenalty,
+                repetitionPenalty: $configStore.repetitionPenalty,
+                minP: $configStore.minP,
+                topP: $configStore.topP,
+                topK: $configStore.topK,
             }
         );
+        return true;
     }
 
     export async function validateAndAcceptThought(): Promise<boolean> {
@@ -135,13 +174,33 @@
         const workspaceContent = $clipboardStore.includeInMessages
             ? $workspaceStore.content
             : undefined;
+        if (!$configStore.thoughtModel) {
+            throw new Error("Thought model is not set");
+        }
+        if (!$configStore.user_id) {
+            throw new Error("User ID is not set");
+        }
+        if (!$configStore.persona_id) {
+            throw new Error("Persona ID is not set");
+        }
+        
         await thoughtStore.generateThought(
+            $configStore.thoughtModel,
             conversationHistory,
-            $configStore,
             {
+                user_id: $configStore.user_id,
+                persona_id: $configStore.persona_id,
                 workspaceContent,
                 pinnedMessages: $configStore.pinnedMessages,
                 activeDocument: $configStore.selectedDocument,
+                temperature: $configStore.temperature,
+                maxTokens: $configStore.maxTokens,
+                frequencyPenalty: $configStore.frequencyPenalty,
+                presencePenalty: $configStore.presencePenalty,
+                repetitionPenalty: $configStore.repetitionPenalty,
+                minP: $configStore.minP,
+                topP: $configStore.topP,
+                topK: $configStore.topK,
             }
         );
     }
