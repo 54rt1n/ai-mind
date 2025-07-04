@@ -64,14 +64,14 @@
                 workspaceContent,
                 pinnedMessages: $configStore.pinnedMessages,
                 activeDocument: $configStore.selectedDocument,
-                temperature: $configStore.temperature,
-                maxTokens: $configStore.maxTokens,
-                frequencyPenalty: $configStore.frequencyPenalty,
-                presencePenalty: $configStore.presencePenalty,
-                repetitionPenalty: $configStore.repetitionPenalty,
-                minP: $configStore.minP,
-                topP: $configStore.topP,
-                topK: $configStore.topK,
+                temperature: undefined,
+                maxTokens: undefined,
+                frequencyPenalty: undefined,
+                presencePenalty: undefined,
+                repetitionPenalty: undefined,
+                minP: undefined,
+                topP: undefined,
+                topK: undefined,
             }
         );
         return true;
@@ -90,7 +90,7 @@
         const workspaceContent = $clipboardStore.includeInMessages
             ? $workspaceStore.content
             : undefined;
-
+        console.log("includeInMessages", $clipboardStore.includeInMessages);
         lastConversationHistory = conversationHistory;
         lastWorkspaceContent = workspaceContent;
         if (!$configStore.thoughtModel) {

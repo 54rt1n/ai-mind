@@ -167,7 +167,7 @@ function createThoughtStore() {
             conversationCopy[conversationCopy.length - 1] = lastMessage;
 
             const temperature = options.temperature || 0.9;
-            const maxTokens = options.maxTokens || 2048;
+            const maxTokens = options.maxTokens || 4096;
             const frequencyPenalty = options.frequencyPenalty || undefined;
             const presencePenalty = options.presencePenalty || undefined;
             const repetitionPenalty = options.repetitionPenalty || undefined;

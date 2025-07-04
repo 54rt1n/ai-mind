@@ -201,7 +201,7 @@ class ConversationModel:
     def query(self, query_texts: List[str], filter_doc_ids: Optional[Set[str]] = None, top_n: Optional[int] = None,
               query_document_type: Optional[str | list[str]] = None, query_conversation_id: Optional[str] = None,
               max_length: Optional[int] = None, turn_decay: float = 0.7, temporal_decay: float = 0.99, length_boost_factor: float = 0.0,
-              filter_metadocs: bool = True, chunk_size: int = -1, **kwargs) -> pd.DataFrame:
+              filter_metadocs: bool = True, chunk_size: int = -1, sort_by: str = 'relevance', **kwargs) -> pd.DataFrame:
         """
         Queries the conversation collection and returns a DataFrame containing the top `top_n` most relevant conversation entries based on the given query texts, filters, and decay factors.
         
@@ -347,8 +347,15 @@ class ConversationModel:
         results['speaker'] = results.apply(lambda row: row['user_id'] if row['role'] == 'user' else row['persona_id'], axis=1)
 
         # return our filtered results
-        # Sort by score first, then apply top_n
-        results = results.sort_values(by='score', ascending=False)
+        # Sort based on sort_by parameter, then apply top_n
+        if sort_by == 'recency':
+            results = results.sort_values(by='timestamp', ascending=False)
+        elif sort_by == 'relevance':
+            results = results.sort_values(by='score', ascending=False)
+        else:
+            logger.warning(f"Unknown sort_by value: {sort_by}. Defaulting to 'relevance'")
+            results = results.sort_values(by='score', ascending=False)
+            
         if top_n is not None:
             results = results.head(top_n)
             

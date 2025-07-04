@@ -73,6 +73,8 @@ def get_env(dotenv_path: Optional[str] = None) -> Dict[str, str]:
         "discord_app_id": os.getenv("DISCORD_APP_ID", None),
         "discord_bot_token": os.getenv("DISCORD_BOT_TOKEN", None),
         "discord_public_key": os.getenv("DISCORD_PUBLIC_KEY", None),
+        "thought_model": os.getenv("THOUGHT_MODEL", None),
+        "codex_model": os.getenv("CODEX_MODEL", None),
     }
 
 
@@ -105,6 +107,9 @@ class ChatConfig:
     meta_api_key: Optional[str] = None
     openai_api_key: Optional[str] = None
     openrouter_api_key: Optional[str] = None
+
+    thought_model: Optional[str] = None
+    codex_model: Optional[str] = None
     
     # Redis cache configuration
     redis_host: str = "localhost"

@@ -147,6 +147,7 @@
             ? $workspaceStore.content
             : undefined;
         $configStore.thoughtContent = $thoughtStore.thoughtContent;
+        console.log("includeInMessages", $clipboardStore.includeInMessages);
         await chatStore.sendMessage(fullMessage, $configStore, {
             workspaceContent,
             skipAppend,

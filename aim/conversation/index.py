@@ -270,3 +270,116 @@ class SearchIndex:
         return {
             k : doc.get_first(k) for k in QUERY_COLUMNS
         }
+
+    def get_all_document_ids(self) -> set[str]:
+        """Get all document IDs currently in the index"""
+        searcher = self.index.searcher()
+        query = Query.all_query()
+        results = searcher.search(query, limit=1000000)  # Large limit to get all docs
+        
+        doc_ids = set()
+        for _, doc_addr in results.hits:
+            doc = searcher.doc(doc_addr)
+            doc_id = doc.get_first("doc_id")
+            if doc_id:
+                doc_ids.add(doc_id)
+        
+        return doc_ids
+
+    def get_all_documents_with_content(self) -> dict[str, dict]:
+        """Get all documents with their content for comparison"""
+        searcher = self.index.searcher()
+        query = Query.all_query()
+        results = searcher.search(query, limit=1000000)  # Large limit to get all docs
+        
+        documents = {}
+        for _, doc_addr in results.hits:
+            doc = searcher.doc(doc_addr)
+            doc_id = doc.get_first("doc_id")
+            if doc_id:
+                documents[doc_id] = {
+                    k: doc.get_first(k) for k in QUERY_COLUMNS
+                }
+        
+        return documents
+
+    def delete_document(self, doc_id: str) -> None:
+        """Delete a document from the index"""
+        writer = self.index.writer()
+        deleted_count = writer.delete_documents("doc_id", doc_id)
+        writer.commit()
+        self.index.reload()
+        logger.debug(f"Deleted {deleted_count} documents with doc_id: {doc_id}")
+
+    def update_document(self, doc: dict) -> None:
+        """Update a document in the index (delete old, add new)"""
+        # First delete the old document
+        self.delete_document(doc["doc_id"])
+        
+        # Then add the new version
+        self.add_document(doc)
+
+    def incremental_update(self, new_documents: list[dict], use_tqdm: bool = False, batch_size: int = 64) -> tuple[int, int, int]:
+        """
+        Perform incremental update of the index
+        Returns: (added_count, updated_count, deleted_count)
+        """
+        # Get current index state
+        existing_docs = self.get_all_documents_with_content()
+        existing_doc_ids = set(existing_docs.keys())
+        new_doc_ids = {doc["doc_id"] for doc in new_documents}
+        
+        # Determine what needs to be done
+        docs_to_add = []
+        docs_to_update = []
+        docs_to_delete = existing_doc_ids - new_doc_ids
+        
+        for doc in new_documents:
+            doc_id = doc["doc_id"]
+            if doc_id not in existing_docs:
+                # New document
+                docs_to_add.append(doc)
+            else:
+                # Check if content has changed
+                existing_doc = existing_docs[doc_id]
+                if (doc.get("content", "") != existing_doc.get("content", "") or
+                    doc.get("timestamp", 0) != existing_doc.get("timestamp", 0)):
+                    # Document has changed
+                    docs_to_update.append(doc)
+        
+        # Perform updates
+        added_count = len(docs_to_add)
+        updated_count = len(docs_to_update)
+        deleted_count = len(docs_to_delete)
+        
+        if use_tqdm:
+            from tqdm import tqdm
+            
+            # Delete documents
+            if docs_to_delete:
+                for doc_id in tqdm(docs_to_delete, desc="Deleting outdated documents"):
+                    self.delete_document(doc_id)
+            
+            # Add new documents
+            if docs_to_add:
+                self.add_documents(docs_to_add, use_tqdm=True, batch_size=batch_size)
+            
+            # Update changed documents
+            if docs_to_update:
+                for doc in tqdm(docs_to_update, desc="Updating changed documents"):
+                    self.update_document(doc)
+        else:
+            # Delete documents
+            for doc_id in docs_to_delete:
+                self.delete_document(doc_id)
+            
+            # Add new documents
+            if docs_to_add:
+                self.add_documents(docs_to_add, use_tqdm=False, batch_size=batch_size)
+            
+            # Update changed documents
+            for doc in docs_to_update:
+                self.update_document(doc)
+        
+        logger.info(f"Incremental update complete: {added_count} added, {updated_count} updated, {deleted_count} deleted")
+        return added_count, updated_count, deleted_count

@@ -195,6 +195,7 @@
     function handleIncludeInMessagesChange(event: Event) {
         const checkbox = event.target as HTMLInputElement;
         configStore.updateField("includeWorkspaceInMessages", checkbox.checked);
+        $clipboardStore.includeInMessages = checkbox.checked;
     }
 </script>
 

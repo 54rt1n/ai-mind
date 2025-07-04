@@ -243,7 +243,7 @@ class BasePipeline:
 
     def query_memories(self, query_texts: List[str], top_n: int, turn_decay: float = 0.0,
                        temporal_decay: float = 0.8, filter_metadocs: bool = True,
-                       query_document_type: Optional[list[str]] = None,
+                       query_document_type: Optional[list[str]] = None, sort_by: str = 'relevance',
                        **kwargs) -> pd.DataFrame:
         logger.info(f"Querying memories for {len(query_texts)} ({top_n})")
         seen_docs = set([r['doc_id'] for h in self.recall.values() for r in h])
@@ -253,7 +253,7 @@ class BasePipeline:
                               filter_doc_ids=filter_docs, top_n=top_n,
                               turn_decay=turn_decay, temporal_decay=temporal_decay,
                               filter_metadocs=filter_metadocs, max_length=self.available_characters,
-                              query_document_type=query_document_type, **kwargs)
+                              query_document_type=query_document_type, sort_by=sort_by, **kwargs)
 
     def flush_memories(self):
         new_memories = {}
@@ -288,7 +288,7 @@ class BasePipeline:
     async def execute_turn(self, provider_type: str, step: int, prompt: str, use_guidance: bool = False, max_tokens: int = 512,
                            retry: bool = True, top_n: int = 0, flush_memory: bool = False, add_user_turn = True,
                            query_document_type: list[str] | None = None, temporary_step: bool = False,
-                           is_thought: bool = False, is_codex: bool = False,
+                           is_thought: bool = False, is_codex: bool = False, sort_by: str = 'relevance',
                            **kwargs) -> str:
         self.cycle_conscious()
         if flush_memory:
@@ -304,9 +304,9 @@ class BasePipeline:
             if not query_document_type and self.enhancement_documents:
                 query_document_type = self.enhancement_documents
             if len(texts) > 0:
-                queries = self.query_memories(query_texts=texts, top_n=top_n, query_document_type=query_document_type, **kwargs)
+                queries = self.query_memories(query_texts=texts, top_n=top_n, query_document_type=query_document_type, sort_by=sort_by, **kwargs)
             else:
-                queries = self.query_memories(query_texts=[prompt], top_n=top_n, query_document_type=query_document_type, **kwargs)
+                queries = self.query_memories(query_texts=[prompt], top_n=top_n, query_document_type=query_document_type, sort_by=sort_by, **kwargs)
 
             if not queries.empty:
                 self.accumulate(step, queries, **kwargs)
@@ -431,9 +431,8 @@ class BasePipeline:
             raise ValueError(f"Model {model} not found in {llm_list}")
 
         llm_config = llm_list[model]
-        #thought_config = llm_list['deepseek-ai/DeepSeek-R1']
-        thought_config = llm_list['maldv/Loqwqtus2.5-32B-Instruct']
-        codex_config = llm_list['maldv/Loqwqtus2.5-32B-Instruct']
+        thought_config = llm_list[config.thought_model or model]
+        codex_config = llm_list[config.codex_model or model]
 
         llm = llm_config.llm_factory(config)
         thought = thought_config.llm_factory(config)

@@ -292,9 +292,10 @@ def pipeline(co: ContextObject, pipeline_type, persona_id, conversation_id, mood
 @click.option('--debug', is_flag=True, help='Enable debug output')
 @click.option('--device', default="cpu", help='Device to use for indexing')
 @click.option('--batch-size', default=64, help='Batch size for indexing')
+@click.option('--full', is_flag=True, help='Force full rebuild instead of incremental update')
 @click.pass_obj
-def rebuild_index(co: ContextObject, conversations_dir: str, index_dir: str, device:str, debug: bool, batch_size: int):
-    """Rebuild search indices from conversation JSONL files"""
+def rebuild_index(co: ContextObject, conversations_dir: str, index_dir: str, device: str, debug: bool, batch_size: int, full: bool):
+    """Rebuild or incrementally update search indices from conversation JSONL files"""
     from ...conversation.loader import ConversationLoader
     from ...conversation.index import SearchIndex
     from pathlib import Path
@@ -302,39 +303,85 @@ def rebuild_index(co: ContextObject, conversations_dir: str, index_dir: str, dev
     try:
         # Initialize loader and index
         loader = ConversationLoader(conversations_dir)
-        index = SearchIndex(index_path=Path(index_dir), embedding_model=co.config.embedding_model, device=device)
+        index_path = Path(index_dir)
         
-        # Load all conversations
-        click.echo("Loading conversations...")
-        messages = loader.load_all()
-        if debug:
-            click.echo(f"Message sample: {messages[0].content[:100]}")
-        click.echo(f"Loaded {len(messages)} messages")
+        # Check if index exists
+        index_exists = index_path.exists() and any(index_path.iterdir())
         
-        if len(messages) == 0:
-            click.echo("No messages found to index!", err=True)
-            return
-        
-        # Convert to index documents
-        click.echo("Converting to index documents...")
-        documents = [msg.to_dict() for msg in messages]
-        
-        # filter out step documents
-        documents = [doc for doc in documents if doc['document_type'] != DOC_STEP]
-        documents = [doc for doc in documents if doc['document_type'] != DOC_NER]
-        for doc in documents:
-            click.echo(f"Document: {doc['doc_id']} - {doc['document_type']}")
-
-        # Build the index
-        click.echo("Building index...")
-        if debug:
-            click.echo("Document sample:")
-            click.echo(f"ID: {documents[0]['doc_id']}")
-            click.echo(f"Content: {documents[0]['content'][:100]}")
+        if full or not index_exists:
+            click.echo("Performing full index rebuild...")
+            index = SearchIndex(index_path=index_path, embedding_model=co.config.embedding_model, device=device)
             
-        index.add_documents(documents, use_tqdm=True, batch_size=batch_size)
-        
-        click.echo("Index rebuild complete!")
+            # Load all conversations
+            click.echo("Loading conversations...")
+            messages = loader.load_all()
+            if debug and messages:
+                click.echo(f"Message sample: {messages[0].content[:100]}")
+            click.echo(f"Loaded {len(messages)} messages")
+            
+            if len(messages) == 0:
+                click.echo("No messages found to index!", err=True)
+                return
+            
+            # Convert to index documents
+            click.echo("Converting to index documents...")
+            documents = [msg.to_dict() for msg in messages]
+            
+            # Filter out step and NER documents
+            documents = [doc for doc in documents if doc['document_type'] not in [DOC_STEP, DOC_NER]]
+            
+            if debug:
+                click.echo(f"Filtered to {len(documents)} documents")
+                for doc in documents[:5]:  # Show first 5 only
+                    click.echo(f"Document: {doc['doc_id']} - {doc['document_type']}")
+
+            # Build the index
+            click.echo("Building index...")
+            if debug and documents:
+                click.echo("Document sample:")
+                click.echo(f"ID: {documents[0]['doc_id']}")
+                click.echo(f"Content: {documents[0]['content'][:100]}")
+                
+            index.rebuild(documents)
+            
+            click.echo("Full index rebuild complete!")
+            
+        else:
+            click.echo("Performing incremental index update...")
+            index = SearchIndex(index_path=index_path, embedding_model=co.config.embedding_model, device=device)
+            
+            # Load all conversations
+            click.echo("Loading conversations...")
+            messages = loader.load_all()
+            click.echo(f"Loaded {len(messages)} messages")
+            
+            if len(messages) == 0:
+                click.echo("No messages found to index!", err=True)
+                return
+            
+            # Convert to index documents
+            click.echo("Converting to index documents...")
+            documents = [msg.to_dict() for msg in messages]
+            
+            # Filter out step and NER documents
+            documents = [doc for doc in documents if doc['document_type'] not in [DOC_STEP, DOC_NER]]
+            
+            if debug:
+                click.echo(f"Filtered to {len(documents)} documents")
+
+            # Perform incremental update
+            click.echo("Comparing with existing index...")
+            added_count, updated_count, deleted_count = index.incremental_update(
+                documents, use_tqdm=True, batch_size=batch_size
+            )
+            
+            click.echo(f"Incremental update complete!")
+            click.echo(f"  Added: {added_count} documents")
+            click.echo(f"  Updated: {updated_count} documents") 
+            click.echo(f"  Deleted: {deleted_count} documents")
+            
+            if added_count == 0 and updated_count == 0 and deleted_count == 0:
+                click.echo("Index was already up to date!")
         
     except Exception as e:
         click.echo(f"Error rebuilding index: {e}", err=True)

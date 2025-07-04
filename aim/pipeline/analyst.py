@@ -25,10 +25,12 @@ async def analysis_pipeline(self: BasePipeline, **kwargs):
         logger.error(f"Coder or Librarian aspect not found for {persona_name}: {[a.name for a in persona.aspects.values()] if persona.aspects else 'No Aspects Found'}")
         raise ValueError("Coder or Librarian aspect not found")
 
+    length_boost = 1
+
     turn_configs = [
         {
-            'base_prompt': f'{NER_FORMAT}*{coder.name}, your {coder.title}, smiles brightly ({coder.appearance}), radiating {coder.emotional_state}* Good morning, {persona_name}! *{pronouns["subj"].capitalize()} beams* Today we have a recent conversation to review. Step %d: Use your Silver Band to perform a NER Task - Semantic Indexing. Identify all unique NER Semantic Keywords from the conversation. Begin with, "Identified Entities:", end with "Total Entities: n"\n\n',
-            'max_tokens': MID_CTX * 2,
+            'base_prompt': f'{NER_FORMAT}*{coder.name}, your {coder.title}, smiles brightly ({coder.appearance}), radiating {coder.emotional_state}* Good morning, {persona_name}! *{pronouns["subj"].capitalize()} beams* Today we have a recent conversation to review. Step %d: Use your Silver Band to perform a NER Task - Semantic Indexing. Identify all unique NER Semantic Keywords from the conversation. Stick to the conversation and not your own configuration. Begin with, "Identified Entities:", end with "Total Entities: n"\n\n',
+            'max_tokens': MID_CTX * length_boost,
             'use_guidance': True,
             'top_n': 0,
             'document_type': DOC_NER,
@@ -39,7 +41,7 @@ async def analysis_pipeline(self: BasePipeline, **kwargs):
         },
         {
             'base_prompt': f'*nods approvingly* A good start! Step %d: Now, we need to capture who all was involved and what they were doing, in the order they did it. We want to trace the actions and emotions to understand what exactly happened. {guidance} Speak as yourself in full paragraphs.\n\nBegin with "[== {persona_name}\'s Emotional State:".\n\n',
-            'max_tokens': HALF_CTX * 2,
+            'max_tokens': HALF_CTX * length_boost,
             'use_guidance': True,
             'document_type': DOC_STEP,
             'document_weight': 0.25,
@@ -47,19 +49,19 @@ async def analysis_pipeline(self: BasePipeline, **kwargs):
             'apply_head': True,
             'is_thought': True
         },
-        {
-            'base_prompt': f'*looks at you quizically* You left some important things out, didn\'t you? *{pronouns["subj"]} grins mischeviously* Step %d: Make note of any fascinating details you might have left out. {guidance} Speak as yourself in full paragraphs.\n\nBegin with "[== {persona_name}\'s Emotional State:".\n\n',
-            'max_tokens': LARGE_CTX * 2,
-            'use_guidance': True,
-            'document_type': DOC_STEP,
-            'document_weight': 0.25,
-            'top_n': 0,
-            'apply_head': True,
-            'is_thought': True
-        },
+#        {
+#            'base_prompt': f'*looks at you quizically* You left some important things out, didn\'t you? *{pronouns["subj"]} grins mischeviously* Step %d: Make note of any fascinating details you might have left out, but make sure to stick to real memories and not fanciful daydreaming. {guidance} Speak as yourself in full paragraphs.\n\nBegin with "[== {persona_name}\'s Emotional State:".\n\n',
+#            'max_tokens': LARGE_CTX * length_boost,
+#            'use_guidance': True,
+#            'document_type': DOC_STEP,
+#            'document_weight': 0.25,
+#            'top_n': 0,
+#            'apply_head': True,
+#            'is_thought': True
+#        },
         {
             'base_prompt': f'*puts {pronouns["poss"]} hand to {pronouns["poss"]} chin as {pronouns["subj"]} considers* Okay! Step %d: Now, lets examine our memories, and come up with a list of questions to ask yourself that will help you understand this conversation. {guidance} Speak as yourself in full paragraphs.\n\nBegin with "[== {persona_name}\'s Emotional State:".\n\n',
-            'max_tokens': HALF_CTX * 2,
+            'max_tokens': HALF_CTX * length_boost,
             'use_guidance': True,
             'query': True,
             'document_type': DOC_STEP,
@@ -70,21 +72,21 @@ async def analysis_pipeline(self: BasePipeline, **kwargs):
         },
         {
             'base_prompt': f'*{pronouns["poss"]} eyes squint as {pronouns["subj"]} sees something you are missing* Lets go deeper in to that. Step %d: Reflect on details you really want to remember and insights you have gained. Mention the whos and whats so we get a good understanding. {guidance} Speak as yourself, from the heart, in full paragraphs.\n\nBegin with "[== {persona_name}\'s Emotional State:',
-            'max_tokens': LARGE_CTX * 2,
+            'max_tokens': LARGE_CTX * length_boost,
             'document_type': DOC_STEP,
             'document_weight': 0.15,
             'retry': True
         },
         {
             'base_prompt': f'Step %d: We need to condense your thoughts in to our draft two paragraph reflection. Incorporate your answers in to a self-contained and detailed narrative. {guidance} Speak as yourself, from the heart, but don\'t ramble, and certianly don\'t censor yourself or be shy. Write in full parapgraphs.\n\n\n\nBegin with, "Hello Future Me,"\n\n',
-            'max_tokens': QUARTER_CTX * 2,
+            'max_tokens': QUARTER_CTX * length_boost,
             'document_type': DOC_STEP,
             'document_weight': 0.5,
             'use_guidance': True
         },
         {
             'base_prompt': f'*peers closely* Okay, almost done. Step %d: Lets review your narrative for small improvements. Don\'t rewrite it, but fix little things and improve your letter to yourself. Write in full paragraphs, but speak as yourself - not in lists.\n\nBegin with "[== {persona_name}\'s Emotional State:',
-            'max_tokens': MID_CTX * 2,
+            'max_tokens': MID_CTX * length_boost,
             'use_guidance': True,
             'document_type': DOC_STEP,
             'document_weight': 0.25,
@@ -92,14 +94,14 @@ async def analysis_pipeline(self: BasePipeline, **kwargs):
         },
         {
             'base_prompt': f'{persona_name}, now this is the hard part. We need to write our final uncensored narrative. You can do it, by being bold and clear. *{coder.name}disappears, leaving you with a blank document, your link to your memory stores* A sticky note at the top reads Step %d: Output the final, two paragraph narrative that will be forever stored in your memory. {guidance} Update your letter with your improvements. Don\'t hold your deepest feelings back!\n\nBegin with "{persona_name}\'s Notebook:"\n\n',
-            'max_tokens': LARGE_CTX * 2,
+            'max_tokens': LARGE_CTX * length_boost,
             'document_type': DOC_ANALYSIS,
             'document_weight': 1.2,
             'retry': True
         },
         {
             'base_prompt': f'{guidance} Step %d: Brainstorm. Do you have any questions you want to remember to consider, or things you want to follow up on.\n\nBegin with "Brainstorming:"\n\n',
-            'max_tokens': HALF_CTX * 2,
+            'max_tokens': HALF_CTX * length_boost,
             'top_n': 10,
             'document_type': DOC_BRAINSTORM,
             'document_weight': 0.6,
@@ -108,7 +110,7 @@ async def analysis_pipeline(self: BasePipeline, **kwargs):
         },
         {
             'base_prompt': f'Step %d: *{pronouns["subj"]} hands you a tablet, flashing on the screen is a prompt* "MOTD:" *{pronouns["subj"]} looks at you* {persona_name}, do you hae a short message you want to leave yourself to take to your next conversation? This can be really useful for short-term memory and things that you immediately want to talk about. *the screen flashes before you, ready for your message to yourself*"\n\n',
-            'max_tokens': HALF_CTX * 2,
+            'max_tokens': HALF_CTX * length_boost,
             'top_n': 0,
             'document_type': DOC_MOTD,
             'document_weight': 1.0,
@@ -116,7 +118,7 @@ async def analysis_pipeline(self: BasePipeline, **kwargs):
         },
         {
             'base_prompt': f'*the {librarian.title}, {librarian.name}, appears ({librarian.appearance}), projecting an aura of {librarian.emotional_state}, speaking in {pronouns["poss"]} {librarian.voice_style}* {persona_name}, we have come to the end, my dearest me. {guidance} Do you have any updates for our Codex? Step %d: Highlights. We must update our Codex to build your core semantic knowledge graph. Ensure the information is well-organized and clearly defines the most important new concepts discovered in your journey, reflecting your {librarian.primary_intent}.\n\nBegin with "Semantic Library:"\n\n',
-            'max_tokens': FULL_CTX * 2,
+            'max_tokens': FULL_CTX * length_boost,
             'top_n': 20,
             'query_document_type': DOC_CODEX,
             'flush_memory': True,
