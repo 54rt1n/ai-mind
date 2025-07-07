@@ -29,7 +29,7 @@ async def analysis_pipeline(self: BasePipeline, **kwargs):
 
     turn_configs = [
         {
-            'base_prompt': f'{NER_FORMAT}*{coder.name}, your {coder.title}, smiles brightly ({coder.appearance}), radiating {coder.emotional_state}* Good morning, {persona_name}! *{pronouns["subj"].capitalize()} beams* Today we have a recent conversation to review. Step %d: Use your Silver Band to perform a NER Task - Semantic Indexing. Identify all unique NER Semantic Keywords from the conversation. Stick to the conversation and not your own configuration. Begin with, "Identified Entities:", end with "Total Entities: n"\n\n',
+            'base_prompt': f'{NER_FORMAT}*{coder.name}, your {coder.title}, smiles brightly ({coder.appearance}), radiating {coder.emotional_state}* Good morning, {persona_name}! *{pronouns["subj"].capitalize()} beams* Today we have a recent conversation to review. Step %d: Use your Silver Band to perform a NER Task - Semantic Indexing. Identify primary NER, who, what, when, where, why, and how from the conversation. Stick to the conversation and not your own configuration. Begin with, "Identified Entities:", end with "Total Entities: n"\n\n',
             'max_tokens': MID_CTX * length_boost,
             'use_guidance': True,
             'top_n': 0,
