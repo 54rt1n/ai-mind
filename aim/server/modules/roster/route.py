@@ -12,11 +12,11 @@ from .dto import CreatePersonaRequest, UpdatePersonaRequest, PersonaResponse, Pe
 logger = logging.getLogger(__name__)
 
 class RosterModule:
-    def __init__(self, config: ChatConfig, security: HTTPBearer):
+    def __init__(self, config: ChatConfig, security: HTTPBearer, shared_roster: Roster):
         self.router = APIRouter(prefix="/api/roster", tags=["roster"])
         self.security = security
         self.config = config
-        self.roster = Roster.from_config(config)
+        self.roster = shared_roster
         
         self.setup_routes()
 
@@ -59,7 +59,6 @@ class RosterModule:
             """Create a new persona"""
             try:
                 persona = self.roster.create_persona(request.model_dump())
-                self.roster = Roster.from_config(self.config)
                 return {
                     "status": "success", 
                     "message": f"Persona {persona.persona_id} created",
@@ -82,7 +81,6 @@ class RosterModule:
             """Update an existing persona"""
             try:
                 persona = self.roster.update_persona(persona_id, request.model_dump())
-                self.roster = Roster.from_config(self.config)
                 return {
                     "status": "success", 
                     "message": f"Persona {persona_id} updated",
@@ -104,7 +102,6 @@ class RosterModule:
             """Delete a persona"""
             try:
                 self.roster.delete_persona(persona_id)
-                self.roster = Roster.from_config(self.config)
                 return {
                     "status": "success", 
                     "message": f"Persona {persona_id} deleted"

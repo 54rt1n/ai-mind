@@ -3,6 +3,7 @@
 
 import logging
 from pathlib import Path
+from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
@@ -51,11 +52,11 @@ class AdminModule:
         @self.router.post("/rebuild_index")
         async def rebuild_index(
             background_tasks: BackgroundTasks,
-            credentials: HTTPAuthorizationCredentials = Depends(self.security)
+            credentials: Optional[HTTPAuthorizationCredentials] = Depends(self.security)
         ):
             """Rebuild the search index from JSONL files"""
             try:
-                if self.config.server_api_key and credentials.credentials != self.config.server_api_key:
+                if self.config.server_api_key and (credentials is None or credentials.credentials != self.config.server_api_key):
                     raise HTTPException(status_code=401, detail="Invalid API key")
                 
                 background_tasks.add_task(self.rebuild_index_task)

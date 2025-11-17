@@ -20,6 +20,7 @@ from ....config import ChatConfig
 from ....utils.turns import validate_turns
 from ....utils.xml import XmlFormatter
 from ....tool.formatting import ToolUser
+from ....agents.roster import Roster
 
 from .dto import ChatCompletionRequest, ChatCompletionResponse
 
@@ -83,11 +84,12 @@ class ModelClasses:
 
 
 class ChatModule:
-    def __init__(self, config: ChatConfig, security: HTTPBearer):
+    def __init__(self, config: ChatConfig, security: HTTPBearer, shared_roster: Roster):
         self.router = APIRouter(prefix="/v1/chat", tags=["chat"])
         self.security = security
         self.config = config
-        self.chat = ChatManager.from_config(config)
+        self.shared_roster = shared_roster
+        self.chat = ChatManager.from_config_with_roster(config, shared_roster)
         self.chat_strategy = chat_strategy_for("xmlmemory", self.chat)
         self.models = LanguageModelV2.index_models(self.config)
         
@@ -97,11 +99,14 @@ class ChatModule:
         @self.router.post("/completions")
         async def chat_completions(
             request: ChatCompletionRequest,
-            credentials: HTTPAuthorizationCredentials = Depends(self.security)
+            credentials: Optional[HTTPAuthorizationCredentials] = Depends(self.security)
         ):
             """Handle the chat completion request."""
             try:
                 return await self.handle_chat_completions(request, credentials)
+            except HTTPException:
+                # Let HTTPException bubble up to FastAPI - don't catch and re-raise as 500
+                raise
             except ValueError as e:
                 logger.error(e)
                 import traceback
@@ -122,10 +127,10 @@ class ChatModule:
                 "models": list(self.models.values()),
             }
 
-    async def handle_chat_completions(self, request: ChatCompletionRequest, credentials: HTTPAuthorizationCredentials):
+    async def handle_chat_completions(self, request: ChatCompletionRequest, credentials: Optional[HTTPAuthorizationCredentials]):
         """Handle the chat completion request."""
-        if self.config.server_api_key is not None and credentials.credentials != self.config.server_api_key:
-            raise HTTPException(status_code=401, detail="Invalid API key")
+        if self.config.server_api_key is not None and (credentials is None or credentials.credentials != self.config.server_api_key):
+            raise HTTPException(status_code=401, detail=f"Invalid API key")
 
         selected_model : LanguageModelV2 | None = self.models.get(request.model, None)
         if selected_model is None or type(selected_model) is not LanguageModelV2:
@@ -141,6 +146,8 @@ class ChatModule:
         metadata = request.metadata
 
         if metadata.persona_id is None or metadata.persona_id not in self.chat.roster.personas:
+            logger.error(f"Persona {metadata.persona_id} not found. Available personas: {list(self.chat.roster.personas.keys())}")
+            logger.error(f"Roster object ID: {id(self.chat.roster)}")
             raise HTTPException(status_code=400, detail=f"Invalid persona: {metadata.persona_id}")
 
         if metadata.user_id is None or metadata.user_id == "":

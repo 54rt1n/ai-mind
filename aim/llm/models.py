@@ -121,8 +121,12 @@ class LanguageModelV2:
             LLMProvider: An instance of the appropriate `LLMProvider` subclass.
         
         Raises:
-            ValueError: If the provider is not recognized or required API key is missing.
+            LLMProviderError: If the provider is not recognized or required API key is missing.
         """
+        # Validate that the provider has proper configuration
+        if not self.provider.has_configuration(config):
+            raise LLMProviderError(f"Missing or invalid API key for {self.provider.value} provider", self.provider)
+            
         if self.provider == ModelProvider.FEATHERLESS:
             return OpenAIProvider.from_url("https://api.featherless.ai/v1", config.featherless_api_key, model_name=self.name)
         elif self.provider == ModelProvider.ANTHROPIC:
@@ -141,7 +145,7 @@ class LanguageModelV2:
         elif self.provider == ModelProvider.OPENROUTER:
             return OpenAIProvider.from_url("https://openrouter.ai/api/v1", config.openrouter_api_key, model_name=self.name)
         elif self.provider == ModelProvider.LOCAL:
-            return OpenAIProvider.from_url(config.compat_model_url, config.compat_api_key, model_name=self.name)
+            return OpenAIProvider.from_url(config.local_model_url, config.local_api_key, model_name=self.name)
         elif self.provider == ModelProvider.META:
             return OpenAIProvider.from_url("https://api.llama.com/compat/v1/", config.meta_api_key, model_name=self.name)
         else:

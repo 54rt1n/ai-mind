@@ -213,11 +213,22 @@ class SearchIndex:
         results = {}
         doc_hits = defaultdict(int)
         doc_ref = {}
+
+        # First pass: get doc_id from each hit and use it as the unique key
         for score, doc_addr in search_results.hits:
-            doc_ref[doc_addr.doc] = doc_addr
-            doc_hits[doc_addr.doc] += 1
-        
-        for doc_no, doc_addr in doc_ref.items():
+            doc = searcher.doc(doc_addr)
+            doc_id = doc.get_first("doc_id")
+
+            if doc_id is None:
+                continue
+
+            # Keep the highest score for each unique doc_id
+            if doc_id not in doc_ref or score > doc_ref[doc_id][0]:
+                doc_ref[doc_id] = (score, doc_addr)
+            doc_hits[doc_id] += 1
+
+        # Second pass: build results from unique documents
+        for doc_id, (score, doc_addr) in doc_ref.items():
             doc = searcher.doc(doc_addr)
             byte_list : list[int] = doc.get_first("index_a")
             index_a = self._bytes_to_vector(byte_list)
@@ -225,13 +236,9 @@ class SearchIndex:
                 k: doc.get_first(k) for k in QUERY_COLUMNS
             }
             result["index_a"] = index_a
-            result["hits"] = doc_hits[doc_no]
-            if "doc_id" in result:
-                doc_id = result["doc_id"]
-                if doc_id in results:
-                    result["hits"] += results[doc_id][1]["hits"]
+            result["hits"] = doc_hits[doc_id]
 
-                results[doc_id] = (score, result)
+            results[doc_id] = (score, result)
 
         if len(results.keys()) == 0:
             return pd.DataFrame(columns=QUERY_COLUMNS + ['distance', 'hits'])

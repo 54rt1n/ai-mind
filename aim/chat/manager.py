@@ -80,3 +80,8 @@ class ChatManager:
         cvm = ConversationModel.from_config(config)
         roster = Roster.from_config(config)
         return cls(cvm=cvm, config=config, roster=roster)
+
+    @classmethod
+    def from_config_with_roster(cls, config: ChatConfig, roster: Roster) -> "ChatManager":
+        cvm = ConversationModel.from_config(config)
+        return cls(cvm=cvm, config=config, roster=roster)

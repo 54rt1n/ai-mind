@@ -22,16 +22,22 @@ def create_app():
 
 if __name__ == "__main__":
     import uvicorn
-    logging.getLogger("aim").setLevel(logging.DEBUG)
+    
+    # Configure basic logging to show errors
+    logging.basicConfig(
+        level=logging.ERROR,
+        format="%(asctime)s | %(levelname)-8s | %(name)s:%(funcName)s:%(lineno)d - %(message)s",
+        handlers=[logging.StreamHandler()]
+    )
+    
+    # Set AI-Mind logger to INFO level
+    logging.getLogger("aim").setLevel(logging.INFO)
     logging.getLogger("aim").addHandler(logging.StreamHandler())
     
     # Set the format for the AI-Mind logger
     formatter = logging.Formatter("%(asctime)s | %(levelname)-8s | %(module)s:%(funcName)s:%(lineno)d - %(message)s")
     for handler in logging.getLogger("aim").handlers:
         handler.setFormatter(formatter)
-    
-    # Set other loggers to a higher level (e.g., WARNING)
-    logging.getLogger().setLevel(logging.WARNING)
     
     app = create_app()
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from ..config import ChatConfig
+from ..agents.roster import Roster
 
 from .modules.admin.route import AdminModule
 from .modules.chat.route import ChatModule
@@ -28,21 +29,24 @@ class ServerApi:
         self.app = FastAPI(title="AI-Mind OpenAI-compatible API")
         
         # Setup security
-        self.security = HTTPBearer()
+        self.security = HTTPBearer(auto_error=False)
         
         # Load config
         self.config = ChatConfig.from_env()
         
-        # Initialize all modules
+        # Create shared roster instance
+        self.shared_roster = Roster.from_config(self.config)
+        
+        # Initialize all modules with shared roster
         admin_module = AdminModule(self.config, self.security)
-        chat_module = ChatModule(self.config, self.security)
+        chat_module = ChatModule(self.config, self.security, self.shared_roster)
         completion_module = CompletionModule(self.config, self.security)
-        conversation_module = ConversationModule(self.config, self.security)
+        conversation_module = ConversationModule(self.config, self.security, self.shared_roster)
         document_module = DocumentModule(self.config, self.security)
-        memory_module = MemoryModule(self.config, self.security)
+        memory_module = MemoryModule(self.config, self.security, self.shared_roster)
         pipeline_module = PipelineModule(self.config, self.security)
         report_module = ReportModule(self.config, self.security)
-        roster_module = RosterModule(self.config, self.security)
+        roster_module = RosterModule(self.config, self.security, self.shared_roster)
         tools_module = ToolsModule(self.config, self.security)
         
         # Include all routers

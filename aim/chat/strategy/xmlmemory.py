@@ -20,12 +20,13 @@ from aim.utils.redis_cache import RedisCache
 
 logger = logging.getLogger(__name__)
 
+MAX_CONTEXT=32000
 
 class XMLMemoryTurnStrategy(ChatTurnStrategy):
     def __init__(self, chat : ChatManager):
         super().__init__(chat)
         # TODO We need to calculate the actual tokens. This guesstimating is not working well.
-        self.max_character_length = int((16384 - 4096 - 1024) * (TOKEN_CHARS - 2.00))
+        self.max_character_length = int((MAX_CONTEXT - 4096 - 1024) * (TOKEN_CHARS - 2.00))
         self.hud_name = "HUD Display Output"
 
     def user_turn_for(self, persona: Persona, user_input: str, history: list[dict[str, str]] = []) -> dict[str, str]:

@@ -12,17 +12,18 @@ from ....config import ChatConfig
 from ....chat import ChatManager
 from ....conversation.message import ConversationMessage
 from ....constants import DOC_CONVERSATION
+from ....agents.roster import Roster
 
 from .dto import SaveConversationRequest
 
 logger = logging.getLogger(__name__)
 
 class ConversationModule:
-    def __init__(self, config: ChatConfig, security: HTTPBearer):
+    def __init__(self, config: ChatConfig, security: HTTPBearer, shared_roster: Roster):
         self.router = APIRouter(prefix="/api/conversation", tags=["conversation"])
         self.security = security
         self.config = config
-        self.chat = ChatManager.from_config(config)
+        self.chat = ChatManager.from_config_with_roster(config, shared_roster)
         
         self.setup_routes()
 

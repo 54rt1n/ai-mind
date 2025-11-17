@@ -62,3 +62,8 @@ filterwarnings = [
     # If you have other warnings to filter, add them here, e.g.:
     # "ignore::UserWarning:some\\.module\\.path"
 ]
+
+[tool.uv.workspace]
+members = [
+    "cliui",
+]
