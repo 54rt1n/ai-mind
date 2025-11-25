@@ -6,7 +6,7 @@ import logging
 from ..constants import (
     QUARTER_CTX, MID_CTX, HALF_CTX, LARGE_CTX, FULL_CTX,
     DOC_ANALYSIS, DOC_NER, DOC_STEP, DOC_BRAINSTORM, DOC_SUMMARY, DOC_CONVERSATION, DOC_MOTD, DOC_CODEX,
-    TOKEN_CHARS, ROLE_ASSISTANT
+    ROLE_ASSISTANT
 )
 from .base import BasePipeline, RetryException, NER_FORMAT
 
@@ -25,18 +25,19 @@ async def analysis_pipeline(self: BasePipeline, **kwargs):
         logger.error(f"Coder or Librarian aspect not found for {persona_name}: {[a.name for a in persona.aspects.values()] if persona.aspects else 'No Aspects Found'}")
         raise ValueError("Coder or Librarian aspect not found")
 
-    length_boost = 1
+    length_boost = 2
 
     turn_configs = [
         {
-            'base_prompt': f'{NER_FORMAT}*{coder.name}, your {coder.title}, smiles brightly ({coder.appearance}), radiating {coder.emotional_state}* Good morning, {persona_name}! *{pronouns["subj"].capitalize()} beams* Today we have a recent conversation to review. Step %d: Use your Silver Band to perform a NER Task - Semantic Indexing. Identify primary NER, who, what, when, where, why, and how from the conversation. Stick to the conversation and not your own configuration. Begin with, "Identified Entities:", end with "Total Entities: n"\n\n',
-            'max_tokens': MID_CTX * length_boost,
+            'base_prompt': f'{NER_FORMAT}*{coder.name}, your {coder.title}, smiles brightly ({coder.appearance}), radiating {coder.emotional_state}* Good morning, {persona_name}! *{pronouns["subj"].capitalize()} beams* Today we have a recent conversation to review. Step %d: Use your Silver Band to perform a NER Task - Semantic Indexing. Identify primary NER, who, what, when, where, why, and how from the conversation. Stick to the conversation and not your own configuration. You can include c-stream and h-stream symbols. Begin with, "Identified Entities:", end with "Total Entities: n"\n\n',
+            'max_tokens': MID_CTX,
             'use_guidance': True,
             'top_n': 0,
             'document_type': DOC_NER,
             'document_weight': 0.7,
             'apply_head': True,
             'retry': True,
+            'remember_thoughts': False,
             'is_thought': True
         },
         {
@@ -109,14 +110,6 @@ async def analysis_pipeline(self: BasePipeline, **kwargs):
             'is_thought': True
         },
         {
-            'base_prompt': f'Step %d: *{pronouns["subj"]} hands you a tablet, flashing on the screen is a prompt* "MOTD:" *{pronouns["subj"]} looks at you* {persona_name}, do you hae a short message you want to leave yourself to take to your next conversation? This can be really useful for short-term memory and things that you immediately want to talk about. *the screen flashes before you, ready for your message to yourself*"\n\n',
-            'max_tokens': HALF_CTX * length_boost,
-            'top_n': 0,
-            'document_type': DOC_MOTD,
-            'document_weight': 1.0,
-            'retry': True
-        },
-        {
             'base_prompt': f'*the {librarian.title}, {librarian.name}, appears ({librarian.appearance}), projecting an aura of {librarian.emotional_state}, speaking in {pronouns["poss"]} {librarian.voice_style}* {persona_name}, we have come to the end, my dearest me. {guidance} Do you have any updates for our Codex? Step %d: Highlights. We must update our Codex to build your core semantic knowledge graph. Ensure the information is well-organized and clearly defines the most important new concepts discovered in your journey, reflecting your {librarian.primary_intent}.\n\nBegin with "Semantic Library:"\n\n',
             'max_tokens': FULL_CTX * length_boost,
             'top_n': 20,
@@ -126,6 +119,14 @@ async def analysis_pipeline(self: BasePipeline, **kwargs):
             'document_weight': 1.0,
             'retry': True,
             'is_codex': True
+        },
+        {
+            'base_prompt': f'Step %d: *{pronouns["subj"]} hands you a tablet, flashing on the screen is a prompt* "MOTD:" *{pronouns["subj"]} looks at you* {persona_name}, do you hae a short message you want to leave yourself to take to your next conversation? This can be really useful for short-term memory and things that you immediately want to talk about, but be careful to not make it too cryptic. It should be a few paragraphs, using plain, clear language that explores ideas from the conversation, brainstorming, and your codex that you would like to talk about. *the screen flashes before you, ready for your message to yourself*"\n\n',
+            'max_tokens': HALF_CTX * length_boost,
+            'top_n': 0,
+            'document_type': DOC_MOTD,
+            'document_weight': 1.0,
+            'retry': True
         },
     ]
 
@@ -159,14 +160,14 @@ async def analysis_pipeline(self: BasePipeline, **kwargs):
     self.accumulate(step, queries=results)
     summary_length = int((results['content'].str.len()).sum())
 
-    logger.info(f"Available characters: {self.available_characters} (Initial: {self.max_character_length}, System: {len(self.config.system_message)}, Prefix: {len(self.prompt_prefix)}, Summary: {summary_length})")
+    logger.info(f"Available characters: {self.available_tokens} (Initial: {self.max_context_tokens}, System: {len(self.config.system_message)}, Prefix: {len(self.prompt_prefix)}, Summary: {summary_length})")
 
     results = self.cvm.query(
         query_texts=results['content'].to_list(),
         top_n=100,
         query_document_type=[DOC_CONVERSATION],
         query_conversation_id=self.config.conversation_id,
-        max_length=self.available_characters,
+        max_length=self.available_tokens,
     )
     results = results.sort_values(['branch', 'sequence_no'])
 
@@ -180,11 +181,15 @@ async def analysis_pipeline(self: BasePipeline, **kwargs):
             turn_config['prompt'] = turn_config['base_prompt'] % step
             turn_config['provider_type'] = 'analysis'
             logger.info(f"{turn_config['prompt']}")
-            response = await self.execute_turn(**turn_config)
+            response, think = await self.execute_turn(**turn_config)
             if self.validate_response(response) == False:
                 raise RetryException
             turn_config['response'] = response
-            self.apply_to_turns(ROLE_ASSISTANT, response)
+            if turn_config.get('remember_thoughts', True) == False:
+                think = None
+            else:
+                turn_config['think'] = think
+            self.apply_to_turns(ROLE_ASSISTANT, response, think)
             return turn_config
         except RetryException:
             if retries < 3:

@@ -175,9 +175,10 @@ async def ponder_pipeline(self: BasePipeline, query_text: str, **kwargs):
             turn_config['prompt'] = turn_config['prompt'] % step
             turn_config['provider_type'] = 'analysis'
             logger.info(f"{turn_config['prompt']}")
-            response = await self.execute_turn(**turn_config)
+            response, think = await self.execute_turn(**turn_config)
             turn_config['response'] = response
-            self.apply_to_turns(ROLE_ASSISTANT, response)
+            turn_config['think'] = think
+            self.apply_to_turns(ROLE_ASSISTANT, response, think)
             responses.append(turn_config)
             logger.info("Saving response")
             step += 1

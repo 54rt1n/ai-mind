@@ -7,10 +7,11 @@ from datetime import datetime, timedelta
 import logging
 import pandas as pd
 import random
+import tiktoken
 from typing import Optional, List, Dict, Any, Tuple
 
 from ..manager import ChatManager
-from ...constants import TOKEN_CHARS
+from ..util import insert_at_fold
 from ...utils.xml import XmlFormatter
 from .base import ChatTurnStrategy
 from ...utils.keywords import extract_semantic_keywords
@@ -23,10 +24,21 @@ logger = logging.getLogger(__name__)
 MAX_CONTEXT=32000
 
 class XMLMemoryTurnStrategy(ChatTurnStrategy):
+    _encoder: tiktoken.Encoding = None
+
+    @classmethod
+    def get_encoder(cls) -> tiktoken.Encoding:
+        if cls._encoder is None:
+            cls._encoder = tiktoken.get_encoding("cl100k_base")
+        return cls._encoder
+
+    def count_tokens(self, text: str) -> int:
+        return len(self.get_encoder().encode(text))
+
     def __init__(self, chat : ChatManager):
         super().__init__(chat)
-        # TODO We need to calculate the actual tokens. This guesstimating is not working well.
-        self.max_character_length = int((MAX_CONTEXT - 4096 - 1024) * (TOKEN_CHARS - 2.00))
+        # Calculate max context tokens (reserve 4096 for output, 1024 for safety)
+        self.max_context_tokens = MAX_CONTEXT - 4096 - 1024
         self.hud_name = "HUD Display Output"
 
     def user_turn_for(self, persona: Persona, user_input: str, history: list[dict[str, str]] = []) -> dict[str, str]:
@@ -43,17 +55,18 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         keywords = [e[0] for e in sorted(keywords.items(), key=lambda x: x[1], reverse=True)][:top_n_keywords]
         return emotions, keywords
 
-    def get_conscious_memory(self, persona: Persona, query: Optional[str] = None, user_queries: list[str] = [], assistant_queries: list[str] = [], content_len: int = 0) -> str:
+    def get_conscious_memory(self, persona: Persona, query: Optional[str] = None, user_queries: list[str] = [], assistant_queries: list[str] = [], content_len: int = 0, thought_stream: list[str] = []) -> str:
         """
         Retrieves the conscious memory content to be included in the chat response.
-        
+
         The conscious memory content includes the persona's thoughts, as well as relevant memories from the conversation history. It also includes any relevant documents that have been revealed to the user.
-        
+
         Args:
             query (Optional[str]): The current user query, used to filter the retrieved memories.
             user_queries (List[str]): The history of user queries, used to retrieve relevant memories.
             assistant_queries (List[str]): The history of assistant queries, used to retrieve relevant memories.
-        
+            thought_stream (List[str]): Prior reasoning from assistant turns to include in header.
+
         Returns:
             str: The conscious memory content, formatted as a string to be included in the chat response.
         """
@@ -158,10 +171,11 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
 
         # --- Add back the dynamic memory search based on queries ---
         #logger.info(f"Memory before dynamic query: {formatter.current_length} chars used.")
-        thought_estimate = sum(len(t) for t in persona.thoughts) + 100 
-        available_chars_overall_for_dynamic_queries = self.max_character_length - formatter.current_length - thought_estimate
+        thought_estimate_tokens = sum(self.count_tokens(t) for t in persona.thoughts) + 100
+        current_tokens = self.count_tokens(formatter.render())
+        available_tokens_for_dynamic_queries = self.max_context_tokens - current_tokens - thought_estimate_tokens
 
-        if available_chars_overall_for_dynamic_queries > 200: # Min threshold for any dynamic querying
+        if available_tokens_for_dynamic_queries > 50: # Min threshold for any dynamic querying (roughly 200 chars)
             query_sources_data = []
             workspace_content_for_query = self.chat.current_workspace if self.chat.current_workspace and self.chat.current_workspace.strip() else None
 
@@ -224,13 +238,13 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                         continue
 
                     #logger.debug(f"Querying dynamic memory ({source_data['name']}): queries_count={len(source_data['queries'])}, top_n_fetch={generous_top_n_per_source}, chunk_size=100")
-                    
+
                     results_df = self.chat.cvm.query(
-                        source_data["queries"], 
+                        source_data["queries"],
                         filter_doc_ids=seen_docs, # Avoid re-fetching docs already in XML (MOTD, Pinned, Journal)
-                        top_n=generous_top_n_per_source, 
-                        filter_metadocs=True, 
-                        length_boost_factor=source_data["length_boost"], 
+                        top_n=generous_top_n_per_source,
+                        filter_metadocs=True,
+                        length_boost_factor=source_data["length_boost"],
                         max_length=None, # No max_length filtering at this stage per source
                         chunk_size=source_data["chunk_size"] # Use configured chunk_size for cvm.query's internal recursion
                     )
@@ -245,7 +259,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
 
             if all_dynamic_results_dfs:
                 aggregated_results_df = pd.concat(all_dynamic_results_dfs, ignore_index=True)
-                
+
                 if not aggregated_results_df.empty:
                     #logger.info(f"Total dynamic results before deduplication: {len(aggregated_results_df)}")
                     # Sort by score (desc) then drop duplicates by doc_id, keeping the highest score entry
@@ -253,13 +267,13 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                     #logger.info(f"Total dynamic results after deduplication: {len(aggregated_results_df)}")
 
                     dynamic_entries_added_count = 0
-                    dynamic_chars_added_to_formatter = 0 # Tracks formatter length increase from dynamic items
+                    dynamic_tokens_added_to_formatter = 0 # Tracks formatter token increase from dynamic items
                     max_dynamic_entries_to_add = self.chat.config.memory_window
 
                     if max_dynamic_entries_to_add == 0:
                         logger.info("Max dynamic entries (memory_window) is 0, skipping addition of dynamic results.")
                     else:
-                        logger.info(f"Processing {len(aggregated_results_df)} unique dynamic results. Budget: {available_chars_overall_for_dynamic_queries} chars for new content, max_entries: {max_dynamic_entries_to_add}.")
+                        logger.info(f"Processing {len(aggregated_results_df)} unique dynamic results. Budget: {available_tokens_for_dynamic_queries} tokens for new content, max_entries: {max_dynamic_entries_to_add}.")
 
                         for _, row in aggregated_results_df.iterrows():
                             if row['doc_id'] in seen_docs: # Already added by MOTD, Pinned, Journal or an earlier dynamic item
@@ -268,48 +282,49 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                             if dynamic_entries_added_count >= max_dynamic_entries_to_add:
                                 logger.debug(f"Reached max dynamic entries limit ({max_dynamic_entries_to_add}).")
                                 break
-                            
+
                             row_entry_content = row['content']
-                            
+
                             # Estimate formatter increase for this item
                             temp_formatter = XmlFormatter()
-                            temp_formatter.add_element(self.hud_name, "Active Memory", row['source_tag'], 
+                            temp_formatter.add_element(self.hud_name, "Active Memory", row['source_tag'],
                                                        date=row['date'], type=row['document_type'],
                                                        content=row_entry_content, priority=1, noindent=True)
-                            estimated_formatter_increase = temp_formatter.current_length
+                            estimated_formatter_token_increase = self.count_tokens(temp_formatter.render())
 
-                            if (dynamic_chars_added_to_formatter + estimated_formatter_increase) > available_chars_overall_for_dynamic_queries:
-                                #logger.debug(f"Dynamic entry '{row['doc_id']}' from {row['log_prefix']} (est. formatter increase {estimated_formatter_increase} chars, content len {len(row_entry_content)}) would exceed dynamic content budget ({available_chars_overall_for_dynamic_queries - dynamic_chars_added_to_formatter} remaining). Trying next item.")
-                                continue 
+                            if (dynamic_tokens_added_to_formatter + estimated_formatter_token_increase) > available_tokens_for_dynamic_queries:
+                                #logger.debug(f"Dynamic entry '{row['doc_id']}' from {row['log_prefix']} (est. formatter increase {estimated_formatter_token_increase} tokens, content len {len(row_entry_content)}) would exceed dynamic content budget ({available_tokens_for_dynamic_queries - dynamic_tokens_added_to_formatter} remaining). Trying next item.")
+                                continue
 
                             # Add to the main formatter
                             formatter.add_element(self.hud_name, "Active Memory", row['source_tag'],
                                                   date=row['date'], type=row['document_type'],
-                                                  content=row_entry_content, priority=1, noindent=True) 
-                            
+                                                  content=row_entry_content, priority=1, noindent=True)
+
                             # Update budget and counts
                             # It's hard to get exact increase from formatter.add_element without re-rendering.
                             # Using the estimate and relying on the overall check.
-                            dynamic_chars_added_to_formatter += estimated_formatter_increase 
-                            
+                            dynamic_tokens_added_to_formatter += estimated_formatter_token_increase
+
                             emotions, keywords = self.extract_memory_metadata(row)
                             for e in emotions: aggregated_emotions[e] += 1 if e else 0
                             for k in keywords: aggregated_keywords[k] += 1 if k else 0
                             seen_docs.add(row['doc_id']) # Mark as added to XML
                             dynamic_entries_added_count += 1
-                            
-                            logger.debug(f"Added dynamic result ({row['log_prefix']}/{row['doc_id']}): content {len(row_entry_content)} chars, est. formatter increase {estimated_formatter_increase}. Total dynamic entries: {dynamic_entries_added_count}/{max_dynamic_entries_to_add}. Dynamic budget used: {dynamic_chars_added_to_formatter}/{available_chars_overall_for_dynamic_queries}. Overall formatter length: {formatter.current_length}")
+
+                            current_formatter_tokens = self.count_tokens(formatter.render())
+                            logger.debug(f"Added dynamic result ({row['log_prefix']}/{row['doc_id']}): content {len(row_entry_content)} chars, est. formatter increase {estimated_formatter_token_increase} tokens. Total dynamic entries: {dynamic_entries_added_count}/{max_dynamic_entries_to_add}. Dynamic budget used: {dynamic_tokens_added_to_formatter}/{available_tokens_for_dynamic_queries}. Overall formatter tokens: {current_formatter_tokens}")
 
                             # Final check against overall max length
-                            if formatter.current_length + thought_estimate >= self.max_character_length:
-                                logger.warning(f"Overall max character length ({self.max_character_length}) likely reached or exceeded after adding dynamic entry. Formatter: {formatter.current_length}, Thought_est: {thought_estimate}. Stopping dynamic additions.")
+                            if current_formatter_tokens + thought_estimate_tokens >= self.max_context_tokens:
+                                logger.warning(f"Overall max context tokens ({self.max_context_tokens}) likely reached or exceeded after adding dynamic entry. Formatter: {current_formatter_tokens}, Thought_est: {thought_estimate_tokens}. Stopping dynamic additions.")
                                 break
                 else:
                     logger.info("No dynamic results to process after aggregation (aggregated_results_df is empty).")
             else:
                 logger.info("No dynamic query sources had results, or no query sources were active.")
         else:
-             logger.info(f"Skipping all dynamic memory queries due to insufficient initial space for dynamic content ({available_chars_overall_for_dynamic_queries} chars available, need > 200).")
+             logger.info(f"Skipping all dynamic memory queries due to insufficient initial space for dynamic content ({available_tokens_for_dynamic_queries} tokens available, need > 50).")
 
         # --- End Dynamic Memory Search ---
 
@@ -342,15 +357,24 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                                 content=full_scratchpad_content,
                                 metadata=dict(
                                     length=scratch_pad_size # Use pre-calculated scratch_pad_size
-                                ), 
+                                ),
                                 priority=3,
                                 noindent=True
                             )
 
+        # Add thought_stream after memories if enabled
+        include_thought_stream = getattr(self.chat.config, 'include_thought_stream', False)
+        if include_thought_stream and thought_stream:
+            for i, thought in enumerate(thought_stream):
+                formatter.add_element(self.hud_name, "Thought Stream", f"Turn {i+1}",
+                                      content=thought, priority=2, noindent=True)
+            logger.info(f"Added thought_stream with {len(thought_stream)} prior thoughts to header")
 
-        logger.debug(f"Final Conscious Memory: Total Length: {formatter.current_length}/{self.max_character_length}")
+        final_output = formatter.render()
+        final_tokens = self.count_tokens(final_output)
+        logger.debug(f"Final Conscious Memory: Total Tokens: {final_tokens}/{self.max_context_tokens}")
 
-        return formatter.render()
+        return final_output
         
     def chat_turns_for(self, persona: Persona, user_input: str, history: list[dict[str, str]] = [], content_len: Optional[int] = None) -> list[dict[str, str]]:
         """
@@ -360,47 +384,58 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
 
         Args:
             user_input (str): The user input.
-            history (List[Dict[str, str]]): The chat history.
-            
+            history (List[Dict[str, str]]): The chat history (may include 'think' field).
+
         Returns:
             List[Dict[str, str]]: The chat turns, in the alternating format [{"role": "user", "content": user_input}, {"role": "assistant", "content": assistant_turn}].
         """
-        
+
         # Make a deep copy of the history
         history = copy.deepcopy(history)
 
-        history_len = sum(len(h['content']) for h in history)
-        thought_len = len(self.thought_content or "")
+        # Build thought_stream from prior assistant think content
+        thought_stream = [
+            h['think'] for h in history
+            if h.get('role') == 'assistant' and h.get('think')
+        ]
 
-        content_len_pct = (content_len or 0) / self.max_character_length
-        history_len_pct = history_len / self.max_character_length
-        logger.info(f"Generating chat turns.  System: {content_len} Thought : {thought_len} Current History: {history_len} ({len(history)}) | System: {content_len_pct:.2f} History: {history_len_pct:.2f}")
+        # Strip think from history - LLM only gets role/content
+        for h in history:
+            h.pop('think', None)
+
+        history_tokens = sum(self.count_tokens(h['content']) for h in history)
+        thought_tokens = self.count_tokens(self.thought_content or "")
+        content_tokens = content_len or 0  # Assume content_len is now in tokens
+
+        content_tokens_pct = content_tokens / self.max_context_tokens
+        history_tokens_pct = history_tokens / self.max_context_tokens
+        logger.info(f"Generating chat turns.  System: {content_tokens} tokens Thought : {thought_tokens} tokens Current History: {history_tokens} tokens ({len(history)} turns) | System: {content_tokens_pct:.2f} History: {history_tokens_pct:.2f}")
 
         fold_consciousness = 4
         history_cutoff_threshold = 0.5
 
         # if our history is over 50%, we need to reduce its size
-        if history_len_pct > history_cutoff_threshold:
-            # Calculate overage
-            overage = int((history_len_pct - history_cutoff_threshold) * self.max_character_length)
+        if history_tokens_pct > history_cutoff_threshold:
+            # Calculate overage in tokens
+            overage_tokens = int((history_tokens_pct - history_cutoff_threshold) * self.max_context_tokens)
             logger.info(f"History is over {history_cutoff_threshold:.2f}, applying compression strategy")
             
             # Choose history management strategy
             strategy = getattr(self.chat.config, 'history_management_strategy', 'sparsify')
-            
+
             if strategy == "random_removal":
                 logger.info(f"Using random removal strategy")
-                history, removed = self._apply_random_removal_strategy(history, overage)
+                history, removed = self._apply_random_removal_strategy(history, overage_tokens)
                 logger.info(f"History overage removed: {removed} turns")
             elif strategy == "ai_summarize":
                 logger.info(f"Using AI summarization strategy")
-                history = self._apply_ai_summarization_strategy(history, overage, persona)
+                history = self._apply_ai_summarization_strategy(history, overage_tokens, persona)
             else:  # Default to basic sparsification
                 logger.info(f"Using basic sparsification strategy")
-                history = self._apply_sparsification_strategy(history, overage)
-            
-            history_len = sum(len(h['content']) for h in history)
-            logger.info(f"After history management: Length {history_len} chars ({len(history)} turns)")
+                history = self._apply_sparsification_strategy(history, overage_tokens)
+
+            history_tokens = sum(self.count_tokens(h['content']) for h in history)
+            logger.info(f"After history management: {history_tokens} tokens ({len(history)} turns)")
 
         assistant_turn_history = [r['content'] for r in history if r['role'] == 'assistant'][::-1]
         user_turn_history = [r['content'] for r in history if r['role'] == 'user'][::-1]
@@ -410,10 +445,12 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                 query=user_input,
                 user_queries=user_turn_history,
                 assistant_queries=assistant_turn_history,
-                content_len=(content_len or 0)+history_len+thought_len
+                content_len=content_tokens + history_tokens + thought_tokens,
+                thought_stream=thought_stream
                 )
 
-        logger.info(f"Consciousness Length: {len(consciousness)}")
+        consciousness_tokens = self.count_tokens(consciousness)
+        logger.info(f"Consciousness Tokens: {consciousness_tokens}")
         
         consciousness_turn = {"role": "user", "content": consciousness}
         
@@ -432,50 +469,47 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         turns.append({"role": "user", "content": user_input + "\n\n"})
 
         if self.thought_content:
-            # Go back 3 turns and insert the thought content
-            # step through, making sure we find a user turn
-            for i in range(len(turns)-2, -1, -1):
-                if turns[i]['role'] == 'user':
-                    last_user_content = turns[i]['content']
-                    last_user_content += f"\n\n{self.thought_content}"
-                    turns[i]['content'] = last_user_content
-                    #logger.info(f"Thought inserted at {i}")
-                    break
-        
+            # Insert current thought content above the fold
+            turns = insert_at_fold(turns, f"{self.thought_content}\n\n", fold_depth=4)
+            logger.info(f"Inserted thought_content above fold")
+
         return turns
 
     def _apply_sparsification_strategy(self, history: list[dict[str, str]], overage: int) -> list[dict[str, str]]:
         """
         The new strategy that sparsifies messages rather than removing them completely.
-        
+
         Args:
             history (list[dict[str, str]]): The chat history
-            overage (int): The amount of characters we need to reduce
-            
+            overage (int): The amount of tokens we need to reduce
+
         Returns:
             list[dict[str, str]]: The updated history with sparsified messages
         """
         history_copy = copy.deepcopy(history)
-        
+
         # Get or initialize text summarizer
         summarizer_method = getattr(self.chat.config, 'summarizer_method', 'auto')
         summarizer_model = getattr(self.chat.config, 'summarizer_model', None)
         use_gpu = getattr(self.chat.config, 'summarizer_use_gpu', False)
-        
-        # Current total length and target length
-        current_length = sum(len(h['content']) for h in history_copy)
-        target_length = current_length - overage
-        
+
+        # Current total length and target length (in tokens)
+        current_tokens = sum(self.count_tokens(h['content']) for h in history_copy)
+        target_tokens = current_tokens - overage
+
         # Use the conversation sparsification method from our new module
         summarizer = get_default_summarizer(model_name=summarizer_model, use_gpu=use_gpu)
-        
+
         # Exclude the most recent 4 turns (2 exchanges) from sparsification
         preserve_recent = min(4, len(history_copy))
-        
+
         # Sparsify the conversation to fit within the target length
+        # Note: summarizer still uses character-based length, so we estimate
+        # Approximate character length from tokens (roughly 4 chars per token)
+        target_length_chars = target_tokens * 4
         return summarizer.sparsify_conversation(
             messages=history_copy,
-            max_total_length=target_length,
+            max_total_length=target_length_chars,
             preserve_recent=preserve_recent
         )
 
@@ -503,72 +537,72 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
     def _apply_random_removal_strategy(self, history: list[dict[str, str]], overage: int) -> tuple[list[dict[str, str]], int]:
         """
         The original strategy that randomly removes conversation turns.
-        
+
         Args:
             history (list[dict[str, str]]): The chat history
-            overage (int): The amount of characters we need to reduce
-            
+            overage (int): The amount of tokens we need to reduce
+
         Returns:
             tuple[list[dict[str, str]], int]: The updated history and number of turns removed
         """
         history_copy = copy.deepcopy(history)
         removed = 0
-        
+
         while overage > 0:
             # Randomly select a turn to remove, weighting by the position in the history
             weights = range(len(history_copy) - 2, 2, -1)
             total = sum(weights)
             if total == 0:
                 break
-                
+
             weights = [w / total for w in weights]
             choices = len(history_copy) - 4
             if choices <= 0:
                 break
-                
+
             remove_turn_index = random.choices(range(choices), weights=weights)[0]
             # if this is an assistant turn, go back one
             if history_copy[remove_turn_index]['role'] == 'assistant':
                 remove_turn_index -= 1
-            
-            # remove the turn
-            overage -= len(history_copy[remove_turn_index]['content'])
+
+            # remove the turn (use token counting)
+            overage -= self.count_tokens(history_copy[remove_turn_index]['content'])
             del history_copy[remove_turn_index]
-            overage -= len(history_copy[remove_turn_index]['content'])
+            overage -= self.count_tokens(history_copy[remove_turn_index]['content'])
             del history_copy[remove_turn_index]
             removed += 2
-        
+
         # Keep only the most recent half of messages
         history_copy = history_copy[-(len(history_copy) // 2):]
-        
+
         return history_copy, removed
 
     def _apply_ai_summarization_strategy(self, history: list[dict[str, str]], overage: int, persona: Persona) -> list[dict[str, str]]:
         """
         Apply AI-based summarization to compress messages in conversation history.
-        
+
         Args:
             history (list[dict[str, str]]): The chat history
-            overage (int): The amount of characters we need to reduce
+            overage (int): The amount of tokens we need to reduce
             persona (Persona): The persona to use for customizing summaries
-            
+
         Returns:
             list[dict[str, str]]: The updated history with AI-summarized messages
         """
         from aim.nlp.summarize import get_default_summarizer
-        
+
         history_copy = copy.deepcopy(history)
-        
+
         # Get summarization settings from config
         summarizer_model = getattr(self.chat.config, 'summarizer_model', "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B")
         use_gpu = getattr(self.chat.config, 'summarizer_use_gpu', False)
         num_generations = getattr(self.chat.config, 'summarizer_num_generations', 2)
         num_beams = getattr(self.chat.config, 'summarizer_num_beams', 3)
         temperature = getattr(self.chat.config, 'summarizer_temperature', 0.7)
-        
-        # Current total length and target length
-        current_length = sum(len(h['content']) for h in history_copy)
-        target_length = current_length - overage
+
+        # Current total length and target length (in tokens)
+        current_tokens = sum(self.count_tokens(h['content']) for h in history_copy)
+        target_tokens = current_tokens - overage
         
         # Initialize the summarizer
         try:
@@ -592,52 +626,55 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         if not older_messages:
             logger.warning("No older messages to summarize, falling back to removal")
             return self._apply_random_removal_strategy(history, overage)[0]
-        
-        # Calculate how much we need to reduce
+
+        # Calculate how much we need to reduce (in tokens)
         reduction_needed = overage
         
-        # Sort older messages by length (longest first)
-        older_messages.sort(key=lambda m: len(m.get('content', '')), reverse=True)
-        
-        # Track how much we've reduced
+        # Sort older messages by token length (longest first)
+        older_messages.sort(key=lambda m: self.count_tokens(m.get('content', '')), reverse=True)
+
+        # Track how much we've reduced (in tokens)
         reduced = 0
-        
+
         # First pass: Summarize longest messages
-        min_length_to_summarize = 350  # Only summarize messages longer than this
+        min_tokens_to_summarize = 100  # Only summarize messages longer than this (roughly 350 chars)
         summarized_messages = []
-        
+
         for message in older_messages:
             content = message.get('content', '')
-            
+            content_tokens = self.count_tokens(content)
+
             # Skip short messages
-            if len(content) <= min_length_to_summarize:
+            if content_tokens <= min_tokens_to_summarize:
                 summarized_messages.append(message)
                 continue
-                
+
             # Calculate target length based on role and position
             # Keep a higher percentage of user messages as they're often shorter and important for context
             if message['role'] == 'user':
                 compression_ratio = 0.7  # Keep 70% of user messages
             else:  # assistant messages
                 compression_ratio = 0.5  # Keep 50% of assistant messages
-                
-            # Set target length for this message
-            target_msg_length = max(min_length_to_summarize // 2, int(len(content) * compression_ratio))
-            
-            # Don't bother with small reductions
-            if len(content) - target_msg_length < 100:
+
+            # Set target token count for this message
+            target_msg_tokens = max(min_tokens_to_summarize // 2, int(content_tokens * compression_ratio))
+
+            # Don't bother with small reductions (less than 25 tokens)
+            if content_tokens - target_msg_tokens < 25:
                 summarized_messages.append(message)
                 continue
             
             # Create parameters dictionary for caching
+            # Note: summarizer still uses character-based length, so we estimate
+            target_msg_length_chars = target_msg_tokens * 4  # Approximate chars from tokens
             params = {
-                'target_length': target_msg_length,
+                'target_length': target_msg_length_chars,
                 'method': 'model',
                 'num_generations': num_generations,
                 'num_beams': num_beams,
                 'temperature': temperature
             }
-            
+
             # Define summarization function for cache miss
             def summarize_content(text, **kwargs):
                 try:
@@ -645,7 +682,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                 except Exception as e:
                     logger.warning(f"Summarization error: {e}")
                     return text  # Return original on error
-            
+
             try:
                 # Try to get from cache or generate new summary
                 summary = cache.get_or_cache(
@@ -653,18 +690,19 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                     generator_func=summarize_content,
                     parameters=params
                 )
-                
+
                 # Update message content
                 new_message = message.copy()
                 new_message['content'] = summary
-                
-                # Calculate reduction
-                reduction = len(content) - len(summary)
+
+                # Calculate reduction in tokens
+                summary_tokens = self.count_tokens(summary)
+                reduction = content_tokens - summary_tokens
                 reduced += reduction
-                
+
                 summarized_messages.append(new_message)
-                logger.info(f"AI-summarized a {message['role']} message from {len(content)} to {len(summary)} chars (cached={summary == cache.get(cache._hash_content(content, params))})")
-                
+                logger.info(f"AI-summarized a {message['role']} message from {content_tokens} to {summary_tokens} tokens (cached={summary == cache.get(cache._hash_content(content, params))})")
+
                 # If we've reduced enough, stop summarizing
                 if reduced >= reduction_needed:
                     break
@@ -675,18 +713,19 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         
         # Combine recent and summarized messages in correct order
         final_messages = summarized_messages + recent_messages
-        
+
         # If we still need to reduce more (AI summaries weren't short enough),
         # fall back to removing oldest turns
         if reduced < reduction_needed:
             overage_remaining = reduction_needed - reduced
-            logger.info(f"AI summarization wasn't enough, need to remove {overage_remaining} more chars")
-            
+            logger.info(f"AI summarization wasn't enough, need to remove {overage_remaining} more tokens")
+
             # Remove from oldest messages first, skipping the recent preserved ones
             while reduced < reduction_needed and len(final_messages) > preserve_recent:
                 # Remove the oldest message
                 removed_message = final_messages.pop(0)
-                reduced += len(removed_message.get('content', ''))
-                logger.info(f"Removed a {removed_message['role']} message of {len(removed_message.get('content', ''))} chars")
-        
+                removed_tokens = self.count_tokens(removed_message.get('content', ''))
+                reduced += removed_tokens
+                logger.info(f"Removed a {removed_message['role']} message of {removed_tokens} tokens")
+
         return final_messages

@@ -131,7 +131,7 @@ async def journal_pipeline(self: BasePipeline, query_text: Optional[str] = None,
     if self.config.guidance:
         seeds.append(self.config.guidance)
 
-    results = self.cvm.query(seeds, top_n=10, query_document_type=[DOC_REFLECTION, DOC_PONDERING, DOC_ANALYSIS, DOC_SUMMARY], turn_decay=0.0, temporal_decay=0.0, max_length=self.available_characters)
+    results = self.cvm.query(seeds, top_n=10, query_document_type=[DOC_REFLECTION, DOC_PONDERING, DOC_ANALYSIS, DOC_SUMMARY], turn_decay=0.0, temporal_decay=0.0, max_length=self.available_tokens)
     
     step = 1
     self.total_steps = len(turn_configs)
@@ -152,9 +152,10 @@ async def journal_pipeline(self: BasePipeline, query_text: Optional[str] = None,
             turn_config['prompt'] = turn_config['prompt'] % step
             turn_config['provider_type'] = 'analysis'
             logger.info(f"{turn_config['prompt']}")
-            response = await self.execute_turn( **turn_config)
+            response, think = await self.execute_turn(**turn_config)
             turn_config['response'] = response
-            self.apply_to_turns(ROLE_ASSISTANT, response)
+            turn_config['think'] = think
+            self.apply_to_turns(ROLE_ASSISTANT, response, think)
             responses.append(turn_config)
             step += 1
         except RetryException:

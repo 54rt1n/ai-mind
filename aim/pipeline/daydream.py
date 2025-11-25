@@ -103,9 +103,10 @@ async def daydream_pipeline(self: BasePipeline, query_text: str, save: bool = Tr
             #turn_config['prompt'] = turn_config['prompt'] % step
             
             # Execute the turn and get the response
-            response = await self.execute_turn(**turn_config)
+            response, think = await self.execute_turn(**turn_config)
             turn_config['response'] = response
-            self.apply_to_turns(ROLE_ASSISTANT, response)
+            turn_config['think'] = think
+            self.apply_to_turns(ROLE_ASSISTANT, response, think)
             responses.append(turn_config)
             
 

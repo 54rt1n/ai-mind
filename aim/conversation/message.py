@@ -13,7 +13,7 @@ from ..constants import LISTENER_ALL, ROLE_USER, ROLE_ASSISTANT
 logger = logging.getLogger(__name__)
 
 
-VISIBLE_COLUMNS = ['doc_id', 'document_type', 'user_id', 'persona_id', 'conversation_id', 'role', 'content', 'branch', 'sequence_no',
+VISIBLE_COLUMNS = ['doc_id', 'document_type', 'user_id', 'persona_id', 'conversation_id', 'role', 'content', 'think', 'branch', 'sequence_no',
                    'emotion_a', 'emotion_b', 'emotion_c', 'emotion_d']
 QUERY_COLUMNS = VISIBLE_COLUMNS + ["weight", "sentiment_v", "sentiment_a", "sentiment_d", "importance", "timestamp"]
 

@@ -225,7 +225,7 @@ class ChatApp:
             last = history.iloc[-1]
             self.sequence_no = last['sequence_no'] + 1
             self.branch = last['branch']
-            self.history = history[['role', 'content']].to_dict(orient='records')
+            self.history = history[['role', 'content', 'think']].to_dict(orient='records')
 
         self.chat.config.system_message = self.chat.get_system_prompt()
 

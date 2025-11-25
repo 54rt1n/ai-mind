@@ -30,7 +30,7 @@ async def process_pipeline_task(job: Job, job_token: str):
         pipeline = BasePipeline.from_config(config, **job_config)
         async def progress_callback(progress: int):
             await job.updateProgress(progress)
-        pipeline.progrsss_callback = progress_callback
+        pipeline.progress_callback = progress_callback
         pipeline_func = pipeline_factory(pipeline_type)
         
         # Run the pipeline

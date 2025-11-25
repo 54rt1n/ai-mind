@@ -59,6 +59,7 @@ class Producer:
         logger.debug(f"Adding task: {task}")
         job = await self.queue.add("pipeline_task", task, opts={"removeOnComplete": True})
         logger.info(f"Added job id: {job.id}")
+        return job
 
     async def delete_task(self, task_id: int):
         job = await self.queue.getJobs(types=["waiting", "active", "completed", "failed"])

@@ -9,8 +9,10 @@ import random
 import re
 from typing import List, Dict, Optional, Callable
 
+import tiktoken
+
 from ..config import ChatConfig
-from ..constants import LISTENER_SELF, ROLE_ASSISTANT, ROLE_USER, TOKEN_CHARS
+from ..constants import LISTENER_SELF, ROLE_ASSISTANT, ROLE_USER
 from ..conversation.message import ConversationMessage
 from ..io.documents import Library
 from ..llm.models import LanguageModelV2, ModelCategory, CompletionProvider, LLMProvider
@@ -57,6 +59,15 @@ class GenerativeProviders:
 
 
 class BasePipeline:
+    # Shared tiktoken encoder - using cl100k_base which is used by GPT-4, GPT-3.5-turbo, etc.
+    _encoder: tiktoken.Encoding = None
+
+    @classmethod
+    def get_encoder(cls) -> tiktoken.Encoding:
+        if cls._encoder is None:
+            cls._encoder = tiktoken.get_encoding("cl100k_base")
+        return cls._encoder
+
     def __init__(self, llm: LLMProvider, thought: LLMProvider, codex: LLMProvider, cvm: ConversationModel, persona: Persona, config: ChatConfig):
         #self.gen = gen
         self.llm = llm
@@ -73,23 +84,29 @@ class BasePipeline:
         self.extra : List[str] = []
         self.prompt_prefix = ""
         self.filter_text : Optional[str] = None
-        self.progrsss_callback : Optional[Callable] = None
+        self.progress_callback : Optional[Callable] = None
         self.total_steps : Optional[int] = None
 
-        self.max_character_length = int((8192 + 4096) * TOKEN_CHARS)
-        self.purge_floor = 2048
+        self.max_context_tokens = 8192 * 3 + 4096  # ~28k tokens
+        self.purge_floor = 512  # tokens
         self.core_documents : list[str] = []
         self.enhancement_documents : Optional[list[str]] = None
 
-    def used_characters(self) -> int:
-        system_len = len(self.config.system_message)
-        format_len = len(self.format_all())
-        turns_len = sum([len(e['content']) for e in self.turns])
-        return system_len + format_len + turns_len
+    def count_tokens(self, text: str) -> int:
+        """Count tokens in a string using tiktoken."""
+        return len(self.get_encoder().encode(text))
+
+    def used_tokens(self) -> int:
+        """Calculate total tokens used by system message, formatted recall, and turns."""
+        system_tokens = self.count_tokens(self.config.system_message)
+        format_tokens = self.count_tokens(self.format_all())
+        turns_tokens = sum(self.count_tokens(e['content']) for e in self.turns)
+        return system_tokens + format_tokens + turns_tokens
 
     @property
-    def available_characters(self) -> int:
-        return self.max_character_length - self.used_characters()
+    def available_tokens(self) -> int:
+        """Return the number of tokens available in the context window."""
+        return self.max_context_tokens - self.used_tokens()
 
     def generate_response(self, provider_type: str, turns: list[dict[str, str]], config: ChatConfig, max_retries: int = 10,
                           retries: int = 0, evictions: int = 0, is_thought: bool = False, is_codex: bool = False) -> str:
@@ -117,8 +134,9 @@ class BasePipeline:
             }.get(retries, "")
             content = my_turns[-1]['content']
             content += expansion
-            # check our character count - if it's over 40000, we need to run an eviction
-            if sum([len(v) for e in my_turns for k, v in e.items()]) > 60000:
+            # check our token count - if it's over 95% of max, we need to run an eviction
+            eviction_threshold = int(self.max_context_tokens * 0.95)
+            if sum(self.count_tokens(v) for e in my_turns for k, v in e.items()) > eviction_threshold:
                 logger.info(f"Evicting memory, current length: {sum([word_count(v) for e in my_turns for k, v in e.items()])}")
                 my_turns = self.evict_memory(my_turns)
                 logger.info(f"Evicted memory, new length: {sum([word_count(v) for e in my_turns for k, v in e.items()])}")
@@ -162,12 +180,12 @@ class BasePipeline:
         if depth > max_depth:
             return turns
         self.purge_memory(force=force)
-        turn_chars = sum([len(e['content']) for e in turns])
+        turn_tokens = sum(self.count_tokens(e['content']) for e in turns)
         # We have a few strategies for getting rid of context
         # 1. Remove our first extra
         # 2. Remove the oldest turn
         # First, make sure our purge didn't do the job
-        if (self.available_characters - turn_chars) > 0:
+        if (self.available_tokens - turn_tokens) > 0:
             return turns
 
         if len(self.extra) > 0:
@@ -227,15 +245,38 @@ class BasePipeline:
             conscious = f"\t\t<journal><date>{memory['date']}</date><content>{memory['content']}</content></journal>\n"
         return conscious
 
+    def format_thought_stream(self) -> str:
+        """Extract and format think content from prior turns."""
+        include_thought_stream = getattr(self.config, 'include_thought_stream', False)
+        if not include_thought_stream:
+            return ""
+
+        thought_stream = [
+            t['think'] for t in self.turns
+            if t.get('role') == ROLE_ASSISTANT and t.get('think')
+        ]
+
+        if not thought_stream:
+            return ""
+
+        result = "<thought_stream>\n"
+        for i, thought in enumerate(thought_stream):
+            result += f"\t<prior_thought turn=\"{i+1}\">{thought}</prior_thought>\n"
+        result += "</thought_stream>\n"
+        return result
+
     def format_all(self) -> str:
         recall = self.prompt_prefix
-        
+
         recall += self.format_conscious()
+
+        recall += self.format_thought_stream()
 
         recall += self.format_extra()
 
         for step in list(self.recall.keys())[::-1]:
             recall += self.format_recall(step)
+
         return recall
 
     def cycle_conscious(self) -> str:
@@ -252,7 +293,7 @@ class BasePipeline:
         return self.cvm.query(query_texts=query_texts, filter_text=self.filter_text,
                               filter_doc_ids=filter_docs, top_n=top_n,
                               turn_decay=turn_decay, temporal_decay=temporal_decay,
-                              filter_metadocs=filter_metadocs, max_length=self.available_characters,
+                              filter_metadocs=filter_metadocs, max_length=self.available_tokens,
                               query_document_type=query_document_type, sort_by=sort_by, **kwargs)
 
     def flush_memories(self):
@@ -263,7 +304,7 @@ class BasePipeline:
         self.recall = new_memories
 
     def purge_memory(self, force: bool = False):
-        while self.available_characters < self.purge_floor:
+        while self.available_tokens < self.purge_floor:
             # Find the first step with recall
             steps = []
             for s in self.recall.keys():
@@ -289,16 +330,16 @@ class BasePipeline:
                            retry: bool = True, top_n: int = 0, flush_memory: bool = False, add_user_turn = True,
                            query_document_type: list[str] | None = None, temporary_step: bool = False,
                            is_thought: bool = False, is_codex: bool = False, sort_by: str = 'relevance',
-                           **kwargs) -> str:
+                           **kwargs) -> tuple[str, Optional[str]]:
         self.cycle_conscious()
         if flush_memory:
             self.flush_memories()
-            
-        if self.available_characters < self.purge_floor:
-            logger.info("No available characters: We will need to clear some memory from previous steps")
+
+        if self.available_tokens < self.purge_floor:
+            logger.info("No available tokens: We will need to clear some memory from previous steps")
             self.purge_memory()
-            
-        if top_n > 0 and self.available_characters > 0:
+
+        if top_n > 0 and self.available_tokens > 0:
             # This is Active Memory
             texts = [h['content'] for _, s in self.recall.items() for h in s if h['role'] == ROLE_ASSISTANT]
             if not query_document_type and self.enhancement_documents:
@@ -312,8 +353,8 @@ class BasePipeline:
                 self.accumulate(step, queries, **kwargs)
         elif top_n == 0:
             logger.info("No memories requested this turn")
-        elif self.available_characters <= 0:
-            logger.info(f"No available characters: {self.available_characters}")
+        elif self.available_tokens <= 0:
+            logger.info(f"No available tokens: {self.available_tokens}")
         else:
             logger.info(f"Active Memory Disabled")
 
@@ -337,27 +378,32 @@ class BasePipeline:
         
         response = self.generate_response(provider_type=provider_type, turns=turns, config=self.config, is_thought=is_thought, is_codex=is_codex)
 
-        # Detect if the response contains a think xml tag
+        # Extract think content from response
+        think_content = None
+
         if re.search(r'<think>', response):
             logger.info(f"Response contains a think xml tag")
-            # Extract the content between the think tags
             match = re.search(r'<think>(.*?)</think>', response, re.DOTALL)
             if match:
-                think_content = match.group(1)
-                # Remove the think tags from the response
+                think_content = match.group(1).strip()
                 response = re.sub(r'<think>(.*?)</think>', '', response, flags=re.DOTALL).strip()
-                logger.info(f"Detected and removed think xml, length: {len(think_content)}")
+                logger.info(f"Extracted think content, length: {len(think_content)}")
             else:
-                # we found just a think tag, but no end tag, so lets remove it
+                # Only <think> tag with no </think> means truncated output
+                # Treat everything after <think> as content, not think
+                logger.info(f"Truncated think tag detected, treating as content")
                 response = response.replace('<think>', '').strip()
         elif re.search(r'</think>', response):
+            # Only </think> means we started mid-stream, content before it is think
             logger.info(f"Response contains a think close xml tag")
-            # Extract the content before the think close xml tag
             match = re.search(r'(.*?)</think>', response, re.DOTALL)
             if match:
-                think_content = match.group(1)
+                think_content = match.group(1).strip()
                 response = re.sub(r'(.*?)</think>', '', response, flags=re.DOTALL).strip()
-                logger.info(f"Detected and removed think xml, length: {len(think_content)}")
+                logger.info(f"Extracted think content, length: {len(think_content)}")
+
+        # Always strip whitespace from response
+        response = response.strip()
                 
         if len(response) < 100:
             logger.error(f"Response is too short: {response}")
@@ -368,18 +414,21 @@ class BasePipeline:
             if ui == 'r':
                 raise RetryException("User requested a retry")
 
-        if self.progrsss_callback is not None:
+        if self.progress_callback is not None:
             total_steps = self.total_steps if self.total_steps > 0 else 5
             progress = int(float(step) / total_steps * 100)
-            await self.progrsss_callback(progress)
+            await self.progress_callback(progress)
 
         if temporary_step:
             self.recall[step] = []
 
-        return response
+        return response, think_content
 
-    def apply_to_turns(self, role: str, content: str):
-        self.turns.append({"role": role, "content": content})
+    def apply_to_turns(self, role: str, content: str, think: Optional[str] = None):
+        turn = {"role": role, "content": content}
+        if think:
+            turn["think"] = think
+        self.turns.append(turn)
 
     def validate_response(self, response: str) -> bool:
         # Under 128 characters is not a valid response - it is probably a rejection or an error
@@ -388,9 +437,11 @@ class BasePipeline:
             return False
         return True
 
-    def accept_response(self, response: str, step: int, branch: int, document_type: Optional[str] = None, document_weight: Optional[int] = 1.0, apply_to_turns = True, timestamp : Optional[int] = None, **kwargs):
+    def accept_response(self, response: str, step: int, branch: int, document_type: Optional[str] = None,
+                        document_weight: Optional[int] = 1.0, apply_to_turns: bool = True,
+                        timestamp: Optional[int] = None, think: Optional[str] = None, **kwargs):
         if apply_to_turns:
-            self.apply_to_turns(role=ROLE_ASSISTANT, content=response)
+            self.apply_to_turns(role=ROLE_ASSISTANT, content=response, think=think)
 
         if timestamp is None:
             timestamp = int(time.time())
@@ -410,6 +461,7 @@ class BasePipeline:
                 content=response,
                 timestamp=timestamp,
                 weight=document_weight,
+                think=think,
             )
             self.cvm.insert(message)
 

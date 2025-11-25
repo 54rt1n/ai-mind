@@ -4,17 +4,28 @@
 import logging
 import time
 import pandas as pd
+import tiktoken
 
 from ..constants import (
     LARGE_CTX, FULL_CTX,
-    DOC_STEP, DOC_CONVERSATION, ROLE_ASSISTANT, TOKEN_CHARS, DOC_SUMMARY
+    DOC_STEP, DOC_CONVERSATION, ROLE_ASSISTANT, DOC_SUMMARY
 )
 from .base import BasePipeline, RetryException, NER_FORMAT
 
 logger = logging.getLogger(__name__)
 
+_encoder = None
+def get_encoder():
+    global _encoder
+    if _encoder is None:
+        _encoder = tiktoken.get_encoding("cl100k_base")
+    return _encoder
+
+def count_tokens(text: str) -> int:
+    return len(get_encoder().encode(text))
+
 async def summary_pipeline(self: BasePipeline, density_iterations: int = 2, max_retries: int = 10, **kwargs):
-    max_character_length = int((8192 + 512) * TOKEN_CHARS)
+    max_context_tokens = 8192 + 512
     guidance = "Prefer explicit description - This is a moment you want to remember forever, and you love reliving the details."
     persona_name = self.persona.name
     coder = self.persona.aspects.get('coder', None)
@@ -72,7 +83,7 @@ async def summary_pipeline(self: BasePipeline, density_iterations: int = 2, max_
 
     location = f"You are sitting in {coder.location} with {coder.name}, your {coder.title}. {coder.appearance}. {pronouns['subj'].capitalize()} seems {coder.emotional_state}."
     self.config.system_message = self.persona.system_prompt(mood=self.config.persona_mood, location=location)
-    max_character_length -= len(self.config.system_message)
+    max_context_tokens -= count_tokens(self.config.system_message)
 
     thoughts = [
         f"Task: Abstractive Summarization",
@@ -84,7 +95,7 @@ async def summary_pipeline(self: BasePipeline, density_iterations: int = 2, max_
     for thought in thoughts:
         self.prompt_prefix += f"""- {thought}\n"""
 
-    max_character_length -= len(self.prompt_prefix)
+    max_context_tokens -= count_tokens(self.prompt_prefix)
 
     results = self.cvm.get_conversation_history(conversation_id=self.config.conversation_id, query_document_type=[DOC_CONVERSATION]).sort_values(['date', 'sequence_no'])
 
@@ -92,7 +103,7 @@ async def summary_pipeline(self: BasePipeline, density_iterations: int = 2, max_
         raise ValueError("No results found")
 
     results['bin'] = -1
-    # This is a bit tricky. Each for each bin, we have to subtract 1024 * 5 from our max_character_length
+    # This is a bit tricky. Each for each bin, we have to subtract 1024 tokens from our max_context_tokens
     last_bin = -1
     while True:
         # If we have no more -1 bins, we can proceed
@@ -101,9 +112,9 @@ async def summary_pipeline(self: BasePipeline, density_iterations: int = 2, max_
         max_bin = int(results['bin'].max())
         overhead = 0
         if max_bin >= 0:
-            overhead = 1024 * TOKEN_CHARS * (max_bin + 1)
+            overhead = 1024 * (max_bin + 1)
         next_bin = max_bin + 1
-        mcl = max_character_length - overhead
+        mcl = max_context_tokens - overhead
 
         if mcl < 0:
             raise ValueError("Not enough space for summary")
@@ -111,7 +122,7 @@ async def summary_pipeline(self: BasePipeline, density_iterations: int = 2, max_
         if last_bin == next_bin:
             # TODO we need to assume/evict the first summary to make more room
             # or we need to split our content into multiple bins
-            # This means if our first summary is greater than mcl, we should split it at the first space before our mcl
+            # This means if our first summary is greater than mcl, we should split it at the first space before our token limit
             # and then we can continue
             row = results.loc[results['bin'] == -1]
             if row.empty:
@@ -119,7 +130,18 @@ async def summary_pipeline(self: BasePipeline, density_iterations: int = 2, max_
             index = row.index[0]
             row = row.iloc[0]
             content = str(row['content'])
-            split_index = content.rfind(' ', 0, mcl)
+            # Find split point based on token count
+            words = content.split()
+            current_text = ""
+            split_index = 0
+            for i, word in enumerate(words):
+                test_text = current_text + " " + word if current_text else word
+                if count_tokens(test_text) > mcl:
+                    break
+                current_text = test_text
+                split_index = len(current_text)
+            if split_index == 0:
+                split_index = content.rfind(' ', 0, max(1, len(content) // 2))
             content_a, content_b = content[:split_index], content[split_index:]
             # We need to insert this immediately after the first bin
             row_a = row.copy()
@@ -147,18 +169,18 @@ async def summary_pipeline(self: BasePipeline, density_iterations: int = 2, max_
             # Concatenate all parts together
             results = pd.concat([df_before, df_insert, df_after])
 
-            # Reset index to maintain continuity 
+            # Reset index to maintain continuity
             results = results.reset_index(drop=True)
 
-        results['content_length'] = results['content'].str.len()
+        results['content_length'] = results['content'].apply(lambda x: count_tokens(str(x)) if x else 0)
         results.loc[results['bin'] != -1, 'content_length'] = 0
         results['cumsum_length'] = results['content_length'].cumsum()
 
         max_len = results['content_length'].max()
         if max_len == 0:
             break
-        
-        logger.info(f"Available Characters: {max_character_length}, Max bin: {max_bin}, overhead: {overhead}, max character length: {mcl}, max content length: {max_len}, cumsum_length: {results['cumsum_length'].max()}")
+
+        logger.info(f"Available Tokens: {max_context_tokens}, Max bin: {max_bin}, overhead: {overhead}, max token length: {mcl}, max content tokens: {max_len}, cumsum_tokens: {results['cumsum_length'].max()}")
 
         results.loc[(results['cumsum_length'] < mcl) & (results['bin'] == -1), 'bin'] = next_bin
 
@@ -169,7 +191,7 @@ async def summary_pipeline(self: BasePipeline, density_iterations: int = 2, max_
     responses : list[dict] = []
     branch = self.cvm.get_next_branch(conversation_id=self.config.conversation_id)
 
-    logger.info(f"Summary Pipeline: {bin_count} bins (max_length {max_character_length}), starting branch: {branch}")
+    logger.info(f"Summary Pipeline: {bin_count} bins (max_tokens {max_context_tokens}), starting branch: {branch}")
 
     self.total_steps = (bin_count + 1) * (1 + density_iterations * 2)
 
@@ -186,16 +208,17 @@ async def summary_pipeline(self: BasePipeline, density_iterations: int = 2, max_
             turn_config['timestamp'] = int(time.time())
             turn_config['provider_type'] = 'analysis'
             try:
-                response = await self.execute_turn(**turn_config)
+                response, think = await self.execute_turn(**turn_config)
                 if self.validate_response(response) == False:
                     raise RetryException("Invalid response")
                 turn_config['response'] = response
+                turn_config['think'] = think
             except RetryException:
                 # Remove our failed user turn
                 self.turns = self.turns[:-1]
                 if retries > max_retries:
                     raise RetryException("Max retries exceeded")
-                
+
                 logger.info(f"Retrying turn {step} of {bin_count} for stride {q} (retry {retries})")
                 return await generate_response(turn_config, retries + 1)
 
@@ -203,7 +226,7 @@ async def summary_pipeline(self: BasePipeline, density_iterations: int = 2, max_
 
         def accept_response(turn_config: dict) -> None:
             #self.apply_to_turns(ROLE_USER, turn_config['prompt']) # this is handled in execute turn; which doing this in both places is a bit brittle
-            self.apply_to_turns(ROLE_ASSISTANT, turn_config['response'])
+            self.apply_to_turns(ROLE_ASSISTANT, turn_config['response'], turn_config.get('think'))
             responses.append(turn_config)
 
         try:
