@@ -70,7 +70,17 @@ class Producer:
                 logger.info(f"Selected job: {myjob}")
                 logger.info(myjob.data)
                 logger.info(myjob.stacktrace)
-                await myjob.remove()
+                try:
+                    await myjob.remove()
+                except Exception as e:
+                    if "locked" in str(e).lower():
+                        logger.warning(f"Job {task_id} is locked, clearing lock and forcing removal")
+                        # Delete the lock key directly from Redis
+                        lock_key = f"{self.queue.prefix}:{self.queue.name}:{myjob.id}:lock"
+                        await self.queue.client.delete(lock_key)
+                        await myjob.remove()
+                    else:
+                        raise
                 return myjob
             else:
                 logger.info(f"No available job {task_id} found.")

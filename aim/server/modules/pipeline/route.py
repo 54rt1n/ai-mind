@@ -49,33 +49,36 @@ class PipelineModule:
             """List all pipeline tasks"""
             try:
                 all_jobs = []
-                try:
-                    for job_type in ["waiting", "active", "completed", "failed"]:
+                for job_type in ["waiting", "active", "completed", "failed"]:
+                    try:
                         jobs = await self.producer.queue.getJobs([job_type])
-                        
-                        def job_info(job: Job) -> dict:
-                            return {
-                                "id": job.id,
-                                "job_status": job_type,
-                                "progress": job.progress,
-                                "name": job.name,
-                                "timestamp": job.timestamp,
-                                "data": job.data,
-                                "finishedOn": job.finishedOn,
-                            }
-                        all_jobs.extend([job_info(job) for job in jobs])
-                        
-                    return {
-                        "status": "success", 
-                        "message": f"{len(all_jobs)} pipeline tasks", 
-                        "jobs": all_jobs
-                    }
-                except ValueError as e:
-                    return {
-                        "status": "success",
-                        "message": f"No pipeline tasks",
-                        "jobs": []
-                    }
+                    except ValueError:
+                        # Empty queue for this job type
+                        continue
+
+                    def job_info(job: Job) -> dict:
+                        return {
+                            "id": job.id,
+                            "job_status": job_type,
+                            "progress": job.progress,
+                            "name": job.name,
+                            "timestamp": job.timestamp,
+                            "data": job.data,
+                            "finishedOn": job.finishedOn,
+                        }
+
+                    def is_valid_job(job: Job) -> bool:
+                        return (job.data
+                                and job.data.get("config")
+                                and job.data["config"].get("conversation_id"))
+
+                    all_jobs.extend([job_info(job) for job in jobs if is_valid_job(job)])
+
+                return {
+                    "status": "success",
+                    "message": f"{len(all_jobs)} pipeline tasks",
+                    "jobs": all_jobs
+                }
             except Exception as e:
                 logger.exception(e)
                 raise HTTPException(status_code=500, detail=str(e))

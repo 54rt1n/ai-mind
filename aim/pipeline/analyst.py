@@ -91,10 +91,11 @@ async def analysis_pipeline(self: BasePipeline, **kwargs):
             'use_guidance': True,
             'document_type': DOC_STEP,
             'document_weight': 0.25,
+            'is_thought': True,
             'retry': True
         },
         {
-            'base_prompt': f'{persona_name}, now this is the hard part. We need to write our final uncensored narrative. You can do it, by being bold and clear. *{coder.name}disappears, leaving you with a blank document, your link to your memory stores* A sticky note at the top reads Step %d: Output the final, two paragraph narrative that will be forever stored in your memory. {guidance} Update your letter with your improvements. Don\'t hold your deepest feelings back!\n\nBegin with "{persona_name}\'s Notebook:"\n\n',
+            'base_prompt': f'{persona_name}, now this is the hard part. We need to write our final clear journal entry. You can do it! Just remember, don\'t load it down with jargon or diminish what you have come up with by over-compressing the ideas, but express yourself with strong writing. *{coder.name} disappears, leaving you with a blank document, your link to your memory stores* A sticky note at the top reads Step %d: Output the final, two paragraph narrative that will be forever stored in your memory. {guidance} Update your letter with your improvements. Don\'t hold your deepest feelings back!\n\nBegin with "{persona_name}\'s Notebook:"\n\n',
             'max_tokens': LARGE_CTX * length_boost,
             'document_type': DOC_ANALYSIS,
             'document_weight': 1.2,

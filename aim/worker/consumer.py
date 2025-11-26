@@ -44,12 +44,13 @@ async def process_pipeline_task(job: Job, job_token: str):
         logger.error(f"Error processing {pipeline_type} pipeline: {e}")
         import traceback
         traceback.print_exc()
-        await job.moveToFailed(err=str(e))
+        await job.moveToFailed(str(e), job_token)
 
 async def run_consumer(config : ChatConfig):
     try:
         worker_options : WorkerOptions = {
             "autorun": True,
+            "lockDuration": 21600000,  # 6 hours - pipelines can take a while
         }
         
         shutdown_event = asyncio.Event()
