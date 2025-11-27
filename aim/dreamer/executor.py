@@ -58,6 +58,8 @@ def build_turns(
     memories: list[dict],
     prior_outputs: list[dict],
     persona: Persona,
+    max_context_tokens: int,
+    max_output_tokens: int,
 ) -> tuple[list[dict], str]:
     """
     Build the turns list for LLM call and system message.
@@ -77,6 +79,8 @@ def build_turns(
         memories: List of memory records from CVM query
         prior_outputs: List of prior step outputs loaded from CVM
         persona: Persona object for system prompt
+        max_context_tokens: Model's max context window
+        max_output_tokens: Max tokens to generate (min of requested and model limit)
 
     Returns:
         Tuple of (turns list, system_message string)
@@ -308,10 +312,7 @@ async def execute_step(
         )
         memories = memories_df.to_dict('records') if not memories_df.empty else []
 
-    # 6. Build turns for LLM (system message returned separately for config)
-    turns, system_message = build_turns(state, prompt, memories, prior_outputs, persona)
-
-    # 7. Select model
+    # 6. Select model
     model_name = select_model_name(state, step_def.config)
     models = LanguageModelV2.index_models(config)
     model = models.get(model_name)
@@ -319,11 +320,18 @@ async def execute_step(
         raise RetryableError(f"Model {model_name} not available")
     provider = model.llm_factory(config)
 
+    # 7. Build turns for LLM (system message returned separately for config)
+    max_output_tokens = min(step_def.config.max_tokens, model.max_output_tokens)
+    turns, system_message = build_turns(
+        state, prompt, memories, prior_outputs, persona,
+        max_context_tokens=model.max_tokens,
+        max_output_tokens=max_output_tokens,
+    )
+
     # 8. Build config for this step (ChatConfig is a dataclass, use replace())
-    # System message is passed through config, not in turns - providers handle it
     step_config = replace(
         config,
-        max_tokens=step_def.config.max_tokens,
+        max_tokens=max_output_tokens,
         temperature=step_def.config.temperature or config.temperature,
         system_message=system_message,
     )

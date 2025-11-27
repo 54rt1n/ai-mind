@@ -225,7 +225,7 @@ class ChatModule:
         user_turn = request.messages[-1].model_dump()['content']
         messages = [msg.model_dump() for msg in request.messages[:-1]]
 
-        prepared_messages = self.chat_strategy.chat_turns_for(persona=persona, user_input=user_turn, history=messages, content_len=content_len)
+        prepared_messages = self.chat_strategy.chat_turns_for(persona=persona, user_input=user_turn, history=messages, content_len=content_len, max_context_tokens=selected_model.max_tokens, max_output_tokens=min(self.config.max_tokens, selected_model.max_output_tokens))
 
         logger.info(f"Processing Length: {sum([word_count(v) for e in prepared_messages for k, v in e.items() if k == 'content'])}")
 

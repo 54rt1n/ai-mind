@@ -21,7 +21,8 @@ from aim.utils.redis_cache import RedisCache
 
 logger = logging.getLogger(__name__)
 
-MAX_CONTEXT=32768
+DEFAULT_MAX_CONTEXT = 32768
+DEFAULT_MAX_OUTPUT = 4096
 
 class XMLMemoryTurnStrategy(ChatTurnStrategy):
     _encoder: tiktoken.Encoding = None
@@ -37,9 +38,11 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
 
     def __init__(self, chat : ChatManager):
         super().__init__(chat)
-        # Calculate max context tokens (reserve 2048 for output, 1024 for safety)
-        self.max_context_tokens = MAX_CONTEXT - 2048 - 1024
         self.hud_name = "HUD Display Output"
+
+    def _calc_max_context_tokens(self, max_context_tokens: int, max_output_tokens: int) -> int:
+        """Calculate usable context tokens (reserve output + safety margin)."""
+        return max_context_tokens - max_output_tokens - 1024
 
     def user_turn_for(self, persona: Persona, user_input: str, history: list[dict[str, str]] = []) -> dict[str, str]:
         return {"role": "user", "content": user_input}
@@ -55,7 +58,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         keywords = [e[0] for e in sorted(keywords.items(), key=lambda x: x[1], reverse=True)][:top_n_keywords]
         return emotions, keywords
 
-    def get_conscious_memory(self, persona: Persona, query: Optional[str] = None, user_queries: list[str] = [], assistant_queries: list[str] = [], content_len: int = 0, thought_stream: list[str] = []) -> str:
+    def get_conscious_memory(self, persona: Persona, query: Optional[str] = None, user_queries: list[str] = [], assistant_queries: list[str] = [], content_len: int = 0, thought_stream: list[str] = [], max_context_tokens: int = DEFAULT_MAX_CONTEXT, max_output_tokens: int = DEFAULT_MAX_OUTPUT) -> str:
         """
         Retrieves the conscious memory content to be included in the chat response.
 
@@ -70,6 +73,8 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         Returns:
             str: The conscious memory content, formatted as a string to be included in the chat response.
         """
+        # Calculate usable context (reserve output tokens + safety margin)
+        usable_context_tokens = self._calc_max_context_tokens(max_context_tokens, max_output_tokens)
 
         formatter = XmlFormatter()
         total_len = content_len
@@ -179,7 +184,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         # Estimate tokens for thought_stream (if enabled and present)
         thought_stream_estimate = sum(self.count_tokens(t) for t in thought_stream) if thought_stream else 0
         available_tokens_for_dynamic_queries = (
-            self.max_context_tokens
+            usable_context_tokens
             - current_tokens
             - thought_estimate_tokens
             - ws_tokens_estimate
@@ -187,7 +192,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
             - thought_stream_estimate
             - content_len  # External tokens: history, wakeup, user_input, etc.
         )
-        logger.debug(f"Token budget: max={self.max_context_tokens}, current={current_tokens}, thoughts={thought_estimate_tokens}, ws={ws_tokens_estimate}, scratch={scratch_tokens_estimate}, stream={thought_stream_estimate}, external={content_len}, available={available_tokens_for_dynamic_queries}")
+        logger.debug(f"Token budget: max={usable_context_tokens}, current={current_tokens}, thoughts={thought_estimate_tokens}, ws={ws_tokens_estimate}, scratch={scratch_tokens_estimate}, stream={thought_stream_estimate}, external={content_len}, available={available_tokens_for_dynamic_queries}")
 
         if available_tokens_for_dynamic_queries > 50: # Min threshold for any dynamic querying (roughly 200 chars)
             query_sources_data = []
@@ -330,8 +335,8 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                             logger.debug(f"Added dynamic result ({row['log_prefix']}/{row['doc_id']}): content {len(row_entry_content)} chars, est. formatter increase {estimated_formatter_token_increase} tokens. Total dynamic entries: {dynamic_entries_added_count}/{max_dynamic_entries_to_add}. Dynamic budget used: {dynamic_tokens_added_to_formatter}/{available_tokens_for_dynamic_queries}. Overall formatter tokens: {current_formatter_tokens}")
 
                             # Final check against overall max length
-                            if current_formatter_tokens + thought_estimate_tokens >= self.max_context_tokens:
-                                logger.warning(f"Overall max context tokens ({self.max_context_tokens}) likely reached or exceeded after adding dynamic entry. Formatter: {current_formatter_tokens}, Thought_est: {thought_estimate_tokens}. Stopping dynamic additions.")
+                            if current_formatter_tokens + thought_estimate_tokens >= usable_context_tokens:
+                                logger.warning(f"Overall max context tokens ({usable_context_tokens}) likely reached or exceeded after adding dynamic entry. Formatter: {current_formatter_tokens}, Thought_est: {thought_estimate_tokens}. Stopping dynamic additions.")
                                 break
                 else:
                     logger.info("No dynamic results to process after aggregation (aggregated_results_df is empty).")
@@ -386,11 +391,11 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
 
         final_output = formatter.render()
         final_tokens = self.count_tokens(final_output)
-        logger.debug(f"Final Conscious Memory: Total Tokens: {final_tokens}/{self.max_context_tokens}")
+        logger.debug(f"Final Conscious Memory: Total Tokens: {final_tokens}/{usable_context_tokens}")
 
         return final_output
         
-    def chat_turns_for(self, persona: Persona, user_input: str, history: list[dict[str, str]] = [], content_len: Optional[int] = None) -> list[dict[str, str]]:
+    def chat_turns_for(self, persona: Persona, user_input: str, history: list[dict[str, str]] = [], content_len: Optional[int] = None, max_context_tokens: int = DEFAULT_MAX_CONTEXT, max_output_tokens: int = DEFAULT_MAX_OUTPUT) -> list[dict[str, str]]:
         """
         Generate a chat session, augmenting the response with information from the database.
 
@@ -421,8 +426,11 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         thought_tokens = self.count_tokens(self.thought_content or "")
         content_tokens = content_len or 0  # Assume content_len is now in tokens
 
-        content_tokens_pct = content_tokens / self.max_context_tokens
-        history_tokens_pct = history_tokens / self.max_context_tokens
+        # Calculate usable context (reserve output tokens + safety margin)
+        usable_context_tokens = self._calc_max_context_tokens(max_context_tokens, max_output_tokens)
+
+        content_tokens_pct = content_tokens / usable_context_tokens
+        history_tokens_pct = history_tokens / usable_context_tokens
         logger.info(f"Generating chat turns.  System: {content_tokens} tokens Thought : {thought_tokens} tokens Current History: {history_tokens} tokens ({len(history)} turns) | System: {content_tokens_pct:.2f} History: {history_tokens_pct:.2f}")
 
         fold_consciousness = 4
@@ -431,7 +439,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         # if our history is over 50%, we need to reduce its size
         if history_tokens_pct > history_cutoff_threshold:
             # Calculate overage in tokens
-            overage_tokens = int((history_tokens_pct - history_cutoff_threshold) * self.max_context_tokens)
+            overage_tokens = int((history_tokens_pct - history_cutoff_threshold) * usable_context_tokens)
             logger.info(f"History is over {history_cutoff_threshold:.2f}, applying compression strategy")
             
             # Choose history management strategy
@@ -468,7 +476,9 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                 user_queries=user_turn_history,
                 assistant_queries=assistant_turn_history,
                 content_len=external_tokens,
-                thought_stream=thought_stream
+                thought_stream=thought_stream,
+                max_context_tokens=max_context_tokens,
+                max_output_tokens=max_output_tokens
                 )
 
         consciousness_tokens = self.count_tokens(consciousness)

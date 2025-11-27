@@ -207,7 +207,9 @@ class SessionWorkflow:
                     persona=persona,
                     user_input=prompt_messages[-1]["content"],
                     history=prompt_messages[:-1],
-                    content_len=content_len
+                    content_len=content_len,
+                    max_context_tokens=model.max_tokens,
+                    max_output_tokens=min(turn_config.max_tokens, model.max_output_tokens)
                 )
 
                 # Use stream_turns to generate tokens with the full message history

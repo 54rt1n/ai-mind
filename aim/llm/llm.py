@@ -1,8 +1,9 @@
 # aim/llm/llm.py
-# AI-Mind © 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0 
+# AI-Mind © 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
 
 from abc import ABC, abstractmethod
 import logging
+import time
 from typing import Dict, List, Optional, Generator
 
 import tiktoken
@@ -10,6 +11,44 @@ import tiktoken
 from ..config import ChatConfig
 
 logger = logging.getLogger(__name__)
+
+# Retryable exceptions for API calls
+RETRYABLE_EXCEPTIONS = (
+    ConnectionError,
+    TimeoutError,
+    OSError,  # Includes network errors
+)
+
+# Default retry configuration
+DEFAULT_MAX_RETRIES = 5
+DEFAULT_BASE_DELAY = 1.0  # seconds
+DEFAULT_MAX_DELAY = 60.0  # seconds
+
+
+def is_retryable_error(error: Exception) -> bool:
+    """Check if an error is retryable (transient network/API error)."""
+    # Check direct instance
+    if isinstance(error, RETRYABLE_EXCEPTIONS):
+        return True
+
+    # Check error message for known retryable patterns
+    error_msg = str(error).lower()
+    retryable_patterns = [
+        "connection",
+        "timeout",
+        "remote",
+        "protocol",
+        "peer closed",
+        "incomplete",
+        "reset by peer",
+        "broken pipe",
+        "rate limit",
+        "429",
+        "503",
+        "502",
+        "504",
+    ]
+    return any(pattern in error_msg for pattern in retryable_patterns)
 
 
 class LLMProvider(ABC):
@@ -73,16 +112,31 @@ class GroqProvider(LLMProvider):
 
 
 class OpenAIProvider(LLMProvider):
-    def __init__(self, *, api_key: Optional[str] = None, base_url: Optional[str] = None, model_name: Optional[str] = None, show_llm_messages: bool = False):
+    def __init__(
+        self,
+        *,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        model_name: Optional[str] = None,
+        show_llm_messages: bool = False,
+        enable_retry: bool = True,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        base_delay: float = DEFAULT_BASE_DELAY,
+        max_delay: float = DEFAULT_MAX_DELAY,
+    ):
         import openai
         self.openai = openai.OpenAI(api_key=api_key, base_url=base_url)
         self.model_name = model_name
         self.show_llm_messages = show_llm_messages
+        self.enable_retry = enable_retry
+        self.max_retries = max_retries if enable_retry else 0
+        self.base_delay = base_delay
+        self.max_delay = max_delay
 
     @property
     def model(self):
         return self.model_name
-    
+
     def stream_turns(self, messages: List[Dict[str, str]], config: ChatConfig, model_name: Optional[str] = None, **kwargs) -> Generator[str, None, None]:
         from openai.types.chat import ChatCompletionChunk
         from openai._types import NOT_GIVEN
@@ -90,64 +144,83 @@ class OpenAIProvider(LLMProvider):
         system_message = {"role": "system", "content": config.system_message} if config.system_message else None
 
         stop_sequences = [] if config.stop_sequences is None else config.stop_sequences
-            
+
         if system_message:
             messages = [system_message, *messages]
-            
+
             if self.show_llm_messages:
                 logger.info(f"Using system message: {system_message}")
                 for message in messages[:]:
                     logger.info(f"{message['role']}: {message['content']}")
-            
+
         model = model_name or self.model
-        #logger.info("\n".join([f"{m['role']}: {m['content']}" for m in messages]))
         logger.info(f"Using model: {model}")
-            
+
         rargs = { "response_format": { "type": "json_object" } } if config.response_format == "json" else {}
 
-        progress = 0
-        lastpct = 0
-        tenpct = int(config.max_tokens * 0.1)
         # Count tokens in request
         encoder = tiktoken.get_encoding("cl100k_base")
         request_tokens = sum(len(encoder.encode(m.get('content', ''))) for m in messages)
         logger.info(f"Request: {len(str(messages))} characters, {request_tokens} tokens. Generating {config.max_tokens} tokens.")
 
-        try:
-            for t in self.openai.chat.completions.create(
-                model=model,
-                messages=messages,
-                max_tokens=config.max_tokens,
-                temperature=config.temperature,
-                #logit_bias={'25': -100, '96618': -100, '81203': -100}, An attempt to remove colons
-                stop=stop_sequences,
-                n=config.generations,
-                stream=True,
-                presence_penalty=config.presence_penalty if config.presence_penalty is not None else NOT_GIVEN,
-                frequency_penalty=config.frequency_penalty if config.frequency_penalty is not None else NOT_GIVEN,
-                #repetition_penalty=config.repetition_penalty if config.repetition_penalty is not None else NOT_GIVEN,
-                top_p=config.top_p if config.top_p is not None else NOT_GIVEN,
-                #top_k=config.top_k if config.top_k is not None else NOT_GIVEN,
-                #min_p=config.min_p if config.min_p is not None else NOT_GIVEN,
-                #min_tokens=config.min_tokens if config.min_tokens is not None else NOT_GIVEN,
-                **rargs
-            ):
-                c : Optional[ChatCompletionChunk] = t
-                progress += 1
-                pct = progress / config.max_tokens
-                if pct > (lastpct + tenpct):
-                    lastpct = pct
-                    logger.info(f"{pct*100}% done")
-                yield c.choices[0].delta.content
-        except Exception as e:
-            logger.error(f"API error: {e}")
-            if hasattr(e, 'response'):
-                logger.error(f"Response body: {e.response.text if hasattr(e.response, 'text') else e.response}")
-            raise
-        
-        logger.info(f"Generation complete. {progress}/{config.max_tokens} tokens processed.")
+        # Retry loop with exponential backoff
+        last_error = None
+        for attempt in range(self.max_retries + 1):
+            if attempt > 0:
+                # Calculate delay with exponential backoff
+                delay = min(self.base_delay * (2 ** (attempt - 1)), self.max_delay)
+                logger.warning(f"Retry {attempt}/{self.max_retries} after {delay:.1f}s delay...")
+                time.sleep(delay)
 
-        return
+            progress = 0
+            lastpct = 0
+            tenpct = int(config.max_tokens * 0.1)
+
+            try:
+                for t in self.openai.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    max_tokens=config.max_tokens,
+                    temperature=config.temperature,
+                    stop=stop_sequences,
+                    n=config.generations,
+                    stream=True,
+                    presence_penalty=config.presence_penalty if config.presence_penalty is not None else NOT_GIVEN,
+                    frequency_penalty=config.frequency_penalty if config.frequency_penalty is not None else NOT_GIVEN,
+                    top_p=config.top_p if config.top_p is not None else NOT_GIVEN,
+                    **rargs
+                ):
+                    c: Optional[ChatCompletionChunk] = t
+                    progress += 1
+                    pct = progress / config.max_tokens
+                    if pct > (lastpct + tenpct):
+                        lastpct = pct
+                        logger.info(f"{pct*100}% done")
+                    yield c.choices[0].delta.content
+
+                # Success - log and return
+                logger.info(f"Generation complete. {progress}/{config.max_tokens} tokens processed.")
+                return
+
+            except Exception as e:
+                last_error = e
+                logger.error(f"API error (attempt {attempt + 1}/{self.max_retries + 1}): {e}")
+                if hasattr(e, 'response'):
+                    logger.error(f"Response body: {e.response.text if hasattr(e.response, 'text') else e.response}")
+
+                # Check if error is retryable
+                if is_retryable_error(e) and attempt < self.max_retries:
+                    logger.warning(f"Retryable error detected, will retry...")
+                    continue
+                else:
+                    # Non-retryable or max retries exceeded
+                    if attempt >= self.max_retries:
+                        logger.error(f"Max retries ({self.max_retries}) exceeded, giving up")
+                    raise
+
+        # Should not reach here, but just in case
+        if last_error:
+            raise last_error
 
     @classmethod
     def from_url(cls, url: str, api_key: str, model_name: Optional[str] = None):

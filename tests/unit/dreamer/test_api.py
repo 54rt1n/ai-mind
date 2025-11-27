@@ -301,6 +301,12 @@ async def test_start_pipeline_success(mock_config, mock_state_store, mock_schedu
 
         mock_cvm = MagicMock()
         mock_cvm.get_next_branch.return_value = 1
+        # Mock index.search to return a valid conversation
+        mock_cvm.index.search.return_value = pd.DataFrame([{
+            'doc_id': 'conv-doc-1',
+            'persona_id': 'test_persona',
+            'conversation_id': 'test-conv',
+        }])
         mock_cvm_class.from_config.return_value = mock_cvm
 
         mock_persona = MagicMock()
@@ -355,6 +361,12 @@ async def test_start_pipeline_model_not_found(mock_config, mock_state_store, moc
 
         mock_cvm = MagicMock()
         mock_cvm.get_next_branch.return_value = 1
+        # Mock index.search to return a valid conversation
+        mock_cvm.index.search.return_value = pd.DataFrame([{
+            'doc_id': 'conv-doc-1',
+            'persona_id': 'test_persona',
+            'conversation_id': 'test-conv',
+        }])
         mock_cvm_class.from_config.return_value = mock_cvm
 
         mock_persona = MagicMock()

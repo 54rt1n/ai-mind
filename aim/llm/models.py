@@ -100,6 +100,8 @@ class LanguageModelV2:
     nsfw: bool
     category: set[ModelCategory]
     sampler: Optional[SamplerConfig] = None
+    max_tokens: int = 32768
+    max_output_tokens: int = 4096
 
     def can_provide(self, config: ChatConfig) -> bool:
         try:
@@ -222,7 +224,9 @@ class LanguageModelV2:
                 size=model_config['size'],
                 nsfw=model_config.get('nsfw', True),
                 category=categories,
-                sampler=sampler
+                sampler=sampler,
+                max_tokens=model_config.get('max_tokens', 32768),
+                max_output_tokens=model_config.get('max_output_tokens', 4096),
             )
             models.append(model)
         

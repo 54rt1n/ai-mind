@@ -7,6 +7,8 @@ from typing import List, Dict, Optional
 from ...agents.persona import Persona
 from ..manager import ChatManager
 
+DEFAULT_MAX_CONTEXT = 32768
+DEFAULT_MAX_OUTPUT = 4096
 
 class ChatTurnStrategy(ABC):
     """
@@ -52,7 +54,7 @@ class ChatTurnStrategy(ABC):
         return {"role": "user", "content": user_input}
         
     @abstractmethod
-    def chat_turns_for(self, persona: Persona, user_input: str, history: List[Dict[str, str]] = [], content_len: Optional[int] = None) -> List[Dict[str, str]]:
+    def chat_turns_for(self, persona: Persona, user_input: str, history: List[Dict[str, str]] = [], content_len: Optional[int] = None, max_context_tokens: int = DEFAULT_MAX_CONTEXT, max_output_tokens: int = DEFAULT_MAX_OUTPUT) -> List[Dict[str, str]]:
         """
         Generate a chat session, augmenting the response with information from the database.
 
@@ -61,7 +63,9 @@ class ChatTurnStrategy(ABC):
         Args:
             user_input (str): The user input.
             history (List[Dict[str, str]]): The chat history.
-            
+            max_context_tokens (int): Max context window size for the model.
+            max_output_tokens (int): Max output tokens for the model.
+
         Returns:
             List[Dict[str, str]]: The chat turns, in the alternating format [{"role": "user", "content": user_input}, {"role": "assistant", "content": assistant_turn}].
         """

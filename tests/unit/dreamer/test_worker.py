@@ -232,7 +232,8 @@ class TestDreamerWorkerProcessJob:
              patch("aim.dreamer.worker.create_message") as mock_create_message:
 
             mock_load_scenario.return_value = scenario
-            mock_execute_step.return_value = step_result
+            # execute_step returns tuple: (StepResult, context_doc_ids, is_initial_context)
+            mock_execute_step.return_value = (step_result, [], False)
             mock_create_message.return_value = mock_message
 
             job = StepJob(

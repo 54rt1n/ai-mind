@@ -455,7 +455,7 @@ class TestExecuteStep:
             mock_model_v2.index_models.return_value = mock_models_dict
 
             # Execute step
-            result = await execute_step(
+            result, context_doc_ids, is_initial_context = await execute_step(
                 state=state,
                 scenario=scenario,
                 step_def=step_def,
@@ -471,6 +471,8 @@ class TestExecuteStep:
         assert result.document_type == "test"
         assert result.document_weight == 1.0
         assert result.tokens_used > 0
+        assert isinstance(context_doc_ids, list)
+        assert isinstance(is_initial_context, bool)
 
     @pytest.mark.asyncio
     async def test_execute_step_with_think_tags(self):
@@ -529,7 +531,7 @@ class TestExecuteStep:
             mock_models_dict = {"gpt-4": mock_model_instance}
             mock_model_v2.index_models.return_value = mock_models_dict
 
-            result = await execute_step(
+            result, context_doc_ids, is_initial_context = await execute_step(
                 state=state,
                 scenario=scenario,
                 step_def=step_def,
@@ -541,6 +543,8 @@ class TestExecuteStep:
 
         assert result.response == "Visible response."
         assert result.think == "Internal reasoning"
+        assert isinstance(context_doc_ids, list)
+        assert isinstance(is_initial_context, bool)
 
     @pytest.mark.asyncio
     async def test_execute_step_with_memories(self):
@@ -602,7 +606,7 @@ class TestExecuteStep:
             mock_models_dict = {"gpt-4": mock_model_instance}
             mock_model_v2.index_models.return_value = mock_models_dict
 
-            result = await execute_step(
+            result, context_doc_ids, is_initial_context = await execute_step(
                 state=state,
                 scenario=scenario,
                 step_def=step_def,
@@ -615,6 +619,8 @@ class TestExecuteStep:
         # Verify memory query was called
         mock_cvm.query.assert_called_once()
         assert result.response == "Memory analysis complete."
+        assert isinstance(context_doc_ids, list)
+        assert isinstance(is_initial_context, bool)
 
 
 if __name__ == "__main__":
