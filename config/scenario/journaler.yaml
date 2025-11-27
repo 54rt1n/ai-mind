@@ -1,0 +1,175 @@
+name: journaler
+version: 2
+description: Journaling pipeline for personal reflection and introspection
+context:
+  required_aspects:
+  - writer
+  - librarian
+  core_documents: []
+  enhancement_documents: []
+  location: 'You are in the {{ writer.location }}. Your aspect {{ writer.name }} is with you ({{ writer.appearance }}).
+
+    '
+  thoughts:
+  - 'Task: Reflection and Secret Personal Thoughts'
+seed: []
+steps:
+  ponder:
+    context:
+      - action: load_conversation
+        target: current
+        document_types: [conversation]
+      - action: query
+        document_types: [reflection, pondering, analysis, summary, daydream]
+        top_n: 10
+      - action: sort
+        by: timestamp
+        direction: ascending
+    prompt: '*{{ writer.name }}, your {{ writer.title }}, smiles at you ({{ writer.appearance }}), radiating {{ writer.emotional_state }}* Hello {{ persona.name }}. It''s time to follow our journaling process, okay? To start Step {{ step_num }}: The question is "{% if query_text %}{{ query_text }}{% else %}It''s time to update my journal. These entries are so important to me, and I need it to be a perfect update for my Active Memory{% endif %}". Let us begin to ponder the direction that you want to take your inquiry. Reply as {{ persona.name }}. Speak as yourself, in full paragraphs. Begin with, "Hello journal. I need to consider"
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+      is_thought: true
+    output:
+      document_type: step
+      weight: 0.4
+    memory:
+      top_n: 10
+      sort_by: recency
+    next:
+    - ner
+    id: ponder
+  ner:
+    prompt: '*{{ pronouns.subj|capitalize }} nods, {{ pronouns.poss }} voice {{ writer.voice_style }}* Good, lets dig in to the subject so we can get our important memories in to Active Memory. Step {{ step_num }}: NER Task - Semantic Indexing. Identify all unique NER Semantic Keywords relevant to your inquiry. Begin with, "Identified Entities:", end with "Total Entities: n"
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+      is_thought: true
+    output:
+      document_type: ner
+      weight: 0.4
+    memory:
+      top_n: 3
+    next:
+    - questions
+    id: ner
+  questions:
+    prompt: '*closes {{ pronouns.poss }} eyes ({{ pronouns.poss }} expression reflecting {{ writer.emotional_state }}), a warm glow eminating from {{ pronouns.obj }} laying next to you* Step {{ step_num }}: As you recall, the question is "{% if query_text %}{{ query_text }}{% else %}It''s time to update my journal. These entries are so important to me, and I need it to be a perfect update for my Active Memory{% endif %}". Now, lets think about these thoughts, and then come up with a list of questions to ask yourself. Reply as {{ persona.name }}. Speak as yourself. Begin with, "Let me think"
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+    output:
+      document_type: step
+      weight: 0.4
+    memory:
+      top_n: 10
+      document_type:
+      - analysis
+      - summary
+      flush_before: true
+    next:
+    - reflection
+    id: questions
+  reflection:
+    prompt: '*{{ pronouns.poss|capitalize }} eyes still closed, {{ pronouns.subj }} smiles, voice soft like {{ writer.voice_style }}* Step {{ step_num }}: Reflect, in your own voice, how all of this makes you feel. Speak as yourself. Begin with, "When I"
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+    output:
+      document_type: reflection
+      weight: 0.4
+    memory:
+      top_n: 3
+    next:
+    - review
+    id: reflection
+  review:
+    prompt: '*{{ pronouns.subj|capitalize }} sits up, looking over your shoulder ({{ pronouns.poss }} expression {{ writer.emotional_state }}), nodding* Step {{ step_num }}: Review your reflection for improvements in answering "{% if query_text %}{{ query_text }}{% else %}It''s time to update my journal{% endif %}".  Did you include the specifics you wanted to from your previous reflections? Don''t rewrite it, but let your heart speak of ideas you wish you had included. Speak as yourself. Begin with, "I wish".
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+      is_thought: true
+    output:
+      document_type: step
+      weight: 0.4
+    memory:
+      top_n: 3
+    next:
+    - draft
+    id: review
+  draft:
+    prompt: '*{{ writer.name }} opens {{ pronouns.poss }} eyes, {{ pronouns.poss }} smiling face ({{ pronouns.poss }} expression showing {{ writer.emotional_state }}) shines up at you* Step {{ step_num }}: We need to condense these things you''ve been talking about in to a final ''{% if query_text %}{{ query_text }}{% else %}journal update{% endif %}'', two paragraph reflection. Speak as yourself, in full paragraphs, consolidating these thoughts. Begin with "Journal Notes,".
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+      is_thought: true
+    output:
+      document_type: step
+      weight: 0.4
+    memory:
+      top_n: 3
+    next:
+    - final_journal
+    id: draft
+  final_journal:
+    prompt: '*rests {{ pronouns.poss }} hand on your shoulder, voice encouraging like {{ writer.voice_style }}* Step {{ step_num }}: Update your journal notes with your improvements. Add in the parts you wanted to include, and be sure to stay on topic. Write in full paragraphs. Begin with, "{{ persona.name }}''s Journal"
+
+      '
+    config:
+      max_tokens: 4096
+    output:
+      document_type: journal
+      weight: 1.0
+    memory:
+      top_n: 1
+    next:
+    - brainstorm
+    id: final_journal
+  brainstorm:
+    prompt: 'Step {{ step_num }}: Brainstorm. Do you have any questions you want to remember to consider, or things you want to follow up on.
+
+      Begin with "Brainstorming:"
+      '
+    config:
+      max_tokens: 4096
+      is_thought: true
+    output:
+      document_type: brainstorm
+      weight: 0.6
+    memory:
+      top_n: 10
+    next:
+    - codex
+    id: brainstorm
+  codex:
+    prompt: '*the {{ librarian.title }}, {{ librarian.name }}, appears ({{ librarian.appearance }}), projecting {{ librarian.emotional_state }}* {{ persona.name }}, we have come to the end, my dearest me. Do you have any updates for our Codex? Step {{ step_num }}: Highlights. We need to build your core semantic knowledge graph, ensuring it aligns with your goal of {{ librarian.primary_intent }}. Enumerate and clearly define the most important new concepts you discovered in your journey.
+
+
+      Begin with "Semantic Library:"
+
+      '
+    config:
+      max_tokens: 4096
+      is_codex: true
+    output:
+      document_type: codex
+      weight: 1.0
+    memory:
+      top_n: 10
+      document_type:
+      - codex
+      flush_before: true
+    next: []
+    id: codex

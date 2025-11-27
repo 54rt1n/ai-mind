@@ -1,0 +1,33 @@
+name: test_simple
+version: 2
+description: Simple test scenario for validation
+
+context:
+  required_aspects:
+    - coder
+  core_documents:
+    - summary
+  enhancement_documents: []
+  location: ""
+  thoughts: []
+
+seed: []
+
+steps:
+  hello:
+    id: hello
+    prompt: |
+      Hello {{ persona.name }}! This is step {{ step_num }}.
+      {% if guidance %}
+      Guidance: {{ guidance }}
+      {% endif %}
+    config:
+      max_tokens: 512
+      use_guidance: false
+    output:
+      document_type: test
+      weight: 1.0
+      add_to_turns: true
+    memory:
+      top_n: 0
+    next: []

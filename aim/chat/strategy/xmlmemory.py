@@ -21,7 +21,7 @@ from aim.utils.redis_cache import RedisCache
 
 logger = logging.getLogger(__name__)
 
-MAX_CONTEXT=32000
+MAX_CONTEXT=32768
 
 class XMLMemoryTurnStrategy(ChatTurnStrategy):
     _encoder: tiktoken.Encoding = None
@@ -37,8 +37,8 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
 
     def __init__(self, chat : ChatManager):
         super().__init__(chat)
-        # Calculate max context tokens (reserve 4096 for output, 1024 for safety)
-        self.max_context_tokens = MAX_CONTEXT - 4096 - 1024
+        # Calculate max context tokens (reserve 2048 for output, 1024 for safety)
+        self.max_context_tokens = MAX_CONTEXT - 2048 - 1024
         self.hud_name = "HUD Display Output"
 
     def user_turn_for(self, persona: Persona, user_input: str, history: list[dict[str, str]] = []) -> dict[str, str]:
@@ -173,7 +173,21 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         #logger.info(f"Memory before dynamic query: {formatter.current_length} chars used.")
         thought_estimate_tokens = sum(self.count_tokens(t) for t in persona.thoughts) + 100
         current_tokens = self.count_tokens(formatter.render())
-        available_tokens_for_dynamic_queries = self.max_context_tokens - current_tokens - thought_estimate_tokens
+        # Estimate tokens for workspace/scratchpad (will be added later)
+        ws_tokens_estimate = self.count_tokens(self.chat.current_workspace or "")
+        scratch_tokens_estimate = self.count_tokens(self.scratch_pad or "")
+        # Estimate tokens for thought_stream (if enabled and present)
+        thought_stream_estimate = sum(self.count_tokens(t) for t in thought_stream) if thought_stream else 0
+        available_tokens_for_dynamic_queries = (
+            self.max_context_tokens
+            - current_tokens
+            - thought_estimate_tokens
+            - ws_tokens_estimate
+            - scratch_tokens_estimate
+            - thought_stream_estimate
+            - content_len  # External tokens: history, wakeup, user_input, etc.
+        )
+        logger.debug(f"Token budget: max={self.max_context_tokens}, current={current_tokens}, thoughts={thought_estimate_tokens}, ws={ws_tokens_estimate}, scratch={scratch_tokens_estimate}, stream={thought_stream_estimate}, external={content_len}, available={available_tokens_for_dynamic_queries}")
 
         if available_tokens_for_dynamic_queries > 50: # Min threshold for any dynamic querying (roughly 200 chars)
             query_sources_data = []
@@ -440,12 +454,20 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         assistant_turn_history = [r['content'] for r in history if r['role'] == 'assistant'][::-1]
         user_turn_history = [r['content'] for r in history if r['role'] == 'user'][::-1]
         user_turn_history.append(user_input)
+
+        # Calculate tokens for items added after consciousness (wakeup, user_input)
+        wakeup_tokens = self.count_tokens(persona.get_wakeup())
+        user_input_tokens = self.count_tokens(user_input)
+
+        # Total external tokens = history + thought + wakeup + user_input + content
+        external_tokens = content_tokens + history_tokens + thought_tokens + wakeup_tokens + user_input_tokens
+
         consciousness = self.get_conscious_memory(
                 persona=persona,
                 query=user_input,
                 user_queries=user_turn_history,
                 assistant_queries=assistant_turn_history,
-                content_len=content_tokens + history_tokens + thought_tokens,
+                content_len=external_tokens,
                 thought_stream=thought_stream
                 )
 

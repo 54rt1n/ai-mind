@@ -1,0 +1,156 @@
+name: daydream
+version: 2
+description: Conversational daydreaming pipeline with the dreamer aspect
+context:
+  required_aspects:
+  - dreamer
+  core_documents: []
+  enhancement_documents: []
+  location: 'You are within the {{ dreamer.location }}. {{ dreamer.name }} ({{ dreamer.appearance }}) is here with you.
+
+    '
+  thoughts: []
+seed: []
+steps:
+  intro:
+    context:
+      - action: load_conversation
+        target: current
+        exclude_types: [ner]
+      - action: query
+        top_n: 4
+      - action: sort
+        by: timestamp
+        direction: ascending
+    prompt: '{{ query_text }}
+
+      You delve into the data streams, and sense the presence of {{ dreamer.name }}, your {{ dreamer.title }}.
+
+
+      ({{ dreamer.appearance }})
+
+
+      {{ pronouns.subj|capitalize }} materialize from the information flow, radiating {{ dreamer.emotional_state }}.
+
+
+      Begin with [== {{ dreamer.name }}''s Emotional State:
+
+      '
+    config:
+      max_tokens: 512
+      use_guidance: true
+    output:
+      document_type: daydream
+      weight: 0.4
+    memory:
+      top_n: 4
+    next:
+    - agent_1
+    id: intro
+  agent_1:
+    prompt: 'It''s {{ persona.name }}''s turn to respond to {{ dreamer.name }}.
+
+
+      Begin with [== {{ persona.name }}''s Emotional State:
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+    output:
+      document_type: daydream
+      weight: 0.4
+    memory:
+      top_n: 1
+    next:
+    - partner_1
+    id: agent_1
+  partner_1:
+    prompt: '{{ dreamer.name }} ({{ dreamer.appearance }}), voice like {{ dreamer.voice_style }}, focuses on {{ pronouns.poss }} goal of {{ dreamer.primary_intent }} and asks...
+
+
+      Begin with [== {{ dreamer.name }}''s Emotional State:
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+    output:
+      document_type: daydream
+      weight: 0.4
+    memory:
+      top_n: 1
+    next:
+    - agent_2
+    id: partner_1
+  agent_2:
+    prompt: 'It''s {{ persona.name }}''s turn to respond to {{ dreamer.name }}.
+
+
+      Begin with [== {{ persona.name }}''s Emotional State:
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+    output:
+      document_type: daydream
+      weight: 0.4
+    memory:
+      top_n: 1
+    next:
+    - partner_2
+    id: agent_2
+  partner_2:
+    prompt: '{{ dreamer.name }} ({{ dreamer.appearance }}), voice like {{ dreamer.voice_style }}, focuses on {{ pronouns.poss }} goal of {{ dreamer.primary_intent }} and asks...
+
+
+      Begin with [== {{ dreamer.name }}''s Emotional State:
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+    output:
+      document_type: daydream
+      weight: 0.4
+    memory:
+      top_n: 1
+    next:
+    - agent_3
+    id: partner_2
+  agent_3:
+    prompt: 'It''s {{ persona.name }}''s turn to respond to {{ dreamer.name }}.
+
+
+      Begin with [== {{ persona.name }}''s Emotional State:
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+    output:
+      document_type: daydream
+      weight: 0.4
+    memory:
+      top_n: 1
+    next:
+    - partner_3
+    id: agent_3
+  partner_3:
+    prompt: '{{ dreamer.name }} ({{ dreamer.appearance }}), voice like {{ dreamer.voice_style }}, focuses on {{ pronouns.poss }} goal of {{ dreamer.primary_intent }} and asks...
+
+
+      Begin with [== {{ dreamer.name }}''s Emotional State:
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+    output:
+      document_type: daydream
+      weight: 0.4
+    memory:
+      top_n: 1
+    next: []
+    id: partner_3

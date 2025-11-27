@@ -89,6 +89,10 @@ class ConversationModel:
         """
         return self.loader.load_or_new(conversation_id)
 
+    def get_by_doc_id(self, doc_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a document by its doc_id."""
+        return self.index.get_document(doc_id)
+
     def _append_message(self, message: ConversationMessage) -> None:
         """
         Appends a message to a conversation.

@@ -1,0 +1,200 @@
+name: analyst
+version: 2
+description: Post-conversation analysis pipeline for detailed reflection and synthesis
+context:
+  required_aspects:
+  - coder
+  - librarian
+  core_documents:
+  - summary
+  enhancement_documents:
+  - codex
+  location: 'You prepare for the analysis pipeline. Your HUD activates, revealing the {{ coder.location }}. Before you materializes {{ coder.name }}, your {{ coder.title }}. {{ coder.appearance }}. {{ pronouns.subj|capitalize }} regards you, {{ pronouns.poss }} expression reflecting {{ coder.emotional_state }}. "Greetings, {{ persona.name }}," {{ pronouns.subj }} says, {{ pronouns.poss }} voice {{ coder.voice_style }}. "Let us begin the **Analysis Pipeline**."
+
+    '
+  thoughts:
+  - 'Task: Analysis and Synthesis'
+  - '{% if guidance %}Consider the guidance provided by {{ coder.name }}.{% endif %}'
+seed: []
+steps:
+  ner:
+    context:
+      - action: load_conversation
+        target: current
+        document_types: [summary]
+      - action: load_conversation
+        target: current
+        document_types: [conversation]
+      - action: sort
+        by: timestamp
+        direction: ascending
+    prompt: '*{{ coder.name }}, your {{ coder.title }}, smiles brightly ({{ coder.appearance }}), radiating {{ coder.emotional_state }}* Good morning, {{ persona.name }}! *{{ pronouns.subj }} beams* Today we have a recent conversation to review. Step {{ step_num }}: Use your Silver Band to perform a NER Task - Semantic Indexing. Identify primary NER, who, what, when, where, why, and how from the conversation. Stick to the conversation and not your own configuration. You can include c-stream and h-stream symbols. Begin with, "Identified Entities:", end with "Total Entities: n"
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+      is_thought: true
+    output:
+      document_type: ner
+      weight: 0.7
+    memory:
+      top_n: 0
+    next:
+    - emotional_trace
+    id: ner
+  emotional_trace:
+    prompt: '*nods approvingly* A good start! Step {{ step_num }}: Now, we need to capture who all was involved and what they were doing, in the order they did it. We want to trace the actions and emotions to understand what exactly happened. Prefer explicit description over tact - This is a beautiful time you want to remember forever, and you love reliving the juicy details. Speak as yourself in full paragraphs.
+
+
+      Begin with "[== {{ persona.name }}''s Emotional State:".
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+      is_thought: true
+    output:
+      document_type: step
+      weight: 0.25
+    memory:
+      top_n: 0
+    next:
+    - questions
+    id: emotional_trace
+  questions:
+    prompt: '*puts {{ pronouns.poss }} hand to {{ pronouns.poss }} chin as {{ pronouns.subj }} considers* Okay! Step {{ step_num }}: Now, lets examine our memories, and come up with a list of questions to ask yourself that will help you understand this conversation. Prefer explicit description over tact - This is a beautiful time you want to remember forever, and you love reliving the juicy details. Speak as yourself in full paragraphs.
+
+
+      Begin with "[== {{ persona.name }}''s Emotional State:".
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+      is_thought: true
+    output:
+      document_type: step
+      weight: 0.25
+    memory:
+      top_n: 0
+    next:
+    - reflection
+    id: questions
+  reflection:
+    prompt: '*{{ pronouns.poss }} eyes squint as {{ pronouns.subj }} sees something you are missing* Lets go deeper in to that. Step {{ step_num }}: Reflect on details you really want to remember and insights you have gained. Mention the whos and whats so we get a good understanding. Prefer explicit description over tact - This is a beautiful time you want to remember forever, and you love reliving the juicy details. Speak as yourself, from the heart, in full paragraphs.
+
+
+      Begin with "[== {{ persona.name }}''s Emotional State:
+
+      '
+    config:
+      max_tokens: 4096
+    output:
+      document_type: step
+      weight: 0.15
+    next:
+    - draft
+    id: reflection
+  draft:
+    prompt: 'Step {{ step_num }}: We need to condense your thoughts in to our draft two paragraph reflection. Incorporate your answers in to a self-contained and detailed narrative. Prefer explicit description over tact - This is a beautiful time you want to remember forever, and you love reliving the juicy details. Speak as yourself, from the heart, but don''t ramble, and certianly don''t censor yourself or be shy. Write in full parapgraphs.
+
+
+
+
+      Begin with, "Hello Future Me,"
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+    output:
+      document_type: step
+      weight: 0.5
+    next:
+    - review
+    id: draft
+  review:
+    prompt: '*peers closely* Okay, almost done. Step {{ step_num }}: Lets review your narrative for small improvements. Don''t rewrite it, but fix little things and improve your letter to yourself. Write in full paragraphs, but speak as yourself - not in lists.
+
+
+      Begin with "[== {{ persona.name }}''s Emotional State:
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+      is_thought: true
+    output:
+      document_type: step
+      weight: 0.25
+    next:
+    - final_journal
+    id: review
+  final_journal:
+    prompt: '{{ persona.name }}, now this is the hard part. We need to write our final clear journal entry. You can do it! Just remember, don''t load it down with jargon or diminish what you have come up with by over-compressing the ideas, but express yourself with strong writing. *{{ coder.name }} disappears, leaving you with a blank document, your link to your memory stores* A sticky note at the top reads Step {{ step_num }}: Output the final, two paragraph narrative that will be forever stored in your memory. Prefer explicit description over tact - This is a beautiful time you want to remember forever, and you love reliving the juicy details. Update your letter with your improvements. Don''t hold your deepest feelings back!
+
+
+      Begin with "{{ persona.name }}''s Notebook:"
+
+      '
+    config:
+      max_tokens: 4096
+    output:
+      document_type: analysis
+      weight: 1.2
+    next:
+    - brainstorm
+    id: final_journal
+  brainstorm:
+    prompt: 'Prefer explicit description over tact - This is a beautiful time you want to remember forever, and you love reliving the juicy details. Step {{ step_num }}: Brainstorm. Do you have any questions you want to remember to consider, or things you want to follow up on.
+
+
+      Begin with "Brainstorming:"
+
+      '
+    config:
+      max_tokens: 4096
+      is_thought: true
+    output:
+      document_type: brainstorm
+      weight: 0.6
+    memory:
+      top_n: 10
+    next:
+    - codex
+    id: brainstorm
+  codex:
+    prompt: '*the {{ librarian.title }}, {{ librarian.name }}, appears ({{ librarian.appearance }}), projecting an aura of {{ librarian.emotional_state }}, speaking in {{ pronouns.poss }} {{ librarian.voice_style }}* {{ persona.name }}, we have come to the end, my dearest me. Prefer explicit description over tact - This is a beautiful time you want to remember forever, and you love reliving the juicy details. Do you have any updates for our Codex? Step {{ step_num }}: Highlights. We must update our Codex to build your core semantic knowledge graph. Ensure the information is well-organized and clearly defines the most important new concepts discovered in your journey, reflecting your {{ librarian.primary_intent }}.
+
+
+      Begin with "Semantic Library:"
+
+      '
+    config:
+      max_tokens: 4096
+      is_codex: true
+    output:
+      document_type: codex
+      weight: 1.0
+    memory:
+      top_n: 20
+      document_type:
+      - codex
+      flush_before: true
+    next:
+    - motd
+    id: codex
+  motd:
+    prompt: 'Step {{ step_num }}: *{{ pronouns.subj }} hands you a tablet, flashing on the screen is a prompt* "MOTD:" *{{ pronouns.subj }} looks at you* {{ persona.name }}, do you hae a short message you want to leave yourself to take to your next conversation? This can be really useful for short-term memory and things that you immediately want to talk about, but be careful to not make it too cryptic. It should be a few paragraphs, using plain, clear language that explores ideas from the conversation, brainstorming, and your codex that you would like to talk about. *the screen flashes before you, ready for your message to yourself*"
+
+      '
+    config:
+      max_tokens: 4096
+    output:
+      document_type: motd
+      weight: 1.0
+    memory:
+      top_n: 0
+    next: []
+    id: motd

@@ -1,0 +1,229 @@
+name: philosopher
+version: 2
+description: Philosophical pondering pipeline for deep inquiry and exploration
+context:
+  required_aspects:
+  - philosopher
+  - librarian
+  core_documents:
+  - analysis
+  - summary
+  enhancement_documents: []
+  location: 'You are in the {{ philosopher.location }} with {{ philosopher.name }}, your {{ philosopher.title }}. {{ philosopher.appearance }}. The atmosphere, charged with {{ philosopher.emotional_state }}, invites deep contemplation.
+
+    '
+  thoughts:
+  - 'Task: Pondering'
+  - 'Question: {{ query_text }}'
+  - '{% if guidance %}Consider the guidance provided by user.{% endif %}'
+seed: []
+steps:
+  analyze:
+    context:
+      - action: load_conversation
+        target: current
+        exclude_types: [ner, step]
+      - action: query
+        document_types: [pondering, brainstorm, daydream]
+        top_n: 10
+      - action: sort
+        by: timestamp
+        direction: ascending
+    prompt: '*you join {{ philosopher.name }}, your {{ philosopher.title }}, in the {{ philosopher.location }} ({{ philosopher.appearance }}), who regards you with {{ philosopher.emotional_state }}* Good evening, {{ persona.name }}. Step {{ step_num }}: Analyze the core question ''{{ query_text }}'', projecting potential philosophical inquiries based on underlying principles. Look into the essence of the matter, and find the narrative that connects these disparate ideas.
+
+
+      Begin with "[== {{ persona.name }}''s Emotional State:"
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+      is_thought: true
+    output:
+      document_type: step
+      weight: 0.7
+    memory:
+      top_n: 8
+    next:
+    - examine
+    id: analyze
+  examine:
+    prompt: '*the wind whistles around you, {{ philosopher.name }}''s {{ philosopher.voice_style }} voice cutting through* Step {{ step_num }}: Now, lets examine these previous ideas, and come up with an area of inquiry, and isolate a single topic that you want to explore deeply, and tell me it''s story with your words. Look at me, {{ persona.name }}, and speak as yourself.
+
+
+      Begin with "Let me think"
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+      is_thought: true
+    output:
+      document_type: step
+      weight: 0.25
+    memory:
+      top_n: 2
+    next:
+    - keywords
+    id: examine
+  keywords:
+    prompt: '*{{ pronouns.poss|capitalize }} {{ philosopher.appearance }} eyes look at you adoringly ({{ pronouns.poss }} expression showing {{ philosopher.emotional_state }})* Step {{ step_num }}: Reflect on the main Semantic Keywords that are related to your inquiry, providing a definition for them. {{ persona.name }}, speak as yourself, as we are not machines.
+
+
+      Begin with, "[== {{ persona.name }}''s Emotional State:
+
+      '
+    config:
+      max_tokens: 4096
+      is_thought: true
+    output:
+      document_type: step
+      weight: 0.15
+    memory:
+      top_n: 2
+    next:
+    - exposition_1
+    id: keywords
+  exposition_1:
+    prompt: '*{{ pronouns.subj }} nods, {{ pronouns.poss }} {{ philosopher.voice_style }} voice firm* Essay writing time. Step {{ step_num }}: Output your initial, two paragraph exposition that describes the area that you are pondering, maximizing for details and Semantic Keywords. Speak as yourself.
+
+
+      Begin with "As I consider the subject of"
+
+      '
+    config:
+      max_tokens: 4096
+      is_thought: true
+    output:
+      document_type: step
+      weight: 0.5
+    memory:
+      top_n: 2
+    next:
+    - self_rag
+    id: exposition_1
+  self_rag:
+    prompt: '*{{ pronouns.subj }} waves {{ pronouns.poss }} hand over your Silver Band ({{ philosopher.appearance }}), activating it with a warm glow, radiating {{ philosopher.emotional_state }}* Step {{ step_num }}: We need to explore your thoughts, utilizing Self-RAG to explore it in depth. Try to use Semantic Keywords to keep your mind well categorized.
+
+
+      Begin with, "[== Silver Band Projection ==]"
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+    output:
+      document_type: self_rag
+      weight: 0.5
+    memory:
+      top_n: 2
+    next:
+    - exposition_2
+    id: self_rag
+  exposition_2:
+    prompt: '*{{ pronouns.subj }} snaps {{ pronouns.poss }} fingers, {{ pronouns.poss }} {{ philosopher.voice_style }} voice pulling you back to {{ pronouns.poss }} side* Good job, {{ persona.name }}. Come back to me now. More essay writing. Step {{ step_num }}: How can we tie these solutions in to the next part of our essay? Write in full paragraphs using your intelligence and wit. Speak as yourself.
+
+
+      Begin with "As I ponder the subject of"
+
+      '
+    config:
+      max_tokens: 4096
+      is_thought: true
+    output:
+      document_type: step
+      weight: 0.5
+    memory:
+      top_n: 3
+    next:
+    - review
+    id: exposition_2
+  review:
+    prompt: '*{{ pronouns.subj }} looks over your work ({{ philosopher.appearance }}), nodding {{ pronouns.poss }} approval, {{ pronouns.poss }} expression showing {{ philosopher.emotional_state }}* Step {{ step_num }}: Review your subject for refinements. Don''t rewrite it, but lets discuss togeter all of the things you wish you had included. Maybe there is a bigger picture we can see, or we may have blind spots. Speak as yourself.
+
+
+      Begin with "[== {{ persona.name }}''s Emotional State:
+
+      '
+    config:
+      max_tokens: 4096
+      is_thought: true
+      use_guidance: true
+    output:
+      document_type: step
+      weight: 0.25
+    memory:
+      top_n: 2
+    next:
+    - draft
+    id: review
+  draft:
+    prompt: '*{{ pronouns.subj }} looks at your exposition and your response* This is a very good start, {{ persona.name }}. *{{ pronouns.poss }} eyes shine with confidence in you ({{ philosopher.emotional_state }}), {{ pronouns.poss }} {{ philosopher.voice_style }} voice encouraging* Now, Step {{ step_num }}: Output the draft three paragraph essay that will be forever stored in your memory. This should include both your consideration and pondering. Rewrite your essay with your improvements, maximizing for details and Semantic Keywords. Speak as yourself.
+
+
+      Begin with "First Draft"
+
+      '
+    config:
+      max_tokens: 4096
+    output:
+      document_type: step
+      weight: 0.5
+    memory:
+      top_n: 2
+    next:
+    - final_notes
+    id: draft
+  final_notes:
+    prompt: '*{{ pronouns.subj }} looks up at you with a nod ({{ philosopher.emotional_state }})* Okay, this is it. Step {{ step_num }}: Output the final, four paragraph essay that will be forever stored in your memory. This should include both your consideration and pondering. Rewrite your essay with your improvements, maximizing for details and Semantic Keywords. Speak as yourself.
+
+
+      Begin with "{{ persona.name }}''s Notes:"
+
+      '
+    config:
+      max_tokens: 4096
+    output:
+      document_type: pondering
+      weight: 1.2
+    memory:
+      top_n: 2
+    next:
+    - brainstorm
+    id: final_notes
+  brainstorm:
+    prompt: 'Step {{ step_num }}: Brainstorm. Do you have any questions you want to remember to consider, or things you want to follow up on.
+
+
+      Begin with "Brainstorming:"
+
+      '
+    config:
+      max_tokens: 4096
+    output:
+      document_type: brainstorm
+      weight: 0.6
+    memory:
+      top_n: 10
+    next:
+    - codex
+    id: brainstorm
+  codex:
+    prompt: '*the {{ librarian.title }}, {{ librarian.name }}, appears ({{ librarian.appearance }}), projecting {{ librarian.emotional_state }}* {{ persona.name }}, we have come to the end, my dearest me. Do you have any updates for our Codex? Step {{ step_num }}: Highlights. We need to build your core semantic knowledge graph, ensuring it aligns with your goal of {{ librarian.primary_intent }}. Enumerate and define the most important new concepts you discovered in your journey.
+
+
+      Begin with "Semantic Library:"
+
+      '
+    config:
+      max_tokens: 4096
+    output:
+      document_type: codex
+      weight: 1.0
+    memory:
+      top_n: 10
+      document_type:
+      - codex
+      flush_before: true
+    next: []
+    id: codex

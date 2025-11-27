@@ -15,6 +15,7 @@ from .modules.chat.route import ChatModule
 from .modules.completion.route import CompletionModule
 from .modules.conversation.route import ConversationModule
 from .modules.document.route import DocumentModule
+from .modules.dreamer.route import DreamerModule
 from .modules.memory.route import MemoryModule
 from .modules.pipeline.route import PipelineModule
 from .modules.report.route import ReportModule
@@ -43,6 +44,7 @@ class ServerApi:
         completion_module = CompletionModule(self.config, self.security)
         conversation_module = ConversationModule(self.config, self.security, self.shared_roster)
         document_module = DocumentModule(self.config, self.security)
+        dreamer_module = DreamerModule(self.config, self.security)
         memory_module = MemoryModule(self.config, self.security, self.shared_roster)
         pipeline_module = PipelineModule(self.config, self.security)
         report_module = ReportModule(self.config, self.security)
@@ -55,6 +57,7 @@ class ServerApi:
         self.app.include_router(completion_module.router)
         self.app.include_router(conversation_module.router)
         self.app.include_router(document_module.router)
+        self.app.include_router(dreamer_module.router)
         self.app.include_router(memory_module.router)
         self.app.include_router(pipeline_module.router)
         self.app.include_router(report_module.router)

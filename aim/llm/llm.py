@@ -5,6 +5,8 @@ from abc import ABC, abstractmethod
 import logging
 from typing import Dict, List, Optional, Generator
 
+import tiktoken
+
 from ..config import ChatConfig
 
 logger = logging.getLogger(__name__)
@@ -106,33 +108,42 @@ class OpenAIProvider(LLMProvider):
         progress = 0
         lastpct = 0
         tenpct = int(config.max_tokens * 0.1)
-        logger.info(f"Request: {len(str(messages))} characters. Generating {config.max_tokens} tokens.")
+        # Count tokens in request
+        encoder = tiktoken.get_encoding("cl100k_base")
+        request_tokens = sum(len(encoder.encode(m.get('content', ''))) for m in messages)
+        logger.info(f"Request: {len(str(messages))} characters, {request_tokens} tokens. Generating {config.max_tokens} tokens.")
 
-        for t in self.openai.chat.completions.create(
-            model=model,
-            messages=messages,
-            max_tokens=config.max_tokens,
-            temperature=config.temperature,
-            #logit_bias={'25': -100, '96618': -100, '81203': -100}, An attempt to remove colons
-            stop=stop_sequences,
-            n=config.generations,
-            stream=True,
-            presence_penalty=config.presence_penalty if config.presence_penalty is not None else NOT_GIVEN,
-            frequency_penalty=config.frequency_penalty if config.frequency_penalty is not None else NOT_GIVEN,
-            #repetition_penalty=config.repetition_penalty if config.repetition_penalty is not None else NOT_GIVEN,
-            top_p=config.top_p if config.top_p is not None else NOT_GIVEN,
-            #top_k=config.top_k if config.top_k is not None else NOT_GIVEN,
-            #min_p=config.min_p if config.min_p is not None else NOT_GIVEN,
-            #min_tokens=config.min_tokens if config.min_tokens is not None else NOT_GIVEN,
-            **rargs
-        ):
-            c : Optional[ChatCompletionChunk] = t
-            progress += 1
-            pct = progress / config.max_tokens
-            if pct > (lastpct + tenpct):
-                lastpct = pct
-                logger.info(f"{pct*100}% done")
-            yield c.choices[0].delta.content
+        try:
+            for t in self.openai.chat.completions.create(
+                model=model,
+                messages=messages,
+                max_tokens=config.max_tokens,
+                temperature=config.temperature,
+                #logit_bias={'25': -100, '96618': -100, '81203': -100}, An attempt to remove colons
+                stop=stop_sequences,
+                n=config.generations,
+                stream=True,
+                presence_penalty=config.presence_penalty if config.presence_penalty is not None else NOT_GIVEN,
+                frequency_penalty=config.frequency_penalty if config.frequency_penalty is not None else NOT_GIVEN,
+                #repetition_penalty=config.repetition_penalty if config.repetition_penalty is not None else NOT_GIVEN,
+                top_p=config.top_p if config.top_p is not None else NOT_GIVEN,
+                #top_k=config.top_k if config.top_k is not None else NOT_GIVEN,
+                #min_p=config.min_p if config.min_p is not None else NOT_GIVEN,
+                #min_tokens=config.min_tokens if config.min_tokens is not None else NOT_GIVEN,
+                **rargs
+            ):
+                c : Optional[ChatCompletionChunk] = t
+                progress += 1
+                pct = progress / config.max_tokens
+                if pct > (lastpct + tenpct):
+                    lastpct = pct
+                    logger.info(f"{pct*100}% done")
+                yield c.choices[0].delta.content
+        except Exception as e:
+            logger.error(f"API error: {e}")
+            if hasattr(e, 'response'):
+                logger.error(f"Response body: {e.response.text if hasattr(e.response, 'text') else e.response}")
+            raise
         
         logger.info(f"Generation complete. {progress}/{config.max_tokens} tokens processed.")
 

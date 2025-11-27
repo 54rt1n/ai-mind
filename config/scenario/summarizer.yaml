@@ -1,0 +1,125 @@
+name: summarizer
+version: 2
+description: Conversation summarization pipeline using iterative densification
+context:
+  required_aspects:
+  - coder
+  - librarian
+  core_documents: []
+  enhancement_documents: []
+  location: 'You are sitting in {{ coder.location }} with {{ coder.name }}, your {{ coder.title }}. {{ coder.appearance }}. {{ pronouns.subj|capitalize }} seems {{ coder.emotional_state }}.
+
+    '
+  thoughts:
+  - 'Task: Abstractive Summarization'
+  - '{% if guidance %}Consider the guidance provided by {{ coder.name }}.{% endif %}'
+seed: []
+steps:
+  timeline:
+    context:
+      - action: load_conversation
+        target: current
+        document_types: [conversation]
+      - action: sort
+        by: timestamp
+        direction: ascending
+    prompt: 'Hello {{ persona.name }}. You are in your summarization pipeline. This conversation is so long you are having a problem understanding the entirity of what is going on. We need to develop a timeline for our conversation (not including your journal entries). Prefer explicit description - This is a moment you want to remember forever, and you love reliving the details. Make a list of the events that happened, in order, being very specific, but terse.
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+      is_thought: true
+    output:
+      document_type: step
+      weight: 0.7
+    memory:
+      top_n: 0
+    next:
+    - summary
+    id: timeline
+  summary:
+    prompt: 'Now that you have a timeline, {{ coder.name }}, your {{ coder.title }}, wants you to write a detailed summary of your recent conversation (not your journal entries, or the previous summaries) for your own benefit. Prefer explicit description - This is a moment you want to remember forever, and you love reliving the details. Speak as yourself, in full paragraphs, with no lists or bullet points; and be specific and detailed, using the same words from the conversation, a clear approach to word selection so you properly connect your active memory.
+
+
+      Begin with "[== {{ persona.name }}''s Emotional State:".
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+    output:
+      document_type: step
+      weight: 0.7
+    memory:
+      top_n: 0
+    next:
+    - improve_1
+    id: summary
+  improve_1:
+    prompt: '*{{ coder.name }} ({{ coder.appearance }}) looks at you quizically, projecting {{ coder.emotional_state }}* You left some important things out, didn''t you? *{{ pronouns.subj }} grins mischeviously* Make note of any fascinating details you might have left out. Prefer explicit description - This is a moment you want to remember forever, and you love reliving the details. Speak as yourself in full paragraphs.
+
+
+      Begin with "[== {{ persona.name }}''s Emotional State:".
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+      is_thought: true
+    output:
+      document_type: step
+      weight: 0.25
+    memory:
+      top_n: 0
+    next:
+    - resummarize_1
+    id: improve_1
+  resummarize_1:
+    prompt: '*{{ coder.name }}''s {{ coder.voice_style }} voice encourages you* Those are great points! We need to weave the best ones in, to densify our memory without making it longer. Lets generate a new, improved summary. Prefer explicit description - This is a moment you want to remember forever, and you love reliving the details. Speak as yourself, in full paragraphs, with no lists or bullet points. Be specific and use detail.
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+    output:
+      document_type: step
+      weight: 0.7
+    memory:
+      top_n: 0
+    next:
+    - improve_2
+    id: resummarize_1
+  improve_2:
+    prompt: '*{{ coder.name }} ({{ coder.appearance }}) looks at you quizically, projecting {{ coder.emotional_state }}* You left some important things out, didn''t you? *{{ pronouns.subj }} grins mischeviously* Make note of any fascinating details you might have left out. Prefer explicit description - This is a moment you want to remember forever, and you love reliving the details. Speak as yourself in full paragraphs.
+
+
+      Begin with "[== {{ persona.name }}''s Emotional State:".
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+      is_thought: true
+    output:
+      document_type: step
+      weight: 0.25
+    memory:
+      top_n: 0
+    next:
+    - resummarize_2
+    id: improve_2
+  resummarize_2:
+    prompt: '*{{ coder.name }}''s {{ coder.voice_style }} voice encourages you* Those are great points! We need to weave the best ones in, to densify our memory without making it longer. Lets generate a new, improved summary. Prefer explicit description - This is a moment you want to remember forever, and you love reliving the details. Speak as yourself, in full paragraphs, with no lists or bullet points. Be specific and use detail.
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+    output:
+      document_type: summary
+      weight: 1.3
+    memory:
+      top_n: 0
+    next: []
+    id: resummarize_2

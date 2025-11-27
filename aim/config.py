@@ -35,7 +35,7 @@ def get_env(dotenv_path: Optional[str] = None) -> Dict[str, str]:
         "featherless_api_key": os.getenv("FEATHERLESS_API_KEY", None),
         "groq_api_key": os.getenv("GROQ_API_KEY", None),
         "openai_api_key": os.getenv("OPENAI_API_KEY", None),
-        "openrouter_api_key": os.getenv("OPENROUTE_API_KEY", None),
+        "openrouter_api_key": os.getenv("OPENROUTER_API_KEY", None),
         "meta_api_key": os.getenv("META_API_KEY", None),
 
         "persona_id": os.getenv("PERSONA_ID", "assistant"),
@@ -75,6 +75,7 @@ def get_env(dotenv_path: Optional[str] = None) -> Dict[str, str]:
         "discord_public_key": os.getenv("DISCORD_PUBLIC_KEY", None),
         "thought_model": os.getenv("THOUGHT_MODEL", None),
         "codex_model": os.getenv("CODEX_MODEL", None),
+        "default_model": os.getenv("DEFAULT_MODEL", None),
     }
 
 
@@ -110,7 +111,8 @@ class ChatConfig:
 
     thought_model: Optional[str] = None
     codex_model: Optional[str] = None
-    
+    default_model: Optional[str] = None
+
     # Redis cache configuration
     redis_host: str = "localhost"
     redis_port: int = 6379
