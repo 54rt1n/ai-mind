@@ -452,7 +452,7 @@ function createChatStore() {
         const completeThinkRegex = /<think>([\s\S]*?)<\/think>/;
         const completeMatch = completeThinkRegex.exec(text);
 
-        if (completeMatch && completeMatch[1]) {
+        if (completeMatch) {
             // Complete think tag found - extract content
             const thinkContent = completeMatch[1].trim();
             // Remove think tags for display
@@ -464,7 +464,7 @@ function createChatStore() {
         const partialThinkRegex = /<think>([\s\S]*?)$/;
         const partialMatch = partialThinkRegex.exec(text);
 
-        if (partialMatch && partialMatch[1]) {
+        if (partialMatch) {
             // Partial think tag found - extract content
             const thinkContent = partialMatch[1].trim();
             // Remove partial think tag for display

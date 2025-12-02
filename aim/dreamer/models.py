@@ -122,6 +122,9 @@ class Scenario(BaseModel):
     name: str
     version: int = 2
     description: str = ""
+    requires_conversation: bool = True
+    """Whether this scenario requires an existing conversation.
+    True for analyst/summarizer, False for journaler/dreamer/philosopher."""
     context: ScenarioContext
     seed: list[SeedAction] = Field(default_factory=list)
     steps: dict[str, StepDefinition]
@@ -228,7 +231,8 @@ class PipelineState(BaseModel):
     # Identity
     pipeline_id: str
     scenario_name: str
-    conversation_id: str
+    conversation_id: Optional[str] = None
+    """Conversation ID. Required for analyst/summarizer, optional for journaler/dreamer/philosopher."""
     persona_id: str
     user_id: str
 

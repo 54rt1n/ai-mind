@@ -5,8 +5,11 @@
 from dataclasses import replace
 from datetime import datetime
 from typing import Optional
+import logging
 import re
 import tiktoken
+
+logger = logging.getLogger(__name__)
 
 from .models import PipelineState, StepDefinition, StepResult, StepConfig, Scenario
 from .scenario import render_template, build_template_context
@@ -52,6 +55,19 @@ def select_model_name(state: PipelineState, step_config: StepConfig) -> str:
     return state.model
 
 
+# Shared tiktoken encoder
+_encoder: tiktoken.Encoding = None
+
+def _get_encoder() -> tiktoken.Encoding:
+    global _encoder
+    if _encoder is None:
+        _encoder = tiktoken.get_encoding("cl100k_base")
+    return _encoder
+
+def _count_tokens(text: str) -> int:
+    return len(_get_encoder().encode(text))
+
+
 def build_turns(
     state: PipelineState,
     prompt: str,
@@ -60,6 +76,7 @@ def build_turns(
     persona: Persona,
     max_context_tokens: int,
     max_output_tokens: int,
+    include_thought_stream: bool = True,
 ) -> tuple[list[dict], str]:
     """
     Build the turns list for LLM call and system message.
@@ -67,8 +84,9 @@ def build_turns(
     Creates a conversation history with:
     1. Memory context (if memories present)
     2. Wakeup message (if memories present)
-    3. Prior step outputs loaded from CVM
-    4. Current prompt
+    3. Thought stream from prior outputs (evicted first if over budget)
+    4. Prior step outputs loaded from CVM
+    5. Current prompt
 
     The system message is returned separately to be set via ChatConfig,
     as the LLM provider handles system messages through config.system_message.
@@ -81,6 +99,7 @@ def build_turns(
         persona: Persona object for system prompt
         max_context_tokens: Model's max context window
         max_output_tokens: Max tokens to generate (min of requested and model limit)
+        include_thought_stream: Whether to include thought stream in context
 
     Returns:
         Tuple of (turns list, system_message string)
@@ -95,16 +114,82 @@ def build_turns(
         system_message=None,
     )
 
+    # Calculate available tokens for content (with safety margin)
+    safety_margin = 1024
+    available_tokens = max_context_tokens - max_output_tokens - safety_margin
+
+    # Account for fixed content (system, prompt, wakeup)
+    wakeup = persona.get_wakeup()
+    fixed_tokens = (
+        _count_tokens(system_message) +
+        _count_tokens(prompt) +
+        _count_tokens(wakeup)
+    )
+
+    # Calculate tokens for prior outputs content
+    prior_output_tokens = sum(_count_tokens(o.get('content', '')) for o in prior_outputs)
+
+    # Calculate tokens for thought stream
+    thought_stream = format_thought_stream(prior_outputs) if include_thought_stream else ""
+    thought_stream_tokens = _count_tokens(thought_stream)
+
+    # Budget remaining after fixed content
+    remaining_budget = available_tokens - fixed_tokens
+
+    # Eviction priority: thoughts first, then oldest prior outputs, then memories
+    # 1. Check if we need to evict thought stream
+    if prior_output_tokens + thought_stream_tokens > remaining_budget:
+        # Evict thought stream first
+        logger.info(f"Evicting thought stream ({thought_stream_tokens} tokens) to fit budget")
+        thought_stream = ""
+        thought_stream_tokens = 0
+
+    # 2. Evict oldest prior outputs if still over budget
+    trimmed_outputs = list(prior_outputs)
+    evicted_count = 0
+    while trimmed_outputs and prior_output_tokens > remaining_budget:
+        # Remove oldest (first) output
+        removed = trimmed_outputs.pop(0)
+        removed_tokens = _count_tokens(removed.get('content', ''))
+        prior_output_tokens -= removed_tokens
+        evicted_count += 1
+        logger.info(f"Evicting prior output {evicted_count} ({removed_tokens} tokens)")
+
+    if evicted_count > 0:
+        logger.info(f"Evicted {evicted_count} prior outputs, {len(trimmed_outputs)} remaining")
+
+    # 3. Budget remaining for memories
+    memory_budget = remaining_budget - prior_output_tokens - thought_stream_tokens
+
+    # Trim memories to fit budget (keep newest, trim oldest first)
+    trimmed_memories = []
+    memory_tokens = 0
+    for mem in reversed(memories):
+        content = mem.get('content', '')
+        mem_tokens = _count_tokens(content)
+        if memory_tokens + mem_tokens <= memory_budget:
+            trimmed_memories.insert(0, mem)  # Prepend to maintain order
+            memory_tokens += mem_tokens
+        else:
+            break  # Stop adding memories when budget exceeded
+
+    if len(trimmed_memories) < len(memories):
+        logger.info(f"Trimmed memories: {len(memories)} -> {len(trimmed_memories)} ({memory_tokens} tokens)")
+
+    # Build turns list
     # Add memories as context if present
-    if memories:
-        memory_xml = format_memories_xml(memories)
+    if trimmed_memories:
+        memory_xml = format_memories_xml(trimmed_memories)
         turns.append({'role': 'user', 'content': memory_xml})
-        turns.append({'role': 'assistant', 'content': persona.get_wakeup()})
+        turns.append({'role': 'assistant', 'content': wakeup})
+
+    # Add thought stream if present (after eviction check)
+    if thought_stream:
+        turns.append({'role': 'user', 'content': thought_stream})
 
     # Add prior step outputs as conversation (loaded from CVM by doc_id)
-    for output in prior_outputs:
+    for output in trimmed_outputs:
         content = output.get('content', '')
-        think = output.get('think')
         if content:
             turns.append({'role': 'assistant', 'content': content})
 
@@ -178,6 +263,32 @@ def format_memories_xml(memories: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def format_thought_stream(prior_outputs: list[dict]) -> str:
+    """
+    Extract and format think content from prior outputs.
+
+    Args:
+        prior_outputs: List of output dictionaries with optional 'think' field
+
+    Returns:
+        XML string with thought stream, or empty string if no think content
+    """
+    thoughts = [
+        output.get('think') for output in prior_outputs
+        if output.get('think')
+    ]
+
+    if not thoughts:
+        return ""
+
+    lines = ["<thought_stream>"]
+    for i, thought in enumerate(thoughts):
+        lines.append(f"\t<prior_thought turn=\"{i+1}\">{thought}</prior_thought>")
+    lines.append("</thought_stream>")
+
+    return "\n".join(lines)
+
+
 def extract_think_tags(response: str) -> tuple[str, Optional[str]]:
     """
     Extract <think> tags from response, returning (content, think).
@@ -185,29 +296,49 @@ def extract_think_tags(response: str) -> tuple[str, Optional[str]]:
     Removes all <think>...</think> blocks from the response and
     concatenates their content as the think output.
 
+    Handles edge cases:
+    - Truncated <think> tag (no closing </think>): treat as content
+    - Orphan </think> tag (started mid-stream): content before it is think
+
     Args:
         response: Raw response from LLM
 
     Returns:
         Tuple of (cleaned_content, think_content or None)
     """
-    # Find all think tags
-    think_pattern = r'<think>(.*?)</think>'
-    think_matches = re.findall(think_pattern, response, re.DOTALL)
+    think_content = None
 
-    if not think_matches:
-        return response, None
+    if re.search(r'<think>', response):
+        logger.info("Response contains a think xml tag")
+        # Find complete think blocks
+        think_pattern = r'<think>(.*?)</think>'
+        think_matches = re.findall(think_pattern, response, re.DOTALL)
 
-    # Concatenate all think content
-    think_content = "\n\n".join(match.strip() for match in think_matches)
+        if think_matches:
+            # Concatenate all think content
+            think_content = "\n\n".join(match.strip() for match in think_matches)
+            # Remove think tags from response
+            cleaned_response = re.sub(think_pattern, '', response, flags=re.DOTALL).strip()
+            logger.info(f"Extracted think content, length: {len(think_content)}")
+            return cleaned_response, think_content
+        else:
+            # Only <think> tag with no </think> means truncated output
+            # Treat everything after <think> as content, not think
+            logger.info("Truncated think tag detected, treating as content")
+            response = response.replace('<think>', '').strip()
+            return response, None
 
-    # Remove think tags from response
-    cleaned_response = re.sub(think_pattern, '', response, flags=re.DOTALL)
+    elif re.search(r'</think>', response):
+        # Only </think> means we started mid-stream, content before it is think
+        logger.info("Response contains orphan think close tag")
+        match = re.search(r'(.*?)</think>', response, re.DOTALL)
+        if match:
+            think_content = match.group(1).strip()
+            cleaned_response = re.sub(r'(.*?)</think>', '', response, flags=re.DOTALL).strip()
+            logger.info(f"Extracted think content from orphan tag, length: {len(think_content)}")
+            return cleaned_response, think_content
 
-    # Clean up extra whitespace
-    cleaned_response = cleaned_response.strip()
-
-    return cleaned_response, think_content
+    return response, None
 
 
 def create_message(
@@ -286,6 +417,22 @@ async def execute_step(
     Raises:
         RetryableError: If step should be retried
     """
+    # Log step start with context
+    step_flags = []
+    if step_def.config.is_codex:
+        step_flags.append("codex")
+    if step_def.config.is_thought:
+        step_flags.append("thought")
+    if step_def.config.use_guidance:
+        step_flags.append("guidance")
+    flags_str = f" [{', '.join(step_flags)}]" if step_flags else ""
+
+    logger.info(
+        f"Step '{step_def.id}' starting{flags_str} | "
+        f"pipeline={state.pipeline_id[:8]}... scenario={state.scenario_name} "
+        f"step_num={state.step_counter} output_type={step_def.output.document_type}"
+    )
+
     # 1. Build Jinja2 template context from Persona
     context = build_template_context(state, scenario, persona)
 
@@ -320,6 +467,12 @@ async def execute_step(
         raise RetryableError(f"Model {model_name} not available")
     provider = model.llm_factory(config)
 
+    logger.info(
+        f"Step '{step_def.id}' using model={model_name} | "
+        f"memories={len(memories)} prior_outputs={len(prior_outputs)} "
+        f"max_tokens={step_def.config.max_tokens}"
+    )
+
     # 7. Build turns for LLM (system message returned separately for config)
     max_output_tokens = min(step_def.config.max_tokens, model.max_output_tokens)
     turns, system_message = build_turns(
@@ -350,6 +503,7 @@ async def execute_step(
     if not response.strip():
         raise RetryableError("Empty response from model")
 
+    tokens_used = len(encoder.encode(response))
     result = StepResult(
         step_id=step_def.id,
         response=response,
@@ -357,8 +511,14 @@ async def execute_step(
         doc_id=ConversationMessage.next_doc_id(),
         document_type=step_def.output.document_type,
         document_weight=step_def.output.weight,
-        tokens_used=len(encoder.encode(response)),
+        tokens_used=tokens_used,
         timestamp=datetime.utcnow(),
+    )
+
+    logger.info(
+        f"Step '{step_def.id}' complete | "
+        f"tokens={tokens_used} has_think={think is not None} "
+        f"response_len={len(response)}"
     )
 
     return result, context_doc_ids, is_initial_context

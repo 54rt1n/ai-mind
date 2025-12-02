@@ -136,11 +136,11 @@ async def run_seed_actions(
 
 async def start_pipeline(
     scenario_name: str,
-    conversation_id: str,
     config: ChatConfig,
     model_name: str,
     state_store: StateStore,
     scheduler: Scheduler,
+    conversation_id: Optional[str] = None,
     query_text: Optional[str] = None,
 ) -> str:
     """
@@ -148,11 +148,11 @@ async def start_pipeline(
 
     Args:
         scenario_name: Name of the scenario YAML to load
-        conversation_id: ID of the conversation to analyze
         config: ChatConfig with provider keys and settings
         model_name: Name of the model to use (from models.yaml)
         state_store: StateStore instance for Redis operations
         scheduler: Scheduler instance for queue operations
+        conversation_id: ID of the conversation to analyze (required for analyst/summarizer)
         query_text: Optional query for journaler/philosopher scenarios
 
     Returns:
@@ -160,7 +160,7 @@ async def start_pipeline(
 
     Raises:
         FileNotFoundError: If scenario not found
-        ValueError: If model not found
+        ValueError: If model not found or conversation required but not found
     """
     # 1. Load scenario
     scenario = load_scenario(scenario_name)
@@ -170,15 +170,24 @@ async def start_pipeline(
     cvm = ConversationModel.from_config(config)
     roster = Roster.from_config(config)
 
-    # 3. Get persona_id from the conversation itself
-    conv_df = cvm.index.search(
-        query_conversation_id=conversation_id,
-        query_document_type='conversation',
-        query_limit=1,
-    )
-    if conv_df.empty:
-        raise ValueError(f"Conversation {conversation_id} not found")
-    persona_id = conv_df.iloc[0]['persona_id']
+    # 3. Get persona_id - from conversation if required, else from config
+    if scenario.requires_conversation:
+        if not conversation_id:
+            raise ValueError(f"Scenario '{scenario_name}' requires a conversation_id")
+        conv_df = cvm.index.search(
+            query_conversation_id=conversation_id,
+            query_document_type='conversation',
+            query_limit=1,
+        )
+        if conv_df.empty:
+            raise ValueError(f"Conversation {conversation_id} not found")
+        persona_id = conv_df.iloc[0]['persona_id']
+    else:
+        # Use persona from config for journaler/dreamer/philosopher
+        persona_id = config.persona_id
+        if not persona_id:
+            raise ValueError(f"Scenario '{scenario_name}' requires config.persona_id when no conversation")
+
     persona = roster.personas[persona_id]
 
     # 4. Validate model exists
@@ -188,6 +197,8 @@ async def start_pipeline(
 
     # 5. Initialize state
     pipeline_id = generate_pipeline_id()
+    # Get branch from conversation if available, else start at 0
+    branch = cvm.get_next_branch(conversation_id) if conversation_id else 0
     state = PipelineState(
         pipeline_id=pipeline_id,
         scenario_name=scenario_name,
@@ -200,7 +211,7 @@ async def start_pipeline(
         guidance=config.guidance,
         query_text=query_text,
         persona_mood=config.persona_mood,
-        branch=cvm.get_next_branch(conversation_id),
+        branch=branch,
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )

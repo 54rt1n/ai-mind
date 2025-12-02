@@ -31,6 +31,76 @@ from aim.dreamer.models import (
 class TestSelectModelName:
     """Test model selection logic."""
 
+    def test_analyst_scenario_codex_step_uses_codex_model(self):
+        """Verify the analyst scenario's codex step has is_codex=True and uses codex_model.
+
+        This is an integration test that loads the actual analyst.yaml scenario
+        and verifies the codex step is properly configured to use the codex_model.
+        """
+        from aim.dreamer.scenario import load_scenario
+
+        # Load the actual analyst scenario
+        scenario = load_scenario("analyst")
+
+        # Verify the codex step exists and has is_codex=True
+        assert "codex" in scenario.steps, "Analyst scenario should have a 'codex' step"
+        codex_step = scenario.steps["codex"]
+        assert codex_step.config.is_codex is True, (
+            f"Codex step should have is_codex=True, got {codex_step.config.is_codex}"
+        )
+
+        # Create a state with codex_model set
+        state = PipelineState(
+            pipeline_id="test-123",
+            scenario_name="analyst",
+            conversation_id="conv-1",
+            persona_id="assistant",
+            user_id="user",
+            model="default-model",
+            codex_model="codex-model",
+            branch=0,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+
+        # Verify select_model_name returns the codex_model for this step
+        result = select_model_name(state, codex_step.config)
+        assert result == "codex-model", (
+            f"Expected codex-model for codex step, got {result}"
+        )
+
+    def test_analyst_codex_step_falls_back_when_codex_model_not_set(self):
+        """Verify codex step falls back to default model when codex_model is not configured.
+
+        This tests the common misconfiguration where is_codex=True in the scenario
+        but codex_model is not set in the config/state - the step will still run
+        but use the default model instead of a specialized codex model.
+        """
+        from aim.dreamer.scenario import load_scenario
+
+        scenario = load_scenario("analyst")
+        codex_step = scenario.steps["codex"]
+
+        # State WITHOUT codex_model set (None)
+        state = PipelineState(
+            pipeline_id="test-123",
+            scenario_name="analyst",
+            conversation_id="conv-1",
+            persona_id="assistant",
+            user_id="user",
+            model="default-model",
+            codex_model=None,  # Not set!
+            branch=0,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+
+        # Should fall back to default model
+        result = select_model_name(state, codex_step.config)
+        assert result == "default-model", (
+            f"Expected default-model when codex_model is None, got {result}"
+        )
+
     def test_model_override_takes_precedence(self):
         """Model override should be used if set."""
         state = PipelineState(
@@ -158,7 +228,10 @@ class TestBuildTurns:
         memories = []
         prior_outputs = []
 
-        turns, system_message = build_turns(state, prompt, memories, prior_outputs, mock_persona)
+        turns, system_message = build_turns(
+            state, prompt, memories, prior_outputs, mock_persona,
+            max_context_tokens=32768, max_output_tokens=4096
+        )
 
         # System message is returned separately (for config.system_message)
         assert system_message == "You are an AI assistant."
@@ -200,7 +273,10 @@ class TestBuildTurns:
         ]
         prior_outputs = []
 
-        turns, system_message = build_turns(state, prompt, memories, prior_outputs, mock_persona)
+        turns, system_message = build_turns(
+            state, prompt, memories, prior_outputs, mock_persona,
+            max_context_tokens=32768, max_output_tokens=4096
+        )
 
         # System message is returned separately
         assert system_message == "You are an AI assistant."
@@ -218,6 +294,7 @@ class TestBuildTurns:
         """Turns should include prior step outputs loaded from CVM."""
         mock_persona = Mock()
         mock_persona.system_prompt.return_value = "You are an AI assistant."
+        mock_persona.get_wakeup.return_value = "Hello!"
 
         state = PipelineState(
             pipeline_id="test-123",
@@ -238,7 +315,10 @@ class TestBuildTurns:
             {"content": "Second step output.", "step_id": "step2"},
         ]
 
-        turns, system_message = build_turns(state, prompt, memories, prior_outputs, mock_persona)
+        turns, system_message = build_turns(
+            state, prompt, memories, prior_outputs, mock_persona,
+            max_context_tokens=32768, max_output_tokens=4096
+        )
 
         # System message is returned separately
         assert system_message == "You are an AI assistant."
@@ -251,6 +331,46 @@ class TestBuildTurns:
         assert turns[1]["content"] == "Second step output."
         assert turns[2]["role"] == "user"
         assert turns[2]["content"] == "Continue the analysis."
+
+    def test_memory_trimming(self):
+        """Memories should be trimmed when exceeding token budget."""
+        mock_persona = Mock()
+        mock_persona.system_prompt.return_value = "System."
+        mock_persona.get_wakeup.return_value = "Hi!"
+
+        state = PipelineState(
+            pipeline_id="test-123",
+            scenario_name="test",
+            conversation_id="conv-1",
+            persona_id="assistant",
+            user_id="user",
+            model="default-model",
+            branch=0,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+
+        prompt = "Analyze."
+        # Create many memories that would exceed a small budget
+        memories = [
+            {"content": f"Memory {i} with some content." * 10}
+            for i in range(100)
+        ]
+        prior_outputs = []
+
+        # With very small context, should trim memories
+        turns, system_message = build_turns(
+            state, prompt, memories, prior_outputs, mock_persona,
+            max_context_tokens=2048, max_output_tokens=512
+        )
+
+        # Should have some turns but not all 100 memories
+        assert len(turns) >= 1  # At least the prompt
+        if len(turns) > 1:
+            # If memories included, check they were trimmed
+            memory_turn = turns[0]["content"]
+            memory_count = memory_turn.count("<memory>")
+            assert memory_count < 100, f"Expected fewer than 100 memories, got {memory_count}"
 
 
 class TestFormatMemoriesXML:
@@ -405,6 +525,7 @@ class TestExecuteStep:
 
         mock_persona = Mock()
         mock_persona.system_prompt.return_value = "You are an AI."
+        mock_persona.get_wakeup.return_value = "Hello!"
         mock_persona.pronouns = {"subj": "they", "obj": "them", "poss": "their"}
         mock_persona.aspects = {}
 
@@ -447,6 +568,8 @@ class TestExecuteStep:
         # Mock the LLM provider
         with patch("aim.dreamer.executor.LanguageModelV2") as mock_model_v2:
             mock_model_instance = Mock()
+            mock_model_instance.max_output_tokens = 4096
+            mock_model_instance.max_tokens = 32768
             mock_provider = Mock()
             mock_provider.stream_turns.return_value = iter(["Test", " response", "."])
             mock_model_instance.llm_factory.return_value = mock_provider
@@ -484,6 +607,7 @@ class TestExecuteStep:
 
         mock_persona = Mock()
         mock_persona.system_prompt.return_value = "You are an AI."
+        mock_persona.get_wakeup.return_value = "Hello!"
         mock_persona.pronouns = {"subj": "they", "obj": "them", "poss": "their"}
         mock_persona.aspects = {}
 
@@ -521,6 +645,8 @@ class TestExecuteStep:
 
         with patch("aim.dreamer.executor.LanguageModelV2") as mock_model_v2:
             mock_model_instance = Mock()
+            mock_model_instance.max_output_tokens = 4096
+            mock_model_instance.max_tokens = 32768
             mock_provider = Mock()
             mock_provider.stream_turns.return_value = iter([
                 "<think>Internal reasoning</think>",
@@ -599,6 +725,8 @@ class TestExecuteStep:
 
         with patch("aim.dreamer.executor.LanguageModelV2") as mock_model_v2:
             mock_model_instance = Mock()
+            mock_model_instance.max_output_tokens = 4096
+            mock_model_instance.max_tokens = 32768
             mock_provider = Mock()
             mock_provider.stream_turns.return_value = iter(["Memory analysis complete."])
             mock_model_instance.llm_factory.return_value = mock_provider
