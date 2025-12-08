@@ -52,7 +52,7 @@ class TestGetConsciousMemoryUnit:
 
     def test_structure_with_no_dynamic_content(self, unit_test_xml_strategy, sample_persona):
         """Test basic XML structure when CVM returns empty and no extras are set."""
-        xml_output = unit_test_xml_strategy.get_conscious_memory(sample_persona)
+        xml_output, _ = unit_test_xml_strategy.get_conscious_memory(sample_persona)
         
         assert "<PraxOS>--== PraxOS Conscious Memory **Online** ==--</PraxOS>" in xml_output
         assert f"<{unit_test_xml_strategy.hud_name}>" in xml_output
@@ -85,7 +85,7 @@ class TestGetConsciousMemoryUnit:
         ])
         mock_chat_manager.cvm.get_motd.return_value = motd_df
         
-        xml_output = unit_test_xml_strategy.get_conscious_memory(sample_persona)
+        xml_output, _ = unit_test_xml_strategy.get_conscious_memory(sample_persona)
         
         # Check for the presence of the core MOTD content, allowing for newlines/indentation
         assert "xoxo MOTD:" in xml_output 
@@ -107,7 +107,7 @@ class TestGetConsciousMemoryUnit:
         ])
         mock_chat_manager.cvm.get_conscious.return_value = journal_df
         
-        xml_output = unit_test_xml_strategy.get_conscious_memory(sample_persona)
+        xml_output, _ = unit_test_xml_strategy.get_conscious_memory(sample_persona)
 
         assert "<Journal date=" in xml_output
         assert "My thoughts on **UnitTesting** and **Mocks**." in xml_output
@@ -123,7 +123,7 @@ class TestGetConsciousMemoryUnit:
         mock_chat_manager.current_workspace = "Unit test workspace content."
         unit_test_xml_strategy.scratch_pad = "Unit test scratchpad." # Set directly on strategy
         
-        xml_output = unit_test_xml_strategy.get_conscious_memory(sample_persona)
+        xml_output, _ = unit_test_xml_strategy.get_conscious_memory(sample_persona)
         
         # Original assertion for nowrap=True:
         # assert '<document metadata="name=&quot;unit_test_doc.txt&quot; length=&quot;5&quot;>Mocked content from active document.</document>' in xml_output
@@ -193,7 +193,7 @@ class TestGetConsciousMemoryUnit:
         # Pin the message
         unit_test_xml_strategy.pin_message(pinned_doc_id)
         
-        xml_output = unit_test_xml_strategy.get_conscious_memory(sample_persona)
+        xml_output, _ = unit_test_xml_strategy.get_conscious_memory(sample_persona)
 
         # Assert Pinned section exists and contains the content
         assert f'<Pinned date="{pinned_date_str}" type="pinned_note" doc_id="{pinned_doc_id}">' in xml_output
