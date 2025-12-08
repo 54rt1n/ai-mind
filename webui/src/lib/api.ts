@@ -50,59 +50,99 @@ class Api {
         return response;
     }
 
-    async getPipelineTasks(): Promise<any> {
-        const response = await this.fetch('/api/pipeline/task');
+    // Dreamer Pipeline API
+    async getDreamerPipelines(status?: string): Promise<any> {
+        const params = status ? `?status=${status}` : '';
+        const response = await this.fetch(`/api/dreamer/pipelines${params}`);
         return response.json();
     }
 
-    async createPipelineTask(pipelineType: PipelineType, config: BasePipelineSchema): Promise<any> {
+    async getDreamerPipelineStatus(pipelineId: string): Promise<any> {
+        const response = await this.fetch(`/api/dreamer/pipeline/${pipelineId}`);
+        return response.json();
+    }
+
+    async createDreamerPipeline(
+        scenarioName: PipelineType,
+        conversationId: string,
+        personaId: string,
+        modelName: string,
+        options?: {
+            userId?: string;
+            queryText?: string;
+            guidance?: string;
+            mood?: string;
+        }
+    ): Promise<any> {
         try {
-            const response = await this.fetch('/api/pipeline/task', {
+            const response = await this.fetch('/api/dreamer/pipeline', {
                 method: 'POST',
-                body: JSON.stringify({ pipeline_type: pipelineType, config }),
+                body: JSON.stringify({
+                    scenario_name: scenarioName,
+                    conversation_id: conversationId,
+                    persona_id: personaId,
+                    user_id: options?.userId,
+                    model_name: modelName,
+                    query_text: options?.queryText,
+                    guidance: options?.guidance,
+                    mood: options?.mood,
+                }),
             });
             if (!response.ok) {
                 const data = await response.json();
-                throw new Error(`API call failed: ${data}`);
+                throw new Error(`API call failed: ${data.detail || data}`);
             }
             return response.json();
         } catch (error) {
-            console.error('Error creating pipeline task:', error);
-            alert(error);
+            console.error('Error creating dreamer pipeline:', error);
             throw error;
         }
     }
 
-    async retryPipelineTask(taskId: number): Promise<any> {
+    async resumeDreamerPipeline(pipelineId: string): Promise<any> {
         try {
-            const response = await this.fetch(`/api/pipeline/task/${taskId}/retry`, {
+            const response = await this.fetch(`/api/dreamer/pipeline/${pipelineId}/resume`, {
                 method: 'POST',
             });
             if (!response.ok) {
                 const data = await response.json();
-                throw new Error(`API call failed: ${data}`);
+                throw new Error(`API call failed: ${data.detail || data}`);
             }
             return response.json();
         } catch (error) {
-            console.error('Error retrying pipeline task:', error);
-            alert(error);
+            console.error('Error resuming dreamer pipeline:', error);
             throw error;
         }
     }
 
-    async removePipelineTask(taskId: number): Promise<any> {
+    async cancelDreamerPipeline(pipelineId: string): Promise<any> {
         try {
-            const response = await this.fetch(`/api/pipeline/task/${taskId}/remove`, {
+            const response = await this.fetch(`/api/dreamer/pipeline/${pipelineId}/cancel`, {
                 method: 'POST',
             });
             if (!response.ok) {
                 const data = await response.json();
-                throw new Error(`API call failed: ${data}`);
+                throw new Error(`API call failed: ${data.detail || data}`);
             }
             return response.json();
         } catch (error) {
-            console.error('Error removing pipeline task:', error);
-            alert(error);
+            console.error('Error cancelling dreamer pipeline:', error);
+            throw error;
+        }
+    }
+
+    async deleteDreamerPipeline(pipelineId: string): Promise<any> {
+        try {
+            const response = await this.fetch(`/api/dreamer/pipeline/${pipelineId}`, {
+                method: 'DELETE',
+            });
+            if (!response.ok) {
+                const data = await response.json();
+                throw new Error(`API call failed: ${data.detail || data}`);
+            }
+            return response.json();
+        } catch (error) {
+            console.error('Error deleting dreamer pipeline:', error);
             throw error;
         }
     }

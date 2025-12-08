@@ -3,30 +3,21 @@ import { writable } from 'svelte/store';
 import type { PipelineType, BasePipelineSchema } from '$lib';
 import { api } from '$lib';
 
-interface Task {
-    id: string;
-    job_status: string;
-    progress: number;
-    name: string;
-    timestamp: number;
-    finishedOn: number | null;
-    data: {
-        pipeline_type: string;
-        config: {
-            user_id?: string | null;
-            persona_id?: string | null;
-            conversation_id?: string | null;
-            mood?: string | null;
-            no_retry?: boolean | null;
-            guidance?: string | null;
-            top_n?: number | null;
-            query_text?: string | null;
-        }
-    }
+interface DreamerPipeline {
+    pipeline_id: string;
+    scenario_name: string;
+    status: string;  // 'pending' | 'running' | 'complete' | 'failed'
+    current_step: string | null;
+    completed_steps: string[];
+    failed_steps: string[];
+    step_errors: Record<string, string>;
+    progress_percent: number;
+    created_at: string;
+    updated_at: string;
 }
 
 interface TaskStore {
-    tasks: Task[];
+    tasks: DreamerPipeline[];
     loading: boolean;
     error: string | null;
 }
@@ -43,8 +34,8 @@ function createTaskStore() {
         fetchTasks: async () => {
             update(store => ({ ...store, loading: true, error: null }));
             try {
-                const data = await api.getPipelineTasks();
-                update(store => ({ ...store, tasks: data.jobs, loading: false }));
+                const data = await api.getDreamerPipelines();
+                update(store => ({ ...store, tasks: data.pipelines || [], loading: false }));
             } catch (error) {
                 update(store => ({ ...store, error: 'Failed to fetch tasks', loading: false }));
             }
@@ -52,7 +43,18 @@ function createTaskStore() {
         submitTask: async (pipelineType: PipelineType, formData: BasePipelineSchema) => {
             update(store => ({ ...store, loading: true, error: null }));
             try {
-                const result = await api.createPipelineTask(pipelineType, formData);
+                const result = await api.createDreamerPipeline(
+                    pipelineType,
+                    formData.conversation_id || '',
+                    formData.persona_id || '',
+                    formData.model || 'gemini-2.0-flash',
+                    {
+                        userId: formData.user_id,
+                        queryText: formData.query_text,
+                        guidance: formData.guidance,
+                        mood: formData.mood,
+                    },
+                );
                 if (result.status === 'success') {
                     await taskStore.fetchTasks();
                 } else {
@@ -63,24 +65,38 @@ function createTaskStore() {
                 alert(error);
             }
         },
-        retryTask: async (taskId: number) => {
+        resumeTask: async (pipelineId: string) => {
             update(store => ({ ...store, loading: true, error: null }));
             try {
-                const result = await api.retryPipelineTask(taskId);
+                const result = await api.resumeDreamerPipeline(pipelineId);
                 if (result.status === 'success') {
                     await taskStore.fetchTasks();
                 } else {
                     throw new Error(result.message);
                 }
             } catch (error) {
-                update(store => ({ ...store, error: 'Failed to retry task', loading: false }));
+                update(store => ({ ...store, error: 'Failed to resume task', loading: false }));
                 alert(error);
             }
         },
-        removeTask: async (taskId: number) => {
+        cancelTask: async (pipelineId: string) => {
             update(store => ({ ...store, loading: true, error: null }));
             try {
-                const result = await api.removePipelineTask(taskId);
+                const result = await api.cancelDreamerPipeline(pipelineId);
+                if (result.status === 'success') {
+                    await taskStore.fetchTasks();
+                } else {
+                    throw new Error(result.message);
+                }
+            } catch (error) {
+                update(store => ({ ...store, error: 'Failed to cancel task', loading: false }));
+                alert(error);
+            }
+        },
+        removeTask: async (pipelineId: string) => {
+            update(store => ({ ...store, loading: true, error: null }));
+            try {
+                const result = await api.deleteDreamerPipeline(pipelineId);
                 if (result.status === 'success') {
                     await taskStore.fetchTasks();
                 } else {

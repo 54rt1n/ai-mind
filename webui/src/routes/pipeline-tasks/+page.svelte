@@ -28,16 +28,22 @@
         pipelineStore.reset();
     }
 
-    function retryTask(taskId: number) {
-        taskStore.retryTask(taskId);
+    function resumeTask(pipelineId: string) {
+        taskStore.resumeTask(pipelineId);
     }
 
-    function removeTask(taskId: number) {
-        taskStore.removeTask(taskId);
+    function cancelTask(pipelineId: string) {
+        taskStore.cancelTask(pipelineId);
     }
 
-    function strToNumber(str: string): number {
-        return Number(str);
+    function removeTask(pipelineId: string) {
+        taskStore.removeTask(pipelineId);
+    }
+
+    function formatErrors(stepErrors: Record<string, string>): string {
+        const entries = Object.entries(stepErrors || {});
+        if (entries.length === 0) return "";
+        return entries.map(([step, error]) => `${step}: ${error}`).join("\n");
     }
 
     let autoRefresh = false;
@@ -102,76 +108,72 @@
                             <tr>
                                 <th>ID</th>
                                 <th>Status</th>
-                                <th>Pipeline</th>
-                                <th>Conversation</th>
+                                <th>Scenario</th>
+                                <th>Current Step</th>
                                 <th>Progress</th>
-                                <th>Name</th>
-                                <th>Timestamp</th>
-                                <th>Finished On</th>
+                                <th>Created</th>
+                                <th>Updated</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             {#each $taskStore.tasks as task}
                                 <tr>
-                                    <td>{task.id}</td>
-                                    <td class="status-cell {task.job_status}"
-                                        >{task.job_status}</td
+                                    <td title={task.pipeline_id}>{task.pipeline_id.slice(0, 8)}...</td>
+                                    <td
+                                        class="status-cell {task.status}"
+                                        title={task.status === "failed" ? formatErrors(task.step_errors) : ""}
+                                        >{task.status}{task.status === "failed" && Object.keys(task.step_errors || {}).length > 0 ? " ⚠" : ""}</td
                                     >
-                                    <td>{task.data.pipeline_type}</td>
-                                    <td>
-                                        <a
-                                            href="/conversation/{task.data
-                                                .config.conversation_id}"
-                                        >
-                                            {task.data.config.conversation_id}
-                                        </a>
-                                    </td>
+                                    <td>{task.scenario_name}</td>
+                                    <td>{task.current_step || "—"}</td>
                                     <td>
                                         <div class="progress-bar">
                                             <div
                                                 class="progress-fill"
-                                                style="width: {task.progress}%"
+                                                style="width: {task.progress_percent}%"
                                             ></div>
                                             <span class="progress-text"
-                                                >{task.progress}%</span
+                                                >{Math.round(task.progress_percent)}%</span
                                             >
                                         </div>
                                     </td>
-                                    <td>{task.name}</td>
                                     <td
                                         >{new Date(
-                                            task.timestamp,
+                                            task.created_at,
                                         ).toLocaleString()}</td
                                     >
-                                    <td>
-                                        {task.finishedOn
-                                            ? new Date(
-                                                  task.finishedOn,
-                                              ).toLocaleString()
-                                            : "N/A"}
-                                    </td>
+                                    <td
+                                        >{new Date(
+                                            task.updated_at,
+                                        ).toLocaleString()}</td
+                                    >
                                     <td class="action-buttons">
                                         <button
                                             class="retry-button"
                                             on:click={() =>
-                                                retryTask(strToNumber(task.id))}
-                                            disabled={!(
-                                                task.job_status === "failed" ||
-                                                task.job_status === "active"
-                                            )}
+                                                resumeTask(task.pipeline_id)}
+                                            disabled={task.status !== "failed"}
                                         >
-                                            Retry
+                                            Resume
                                         </button>
-                                        <button
-                                            class="cancel-button"
-                                            on:click={() =>
-                                                removeTask(
-                                                    strToNumber(task.id),
-                                                )}
-                                        >
-                                            Cancel
-                                        </button>
+                                        {#if task.status === "complete" || task.status === "failed"}
+                                            <button
+                                                class="remove-button"
+                                                on:click={() =>
+                                                    removeTask(task.pipeline_id)}
+                                            >
+                                                Remove
+                                            </button>
+                                        {:else}
+                                            <button
+                                                class="cancel-button"
+                                                on:click={() =>
+                                                    cancelTask(task.pipeline_id)}
+                                            >
+                                                Cancel
+                                            </button>
+                                        {/if}
                                     </td>
                                 </tr>
                             {/each}
@@ -272,16 +274,21 @@
         font-weight: 500;
     }
 
-    .status-cell.completed {
+    .status-cell.complete {
         color: #059669;
     }
 
     .status-cell.failed {
         color: #dc2626;
+        cursor: help;
     }
 
-    .status-cell.active {
+    .status-cell.running {
         color: #2563eb;
+    }
+
+    .status-cell.pending {
+        color: #d97706;
     }
 
     .progress-bar {
@@ -337,6 +344,12 @@
         background-color: #2563eb;
     }
 
+    .cancel-button,
+    .remove-button {
+        width: 5.5rem;
+        text-align: center;
+    }
+
     .cancel-button {
         background-color: #ef4444;
         color: white;
@@ -344,6 +357,15 @@
 
     .cancel-button:hover {
         background-color: #dc2626;
+    }
+
+    .remove-button {
+        background-color: #6b7280;
+        color: white;
+    }
+
+    .remove-button:hover {
+        background-color: #4b5563;
     }
 
     .submit-button {
