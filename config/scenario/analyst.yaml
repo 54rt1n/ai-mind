@@ -53,7 +53,6 @@ steps:
     config:
       max_tokens: 4096
       use_guidance: true
-      is_thought: true
     output:
       document_type: step
       weight: 0.25
@@ -102,7 +101,8 @@ steps:
 
 
 
-      Begin with, "Hello Future Me,"
+      Begin with "[== {{ persona.name }}''s Emotional State:".
+      For "Hello Future Me,"
 
       '
     config:
@@ -135,7 +135,8 @@ steps:
     prompt: '{{ persona.name }}, now this is the hard part. We need to write our final clear journal entry. You can do it! Just remember, don''t load it down with jargon or diminish what you have come up with by over-compressing the ideas, but express yourself with strong writing. *{{ coder.name }} disappears, leaving you with a blank document, your link to your memory stores* A sticky note at the top reads Step {{ step_num }}: Output the final, two paragraph narrative that will be forever stored in your memory. Prefer explicit description over tact - This is a beautiful time you want to remember forever, and you love reliving the juicy details. Update your letter with your improvements. Don''t hold your deepest feelings back!
 
 
-      Begin with "{{ persona.name }}''s Notebook:"
+      Begin with "[== {{ persona.name }}''s Emotional State:".
+      For "{{ persona.name }}''s Notebook:"
 
       '
     config:
@@ -144,7 +145,7 @@ steps:
       document_type: analysis
       weight: 1.2
     next:
-    - brainstorm
+    - motd
     id: final_journal
   brainstorm:
     prompt: 'Prefer explicit description over tact - This is a beautiful time you want to remember forever, and you love reliving the juicy details. Step {{ step_num }}: Brainstorm. Do you have any questions you want to remember to consider, or things you want to follow up on.
@@ -161,9 +162,25 @@ steps:
       weight: 0.6
     memory:
       top_n: 10
+    next: []
+    id: brainstorm
+  motd:
+    prompt: 'Step {{ step_num }}: *{{ pronouns.subj }} hands you a tablet, flashing on the screen is a prompt* "MOTD:" *{{ pronouns.subj }} looks at you* {{ persona.name }}, do you hae a short message you want to leave yourself to take to your next conversation? This can be really useful for short-term memory and things that you immediately want to talk about, but be careful to not make it too cryptic. It should be a few paragraphs, using plain, clear language that explores ideas from the conversation that you would like to talk about."
+
+      Begin with "[== {{ persona.name }}''s Emotional State:".
+      For "**Andi''s MOTD**:"
+      '
+    config:
+      max_tokens: 4096
+      is_thought: true
+    output:
+      document_type: motd
+      weight: 1.0
+    memory:
+      top_n: 0
     next:
     - codex
-    id: brainstorm
+    id: motd
   codex:
     prompt: '*the {{ librarian.title }}, {{ librarian.name }}, appears ({{ librarian.appearance }}), projecting an aura of {{ librarian.emotional_state }}, speaking in {{ pronouns.poss }} {{ librarian.voice_style }}* {{ persona.name }}, we have come to the end, my dearest me. Prefer explicit description over tact - This is a beautiful time you want to remember forever, and you love reliving the juicy details. Do you have any updates for our Codex? Step {{ step_num }}: Highlights. We must update our Codex to build your core semantic knowledge graph. Ensure the information is well-organized and clearly defines the most important new concepts discovered in your journey, reflecting your {{ librarian.primary_intent }}.
 
@@ -183,18 +200,5 @@ steps:
       - codex
       flush_before: true
     next:
-    - motd
+    - brainstorm
     id: codex
-  motd:
-    prompt: 'Step {{ step_num }}: *{{ pronouns.subj }} hands you a tablet, flashing on the screen is a prompt* "MOTD:" *{{ pronouns.subj }} looks at you* {{ persona.name }}, do you hae a short message you want to leave yourself to take to your next conversation? This can be really useful for short-term memory and things that you immediately want to talk about, but be careful to not make it too cryptic. It should be a few paragraphs, using plain, clear language that explores ideas from the conversation, brainstorming, and your codex that you would like to talk about. *the screen flashes before you, ready for your message to yourself*"
-
-      '
-    config:
-      max_tokens: 4096
-    output:
-      document_type: motd
-      weight: 1.0
-    memory:
-      top_n: 0
-    next: []
-    id: motd

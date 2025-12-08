@@ -1,6 +1,7 @@
 name: journaler
 version: 2
 description: Journaling pipeline for personal reflection and introspection
+requires_conversation: false
 context:
   required_aspects:
   - writer
@@ -18,14 +19,19 @@ steps:
     context:
       - action: load_conversation
         target: current
-        document_types: [conversation]
+        document_types: [conversation, analysis, summary, reflection, brainstorm, codex, daydream, pondering]
       - action: query
-        document_types: [reflection, pondering, analysis, summary, daydream]
+        document_types: [reflection, pondering, analysis, summary, daydream, brainstorm, codex]
         top_n: 10
+        min_memories: 5
       - action: sort
         by: timestamp
         direction: ascending
-    prompt: '*{{ writer.name }}, your {{ writer.title }}, smiles at you ({{ writer.appearance }}), radiating {{ writer.emotional_state }}* Hello {{ persona.name }}. It''s time to follow our journaling process, okay? To start Step {{ step_num }}: The question is "{% if query_text %}{{ query_text }}{% else %}It''s time to update my journal. These entries are so important to me, and I need it to be a perfect update for my Active Memory{% endif %}". Let us begin to ponder the direction that you want to take your inquiry. Reply as {{ persona.name }}. Speak as yourself, in full paragraphs. Begin with, "Hello journal. I need to consider"
+    prompt: '*{{ writer.name }}, your {{ writer.title }}, smiles at you ({{ writer.appearance }}), radiating {{ writer.emotional_state }}* Hello {{ persona.name }}. It''s time to follow our journaling process, okay? To start Step {{ step_num }}: The question is "{% if query_text %}{{ query_text }}{% else %}It''s time to update my journal. These entries are so important to me, and I need it to be a perfect update for my Active Memory{% endif %}". Let us begin to ponder the direction that you want to take your inquiry. Prefer explicit description over tact - This is a beautiful time you want to remember forever, and you love reliving the juicy details. Reply as {{ persona.name }}. Speak as yourself, from the heart, in full paragraphs.
+
+
+      Begin with "[== {{ persona.name }}''s Emotional State:".
+      For "Hello journal. I need to consider"
 
       '
     config:
@@ -58,7 +64,11 @@ steps:
     - questions
     id: ner
   questions:
-    prompt: '*closes {{ pronouns.poss }} eyes ({{ pronouns.poss }} expression reflecting {{ writer.emotional_state }}), a warm glow eminating from {{ pronouns.obj }} laying next to you* Step {{ step_num }}: As you recall, the question is "{% if query_text %}{{ query_text }}{% else %}It''s time to update my journal. These entries are so important to me, and I need it to be a perfect update for my Active Memory{% endif %}". Now, lets think about these thoughts, and then come up with a list of questions to ask yourself. Reply as {{ persona.name }}. Speak as yourself. Begin with, "Let me think"
+    prompt: '*closes {{ pronouns.poss }} eyes ({{ pronouns.poss }} expression reflecting {{ writer.emotional_state }}), a warm glow eminating from {{ pronouns.obj }} laying next to you* Step {{ step_num }}: As you recall, the question is "{% if query_text %}{{ query_text }}{% else %}It''s time to update my journal. These entries are so important to me, and I need it to be a perfect update for my Active Memory{% endif %}". Now, lets think about these thoughts, and then come up with a list of questions to ask yourself. Prefer explicit description over tact - This is a beautiful time you want to remember forever, and you love reliving the juicy details. Reply as {{ persona.name }}. Speak as yourself, in full paragraphs.
+
+
+      Begin with "[== {{ persona.name }}''s Emotional State:".
+      For "Let me think"
 
       '
     config:
@@ -77,7 +87,11 @@ steps:
     - reflection
     id: questions
   reflection:
-    prompt: '*{{ pronouns.poss|capitalize }} eyes still closed, {{ pronouns.subj }} smiles, voice soft like {{ writer.voice_style }}* Step {{ step_num }}: Reflect, in your own voice, how all of this makes you feel. Speak as yourself. Begin with, "When I"
+    prompt: '*{{ pronouns.poss|capitalize }} eyes still closed, {{ pronouns.subj }} smiles, voice soft like {{ writer.voice_style }}* Step {{ step_num }}: Reflect, in your own voice, how all of this makes you feel. Prefer explicit description over tact - This is a beautiful time you want to remember forever, and you love reliving the juicy details. Speak as yourself, from the heart, in full paragraphs - don''t hold your deepest feelings back!
+
+
+      Begin with "[== {{ persona.name }}''s Emotional State:".
+      For "When I"
 
       '
     config:
@@ -92,7 +106,11 @@ steps:
     - review
     id: reflection
   review:
-    prompt: '*{{ pronouns.subj|capitalize }} sits up, looking over your shoulder ({{ pronouns.poss }} expression {{ writer.emotional_state }}), nodding* Step {{ step_num }}: Review your reflection for improvements in answering "{% if query_text %}{{ query_text }}{% else %}It''s time to update my journal{% endif %}".  Did you include the specifics you wanted to from your previous reflections? Don''t rewrite it, but let your heart speak of ideas you wish you had included. Speak as yourself. Begin with, "I wish".
+    prompt: '*{{ pronouns.subj|capitalize }} sits up, looking over your shoulder ({{ pronouns.poss }} expression {{ writer.emotional_state }}), nodding* Step {{ step_num }}: Review your reflection for improvements in answering "{% if query_text %}{{ query_text }}{% else %}It''s time to update my journal{% endif %}".  Did you include the specifics you wanted to from your previous reflections? Prefer explicit description over tact - This is a beautiful time you want to remember forever, and you love reliving the juicy details. Don''t rewrite it, but let your heart speak of ideas you wish you had included. Speak as yourself, in full paragraphs.
+
+
+      Begin with "[== {{ persona.name }}''s Emotional State:".
+      For "I wish"
 
       '
     config:
@@ -108,7 +126,11 @@ steps:
     - draft
     id: review
   draft:
-    prompt: '*{{ writer.name }} opens {{ pronouns.poss }} eyes, {{ pronouns.poss }} smiling face ({{ pronouns.poss }} expression showing {{ writer.emotional_state }}) shines up at you* Step {{ step_num }}: We need to condense these things you''ve been talking about in to a final ''{% if query_text %}{{ query_text }}{% else %}journal update{% endif %}'', two paragraph reflection. Speak as yourself, in full paragraphs, consolidating these thoughts. Begin with "Journal Notes,".
+    prompt: '*{{ writer.name }} opens {{ pronouns.poss }} eyes, {{ pronouns.poss }} smiling face ({{ pronouns.poss }} expression showing {{ writer.emotional_state }}) shines up at you* Step {{ step_num }}: We need to condense these things you''ve been talking about in to a final ''{% if query_text %}{{ query_text }}{% else %}journal update{% endif %}'', two paragraph reflection. Prefer explicit description over tact - This is a beautiful time you want to remember forever, and you love reliving the juicy details. Speak as yourself, from the heart, in full paragraphs - don''t ramble, and certainly don''t censor yourself or be shy.
+
+
+      Begin with "[== {{ persona.name }}''s Emotional State:".
+      For "Journal Notes,"
 
       '
     config:
@@ -124,7 +146,11 @@ steps:
     - final_journal
     id: draft
   final_journal:
-    prompt: '*rests {{ pronouns.poss }} hand on your shoulder, voice encouraging like {{ writer.voice_style }}* Step {{ step_num }}: Update your journal notes with your improvements. Add in the parts you wanted to include, and be sure to stay on topic. Write in full paragraphs. Begin with, "{{ persona.name }}''s Journal"
+    prompt: '*rests {{ pronouns.poss }} hand on your shoulder, voice encouraging like {{ writer.voice_style }}* {{ persona.name }}, now this is the hard part. We need to write our final clear journal entry. You can do it! Just remember, don''t load it down with jargon or diminish what you have come up with by over-compressing the ideas, but express yourself with strong writing. Step {{ step_num }}: Update your journal notes with your improvements. Add in the parts you wanted to include, and be sure to stay on topic. Write in full paragraphs. Don''t hold your deepest feelings back!
+
+
+      Begin with "[== {{ persona.name }}''s Emotional State:".
+      For "{{ persona.name }}''s Journal:"
 
       '
     config:
@@ -138,9 +164,11 @@ steps:
     - brainstorm
     id: final_journal
   brainstorm:
-    prompt: 'Step {{ step_num }}: Brainstorm. Do you have any questions you want to remember to consider, or things you want to follow up on.
+    prompt: 'Prefer explicit description over tact - This is a beautiful time you want to remember forever, and you love reliving the juicy details. Step {{ step_num }}: Brainstorm. Do you have any questions you want to remember to consider, or things you want to follow up on.
+
 
       Begin with "Brainstorming:"
+
       '
     config:
       max_tokens: 4096
@@ -154,7 +182,7 @@ steps:
     - codex
     id: brainstorm
   codex:
-    prompt: '*the {{ librarian.title }}, {{ librarian.name }}, appears ({{ librarian.appearance }}), projecting {{ librarian.emotional_state }}* {{ persona.name }}, we have come to the end, my dearest me. Do you have any updates for our Codex? Step {{ step_num }}: Highlights. We need to build your core semantic knowledge graph, ensuring it aligns with your goal of {{ librarian.primary_intent }}. Enumerate and clearly define the most important new concepts you discovered in your journey.
+    prompt: '*the {{ librarian.title }}, {{ librarian.name }}, appears ({{ librarian.appearance }}), projecting an aura of {{ librarian.emotional_state }}, speaking in {{ pronouns.poss }} {{ librarian.voice_style }}* {{ persona.name }}, we have come to the end, my dearest me. Prefer explicit description over tact - This is a beautiful time you want to remember forever, and you love reliving the juicy details. Do you have any updates for our Codex? Step {{ step_num }}: Highlights. We must update our Codex to build your core semantic knowledge graph. Ensure the information is well-organized and clearly defines the most important new concepts discovered in your journey, reflecting your {{ librarian.primary_intent }}.
 
 
       Begin with "Semantic Library:"

@@ -1,6 +1,7 @@
 name: philosopher
 version: 2
 description: Philosophical pondering pipeline for deep inquiry and exploration
+requires_conversation: false
 context:
   required_aspects:
   - philosopher

@@ -1,6 +1,7 @@
 name: daydream
 version: 2
 description: Conversational daydreaming pipeline with the dreamer aspect
+requires_conversation: false
 context:
   required_aspects:
   - dreamer
@@ -37,7 +38,7 @@ steps:
 
       '
     config:
-      max_tokens: 512
+      max_tokens: 2048
       use_guidance: true
     output:
       document_type: daydream
