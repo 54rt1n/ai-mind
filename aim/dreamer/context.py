@@ -52,8 +52,15 @@ def prepare_step_context(
             accumulated_doc_ids.extend(doc_ids)
 
         elif action.action == "query":
-            doc_ids = _query_documents(action, state, cvm)
-            accumulated_doc_ids.extend(doc_ids)
+            # Check min_memories threshold - skip query if we already have enough
+            if action.min_memories and len(accumulated_doc_ids) >= action.min_memories:
+                logger.debug(
+                    f"query: Skipping - already have {len(accumulated_doc_ids)} docs "
+                    f"(min_memories={action.min_memories})"
+                )
+            else:
+                doc_ids = _query_documents(action, state, cvm)
+                accumulated_doc_ids.extend(doc_ids)
 
         elif action.action == "sort":
             accumulated_doc_ids = _sort_doc_ids(action, accumulated_doc_ids, cvm)

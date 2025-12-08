@@ -175,7 +175,7 @@ class Scheduler:
     async def mark_failed(
         self, pipeline_id: str, step_id: str, error: str
     ) -> None:
-        """Mark a step as failed.
+        """Mark a step as failed and store the error message.
 
         Args:
             pipeline_id: Pipeline identifier
@@ -185,6 +185,7 @@ class Scheduler:
         await self.state_store.set_step_status(
             pipeline_id, step_id, StepStatus.FAILED
         )
+        await self.state_store.set_step_error(pipeline_id, step_id, error)
 
     async def check_pipeline_complete(
         self, pipeline_id: str, scenario: Scenario

@@ -10,8 +10,12 @@ class StartPipelineRequest(BaseModel):
     """Request to start a new dreamer pipeline."""
     scenario_name: str
     conversation_id: str
+    persona_id: str
+    user_id: Optional[str] = None
     model_name: str
     query_text: Optional[str] = None
+    guidance: Optional[str] = None
+    mood: Optional[str] = None
 
 
 class PipelineStatusResponse(BaseModel):
@@ -22,6 +26,7 @@ class PipelineStatusResponse(BaseModel):
     current_step: Optional[str]
     completed_steps: List[str]
     failed_steps: List[str]
+    step_errors: dict[str, str] = {}
     progress_percent: float
     created_at: datetime
     updated_at: datetime
@@ -42,6 +47,12 @@ class CancelPipelineResponse(BaseModel):
 
 class ResumePipelineResponse(BaseModel):
     """Response after resuming a pipeline."""
+    status: str
+    message: str
+
+
+class DeletePipelineResponse(BaseModel):
+    """Response after deleting a pipeline."""
     status: str
     message: str
 

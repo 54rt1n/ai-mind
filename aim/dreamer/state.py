@@ -28,6 +28,10 @@ class StateStore:
         """Generate Redis key for step lock."""
         return f"{self.key_prefix}:pipeline:{pipeline_id}:lock:{step_id}"
 
+    def _errors_key(self, pipeline_id: str) -> str:
+        """Generate Redis key for step errors hash."""
+        return f"{self.key_prefix}:pipeline:{pipeline_id}:errors"
+
     async def save_state(self, state: PipelineState) -> None:
         """Persist pipeline state to Redis."""
         key = self._state_key(state.pipeline_id)
@@ -50,9 +54,10 @@ class StateStore:
         """Delete pipeline state from Redis."""
         state_key = self._state_key(pipeline_id)
         dag_key = self._dag_key(pipeline_id)
+        errors_key = self._errors_key(pipeline_id)
 
-        # Delete both state and DAG
-        await self.redis.delete(state_key, dag_key)
+        # Delete state, DAG, and errors
+        await self.redis.delete(state_key, dag_key, errors_key)
 
     async def init_dag(self, pipeline_id: str, scenario: Scenario) -> None:
         """Initialize DAG status for all steps as pending."""
@@ -108,3 +113,26 @@ class StateStore:
         """Release distributed lock for step execution."""
         lock_key = self._lock_key(pipeline_id, step_id)
         await self.redis.delete(lock_key)
+
+    async def set_step_error(
+        self, pipeline_id: str, step_id: str, error: str
+    ) -> None:
+        """Store an error message for a failed step."""
+        errors_key = self._errors_key(pipeline_id)
+        await self.redis.hset(errors_key, step_id, error)
+
+    async def get_step_errors(self, pipeline_id: str) -> dict[str, str]:
+        """Get all step errors for a pipeline.
+
+        Returns:
+            Dict mapping step_id -> error message
+        """
+        errors_key = self._errors_key(pipeline_id)
+        errors = await self.redis.hgetall(errors_key)
+
+        # Decode bytes to strings
+        return {
+            (k.decode('utf-8') if isinstance(k, bytes) else k):
+            (v.decode('utf-8') if isinstance(v, bytes) else v)
+            for k, v in errors.items()
+        }

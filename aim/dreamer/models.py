@@ -68,6 +68,9 @@ class ContextAction(BaseModel):
     top_n: Optional[int] = None
     """Maximum documents to return from query"""
 
+    min_memories: Optional[int] = None
+    """Minimum memories threshold: only execute query if accumulated docs < this value"""
+
     conversation_id: Optional[str] = None
     """Conversation to query: 'current', 'all', or specific ID"""
 

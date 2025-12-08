@@ -12,6 +12,7 @@ from ....dreamer.api import (
     start_pipeline,
     get_status,
     cancel_pipeline,
+    delete_pipeline,
     resume_pipeline,
     list_pipelines,
 )
@@ -25,6 +26,7 @@ from .dto import (
     PipelineStatusResponse,
     ListPipelinesResponse,
     CancelPipelineResponse,
+    DeletePipelineResponse,
     ResumePipelineResponse,
 )
 
@@ -105,11 +107,15 @@ class DreamerModule:
                 pipeline_id = await start_pipeline(
                     scenario_name=request.scenario_name,
                     conversation_id=request.conversation_id,
+                    persona_id=request.persona_id,
+                    user_id=request.user_id,
                     config=self.config,
                     model_name=request.model_name,
                     state_store=state_store,
                     scheduler=scheduler,
                     query_text=request.query_text,
+                    guidance=request.guidance,
+                    mood=request.mood,
                 )
 
                 return StartPipelineResponse(
@@ -169,6 +175,7 @@ class DreamerModule:
                     current_step=status.current_step,
                     completed_steps=status.completed_steps,
                     failed_steps=status.failed_steps,
+                    step_errors=status.step_errors,
                     progress_percent=status.progress_percent,
                     created_at=status.created_at,
                     updated_at=status.updated_at,
@@ -259,6 +266,44 @@ class DreamerModule:
                 logger.exception(f"Failed to resume pipeline: {e}")
                 raise HTTPException(status_code=500, detail=f"Failed to resume pipeline: {e}")
 
+        @self.router.delete("/pipeline/{pipeline_id}", response_model=DeletePipelineResponse)
+        async def delete_pipeline_endpoint(
+            pipeline_id: str,
+            credentials: HTTPAuthorizationCredentials = Depends(self.security),
+        ):
+            """
+            Delete a completed or failed pipeline.
+
+            Removes all pipeline state from Redis.
+
+            Args:
+                pipeline_id: Pipeline identifier
+                credentials: API key authentication
+
+            Returns:
+                DeletePipelineResponse confirming deletion
+
+            Raises:
+                HTTPException: If pipeline not found or deletion fails
+            """
+            try:
+                state_store = await self.get_state_store()
+
+                success = await delete_pipeline(pipeline_id, state_store)
+
+                if not success:
+                    raise HTTPException(status_code=404, detail=f"Pipeline {pipeline_id} not found")
+
+                return DeletePipelineResponse(
+                    status="success",
+                    message=f"Pipeline {pipeline_id} deleted successfully",
+                )
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.exception(f"Failed to delete pipeline: {e}")
+                raise HTTPException(status_code=500, detail=f"Failed to delete pipeline: {e}")
+
         @self.router.get("/pipelines", response_model=ListPipelinesResponse)
         async def list_pipelines_endpoint(
             status: Optional[str] = None,
@@ -293,6 +338,7 @@ class DreamerModule:
                         current_step=p.current_step,
                         completed_steps=p.completed_steps,
                         failed_steps=p.failed_steps,
+                        step_errors=p.step_errors,
                         progress_percent=p.progress_percent,
                         created_at=p.created_at,
                         updated_at=p.updated_at,

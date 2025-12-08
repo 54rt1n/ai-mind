@@ -28,6 +28,7 @@ class PipelineStatus:
         current_step: Optional[str],
         completed_steps: list[str],
         failed_steps: list[str],
+        step_errors: dict[str, str],
         progress_percent: float,
         created_at: datetime,
         updated_at: datetime,
@@ -38,6 +39,7 @@ class PipelineStatus:
         self.current_step = current_step
         self.completed_steps = completed_steps
         self.failed_steps = failed_steps
+        self.step_errors = step_errors
         self.progress_percent = progress_percent
         self.created_at = created_at
         self.updated_at = updated_at
@@ -141,7 +143,11 @@ async def start_pipeline(
     state_store: StateStore,
     scheduler: Scheduler,
     conversation_id: Optional[str] = None,
+    persona_id: Optional[str] = None,
+    user_id: Optional[str] = None,
     query_text: Optional[str] = None,
+    guidance: Optional[str] = None,
+    mood: Optional[str] = None,
 ) -> str:
     """
     Start a new pipeline execution.
@@ -153,7 +159,11 @@ async def start_pipeline(
         state_store: StateStore instance for Redis operations
         scheduler: Scheduler instance for queue operations
         conversation_id: ID of the conversation to analyze (required for analyst/summarizer)
+        persona_id: Persona ID to use (falls back to conversation or config)
+        user_id: User ID (falls back to config)
         query_text: Optional query for journaler/philosopher scenarios
+        guidance: Optional guidance text
+        mood: Optional persona mood
 
     Returns:
         pipeline_id for tracking
@@ -170,32 +180,36 @@ async def start_pipeline(
     cvm = ConversationModel.from_config(config)
     roster = Roster.from_config(config)
 
-    # 3. Get persona_id - from conversation if required, else from config
-    if scenario.requires_conversation:
-        if not conversation_id:
-            raise ValueError(f"Scenario '{scenario_name}' requires a conversation_id")
-        conv_df = cvm.index.search(
-            query_conversation_id=conversation_id,
-            query_document_type='conversation',
-            query_limit=1,
-        )
-        if conv_df.empty:
-            raise ValueError(f"Conversation {conversation_id} not found")
-        persona_id = conv_df.iloc[0]['persona_id']
-    else:
-        # Use persona from config for journaler/dreamer/philosopher
-        persona_id = config.persona_id
-        if not persona_id:
-            raise ValueError(f"Scenario '{scenario_name}' requires config.persona_id when no conversation")
+    # 3. Resolve persona_id - explicit > conversation > config
+    resolved_persona_id = persona_id
+    if not resolved_persona_id:
+        if scenario.requires_conversation:
+            if not conversation_id:
+                raise ValueError(f"Scenario '{scenario_name}' requires a conversation_id")
+            conv_df = cvm.index.search(
+                query_conversation_id=conversation_id,
+                query_document_type='conversation',
+                query_limit=1,
+            )
+            if conv_df.empty:
+                raise ValueError(f"Conversation {conversation_id} not found")
+            resolved_persona_id = conv_df.iloc[0]['persona_id']
+        else:
+            resolved_persona_id = config.persona_id
+            if not resolved_persona_id:
+                raise ValueError(f"Scenario '{scenario_name}' requires persona_id")
 
-    persona = roster.personas[persona_id]
+    persona = roster.personas[resolved_persona_id]
 
-    # 4. Validate model exists
+    # 4. Resolve user_id - explicit > config
+    resolved_user_id = user_id or config.user_id
+
+    # 5. Validate model exists
     models = LanguageModelV2.index_models(config)
     if model_name not in models:
         raise ValueError(f"Model {model_name} not found in available models")
 
-    # 5. Initialize state
+    # 6. Initialize state
     pipeline_id = generate_pipeline_id()
     # Get branch from conversation if available, else start at 0
     branch = cvm.get_next_branch(conversation_id) if conversation_id else 0
@@ -203,14 +217,14 @@ async def start_pipeline(
         pipeline_id=pipeline_id,
         scenario_name=scenario_name,
         conversation_id=conversation_id,
-        persona_id=persona_id,
-        user_id=config.user_id,
+        persona_id=resolved_persona_id,
+        user_id=resolved_user_id,
         model=model_name,
         thought_model=config.thought_model,
         codex_model=config.codex_model,
-        guidance=config.guidance,
+        guidance=guidance or config.guidance,
         query_text=query_text,
-        persona_mood=config.persona_mood,
+        persona_mood=mood or config.persona_mood,
         branch=branch,
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
@@ -289,6 +303,9 @@ async def get_status(
     # Current step is the first running step, or None
     current_step = running_steps[0] if running_steps else None
 
+    # Get step errors
+    step_errors = await state_store.get_step_errors(pipeline_id)
+
     return PipelineStatus(
         pipeline_id=pipeline_id,
         scenario_name=state.scenario_name,
@@ -296,6 +313,7 @@ async def get_status(
         current_step=current_step,
         completed_steps=completed_steps,
         failed_steps=failed_steps,
+        step_errors=step_errors,
         progress_percent=progress_percent,
         created_at=state.created_at,
         updated_at=state.updated_at,
@@ -337,6 +355,34 @@ async def cancel_pipeline(
     # Update state timestamp
     state.updated_at = datetime.now(timezone.utc)
     await state_store.save_state(state)
+
+    return True
+
+
+async def delete_pipeline(
+    pipeline_id: str,
+    state_store: StateStore,
+) -> bool:
+    """
+    Delete a pipeline and all its state from Redis.
+
+    Only allows deletion of completed or failed pipelines.
+
+    Args:
+        pipeline_id: Pipeline identifier
+        state_store: StateStore instance for Redis operations
+
+    Returns:
+        True if pipeline was deleted, False if not found
+    """
+    # Load state to verify it exists
+    state = await state_store.load_state(pipeline_id)
+
+    if state is None:
+        return False
+
+    # Delete all state (state, DAG, errors)
+    await state_store.delete_state(pipeline_id)
 
     return True
 

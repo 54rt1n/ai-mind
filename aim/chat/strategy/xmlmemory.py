@@ -58,7 +58,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         keywords = [e[0] for e in sorted(keywords.items(), key=lambda x: x[1], reverse=True)][:top_n_keywords]
         return emotions, keywords
 
-    def get_conscious_memory(self, persona: Persona, query: Optional[str] = None, user_queries: list[str] = [], assistant_queries: list[str] = [], content_len: int = 0, thought_stream: list[str] = [], max_context_tokens: int = DEFAULT_MAX_CONTEXT, max_output_tokens: int = DEFAULT_MAX_OUTPUT) -> str:
+    def get_conscious_memory(self, persona: Persona, query: Optional[str] = None, user_queries: list[str] = [], assistant_queries: list[str] = [], content_len: int = 0, thought_stream: list[str] = [], max_context_tokens: int = DEFAULT_MAX_CONTEXT, max_output_tokens: int = DEFAULT_MAX_OUTPUT) -> tuple[str, int]:
         """
         Retrieves the conscious memory content to be included in the chat response.
 
@@ -389,11 +389,16 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                                       content=thought, priority=2, noindent=True)
             logger.info(f"Added thought_stream with {len(thought_stream)} prior thoughts to header")
 
+        # Add memory count at the end
+        formatter.add_element(self.hud_name, "Memory Count", content=str(len(seen_docs)), nowrap=True, priority=1)
+
         final_output = formatter.render()
         final_tokens = self.count_tokens(final_output)
         logger.debug(f"Final Conscious Memory: Total Tokens: {final_tokens}/{usable_context_tokens}")
 
-        return final_output
+        # Return content and memory count (seen_docs minus non-memory items like workspace)
+        memory_count = len(seen_docs)
+        return final_output, memory_count
         
     def chat_turns_for(self, persona: Persona, user_input: str, history: list[dict[str, str]] = [], content_len: Optional[int] = None, max_context_tokens: int = DEFAULT_MAX_CONTEXT, max_output_tokens: int = DEFAULT_MAX_OUTPUT) -> list[dict[str, str]]:
         """
@@ -470,7 +475,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         # Total external tokens = history + thought + wakeup + user_input + content
         external_tokens = content_tokens + history_tokens + thought_tokens + wakeup_tokens + user_input_tokens
 
-        consciousness = self.get_conscious_memory(
+        consciousness, memory_count = self.get_conscious_memory(
                 persona=persona,
                 query=user_input,
                 user_queries=user_turn_history,
@@ -483,10 +488,12 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
 
         consciousness_tokens = self.count_tokens(consciousness)
         logger.info(f"Consciousness Tokens: {consciousness_tokens}")
-        
+
         consciousness_turn = {"role": "user", "content": consciousness}
-        
+
         wakeup = persona.get_wakeup()
+        # Template replacement for wakeup
+        wakeup = wakeup.replace("{{memory_count}}", str(memory_count))
         wakeup_turn = {"role": "assistant", "content": wakeup}
 
         if len(history) > 0:
@@ -502,7 +509,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
 
         if self.thought_content:
             # Insert current thought content above the fold
-            turns = insert_at_fold(turns, f"{self.thought_content}\n\n", fold_depth=4)
+            turns = insert_at_fold(turns, f"{self.thought_content}\n\n<% End XML Thought Begin Action %>\n\n", fold_depth=4)
             logger.info(f"Inserted thought_content above fold")
 
         return turns
