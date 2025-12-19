@@ -18,6 +18,8 @@ from ...utils.keywords import extract_semantic_keywords
 from ...agents.persona import Persona
 from aim.nlp.summarize import TextSummarizer, get_default_summarizer
 from aim.utils.redis_cache import RedisCache
+from aim.conversation.rerank import MemoryReranker, TaggedResult
+from aim.constants import DOC_CONVERSATION, CHUNK_LEVEL_256, CHUNK_LEVEL_768
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +59,59 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         keywords = extract_semantic_keywords(row['content'])
         keywords = [e[0] for e in sorted(keywords.items(), key=lambda x: x[1], reverse=True)][:top_n_keywords]
         return emotions, keywords
+
+    def _query_by_buckets(self,
+                          queries: List[str],
+                          source_tag: str,
+                          seen_docs: set,
+                          top_n: int,
+                          length_boost: float = 0.0) -> Tuple[List[TaggedResult], List[TaggedResult]]:
+        """
+        Execute dual queries: conversations at chunk_768, others at chunk_256.
+
+        Args:
+            queries: Query texts to search for
+            source_tag: Tag for this source (memory_thought, memory_ws, etc.)
+            seen_docs: Doc IDs to filter out
+            top_n: Max results per bucket
+            length_boost: Length boost factor
+
+        Returns:
+            (conversation_results, other_results) as lists of (source_tag, row)
+        """
+        conversation_results: List[TaggedResult] = []
+        other_results: List[TaggedResult] = []
+
+        # Query 1: Conversations at chunk_768 (larger context for dialog)
+        conv_df = self.chat.cvm.query(
+            queries,
+            filter_doc_ids=seen_docs,
+            top_n=top_n,
+            filter_metadocs=True,
+            query_document_type=DOC_CONVERSATION,
+            chunk_level=CHUNK_LEVEL_768,
+            length_boost_factor=length_boost,
+        )
+        if not conv_df.empty:
+            for _, row in conv_df.iterrows():
+                conversation_results.append((source_tag, row))
+
+        # Query 2: Other docs at chunk_256 (denser for analytical content)
+        # Note: query_document_type doesn't support "NOT", so we filter post-query
+        other_df = self.chat.cvm.query(
+            queries,
+            filter_doc_ids=seen_docs,
+            top_n=top_n,
+            filter_metadocs=True,
+            chunk_level=CHUNK_LEVEL_256,
+            length_boost_factor=length_boost,
+        )
+        if not other_df.empty:
+            other_df = other_df[other_df['document_type'] != DOC_CONVERSATION]
+            for _, row in other_df.iterrows():
+                other_results.append((source_tag, row))
+
+        return conversation_results, other_results
 
     def get_conscious_memory(self, persona: Persona, query: Optional[str] = None, user_queries: list[str] = [], assistant_queries: list[str] = [], content_len: int = 0, thought_stream: list[str] = [], max_context_tokens: int = DEFAULT_MAX_CONTEXT, max_output_tokens: int = DEFAULT_MAX_OUTPUT) -> tuple[str, int]:
         """
@@ -159,8 +214,14 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                 logger.info("No document IDs in self.pinned to process.")
 
 
-        # 3. Journal/Conscious Entries
-        conscious = self.chat.cvm.get_conscious(persona.persona_id, top_n=self.chat.config.recall_size)
+        # 3. Journal/Conscious Entries (1 random + rest relevance-based)
+        # Combine user and assistant queries for context, with user queries (more recent) last
+        journal_query_context = assistant_queries + user_queries if (user_queries or assistant_queries) else None
+        conscious = self.chat.cvm.get_conscious(
+            persona.persona_id,
+            top_n=self.chat.config.recall_size,
+            query_texts=journal_query_context
+        )
         if not conscious.empty:
              for _, row in conscious.iterrows():
                  if row['doc_id'] in seen_docs: continue
@@ -194,156 +255,110 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         )
         logger.debug(f"Token budget: max={usable_context_tokens}, current={current_tokens}, thoughts={thought_estimate_tokens}, ws={ws_tokens_estimate}, scratch={scratch_tokens_estimate}, stream={thought_stream_estimate}, external={content_len}, available={available_tokens_for_dynamic_queries}")
 
-        if available_tokens_for_dynamic_queries > 50: # Min threshold for any dynamic querying (roughly 200 chars)
-            query_sources_data = []
+        if available_tokens_for_dynamic_queries > 50:  # Min threshold for dynamic querying
+            # Define query sources
             workspace_content_for_query = self.chat.current_workspace if self.chat.current_workspace and self.chat.current_workspace.strip() else None
 
-            if workspace_content_for_query:
-                query_sources_data.append({
-                    "name": "Workspace", 
-                    "queries": [workspace_content_for_query], 
-                    "length_boost": 0.05, 
-                    "log_prefix": "WSMemory",
-                    "chunk_size": 512,
-                    "memory_type_tag": "memory_ws" # XML tag for this source
-                })
-            
-            if assistant_queries:
-                query_sources_data.append({
-                    "name": "AssistantHistory", 
-                    "queries": assistant_queries, 
-                    "length_boost": 0, 
-                    "log_prefix": "AMemory",
-                    "chunk_size": 512,
-                    "memory_type_tag": "memory_asst" # XML tag for this source
-                })
+            query_sources_data = []
 
-            if user_queries:
-                query_sources_data.append({
-                    "name": "UserHistory", 
-                    "queries": user_queries, 
-                    "length_boost": 0.05, 
-                    "log_prefix": "UMemory",
-                    "chunk_size": 512,
-                    "memory_type_tag": "memory_user" # XML tag for this source
-                })
-            
-            # Add thought_content as a query source if it exists
+            # 1. Thought-based queries
             if self.thought_content and self.thought_content.strip():
                 query_sources_data.append({
                     "name": "PersonaThoughts",
                     "queries": [self.thought_content.strip()],
-                    "length_boost": 0.0,  # Thoughts are often concise, less need for length boosting
-                    "log_prefix": "ThoughtMemory",
-                    "chunk_size": 384,
-                    "memory_type_tag": "memory_thought" # XML tag for this source
+                    "length_boost": 0.0,
+                    "memory_type_tag": "memory_thought"
                 })
 
-            all_dynamic_results_dfs = []
+            # 2. Workspace-based queries
+            if workspace_content_for_query:
+                query_sources_data.append({
+                    "name": "Workspace",
+                    "queries": [workspace_content_for_query],
+                    "length_boost": 0.05,
+                    "memory_type_tag": "memory_ws"
+                })
+
+            # 3. User history queries
+            if user_queries:
+                query_sources_data.append({
+                    "name": "UserHistory",
+                    "queries": user_queries,
+                    "length_boost": 0.05,
+                    "memory_type_tag": "memory_user"
+                })
+
+            # 4. Assistant history queries
+            if assistant_queries:
+                query_sources_data.append({
+                    "name": "AssistantHistory",
+                    "queries": assistant_queries,
+                    "length_boost": 0.0,
+                    "memory_type_tag": "memory_asst"
+                })
+
+            # Collect into two buckets: conversation and other
+            all_conversation_results: List[TaggedResult] = []
+            all_other_results: List[TaggedResult] = []
 
             if query_sources_data:
-                # Fetch results from all sources
-                generous_top_n_per_source = self.chat.config.memory_window * 2 # Get more candidates
-                if generous_top_n_per_source == 0 and self.chat.config.memory_window > 0 : generous_top_n_per_source = 2 # ensure at least a few if window is 1
-                if self.chat.config.memory_window == 0 : generous_top_n_per_source = 0 # respect if window is 0
-
+                top_n_per_source = self.chat.config.memory_window * 2
+                if top_n_per_source == 0 and self.chat.config.memory_window > 0:
+                    top_n_per_source = 2
+                if self.chat.config.memory_window == 0:
+                    top_n_per_source = 0
 
                 for source_data in query_sources_data:
-                    if not source_data["queries"]:
-                        logger.debug(f"Skipping dynamic memory query for {source_data['name']} due to no queries.")
-                        continue
-                    if generous_top_n_per_source == 0:
-                        logger.debug(f"Skipping dynamic memory query for {source_data['name']} as memory_window is 0.")
+                    if not source_data["queries"] or top_n_per_source == 0:
+                        logger.debug(f"Skipping query for {source_data['name']}")
                         continue
 
-                    #logger.debug(f"Querying dynamic memory ({source_data['name']}): queries_count={len(source_data['queries'])}, top_n_fetch={generous_top_n_per_source}, chunk_size=100")
-
-                    results_df = self.chat.cvm.query(
-                        source_data["queries"],
-                        filter_doc_ids=seen_docs, # Avoid re-fetching docs already in XML (MOTD, Pinned, Journal)
-                        top_n=generous_top_n_per_source,
-                        filter_metadocs=True,
-                        length_boost_factor=source_data["length_boost"],
-                        max_length=None, # No max_length filtering at this stage per source
-                        chunk_size=source_data["chunk_size"] # Use configured chunk_size for cvm.query's internal recursion
+                    conv_results, other_results = self._query_by_buckets(
+                        queries=source_data["queries"],
+                        source_tag=source_data["memory_type_tag"],
+                        seen_docs=seen_docs,
+                        top_n=top_n_per_source,
+                        length_boost=source_data["length_boost"]
                     )
+                    all_conversation_results.extend(conv_results)
+                    all_other_results.extend(other_results)
+                    logger.debug(f"Queried {source_data['name']}: {len(conv_results)} conv, {len(other_results)} other")
 
-                    if not results_df.empty:
-                        results_df['source_tag'] = source_data["memory_type_tag"] # Tag results with their source
-                        results_df['log_prefix'] = source_data["log_prefix"] # For logging later
-                        all_dynamic_results_dfs.append(results_df)
-                        #logger.info(f"Fetched {len(results_df)} results from {source_data['name']}.")
-                    else:
-                        logger.info(f"No results from {source_data['name']}.")
+            # Pass to reranker - conversations get 60% of budget, rest goes to other docs
+            if all_conversation_results or all_other_results:
+                reranker = MemoryReranker(
+                    token_counter=self.count_tokens,
+                    lambda_param=0.7,
+                    conversation_budget_ratio=0.6,
+                )
 
-            if all_dynamic_results_dfs:
-                aggregated_results_df = pd.concat(all_dynamic_results_dfs, ignore_index=True)
+                reranked_results = reranker.rerank(
+                    conversation_results=all_conversation_results,
+                    other_results=all_other_results,
+                    token_budget=available_tokens_for_dynamic_queries,
+                    seen_parent_ids=seen_docs,
+                )
 
-                if not aggregated_results_df.empty:
-                    #logger.info(f"Total dynamic results before deduplication: {len(aggregated_results_df)}")
-                    # Sort by score (desc) then drop duplicates by doc_id, keeping the highest score entry
-                    aggregated_results_df = aggregated_results_df.sort_values('score', ascending=False).drop_duplicates(subset=['doc_id'], keep='first')
-                    #logger.info(f"Total dynamic results after deduplication: {len(aggregated_results_df)}")
+                # Add reranked results to formatter
+                for source_tag, row in reranked_results:
+                    formatter.add_element(
+                        self.hud_name, "Active Memory", source_tag,
+                        date=row.get('date', ''),
+                        type=row.get('document_type', ''),
+                        content=row.get('content', ''),
+                        priority=1,
+                        noindent=True
+                    )
+                    emotions, keywords = self.extract_memory_metadata(row)
+                    for e in emotions: aggregated_emotions[e] += 1 if e else 0
+                    for k in keywords: aggregated_keywords[k] += 1 if k else 0
+                    seen_docs.add(row.get('parent_doc_id', row.get('doc_id', '')))
 
-                    dynamic_entries_added_count = 0
-                    dynamic_tokens_added_to_formatter = 0 # Tracks formatter token increase from dynamic items
-                    max_dynamic_entries_to_add = self.chat.config.memory_window
-
-                    if max_dynamic_entries_to_add == 0:
-                        logger.info("Max dynamic entries (memory_window) is 0, skipping addition of dynamic results.")
-                    else:
-                        logger.info(f"Processing {len(aggregated_results_df)} unique dynamic results. Budget: {available_tokens_for_dynamic_queries} tokens for new content, max_entries: {max_dynamic_entries_to_add}.")
-
-                        for _, row in aggregated_results_df.iterrows():
-                            if row['doc_id'] in seen_docs: # Already added by MOTD, Pinned, Journal or an earlier dynamic item
-                                continue
-
-                            if dynamic_entries_added_count >= max_dynamic_entries_to_add:
-                                logger.debug(f"Reached max dynamic entries limit ({max_dynamic_entries_to_add}).")
-                                break
-
-                            row_entry_content = row['content']
-
-                            # Estimate formatter increase for this item
-                            temp_formatter = XmlFormatter()
-                            temp_formatter.add_element(self.hud_name, "Active Memory", row['source_tag'],
-                                                       date=row['date'], type=row['document_type'],
-                                                       content=row_entry_content, priority=1, noindent=True)
-                            estimated_formatter_token_increase = self.count_tokens(temp_formatter.render())
-
-                            if (dynamic_tokens_added_to_formatter + estimated_formatter_token_increase) > available_tokens_for_dynamic_queries:
-                                #logger.debug(f"Dynamic entry '{row['doc_id']}' from {row['log_prefix']} (est. formatter increase {estimated_formatter_token_increase} tokens, content len {len(row_entry_content)}) would exceed dynamic content budget ({available_tokens_for_dynamic_queries - dynamic_tokens_added_to_formatter} remaining). Trying next item.")
-                                continue
-
-                            # Add to the main formatter
-                            formatter.add_element(self.hud_name, "Active Memory", row['source_tag'],
-                                                  date=row['date'], type=row['document_type'],
-                                                  content=row_entry_content, priority=1, noindent=True)
-
-                            # Update budget and counts
-                            # It's hard to get exact increase from formatter.add_element without re-rendering.
-                            # Using the estimate and relying on the overall check.
-                            dynamic_tokens_added_to_formatter += estimated_formatter_token_increase
-
-                            emotions, keywords = self.extract_memory_metadata(row)
-                            for e in emotions: aggregated_emotions[e] += 1 if e else 0
-                            for k in keywords: aggregated_keywords[k] += 1 if k else 0
-                            seen_docs.add(row['doc_id']) # Mark as added to XML
-                            dynamic_entries_added_count += 1
-
-                            current_formatter_tokens = self.count_tokens(formatter.render())
-                            logger.debug(f"Added dynamic result ({row['log_prefix']}/{row['doc_id']}): content {len(row_entry_content)} chars, est. formatter increase {estimated_formatter_token_increase} tokens. Total dynamic entries: {dynamic_entries_added_count}/{max_dynamic_entries_to_add}. Dynamic budget used: {dynamic_tokens_added_to_formatter}/{available_tokens_for_dynamic_queries}. Overall formatter tokens: {current_formatter_tokens}")
-
-                            # Final check against overall max length
-                            if current_formatter_tokens + thought_estimate_tokens >= usable_context_tokens:
-                                logger.warning(f"Overall max context tokens ({usable_context_tokens}) likely reached or exceeded after adding dynamic entry. Formatter: {current_formatter_tokens}, Thought_est: {thought_estimate_tokens}. Stopping dynamic additions.")
-                                break
-                else:
-                    logger.info("No dynamic results to process after aggregation (aggregated_results_df is empty).")
+                logger.info(f"Added {len(reranked_results)} reranked results from {len(all_conversation_results)} conv + {len(all_other_results)} other candidates")
             else:
-                logger.info("No dynamic query sources had results, or no query sources were active.")
+                logger.info("No dynamic query sources had results.")
         else:
-             logger.info(f"Skipping all dynamic memory queries due to insufficient initial space for dynamic content ({available_tokens_for_dynamic_queries} tokens available, need > 50).")
+            logger.info(f"Skipping dynamic memory queries: insufficient token budget ({available_tokens_for_dynamic_queries} available, need > 50)")
 
         # --- End Dynamic Memory Search ---
 

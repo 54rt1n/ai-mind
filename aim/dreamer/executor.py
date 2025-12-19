@@ -371,6 +371,8 @@ def create_message(
         weight=result.document_weight,
         speaker_id=state.persona_id,
         inference_model=state.model,
+        scenario_name=state.scenario_name,
+        step_name=step_def.id,
     )
 
 
@@ -449,13 +451,15 @@ async def execute_step(
     # 5. Handle memory operations (query for additional context)
     memories = []
     if step_def.memory.top_n > 0:
-        # Use CVM query directly
+        from aim.constants import CHUNK_LEVEL_768
+
         query_text = state.query_text or prompt[:500]
         memories_df = cvm.query(
             query_texts=[query_text],
             top_n=step_def.memory.top_n,
             query_document_type=step_def.memory.document_type,
             sort_by=step_def.memory.sort_by,
+            chunk_level=CHUNK_LEVEL_768,
         )
         memories = memories_df.to_dict('records') if not memories_df.empty else []
 

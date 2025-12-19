@@ -286,6 +286,30 @@ def pipeline(co: ContextObject, pipeline_type, persona_id, conversation_id, mood
     pipeline = pipeline_factory(pipeline_type=pipeline_type)
     asyncio.run(pipeline(self=base, **(co.config_dict)))
 
+
+def _show_chunk_stats(index, click):
+    """Display chunk level statistics for the index."""
+    from ...constants import CHUNK_LEVEL_256, CHUNK_LEVEL_768, CHUNK_LEVEL_FULL
+
+    searcher = index.index.searcher()
+
+    # Count entries per chunk level
+    stats = {}
+    for level in [CHUNK_LEVEL_FULL, CHUNK_LEVEL_768, CHUNK_LEVEL_256]:
+        query = index.index.parse_query(query=level, default_field_names=["chunk_level"])
+        results = searcher.search(query, limit=1)
+        stats[level] = results.count
+
+    total_entries = sum(stats.values())
+    parent_docs = stats.get(CHUNK_LEVEL_FULL, 0)
+
+    click.echo("\nChunk Level Statistics:")
+    click.echo(f"  Parent documents: {parent_docs}")
+    click.echo(f"  768-token chunks: {stats.get(CHUNK_LEVEL_768, 0)}")
+    click.echo(f"  256-token chunks: {stats.get(CHUNK_LEVEL_256, 0)}")
+    click.echo(f"  Total entries: {total_entries}")
+
+
 @cli.command()
 @click.option('--conversations-dir', default="memory/conversations", help='Directory containing conversation JSONL files')
 @click.option('--index-dir', default="memory/indices", help='Directory for storing indices')
@@ -326,12 +350,9 @@ def rebuild_index(co: ContextObject, conversations_dir: str, index_dir: str, dev
             # Convert to index documents
             click.echo("Converting to index documents...")
             documents = [msg.to_dict() for msg in messages]
-            
-            # Filter out step and NER documents
-            documents = [doc for doc in documents if doc['document_type'] not in [DOC_STEP, DOC_NER]]
-            
+
             if debug:
-                click.echo(f"Filtered to {len(documents)} documents")
+                click.echo(f"Found {len(documents)} documents")
                 for doc in documents[:5]:  # Show first 5 only
                     click.echo(f"Document: {doc['doc_id']} - {doc['document_type']}")
 
@@ -343,7 +364,10 @@ def rebuild_index(co: ContextObject, conversations_dir: str, index_dir: str, dev
                 click.echo(f"Content: {documents[0]['content'][:100]}")
                 
             index.rebuild(documents)
-            
+
+            # Show chunk level stats
+            _show_chunk_stats(index, click)
+
             click.echo("Full index rebuild complete!")
             
         else:
@@ -362,12 +386,9 @@ def rebuild_index(co: ContextObject, conversations_dir: str, index_dir: str, dev
             # Convert to index documents
             click.echo("Converting to index documents...")
             documents = [msg.to_dict() for msg in messages]
-            
-            # Filter out step and NER documents
-            documents = [doc for doc in documents if doc['document_type'] not in [DOC_STEP, DOC_NER]]
-            
+
             if debug:
-                click.echo(f"Filtered to {len(documents)} documents")
+                click.echo(f"Found {len(documents)} documents")
 
             # Perform incremental update
             click.echo("Comparing with existing index...")
@@ -377,9 +398,12 @@ def rebuild_index(co: ContextObject, conversations_dir: str, index_dir: str, dev
             
             click.echo(f"Incremental update complete!")
             click.echo(f"  Added: {added_count} documents")
-            click.echo(f"  Updated: {updated_count} documents") 
+            click.echo(f"  Updated: {updated_count} documents")
             click.echo(f"  Deleted: {deleted_count} documents")
-            
+
+            # Show chunk level stats
+            _show_chunk_stats(index, click)
+
             if added_count == 0 and updated_count == 0 and deleted_count == 0:
                 click.echo("Index was already up to date!")
         

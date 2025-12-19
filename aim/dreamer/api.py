@@ -17,6 +17,36 @@ from ..agents.roster import Roster
 from ..llm.models import LanguageModelV2
 
 
+# Mapping from signature document types to scenario names
+# Each scenario has characteristic output document types that identify it
+# Only final/unique outputs are used - partial runs require --scenario flag
+SCENARIO_SIGNATURES = {
+    "analysis": "analyst",      # analyst produces analysis
+    "summary": "summarizer",    # summarizer produces summary
+    "journal": "journaler",     # journaler produces journal
+    "pondering": "philosopher", # philosopher produces pondering
+    "daydream": "daydream",     # daydream produces daydream
+}
+
+
+def infer_scenario_from_documents(doc_types: set[str]) -> Optional[str]:
+    """
+    Infer the scenario type from a set of document types found in a conversation.
+
+    Uses signature document types that are unique to each scenario.
+
+    Args:
+        doc_types: Set of document_type values from conversation history
+
+    Returns:
+        Scenario name if inferred, None if ambiguous or no match
+    """
+    for signature_type, scenario_name in SCENARIO_SIGNATURES.items():
+        if signature_type in doc_types:
+            return scenario_name
+    return None
+
+
 class PipelineStatus:
     """Status information for a pipeline."""
 
@@ -102,6 +132,8 @@ async def run_seed_actions(
 
         elif seed_action.action == "query_memories":
             # Query memories
+            from aim.constants import CHUNK_LEVEL_768
+
             params = seed_action.params
             document_type = params.get('document_type', None)
             top_n = params.get('top_n', 10)
@@ -121,6 +153,7 @@ async def run_seed_actions(
                 sort_by=sort_by,
                 temporal_decay=temporal_decay,
                 turn_decay=turn_decay,
+                chunk_level=CHUNK_LEVEL_768,
             )
 
             # Extract doc_ids as references
@@ -201,8 +234,8 @@ async def start_pipeline(
 
     persona = roster.personas[resolved_persona_id]
 
-    # 4. Resolve user_id - explicit > config
-    resolved_user_id = user_id or config.user_id
+    # 4. Resolve user_id - explicit > persona_id > config
+    resolved_user_id = user_id or resolved_persona_id or config.user_id
 
     # 5. Validate model exists
     models = LanguageModelV2.index_models(config)
@@ -505,3 +538,332 @@ async def list_pipelines(
                 statuses.append(pipeline_status)
 
     return statuses[:limit]
+
+
+async def restart_from_step(
+    conversation_id: str,
+    branch: int,
+    step_id: str,
+    config: ChatConfig,
+    model_name: str,
+    state_store: StateStore,
+    scheduler: Scheduler,
+    scenario_name: Optional[str] = None,
+    persona_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    query_text: Optional[str] = None,
+    guidance: Optional[str] = None,
+    mood: Optional[str] = None,
+    include_all_history: bool = False,
+    same_branch: bool = False,
+) -> str:
+    """
+    Restart a scenario pipeline from a specific step using existing conversation data.
+
+    This function allows replaying a scenario from a particular step by:
+    1. Loading the conversation history for the given branch
+    2. Inferring the scenario type (if not provided) from document types
+    3. Finding all documents produced up to (but not including) the target step
+    4. Creating a new pipeline with that preloaded context
+    5. Starting execution from the target step
+
+    Args:
+        conversation_id: ID of the conversation to restart from
+        branch: Branch number to restart from
+        step_id: Step ID to restart from (this step will be re-executed)
+        config: ChatConfig with provider keys and settings
+        model_name: Name of the model to use
+        state_store: StateStore instance for Redis operations
+        scheduler: Scheduler instance for queue operations
+        scenario_name: Optional scenario name (inferred from docs if not provided)
+        persona_id: Persona ID to use (falls back to conversation or config)
+        user_id: User ID (falls back to config)
+        query_text: Optional query for journaler/philosopher scenarios
+        guidance: Optional guidance text
+        mood: Optional persona mood
+        include_all_history: If True, load entire conversation history (all branches)
+            into context, not just the specified branch
+        same_branch: If True, continue on the same branch instead of creating a new one
+
+    Returns:
+        pipeline_id for tracking the new pipeline
+
+    Raises:
+        ValueError: If scenario cannot be inferred or step not found
+        FileNotFoundError: If scenario not found
+    """
+    # 1. Load conversation model and history
+    cvm = ConversationModel.from_config(config)
+    roster = Roster.from_config(config)
+
+    # Get conversation history for this branch
+    history_df = cvm.get_conversation_history(conversation_id)
+
+    if history_df.empty:
+        raise ValueError(f"Conversation {conversation_id} not found or empty")
+
+    # Filter to specific branch
+    branch_df = history_df[history_df['branch'] == branch]
+
+    if branch_df.empty:
+        raise ValueError(f"Branch {branch} not found in conversation {conversation_id}")
+
+    # 2. Infer scenario if not provided
+    if scenario_name is None:
+        doc_types = set(branch_df['document_type'].unique())
+        scenario_name = infer_scenario_from_documents(doc_types)
+
+        if scenario_name is None:
+            raise ValueError(
+                f"Could not infer scenario from document types: {doc_types}. "
+                "Please provide scenario_name explicitly."
+            )
+
+    # 3. Load and validate scenario
+    scenario = load_scenario(scenario_name)
+    scenario.compute_dependencies()
+
+    # Validate step_id exists in scenario
+    if step_id not in scenario.steps:
+        raise ValueError(
+            f"Step '{step_id}' not found in scenario '{scenario_name}'. "
+            f"Available steps: {list(scenario.steps.keys())}"
+        )
+
+    # 4. Resolve persona_id
+    resolved_persona_id = persona_id
+    if not resolved_persona_id:
+        # Try to get from conversation
+        conv_personas = branch_df['persona_id'].unique()
+        if len(conv_personas) > 0:
+            resolved_persona_id = conv_personas[0]
+        else:
+            resolved_persona_id = config.persona_id
+
+    if not resolved_persona_id:
+        raise ValueError("Could not determine persona_id")
+
+    persona = roster.personas[resolved_persona_id]
+
+    # 5. Resolve user_id
+    resolved_user_id = user_id or resolved_persona_id or config.user_id
+
+    # 6. Validate model exists
+    models = LanguageModelV2.index_models(config)
+    if model_name not in models:
+        raise ValueError(f"Model {model_name} not found in available models")
+
+    # 7. Determine which steps to skip (completed steps before target)
+    # Get execution order
+    topo_order = scenario.topological_order()
+    target_idx = topo_order.index(step_id)
+
+    # Steps before target in topo order are "completed"
+    completed_steps = topo_order[:target_idx]
+
+    # 8. Build context from existing documents
+    # Find doc_ids from branch that correspond to completed steps
+    step_doc_ids = {}
+    context_doc_ids = []
+
+    # Get documents sorted by sequence number to maintain order
+    branch_sorted = branch_df.sort_values('sequence_no')
+
+    # Build mapping of step outputs from existing documents
+    for _, row in branch_sorted.iterrows():
+        doc_type = row['document_type']
+        doc_id = row['doc_id']
+
+        # Match document types to steps that produce them
+        for s_id in completed_steps:
+            step_def = scenario.steps[s_id]
+            if step_def.output.document_type == doc_type:
+                step_doc_ids[s_id] = doc_id
+                context_doc_ids.append(doc_id)
+                break
+
+    # Build base context from conversation documents
+    if include_all_history:
+        # Load entire conversation history (all branches) as base context
+        full_history = cvm.get_conversation_history(conversation_id)
+        # Sort by branch then sequence to get chronological order
+        full_history = full_history.sort_values(['branch', 'sequence_no'])
+        # Include all document types except pipeline outputs from other branches
+        all_conv_docs = full_history['doc_id'].tolist()
+        context_doc_ids = all_conv_docs + context_doc_ids
+    else:
+        # Just add conversation docs from the target branch
+        conv_docs = branch_df[branch_df['document_type'] == 'conversation']['doc_id'].tolist()
+        context_doc_ids = conv_docs + context_doc_ids
+
+    # 9. Create new pipeline state
+    pipeline_id = generate_pipeline_id()
+    new_branch = branch if same_branch else cvm.get_next_branch(conversation_id)
+
+    state = PipelineState(
+        pipeline_id=pipeline_id,
+        scenario_name=scenario_name,
+        conversation_id=conversation_id,
+        persona_id=resolved_persona_id,
+        user_id=resolved_user_id,
+        model=model_name,
+        thought_model=config.thought_model,
+        codex_model=config.codex_model,
+        guidance=guidance or config.guidance,
+        query_text=query_text,
+        persona_mood=mood or config.persona_mood,
+        branch=new_branch,
+        step_counter=target_idx + 1,  # Start numbering from target step
+        completed_steps=completed_steps,
+        step_doc_ids=step_doc_ids,
+        context_doc_ids=context_doc_ids,
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+
+    # 10. Run seed actions for any steps that need them
+    state = await run_seed_actions(scenario, state, cvm)
+
+    # 11. Persist state to Redis
+    await state_store.save_state(state)
+
+    # 12. Initialize DAG with completed steps marked as complete
+    await state_store.init_dag(pipeline_id, scenario)
+
+    for completed_step in completed_steps:
+        await state_store.set_step_status(pipeline_id, completed_step, StepStatus.COMPLETE)
+
+    # 13. Enqueue the target step (and any other ready steps)
+    # Check if target step's dependencies are satisfied
+    target_step_def = scenario.steps[step_id]
+    deps_satisfied = all(dep in completed_steps for dep in target_step_def.depends_on)
+
+    if deps_satisfied:
+        await scheduler.enqueue_step(pipeline_id, step_id)
+    else:
+        # Find which dependencies need to run first
+        missing_deps = [dep for dep in target_step_def.depends_on if dep not in completed_steps]
+        raise ValueError(
+            f"Cannot restart from step '{step_id}' - missing dependencies: {missing_deps}. "
+            f"Try restarting from one of: {missing_deps}"
+        )
+
+    return pipeline_id
+
+
+async def get_restart_info(
+    conversation_id: str,
+    branch: int,
+    config: ChatConfig,
+    scenario_name: Optional[str] = None,
+) -> dict:
+    """
+    Get information about what can be restarted from a conversation branch.
+
+    Returns details about the scenario, completed steps, and available restart points.
+
+    Args:
+        conversation_id: ID of the conversation
+        branch: Branch number to inspect
+        config: ChatConfig for loading conversation model
+        scenario_name: Optional scenario name (if not provided, will try to infer)
+
+    Returns:
+        Dict containing:
+        - scenario_name: Inferred scenario name (or None)
+        - doc_types: Set of document types found
+        - step_outputs: Dict mapping step_id -> doc_id for found step outputs
+        - available_restart_points: List of step_ids that can be restarted from
+    """
+    cvm = ConversationModel.from_config(config)
+    history_df = cvm.get_conversation_history(conversation_id)
+
+    if history_df.empty:
+        return {
+            "scenario_name": None,
+            "doc_types": set(),
+            "step_outputs": {},
+            "available_restart_points": [],
+            "error": f"Conversation {conversation_id} not found",
+        }
+
+    # Filter to branch
+    branch_df = history_df[history_df['branch'] == branch]
+
+    if branch_df.empty:
+        return {
+            "scenario_name": None,
+            "doc_types": set(),
+            "step_outputs": {},
+            "available_restart_points": [],
+            "error": f"Branch {branch} not found",
+        }
+
+    doc_types = set(branch_df['document_type'].unique())
+
+    # Use provided scenario_name or try to infer
+    if scenario_name is None:
+        scenario_name = infer_scenario_from_documents(doc_types)
+
+    result = {
+        "scenario_name": scenario_name,
+        "doc_types": doc_types,
+        "branch": branch,
+        "conversation_id": conversation_id,
+        "step_outputs": {},
+        "available_restart_points": [],
+    }
+
+    if scenario_name:
+        try:
+            scenario = load_scenario(scenario_name)
+            scenario.compute_dependencies()
+
+            # Get execution order for step numbering
+            topo_order = scenario.topological_order()
+
+            # First, try to match documents using step_name field (preferred)
+            branch_sorted = branch_df.sort_values('sequence_no')
+            has_step_name = 'step_name' in branch_df.columns
+
+            if has_step_name:
+                # Use step_name field directly
+                for _, row in branch_sorted.iterrows():
+                    step_name = row.get('step_name')
+                    doc_id = row['doc_id']
+                    if step_name and step_name in scenario.steps:
+                        result["step_outputs"][step_name] = doc_id
+            else:
+                # Fallback: match by document type in execution order
+                doc_type_docs = {}  # Track doc_ids by type in order
+
+                for _, row in branch_sorted.iterrows():
+                    doc_type = row['document_type']
+                    doc_id = row['doc_id']
+                    if doc_type not in doc_type_docs:
+                        doc_type_docs[doc_type] = []
+                    doc_type_docs[doc_type].append(doc_id)
+
+                # Match documents to steps in execution order
+                doc_type_index = {dt: 0 for dt in doc_type_docs}
+
+                for step_id in topo_order:
+                    step_def = scenario.steps[step_id]
+                    output_type = step_def.output.document_type
+
+                    if output_type in doc_type_docs:
+                        idx = doc_type_index[output_type]
+                        if idx < len(doc_type_docs[output_type]):
+                            result["step_outputs"][step_id] = doc_type_docs[output_type][idx]
+                            doc_type_index[output_type] = idx + 1
+
+            # Build restart points with step numbers (1-indexed for display)
+            result["available_restart_points"] = [
+                {"step_num": i + 1, "step_id": step_id}
+                for i, step_id in enumerate(topo_order)
+            ]
+
+        except FileNotFoundError:
+            result["error"] = f"Scenario {scenario_name} not found"
+
+    return result

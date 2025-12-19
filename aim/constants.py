@@ -17,6 +17,18 @@ DOC_SOURCE_CODE = "source-code"
 DOC_STEP = "step"
 DOC_SUMMARY = "summary"
 
+# Chunk levels for multi-resolution indexing
+CHUNK_LEVEL_256 = "chunk_256"
+CHUNK_LEVEL_768 = "chunk_768"
+CHUNK_LEVEL_FULL = "full"
+CHUNK_LEVELS = [CHUNK_LEVEL_256, CHUNK_LEVEL_768, CHUNK_LEVEL_FULL]
+
+# Chunk sizes in tokens (tiktoken cl100k_base)
+CHUNK_SIZE_256 = 256
+CHUNK_SIZE_768 = 768
+CHUNK_SLIDE_256 = 256  # Non-overlapping
+CHUNK_SLIDE_768 = 384  # 50% overlap
+
 LISTENER_ALL = "all"
 LISTENER_SELF = "self"
 

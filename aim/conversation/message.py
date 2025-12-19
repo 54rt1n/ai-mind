@@ -14,8 +14,9 @@ logger = logging.getLogger(__name__)
 
 
 VISIBLE_COLUMNS = ['doc_id', 'document_type', 'user_id', 'persona_id', 'conversation_id', 'role', 'content', 'think', 'branch', 'sequence_no',
-                   'emotion_a', 'emotion_b', 'emotion_c', 'emotion_d']
-QUERY_COLUMNS = VISIBLE_COLUMNS + ["weight", "sentiment_v", "sentiment_a", "sentiment_d", "importance", "timestamp"]
+                   'emotion_a', 'emotion_b', 'emotion_c', 'emotion_d', 'scenario_name', 'step_name']
+CHUNK_COLUMNS = ["parent_doc_id", "chunk_level", "chunk_index", "chunk_start", "chunk_end", "chunk_count"]
+QUERY_COLUMNS = VISIBLE_COLUMNS + ["weight", "sentiment_v", "sentiment_a", "sentiment_d", "importance", "timestamp"] + CHUNK_COLUMNS
 
 
 @dataclass
@@ -63,6 +64,10 @@ class ConversationMessage:
     inference_model: str = "unknown" # The model that generated the conversation turn
     metadata: str = ""  # catchall, internal use
     status: int = 0
+
+    # Dreamer pipeline fields
+    scenario_name: str | None = None  # The scenario that produced this document
+    step_name: str | None = None  # The step within the scenario that produced this document
 
     def has_es_header(self) -> bool:
         """
@@ -122,6 +127,7 @@ class ConversationMessage:
                emotion_a: Optional[str] = None, emotion_b: Optional[str] = None, emotion_c: Optional[str] = None, emotion_d: Optional[str] = None,
                sentiment_v: float = 0.0, sentiment_a: float = 0.0, sentiment_d: float = 0.0,
                think: Optional[str] = None,
+               scenario_name: Optional[str] = None, step_name: Optional[str] = None,
                ) -> 'ConversationMessage':
         """
         Creates a new conversation message.
@@ -165,6 +171,8 @@ class ConversationMessage:
             "metadata": metadata,
             "status": status,
             "think": think,
+            "scenario_name": scenario_name,
+            "step_name": step_name,
         }
 
         return cls(**data)
@@ -203,6 +211,8 @@ class ConversationMessage:
             inference_model=data.get("inference_model"),
             metadata=data.get("metadata"),
             status=data.get("status", 0),
+            scenario_name=data.get("scenario_name"),
+            step_name=data.get("step_name"),
         )
 
     def to_dict(self) -> dict:
@@ -238,6 +248,8 @@ class ConversationMessage:
             "metadata",
             "speaker_id",
             "listener_id",
+            "scenario_name",
+            "step_name",
         ]
         
         default_fields = {

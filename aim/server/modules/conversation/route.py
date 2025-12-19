@@ -1,8 +1,9 @@
 # aim/server/modules/conversation/route.py
-# AI-Mind © 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0 
+# AI-Mind © 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
 
 import time
 import logging
+import numpy as np
 from typing import List
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -10,13 +11,21 @@ from fastapi.responses import JSONResponse
 
 from ....config import ChatConfig
 from ....chat import ChatManager
-from ....conversation.message import ConversationMessage
+from ....conversation.message import ConversationMessage, VISIBLE_COLUMNS
 from ....constants import DOC_CONVERSATION
 from ....agents.roster import Roster
 
 from .dto import SaveConversationRequest
 
 logger = logging.getLogger(__name__)
+
+# Columns safe to return in API responses
+API_COLUMNS = VISIBLE_COLUMNS + ['timestamp', 'speaker', 'date']
+
+
+def df_to_json_safe(df) -> list:
+    """Convert DataFrame to list of dicts, replacing NaN with None for JSON compatibility."""
+    return df.replace({np.nan: None}).to_dict(orient='records')
 
 class ConversationModule:
     def __init__(self, config: ChatConfig, security: HTTPBearer, shared_roster: Roster):
@@ -36,9 +45,9 @@ class ConversationModule:
             try:
                 df = self.chat.cvm.get_conversation_report()
                 return {
-                    "status": "success", 
-                    "message": f"{len(df)} conversations", 
-                    "data": df.to_dict(orient='records')
+                    "status": "success",
+                    "message": f"{len(df)} conversations",
+                    "data": df_to_json_safe(df)
                 }
             except Exception as e:
                 logger.exception(e)
@@ -85,10 +94,13 @@ class ConversationModule:
             """Get a specific conversation"""
             try:
                 conversation = self.chat.cvm.get_conversation_history(conversation_id=conversation_id)
+                # Filter to only public columns
+                available_cols = [c for c in API_COLUMNS if c in conversation.columns]
+                filtered = conversation[available_cols]
                 return {
-                    "status": "success", 
-                    "message": f"{len(conversation)} messages", 
-                    "data": [r.to_dict() for i, r in conversation.iterrows()]
+                    "status": "success",
+                    "message": f"{len(conversation)} messages",
+                    "data": df_to_json_safe(filtered)
                 }
             except Exception as e:
                 logger.exception(e)

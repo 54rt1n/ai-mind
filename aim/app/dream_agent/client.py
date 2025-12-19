@@ -24,6 +24,8 @@ from ...dreamer.api import (
     cancel_pipeline,
     resume_pipeline,
     list_pipelines,
+    restart_from_step,
+    get_restart_info,
     PipelineStatus,
 )
 from ...dreamer.state import StateStore
@@ -163,6 +165,8 @@ class DreamerClient:
         conversation_id: str,
         model_name: str,
         query_text: Optional[str] = None,
+        persona_id: Optional[str] = None,
+        user_id: Optional[str] = None,
     ) -> PipelineResult:
         """Start a new pipeline.
 
@@ -171,17 +175,19 @@ class DreamerClient:
             conversation_id: Conversation ID to process
             model_name: Model to use (e.g., "claude-3-5-sonnet")
             query_text: Optional query text for journaler/philosopher
+            persona_id: Optional persona ID
+            user_id: Optional user ID (defaults to persona_id if not set)
 
         Returns:
             PipelineResult with pipeline_id on success
         """
         if self.mode == "direct":
             return await self._start_direct(
-                scenario_name, conversation_id, model_name, query_text
+                scenario_name, conversation_id, model_name, query_text, persona_id, user_id
             )
         else:
             return await self._start_http(
-                scenario_name, conversation_id, model_name, query_text
+                scenario_name, conversation_id, model_name, query_text, persona_id, user_id
             )
 
     async def _start_direct(
@@ -190,6 +196,8 @@ class DreamerClient:
         conversation_id: str,
         model_name: str,
         query_text: Optional[str],
+        persona_id: Optional[str] = None,
+        user_id: Optional[str] = None,
     ) -> PipelineResult:
         """Start pipeline via direct Redis connection."""
         try:
@@ -201,6 +209,8 @@ class DreamerClient:
                 state_store=self._state_store,
                 scheduler=self._scheduler,
                 query_text=query_text,
+                persona_id=persona_id,
+                user_id=user_id,
             )
             return PipelineResult(
                 success=True,
@@ -220,6 +230,8 @@ class DreamerClient:
         conversation_id: str,
         model_name: str,
         query_text: Optional[str],
+        persona_id: Optional[str] = None,
+        user_id: Optional[str] = None,
     ) -> PipelineResult:
         """Start pipeline via HTTP API."""
         try:
@@ -230,6 +242,8 @@ class DreamerClient:
                     "conversation_id": conversation_id,
                     "model_name": model_name,
                     "query_text": query_text,
+                    "persona_id": persona_id,
+                    "user_id": user_id,
                 },
             )
             response.raise_for_status()
@@ -530,6 +544,8 @@ class DreamerClient:
         conversation_id: str,
         model_name: str,
         query_text: Optional[str] = None,
+        persona_id: Optional[str] = None,
+        user_id: Optional[str] = None,
         poll_interval: float = 2.0,
         timeout: Optional[float] = None,
         on_progress: Optional[Callable] = None,
@@ -543,6 +559,8 @@ class DreamerClient:
             conversation_id: Conversation ID to process
             model_name: Model to use
             query_text: Optional query text
+            persona_id: Optional persona ID
+            user_id: Optional user ID (defaults to persona_id if not set)
             poll_interval: Seconds between status checks
             timeout: Optional timeout in seconds
             on_progress: Optional callback(status) for progress updates
@@ -551,7 +569,281 @@ class DreamerClient:
             PipelineResult with final status
         """
         # Start the pipeline
-        result = await self.start(scenario_name, conversation_id, model_name, query_text)
+        result = await self.start(scenario_name, conversation_id, model_name, query_text, persona_id, user_id)
+
+        if not result.success:
+            return result
+
+        pipeline_id = result.pipeline_id
+
+        # Watch for completion
+        try:
+            async for status in self.watch(pipeline_id, poll_interval, timeout):
+                if on_progress:
+                    on_progress(status)
+
+            # Get final status
+            final_result = await self.get_status(pipeline_id)
+            return final_result
+
+        except TimeoutError as e:
+            return PipelineResult(success=False, pipeline_id=pipeline_id, error=str(e))
+        except Exception as e:
+            return PipelineResult(success=False, pipeline_id=pipeline_id, error=str(e))
+
+    async def restart(
+        self,
+        conversation_id: str,
+        branch: int,
+        step_id: str,
+        model_name: str,
+        scenario_name: Optional[str] = None,
+        query_text: Optional[str] = None,
+        persona_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        guidance: Optional[str] = None,
+        mood: Optional[str] = None,
+        include_all_history: bool = False,
+        same_branch: bool = False,
+    ) -> PipelineResult:
+        """Restart a scenario pipeline from a specific step.
+
+        This method allows replaying a scenario from a particular step by:
+        1. Loading existing conversation data for the specified branch
+        2. Inferring the scenario type (if not provided) from document types
+        3. Creating a new pipeline that starts from the target step
+
+        Args:
+            conversation_id: ID of the conversation to restart from
+            branch: Branch number to restart from
+            step_id: Step ID to restart from (this step will be re-executed)
+            model_name: Model to use for execution
+            scenario_name: Optional scenario name (inferred from docs if not provided)
+            query_text: Optional query text for journaler/philosopher
+            persona_id: Optional persona ID
+            user_id: Optional user ID
+            guidance: Optional guidance text
+            mood: Optional persona mood
+            include_all_history: Load entire conversation (all branches) into context
+            same_branch: Continue on the same branch instead of creating a new one
+
+        Returns:
+            PipelineResult with pipeline_id on success
+        """
+        if self.mode == "direct":
+            return await self._restart_direct(
+                conversation_id, branch, step_id, model_name,
+                scenario_name, query_text, persona_id, user_id, guidance, mood,
+                include_all_history, same_branch
+            )
+        else:
+            return await self._restart_http(
+                conversation_id, branch, step_id, model_name,
+                scenario_name, query_text, persona_id, user_id, guidance, mood,
+                include_all_history, same_branch
+            )
+
+    async def _restart_direct(
+        self,
+        conversation_id: str,
+        branch: int,
+        step_id: str,
+        model_name: str,
+        scenario_name: Optional[str],
+        query_text: Optional[str],
+        persona_id: Optional[str],
+        user_id: Optional[str],
+        guidance: Optional[str],
+        mood: Optional[str],
+        include_all_history: bool = False,
+        same_branch: bool = False,
+    ) -> PipelineResult:
+        """Restart via direct Redis connection."""
+        try:
+            pipeline_id = await restart_from_step(
+                conversation_id=conversation_id,
+                branch=branch,
+                step_id=step_id,
+                config=self.config,
+                model_name=model_name,
+                state_store=self._state_store,
+                scheduler=self._scheduler,
+                scenario_name=scenario_name,
+                persona_id=persona_id,
+                user_id=user_id,
+                query_text=query_text,
+                guidance=guidance,
+                mood=mood,
+                include_all_history=include_all_history,
+                same_branch=same_branch,
+            )
+            return PipelineResult(
+                success=True,
+                pipeline_id=pipeline_id,
+                message=f"Pipeline {pipeline_id} started from step '{step_id}'",
+            )
+        except FileNotFoundError as e:
+            return PipelineResult(success=False, error=f"Scenario not found: {e}")
+        except ValueError as e:
+            return PipelineResult(success=False, error=f"Validation error: {e}")
+        except Exception as e:
+            return PipelineResult(success=False, error=f"Failed to restart pipeline: {e}")
+
+    async def _restart_http(
+        self,
+        conversation_id: str,
+        branch: int,
+        step_id: str,
+        model_name: str,
+        scenario_name: Optional[str],
+        query_text: Optional[str],
+        persona_id: Optional[str],
+        user_id: Optional[str],
+        guidance: Optional[str],
+        mood: Optional[str],
+        include_all_history: bool = False,
+        same_branch: bool = False,
+    ) -> PipelineResult:
+        """Restart via HTTP API."""
+        try:
+            response = await self._http_client.post(
+                "/api/dreamer/pipeline/restart",
+                json={
+                    "conversation_id": conversation_id,
+                    "branch": branch,
+                    "step_id": step_id,
+                    "model_name": model_name,
+                    "scenario_name": scenario_name,
+                    "query_text": query_text,
+                    "persona_id": persona_id,
+                    "user_id": user_id,
+                    "guidance": guidance,
+                    "mood": mood,
+                    "include_all_history": include_all_history,
+                    "same_branch": same_branch,
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
+            return PipelineResult(
+                success=True,
+                pipeline_id=data["pipeline_id"],
+                message=data.get("message"),
+            )
+        except httpx.HTTPStatusError as e:
+            return PipelineResult(
+                success=False,
+                error=f"HTTP {e.response.status_code}: {e.response.text}",
+            )
+        except Exception as e:
+            return PipelineResult(success=False, error=str(e))
+
+    async def inspect(
+        self,
+        conversation_id: str,
+        branch: int,
+        scenario_name: Optional[str] = None,
+    ) -> dict:
+        """Inspect a conversation branch to see restart options.
+
+        Returns information about what scenario was run, which steps
+        completed, and what restart points are available.
+
+        Args:
+            conversation_id: ID of the conversation
+            branch: Branch number to inspect
+            scenario_name: Optional scenario name (if not provided, will try to infer)
+
+        Returns:
+            Dict containing:
+            - scenario_name: Inferred scenario name (or None)
+            - doc_types: Set of document types found
+            - step_outputs: Dict mapping step_id -> doc_id
+            - available_restart_points: List of step_ids
+        """
+        if self.mode == "direct":
+            return await self._inspect_direct(conversation_id, branch, scenario_name)
+        else:
+            return await self._inspect_http(conversation_id, branch, scenario_name)
+
+    async def _inspect_direct(
+        self, conversation_id: str, branch: int, scenario_name: Optional[str] = None
+    ) -> dict:
+        """Inspect via direct connection."""
+        try:
+            return await get_restart_info(
+                conversation_id, branch, self.config, scenario_name
+            )
+        except Exception as e:
+            return {"error": str(e)}
+
+    async def _inspect_http(
+        self, conversation_id: str, branch: int, scenario_name: Optional[str] = None
+    ) -> dict:
+        """Inspect via HTTP API."""
+        try:
+            params = {}
+            if scenario_name:
+                params["scenario"] = scenario_name
+            response = await self._http_client.get(
+                f"/api/dreamer/inspect/{conversation_id}/{branch}",
+                params=params,
+            )
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            return {"error": f"HTTP {e.response.status_code}: {e.response.text}"}
+        except Exception as e:
+            return {"error": str(e)}
+
+    async def restart_and_wait(
+        self,
+        conversation_id: str,
+        branch: int,
+        step_id: str,
+        model_name: str,
+        scenario_name: Optional[str] = None,
+        query_text: Optional[str] = None,
+        persona_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        guidance: Optional[str] = None,
+        mood: Optional[str] = None,
+        include_all_history: bool = False,
+        same_branch: bool = False,
+        poll_interval: float = 2.0,
+        timeout: Optional[float] = None,
+        on_progress: Optional[Callable] = None,
+    ) -> PipelineResult:
+        """Restart a pipeline from a step and wait for completion.
+
+        Convenience method that combines restart() and watch().
+
+        Args:
+            conversation_id: ID of the conversation to restart from
+            branch: Branch number to restart from
+            step_id: Step ID to restart from
+            model_name: Model to use
+            scenario_name: Optional scenario name (inferred if not provided)
+            query_text: Optional query text
+            persona_id: Optional persona ID
+            user_id: Optional user ID
+            guidance: Optional guidance text
+            mood: Optional persona mood
+            include_all_history: Load entire conversation (all branches) into context
+            same_branch: Continue on the same branch instead of creating a new one
+            poll_interval: Seconds between status checks
+            timeout: Optional timeout in seconds
+            on_progress: Optional callback(status) for progress updates
+
+        Returns:
+            PipelineResult with final status
+        """
+        # Restart the pipeline
+        result = await self.restart(
+            conversation_id, branch, step_id, model_name,
+            scenario_name, query_text, persona_id, user_id, guidance, mood,
+            include_all_history, same_branch
+        )
 
         if not result.success:
             return result

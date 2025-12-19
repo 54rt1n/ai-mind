@@ -63,9 +63,9 @@ class HuggingFaceEmbedding:
         """
 
         inputs = self.tokenizer(text, return_tensors="pt", padding=True, truncation=True, max_length=512)
-        
+
         if self.work_device != "cpu":
-            inputs = inputs.to('cuda:0')
+            inputs = inputs.to(self.work_device)
         
         with torch.no_grad():
             outputs = self.model(**inputs)

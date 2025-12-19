@@ -16,6 +16,7 @@ def get_env(dotenv_path: Optional[str] = None) -> Dict[str, str]:
     return {
         "conversation_id": os.getenv("CONVERSATION_ID", None),
         "device": os.getenv("DEVICE", "cpu"),
+        "embedding_device": os.getenv("EMBEDDING_DEVICE", None),
         "documents_dir": os.getenv("DOCUMENTS_DIR", "local/documents"),
         "embedding_model": os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"),
         "guidance": os.getenv("GUIDANCE", None),
@@ -63,7 +64,7 @@ def get_env(dotenv_path: Optional[str] = None) -> Dict[str, str]:
         # History management
         "history_management_strategy": os.getenv("HISTORY_MANAGEMENT_STRATEGY", "sparsify"),
         
-        "recall_size": int(os.getenv("RECALL_SIZE", 3)),
+        "recall_size": int(os.getenv("RECALL_SIZE", 2)),
         "server_api_key": os.getenv("SERVER_API_KEY", None),
         "temperature": float(os.getenv("TEMPERATURE", 0.7)),
         "top_n": int(os.getenv("TOP_N", 3)),
@@ -84,6 +85,7 @@ class ChatConfig:
     server_api_key: Optional[str] = None
     queue_name: str = "pipeline_tasks"
     device: str = "cpu"
+    embedding_device: Optional[str] = None  # None = auto-detect CUDA, or specify "cpu", "cuda:0", etc.
     memory_path: str = "memory"
     embedding_model: str = "mixedbread-ai/mxbai-embed-large-v1"
     persona_path: str = "config/persona"

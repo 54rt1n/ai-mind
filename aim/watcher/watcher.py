@@ -144,6 +144,8 @@ class Watcher:
                 conversation_id=match.conversation_id,
                 model_name=model_name,
                 query_text=match.guidance,
+                persona_id=match.persona_id,
+                user_id=match.persona_id,  # user_id should match persona_id
             )
 
             if not result.success:

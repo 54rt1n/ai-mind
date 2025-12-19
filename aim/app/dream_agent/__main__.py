@@ -4,6 +4,8 @@
 
 Usage:
     python -m aim.app.dream_agent start <scenario> <conversation_id> [options]
+    python -m aim.app.dream_agent restart <conversation_id> <branch> <step_id> [options]
+    python -m aim.app.dream_agent inspect <conversation_id> <branch>
     python -m aim.app.dream_agent status <pipeline_id>
     python -m aim.app.dream_agent cancel <pipeline_id>
     python -m aim.app.dream_agent resume <pipeline_id>
@@ -39,6 +41,19 @@ Examples:
 
     # List running pipelines
     python -m aim.app.dream_agent list --status running
+
+    # Inspect a conversation branch to see restart options
+    python -m aim.app.dream_agent inspect conv-123 0
+
+    # Restart a pipeline from step #5 (scenario auto-inferred)
+    python -m aim.app.dream_agent restart conv-123 0 5 --model claude-3-5-sonnet
+
+    # Restart using step name instead of number
+    python -m aim.app.dream_agent restart conv-123 0 reflection --model claude-3-5-sonnet
+
+    # Restart with explicit scenario
+    python -m aim.app.dream_agent restart conv-123 0 final_journal \\
+        --scenario analyst --model claude-3-5-sonnet
 
     # Use HTTP mode (connect to server instead of Redis directly)
     python -m aim.app.dream_agent --http --base-url http://server:8000 \\
@@ -153,6 +168,99 @@ def parse_args():
         "--timeout",
         type=float,
         help="Timeout in seconds when using --wait",
+    )
+
+    # restart command
+    restart_parser = subparsers.add_parser(
+        "restart",
+        help="Restart a pipeline from a specific step",
+        description="Restart a scenario pipeline from a specific step using existing conversation data",
+    )
+    restart_parser.add_argument(
+        "conversation_id",
+        help="Conversation ID to restart from",
+    )
+    restart_parser.add_argument(
+        "branch",
+        type=int,
+        help="Branch number to restart from",
+    )
+    restart_parser.add_argument(
+        "step",
+        help="Step number or step ID to restart from (this step will be re-executed)",
+    )
+    restart_parser.add_argument(
+        "--model", "-m",
+        help="Model name (e.g., claude-3-5-sonnet). "
+             "Falls back to DEFAULT_MODEL from .env if not specified.",
+    )
+    restart_parser.add_argument(
+        "--scenario", "-s",
+        choices=SCENARIOS,
+        help="Scenario name (auto-inferred from conversation if not specified)",
+    )
+    restart_parser.add_argument(
+        "--persona", "-p",
+        help="Persona ID to use",
+    )
+    restart_parser.add_argument(
+        "--user", "-u",
+        help="User ID to use",
+    )
+    restart_parser.add_argument(
+        "--query", "-q",
+        help="Query text for journaler/philosopher scenarios",
+    )
+    restart_parser.add_argument(
+        "--guidance", "-g",
+        help="Guidance text for the pipeline",
+    )
+    restart_parser.add_argument(
+        "--mood",
+        help="Persona mood",
+    )
+    restart_parser.add_argument(
+        "--all-history", "-a",
+        action="store_true",
+        dest="all_history",
+        help="Load entire conversation history (all branches) into context",
+    )
+    restart_parser.add_argument(
+        "--same-branch",
+        action="store_true",
+        dest="same_branch",
+        help="Continue on the same branch instead of creating a new one",
+    )
+    restart_parser.add_argument(
+        "--wait", "-w",
+        action="store_true",
+        help="Wait for pipeline to complete",
+    )
+    restart_parser.add_argument(
+        "--timeout",
+        type=float,
+        help="Timeout in seconds when using --wait",
+    )
+
+    # inspect command
+    inspect_parser = subparsers.add_parser(
+        "inspect",
+        help="Inspect a conversation branch for restart options",
+        description="Show available restart points for a conversation branch",
+    )
+    inspect_parser.add_argument(
+        "conversation_id",
+        help="Conversation ID to inspect",
+    )
+    inspect_parser.add_argument(
+        "branch",
+        type=int,
+        help="Branch number to inspect",
+    )
+    inspect_parser.add_argument(
+        "--scenario", "-s",
+        choices=SCENARIOS,
+        help="Scenario name (required if auto-detection fails)",
     )
 
     # status command
@@ -367,6 +475,186 @@ async def cmd_start(args, client: DreamerClient, config: ChatConfig) -> int:
     return 0
 
 
+async def cmd_restart(args, client: DreamerClient, config: ChatConfig) -> int:
+    """Handle restart command."""
+    # Resolve model: CLI arg > config.default_model > error
+    model = args.model or config.default_model
+
+    if not model:
+        print(
+            "ERROR: No model specified. Use --model or set DEFAULT_MODEL in .env",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Apply persona/user overrides to config
+    if args.persona:
+        config.persona_id = args.persona
+    if args.user:
+        config.user_id = args.user
+
+    # Validate model exists
+    try:
+        models = LanguageModelV2.index_models(config)
+        if model not in models:
+            print(f"ERROR: Model '{model}' not found.", file=sys.stderr)
+            print(f"Available models: {', '.join(sorted(models.keys())[:10])}...", file=sys.stderr)
+            return 1
+    except Exception as e:
+        logger.warning(f"Could not validate model: {e}")
+
+    # Resolve step: could be a number or a step ID
+    step_id = args.step
+    step_num = None
+
+    # Check if it's a number
+    try:
+        step_num = int(args.step)
+    except ValueError:
+        pass  # It's a step ID, not a number
+
+    # If it's a number, we need to resolve it to a step ID
+    if step_num is not None:
+        # Get restart info to map step number to step ID
+        info = await client.inspect(args.conversation_id, args.branch)
+        if "error" in info:
+            print(f"ERROR: {info['error']}", file=sys.stderr)
+            return 1
+
+        restart_points = info.get('available_restart_points', [])
+        if not restart_points:
+            print("ERROR: No restart points available (scenario not recognized)", file=sys.stderr)
+            return 1
+
+        # Find step by number
+        found = False
+        for point in restart_points:
+            if isinstance(point, dict) and point.get('step_num') == step_num:
+                step_id = point['step_id']
+                found = True
+                break
+
+        if not found:
+            print(f"ERROR: Step #{step_num} not found. Valid range: 1-{len(restart_points)}", file=sys.stderr)
+            return 1
+
+    print(f"Restarting from step '{step_id}' in conversation {args.conversation_id} (branch {args.branch})...")
+    print(f"Model:   {model}")
+    if args.scenario:
+        print(f"Scenario: {args.scenario}")
+    else:
+        print("Scenario: (auto-inferring from conversation)")
+    if args.all_history:
+        print("Context: Loading all conversation history (all branches)")
+    if args.same_branch:
+        print(f"Branch:  Continuing on branch {args.branch}")
+    else:
+        print(f"Branch:  Creating new branch")
+
+    result = await client.restart(
+        conversation_id=args.conversation_id,
+        branch=args.branch,
+        step_id=step_id,
+        model_name=model,
+        scenario_name=args.scenario,
+        query_text=args.query,
+        persona_id=args.persona,
+        user_id=args.user,
+        guidance=args.guidance,
+        mood=args.mood,
+        include_all_history=args.all_history,
+        same_branch=args.same_branch,
+    )
+
+    if not result.success:
+        print(f"ERROR: {result.error}", file=sys.stderr)
+        return 1
+
+    print(f"Pipeline started: {result.pipeline_id}")
+
+    if args.wait:
+        print("Waiting for completion...")
+        try:
+            async for status in client.watch(
+                result.pipeline_id,
+                poll_interval=2.0,
+                timeout=args.timeout,
+            ):
+                print_progress(status)
+
+            # Final status
+            print()  # Newline after progress bar
+            final = await client.get_status(result.pipeline_id)
+            if final.success:
+                print_status(final.status)
+                return 0 if final.status.status == "complete" else 1
+            else:
+                print(f"ERROR: {final.error}", file=sys.stderr)
+                return 1
+
+        except TimeoutError:
+            print(f"\nTimeout: Pipeline did not complete in {args.timeout}s")
+            return 1
+
+    return 0
+
+
+async def cmd_inspect(args, client: DreamerClient) -> int:
+    """Handle inspect command."""
+    print(f"Inspecting conversation {args.conversation_id} (branch {args.branch})...")
+    print()
+
+    info = await client.inspect(args.conversation_id, args.branch, args.scenario)
+
+    if "error" in info:
+        print(f"ERROR: {info['error']}", file=sys.stderr)
+        return 1
+
+    print(f"Conversation: {info.get('conversation_id', 'N/A')}")
+    print(f"Branch:       {info.get('branch', 'N/A')}")
+    print(f"Scenario:     {info.get('scenario_name', '(could not infer)')}")
+    print()
+
+    doc_types = info.get('doc_types', set())
+    if doc_types:
+        print(f"Document Types Found: {', '.join(sorted(doc_types))}")
+    else:
+        print("Document Types Found: (none)")
+    print()
+
+    step_outputs = info.get('step_outputs', {})
+    if step_outputs:
+        print("Step Outputs:")
+        for step_id, doc_id in step_outputs.items():
+            print(f"  {step_id}: {doc_id}")
+    else:
+        print("Step Outputs: (none found)")
+    print()
+
+    restart_points = info.get('available_restart_points', [])
+    if restart_points:
+        print("Available Restart Points:")
+        print(f"  {'#':<4} {'Step ID':<20} {'Status'}")
+        print(f"  {'-'*4} {'-'*20} {'-'*10}")
+        for point in restart_points:
+            # Handle both old format (list of strings) and new format (list of dicts)
+            if isinstance(point, dict):
+                step_num = point['step_num']
+                step_id = point['step_id']
+            else:
+                step_num = "?"
+                step_id = point
+            has_output = step_id in step_outputs
+            status = "completed" if has_output else "pending"
+            print(f"  {step_num:<4} {step_id:<20} {status}")
+        print()
+        print("  Restart from any step # to re-run from that point forward.")
+    else:
+        print("Available Restart Points: (none - scenario not recognized)")
+
+    return 0
+
+
 async def cmd_status(args, client: DreamerClient) -> int:
     """Handle status command."""
     result = await client.get_status(args.pipeline_id)
@@ -527,6 +815,10 @@ async def async_main():
     async with client:
         if args.command == "start":
             return await cmd_start(args, client, config)
+        elif args.command == "restart":
+            return await cmd_restart(args, client, config)
+        elif args.command == "inspect":
+            return await cmd_inspect(args, client)
         elif args.command == "status":
             return await cmd_status(args, client)
         elif args.command == "cancel":

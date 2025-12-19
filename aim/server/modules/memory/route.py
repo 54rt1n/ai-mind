@@ -1,17 +1,37 @@
 # aim/server/modules/memory/route.py
-# AI-Mind © 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0 
+# AI-Mind © 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
 
 import logging
+import numpy as np
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from ....config import ChatConfig
 from ....chat import ChatManager
 from ....agents.roster import Roster
+from ....constants import CHUNK_LEVEL_FULL
+from ....conversation.message import VISIBLE_COLUMNS
 
 from .dto import DocumentUpdate, CreateDocumentRequest
 
 logger = logging.getLogger(__name__)
+
+# Columns safe to return in API responses
+API_COLUMNS = VISIBLE_COLUMNS + ['timestamp', 'speaker', 'date', 'score']
+
+
+def safe_value(val):
+    """Convert NaN to None for JSON compatibility."""
+    if val is None:
+        return None
+    if isinstance(val, float) and np.isnan(val):
+        return None
+    return val
+
+
+def df_to_json_safe(df) -> list:
+    """Convert DataFrame to list of dicts, replacing NaN with None for JSON compatibility."""
+    return df.replace({np.nan: None}).to_dict(orient='records')
 
 
 class MemoryModule:
@@ -39,23 +59,24 @@ class MemoryModule:
                     [query],
                     top_n=top_n,
                     query_document_type=document_type,
+                    chunk_level=CHUNK_LEVEL_FULL,
                 )
                 
                 formatted_results = []
                 for _, row in results.iterrows():
                     formatted_results.append({
-                        "doc_id": row['doc_id'],
-                        "document_type": row['document_type'],
-                        "user_id": row['user_id'],
-                        "persona_id": row['persona_id'],
-                        "conversation_id": row['conversation_id'],
-                        "date": row['date'],
-                        "role": row['role'],
-                        "content": row['content'],
-                        "branch": row['branch'],
-                        "sequence_no": row['sequence_no'],
-                        "speaker": row['speaker'],
-                        "score": row['score']
+                        "doc_id": safe_value(row['doc_id']),
+                        "document_type": safe_value(row['document_type']),
+                        "user_id": safe_value(row['user_id']),
+                        "persona_id": safe_value(row['persona_id']),
+                        "conversation_id": safe_value(row['conversation_id']),
+                        "date": safe_value(row['date']),
+                        "role": safe_value(row['role']),
+                        "content": safe_value(row['content']),
+                        "branch": safe_value(row['branch']),
+                        "sequence_no": safe_value(row['sequence_no']),
+                        "speaker": safe_value(row['speaker']),
+                        "score": safe_value(row['score'])
                     })
 
                 return {"status": "success", "results": formatted_results}
@@ -100,7 +121,10 @@ class MemoryModule:
             """Get a specific document"""
             try:
                 document = self.chat.cvm.get_documents(document_ids=[document_id])
-                return {"status": "success", "data": document.to_dict()}
+                # Filter to only public columns
+                available_cols = [c for c in API_COLUMNS if c in document.columns]
+                filtered = document[available_cols]
+                return {"status": "success", "data": df_to_json_safe(filtered)}
             except Exception as e:
                 logger.exception(e)
                 raise HTTPException(status_code=500, detail=str(e))

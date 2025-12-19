@@ -16,7 +16,7 @@ from typing import Optional, Set, List, Dict, Any
 from wonderwords import RandomWord
 
 from ..config import ChatConfig
-from ..constants import DOC_ANALYSIS, DOC_CONVERSATION, DOC_JOURNAL, DOC_NER, DOC_STEP, LISTENER_ALL, DOC_MOTD
+from ..constants import DOC_ANALYSIS, DOC_CODEX, DOC_CONVERSATION, DOC_JOURNAL, DOC_NER, DOC_STEP, LISTENER_ALL, DOC_MOTD
 from .index import SearchIndex
 from .message import ConversationMessage, VISIBLE_COLUMNS, QUERY_COLUMNS
 from .loader import ConversationLoader
@@ -32,20 +32,99 @@ def sanitize_timestamp(timestamp: int) -> int:
     """
     max_timestamp = 253402300799  # 9999-12-31 23:59:59
     min_timestamp = 0  # 1970-01-01 00:00:00
-    
+
     if not isinstance(timestamp, (int, float)):
         return min_timestamp
-    
+
     return max(min(int(timestamp), max_timestamp), min_timestamp)
+
+
+def mmr_rerank(df: pd.DataFrame, score_col: str = 'score', embedding_col: str = 'index_a',
+               top_n: int = 10, lambda_param: float = 0.7) -> pd.DataFrame:
+    """
+    Apply Maximum Marginal Relevance (MMR) reranking to balance relevance with diversity.
+
+    MMR iteratively selects documents that are both relevant to the query and
+    diverse from already-selected documents. This helps surface unique entries
+    that might otherwise be suppressed by similar, higher-scoring documents.
+
+    Args:
+        df: DataFrame with scores and embeddings
+        score_col: Column name containing relevance scores
+        embedding_col: Column name containing document embeddings (numpy arrays)
+        top_n: Number of documents to select
+        lambda_param: Tradeoff between relevance (1.0) and diversity (0.0).
+                      Default 0.7 favors relevance while still promoting diversity.
+
+    Returns:
+        DataFrame reordered by MMR selection order
+    """
+    if df.empty or len(df) <= 1:
+        return df
+
+    # Normalize scores to [0, 1] for fair MMR calculation
+    scores = df[score_col].values
+    if scores.max() > scores.min():
+        norm_scores = (scores - scores.min()) / (scores.max() - scores.min())
+    else:
+        norm_scores = np.ones(len(scores))
+
+    # Get embeddings as matrix
+    embeddings = np.stack(df[embedding_col].values)
+
+    # Precompute cosine similarities between all document pairs
+    # Normalize embeddings for cosine similarity
+    norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+    norms = np.where(norms == 0, 1, norms)  # Avoid division by zero
+    normalized_embeddings = embeddings / norms
+    similarity_matrix = np.dot(normalized_embeddings, normalized_embeddings.T)
+
+    # MMR selection
+    n_docs = len(df)
+    selected_indices = []
+    remaining_indices = list(range(n_docs))
+
+    # Select top_n documents (or all if fewer available)
+    n_to_select = min(top_n, n_docs)
+
+    for _ in range(n_to_select):
+        if not remaining_indices:
+            break
+
+        best_idx = None
+        best_mmr = float('-inf')
+
+        for idx in remaining_indices:
+            relevance = norm_scores[idx]
+
+            # Calculate max similarity to already selected documents
+            if selected_indices:
+                max_sim = max(similarity_matrix[idx, sel_idx] for sel_idx in selected_indices)
+            else:
+                max_sim = 0  # First selection has no penalty
+
+            # MMR score: balance relevance and diversity
+            mmr_score = lambda_param * relevance - (1 - lambda_param) * max_sim
+
+            if mmr_score > best_mmr:
+                best_mmr = mmr_score
+                best_idx = idx
+
+        if best_idx is not None:
+            selected_indices.append(best_idx)
+            remaining_indices.remove(best_idx)
+
+    # Return DataFrame reordered by MMR selection
+    return df.iloc[selected_indices].reset_index(drop=True)
 
 
 class ConversationModel:
     collection_name : str = 'memory'
 
-    def __init__(self, memory_path: str, embedding_model: str, user_timezone: Optional[str] = None, **kwargs):
+    def __init__(self, memory_path: str, embedding_model: str, user_timezone: Optional[str] = None, embedding_device: Optional[str] = None, **kwargs):
         super().__init__(**kwargs)
 
-        self.index = SearchIndex(Path('.', memory_path, 'indices'), embedding_model=embedding_model)
+        self.index = SearchIndex(Path('.', memory_path, 'indices'), embedding_model=embedding_model, device=embedding_device)
         self.memory_path = memory_path
         self.loader = ConversationLoader(conversations_dir=os.path.join(memory_path, 'conversations'))
         self.user_timezone = pytz.timezone(user_timezone) if user_timezone is not None else None
@@ -68,7 +147,7 @@ class ConversationModel:
         Creates a new conversation model from the given config.
         """
         cls.init_folders(config.memory_path)
-        return cls(memory_path=config.memory_path, embedding_model=config.embedding_model, user_timezone=config.user_timezone)
+        return cls(memory_path=config.memory_path, embedding_model=config.embedding_model, user_timezone=config.user_timezone, embedding_device=config.embedding_device)
 
     @property
     def collection_path(self) -> Path:
@@ -90,8 +169,30 @@ class ConversationModel:
         return self.loader.load_or_new(conversation_id)
 
     def get_by_doc_id(self, doc_id: str) -> Optional[Dict[str, Any]]:
-        """Retrieve a document by its doc_id."""
-        return self.index.get_document(doc_id)
+        """Retrieve a document by its doc_id.
+
+        First tries the index, then falls back to searching JSONL files directly.
+        """
+        # Try index first (fast path)
+        result = self.index.get_document(doc_id)
+        if result is not None:
+            return result
+
+        # Fallback: search JSONL files directly
+        for jsonl_file in self.collection_path.glob("*.jsonl"):
+            try:
+                with open(jsonl_file, 'r') as f:
+                    for line in f:
+                        if not line.strip():
+                            continue
+                        doc = json.loads(line)
+                        if doc.get('doc_id') == doc_id:
+                            logger.info(f"Found {doc_id} in {jsonl_file.name} (not in index)")
+                            return doc
+            except Exception as e:
+                logger.warning(f"Error reading {jsonl_file}: {e}")
+
+        return None
 
     def _append_message(self, message: ConversationMessage) -> None:
         """
@@ -204,32 +305,46 @@ class ConversationModel:
     
     def query(self, query_texts: List[str], filter_doc_ids: Optional[Set[str]] = None, top_n: Optional[int] = None,
               query_document_type: Optional[str | list[str]] = None, query_conversation_id: Optional[str] = None,
-              max_length: Optional[int] = None, turn_decay: float = 0.7, temporal_decay: float = 0.99, length_boost_factor: float = 0.0,
-              filter_metadocs: bool = True, chunk_size: int = -1, sort_by: str = 'relevance', **kwargs) -> pd.DataFrame:
+              max_length: Optional[int] = None, turn_decay: float = 0.7, temporal_decay: float = 0.5, length_boost_factor: float = 0.0,
+              filter_metadocs: bool = True, chunk_size: int = -1, sort_by: str = 'relevance', diversity: float = 0.3,
+              keyword_boost: float = 2.0, chunk_level: str = "full", **kwargs) -> pd.DataFrame:
         """
         Queries the conversation collection and returns a DataFrame containing the top `top_n` most relevant conversation entries based on the given query texts, filters, and decay factors.
-        
+
         The query is performed using the collection's search functionality, with optional filters applied to exclude certain document types, document IDs, and text content. The relevance score for each entry is calculated as a combination of the text similarity to the query texts, the temporal decay based on the entry's timestamp, and the entry's weight.
-        
-        The returned DataFrame includes the following columns:
-            - `query_text`: The query text.
-            - `filter_doc_ids`: The document IDs to filter.
-            - `top_n`: The number of results to return.
-            - `query_document_type`: The document type to query.
-            - `query_conversation_id`: The conversation ID to query.
-            - `max_length`: The maximum length of the results.
-            - `turn_decay`: The decay factor for the turn.
-            - `temporal_decay`: The decay factor for the temporal.
-            - `length_boost_factor`: The boost factor for the length.
-            - `filter_metadocs`: Whether to filter the metadocs.
-            - `chunk_size`: The size of the chunk to query.
+
+        Args:
+            query_texts: List of query strings to search for.
+            filter_doc_ids: Document IDs to exclude from results.
+            top_n: Maximum number of results to return.
+            query_document_type: Filter to specific document type(s).
+            query_conversation_id: Filter to specific conversation.
+            max_length: Maximum cumulative content length.
+            turn_decay: Decay factor for conversation turns (unused currently).
+            temporal_decay: Exponential decay factor for recency (default 0.3, reduced for
+                           memory search). Floor of 0.3 prevents old memories from being zeroed.
+            length_boost_factor: Boost factor for content length.
+            filter_metadocs: Whether to filter out NER/step documents.
+            chunk_size: Size for chunking long queries (-1 to disable).
+            sort_by: Sort order - 'relevance' (with MMR diversity) or 'recency'.
+            diversity: MMR diversity factor (0.0-1.0). Higher values promote more
+                       diverse results at the cost of pure relevance. Set to 0 to
+                       disable MMR and use pure relevance ranking. Default 0.3.
+            keyword_boost: Boost factor for capitalized terms/n-grams (proper nouns,
+                          names, acronyms). These are detected and boosted in the
+                          Tantivy query. Set to 1.0 to disable. Default 2.0.
+            chunk_level: Filter to specific chunk level (chunk_256, chunk_768, full).
+                        Defaults to "full" for backwards compatibility.
+
+        Returns:
+            DataFrame with columns: VISIBLE_COLUMNS + ['date', 'speaker', 'score', 'index_a'] + CHUNK_COLUMNS
         """
 
         # `query_limit` is how many results to fetch from the underlying search index.
         # `top_n` is how many results to return to the caller after processing.
-        # Setting query_limit slightly higher than top_n can be beneficial if post-filtering or re-ranking occurs.
-        # Using top_n * 2 here as a heuristic.
-        query_limit = top_n * 2 if top_n is not None else None # Allow top_n to be None for unlimited internal fetch
+        # Setting query_limit higher than top_n to ensure diverse candidates for reranking and MMR.
+        # Using top_n * 3 as a balance between recall and performance.
+        query_limit = top_n * 3 if top_n is not None else None # Allow top_n to be None for unlimited internal fetch
 
         original_query_texts = list(query_texts) if query_texts is not None else [] # Keep a copy for reranking
 
@@ -258,14 +373,15 @@ class ConversationModel:
             query_texts = query_texts_for_index_search # Modify query_texts for self.index.search call
 
         # Original logic starts here (or continues with chunked query_texts)
-        filter_document_type = [DOC_NER, DOC_STEP] if filter_metadocs and not query_document_type else None
+        # Filter out meta documents and MOTD (MOTD retrieved separately via get_motd)
+        filter_document_type = [DOC_NER, DOC_STEP, DOC_MOTD] if filter_metadocs and not query_document_type else None
 
         if not query_texts: # Handles empty list and ensures it's not None for len()
             logger.warning("No query texts provided, returning empty DataFrame")
             return pd.DataFrame(columns=VISIBLE_COLUMNS + ['date', 'speaker', 'score'])
 
         results = self.index.search(query_texts, query_document_type=query_document_type, filter_doc_ids=filter_doc_ids, filter_document_type=filter_document_type, query_conversation_id=query_conversation_id,
-                                    query_limit=query_limit)
+                                    query_limit=query_limit, keyword_boost=keyword_boost, chunk_level=chunk_level)
 
         if query_conversation_id is not None:
             conversation = self._query_conversation(conversation_id=query_conversation_id, query_document_type=query_document_type)
@@ -298,7 +414,8 @@ class ConversationModel:
         #logger.info(f"Found {len(results)} results")
         
         # Our results come back with hits, representing the number of matches for a single document. We need to boost the score as the hits go up; but not as linearly as the hits do.
-        results['hits_score'] = np.log2(results['hits'] + 1)
+        # Cap at 2.0 to prevent keyword-heavy old docs from drowning out recency
+        results['hits_score'] = np.minimum(np.log2(results['hits'] + 1), 2.0)
 
         # Vectorize our query texts and get the similarity scores
         # IMPORTANT: Use the LAST of the ORIGINAL query texts for reranking, even if chunks were used for search
@@ -319,7 +436,9 @@ class ConversationModel:
                 distance_index = zip(distance[0], index[0])
 
                 distance_index = sorted(distance_index, key=lambda x: x[1])
-                results['rerank'] = [1 / d if d > 0 else 0 for d, _ in distance_index]
+                # Normalize rerank to [0, 1] range using 1/(1+d) formula
+                # This prevents unbounded scores and gives d=0 (perfect match) a score of 1.0
+                results['rerank'] = [1 / (1 + d) for d, _ in distance_index]
         elif results.empty:
             results['rerank'] = 1.0 # Neutral rerank score, or handle as appropriate if results is empty
         else: # No rerank_query_text or results is empty
@@ -335,8 +454,10 @@ class ConversationModel:
         thirty_days_in_seconds = 30 * 24 * 60 * 60 
         decay_length = thirty_days_in_seconds
 
-        # Calculate decay factor
-        results['temporal_decay'] = np.exp(-temporal_decay * (current_time - results['timestamp']) / decay_length)
+        # Calculate decay factor with floor to prevent old memories from being zeroed out
+        temporal_decay_floor = 0.3
+        raw_decay = np.exp(-temporal_decay * (current_time - results['timestamp']) / decay_length)
+        results['temporal_decay'] = np.maximum(raw_decay, temporal_decay_floor)
         
         # Now, we sum the scores, and multiply by the dscore
         results['score'] = results.filter(regex='score_').sum(axis=1).fillna(0) * \
@@ -354,14 +475,25 @@ class ConversationModel:
         # Sort based on sort_by parameter, then apply top_n
         if sort_by == 'recency':
             results = results.sort_values(by='timestamp', ascending=False)
+            if top_n is not None:
+                results = results.head(top_n)
         elif sort_by == 'relevance':
+            # Use MMR to balance relevance with diversity for unique entry recall
+            # First sort by score to ensure MMR starts with the best candidates
             results = results.sort_values(by='score', ascending=False)
+            if top_n is not None and 'index_a' in results.columns and diversity > 0:
+                # Apply MMR reranking to get diverse results
+                # lambda_param = 1 - diversity: higher diversity = lower lambda = more diversity penalty
+                lambda_param = 1.0 - diversity
+                results = mmr_rerank(results, score_col='score', embedding_col='index_a',
+                                     top_n=top_n, lambda_param=lambda_param)
+            elif top_n is not None:
+                results = results.head(top_n)
         else:
             logger.warning(f"Unknown sort_by value: {sort_by}. Defaulting to 'relevance'")
             results = results.sort_values(by='score', ascending=False)
-            
-        if top_n is not None:
-            results = results.head(top_n)
+            if top_n is not None:
+                results = results.head(top_n)
             
         if not results.empty and 'content' in results.columns:
             results['cumlen'] = results['content'].astype(str).str.len().cumsum()
@@ -375,8 +507,12 @@ class ConversationModel:
 
         if results.empty: # If filters made results empty
             return pd.DataFrame(columns=VISIBLE_COLUMNS + ['date', 'speaker', 'score'])
-            
-        return results[VISIBLE_COLUMNS + ['date', 'speaker', 'score']]
+
+        # Return results with embeddings and chunk info for caller to handle reranking
+        return_columns = VISIBLE_COLUMNS + ['date', 'speaker', 'score', 'index_a', 'parent_doc_id', 'chunk_level', 'chunk_index', 'chunk_start', 'chunk_end', 'chunk_count']
+        # Only include columns that exist in the results
+        available_columns = [col for col in return_columns if col in results.columns]
+        return results[available_columns]
 
     def get_motd(self, top_n: int = 1) -> pd.DataFrame:
         results = self.index.search(query_document_type=DOC_MOTD, query_limit=top_n, descending=True)
@@ -384,14 +520,56 @@ class ConversationModel:
         results = self._fix_dataframe(results)
         return results[VISIBLE_COLUMNS + ['date', 'speaker']].head(top_n)
         
-    def get_conscious(self, persona_id: str, top_n: int) -> pd.DataFrame:
-        results : pd.DataFrame = self.index.search(query_document_type=DOC_JOURNAL, query_persona_id=persona_id, query_limit=int(top_n * 1.5))
+    def get_conscious(self, persona_id: str, top_n: int, query_texts: Optional[List[str]] = None) -> pd.DataFrame:
+        """
+        Get conscious/journal entries for a persona.
 
-        # our score will be stochastic, to bring in a variety of entries
-        results['score'] = np.random.rand(len(results)) * results['weight']
+        Strategy: Pull N random entries, search for relevant ones, replace randoms with relevant if found.
+        """
+        if top_n <= 0:
+            return pd.DataFrame(columns=VISIBLE_COLUMNS + ['date', 'speaker'])
+
+        # 1. Get random journal entries
+        results: pd.DataFrame = self.index.search(
+            query_document_type=DOC_JOURNAL,
+            query_persona_id=persona_id,
+            query_limit=max(top_n * 3, 10)
+        )
+
+        if results.empty:
+            return pd.DataFrame(columns=VISIBLE_COLUMNS + ['date', 'speaker'])
+
         results = self._fix_dataframe(results)
+        results['random_score'] = np.random.rand(len(results)) * results['weight']
+        random_entries = results.nlargest(top_n, 'random_score')
 
-        return results.sort_values(by='score', ascending=False).reset_index(drop=True)[VISIBLE_COLUMNS + ['date', 'speaker']].head(top_n)
+        # 2. Search for relevant entries if we have context
+        if query_texts and len(query_texts) > 0:
+            relevance_results = self.index.search(
+                query_texts=query_texts,
+                query_document_type=DOC_JOURNAL,
+                query_persona_id=persona_id,
+                query_limit=top_n
+            )
+
+            if not relevance_results.empty:
+                relevance_results = self._fix_dataframe(relevance_results)
+                if 'distance' in relevance_results.columns:
+                    relevance_results = relevance_results.nlargest(top_n, 'distance')
+
+                # 3. Merge: relevant first, fill rest with randoms not already included
+                relevant_ids = set(relevance_results['doc_id'])
+                remaining_random = random_entries[~random_entries['doc_id'].isin(relevant_ids)]
+                slots_for_random = top_n - len(relevance_results)
+
+                if slots_for_random > 0:
+                    combined = pd.concat([relevance_results, remaining_random.head(slots_for_random)], ignore_index=True)
+                else:
+                    combined = relevance_results.head(top_n)
+
+                return combined.drop_duplicates(subset=['doc_id'])[VISIBLE_COLUMNS + ['date', 'speaker']].head(top_n)
+
+        return random_entries[VISIBLE_COLUMNS + ['date', 'speaker']].head(top_n)
 
     def _fix_dataframe(self, results: pd.DataFrame) -> pd.DataFrame:
         """
@@ -464,7 +642,9 @@ class ConversationModel:
 
         logger.info(f"Found {len(results)} results for {conversation_id}")
 
-        return results[QUERY_COLUMNS]
+        # Filter to query columns, only including columns that exist in the dataframe
+        available_columns = [col for col in QUERY_COLUMNS if col in results.columns]
+        return results[available_columns]
 
     def get_conversation_history(self, conversation_id: str, query_document_type: Optional[str | list[str]] = None, filter_document_type: Optional[str | list[str]] = None, **kwargs) -> pd.DataFrame:
         """
@@ -480,7 +660,10 @@ class ConversationModel:
         results['date'] = results['timestamp'].apply(lambda d: datetime.fromtimestamp(sanitize_timestamp(d), self.user_timezone).strftime('%Y-%m-%d %H:%M:%S'))
         results['speaker'] = results.apply(lambda row: row['user_id'] if row['role'] == 'user' else row['persona_id'], axis=1)
 
-        return results[VISIBLE_COLUMNS + ['date', 'speaker']]
+        # Filter to visible columns, only including columns that exist in the dataframe
+        desired_columns = VISIBLE_COLUMNS + ['date', 'speaker']
+        available_columns = [col for col in desired_columns if col in results.columns]
+        return results[available_columns]
 
     def ner_query(self, query_text: str, filter_text: Optional[str] = None, top_n: int = -1, **kwargs) -> pd.DataFrame:
         """

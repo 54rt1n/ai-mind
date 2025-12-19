@@ -255,8 +255,8 @@ function createChatStore() {
                 if (message.content) {
                     const { content, think } = extractThinkContent(message.content);
 
-                    // If think content was found, return modified message with separated content
-                    if (think) {
+                    // If think tags were found (including empty ones), return modified message
+                    if (think !== null) {
                         return {
                             ...message,
                             content, // Clean content without think tags
