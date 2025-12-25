@@ -123,7 +123,7 @@ class ConversationMessage:
                doc_id: Optional[str] = None, reference_id: Optional[str] = None,
                user_id: str = 'user', persona_id: str = 'assistant', listener_id: str = LISTENER_ALL,
                branch: int = 0, importance: float = 0.0, observer: str = "none", inference_model: Optional[str] = None,
-               weight: float = 1.0, timestamp: int = int(time.time()), metadata: str = "", status: int = 0,
+               weight: float = 1.0, timestamp: Optional[int] = None, metadata: str = "", status: int = 0,
                emotion_a: Optional[str] = None, emotion_b: Optional[str] = None, emotion_c: Optional[str] = None, emotion_d: Optional[str] = None,
                sentiment_v: float = 0.0, sentiment_a: float = 0.0, sentiment_d: float = 0.0,
                think: Optional[str] = None,
@@ -141,7 +141,10 @@ class ConversationMessage:
 
         if inference_model is None:
             inference_model = "default"
-            
+
+        if timestamp is None:
+            timestamp = int(time.time())
+
         # Add the document and its embedding to the collection
         data = {
             "doc_id": doc_id,

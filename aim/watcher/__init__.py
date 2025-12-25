@@ -7,11 +7,24 @@ Provides rule-based watching of the conversation index to detect
 conditions that should trigger dreamer pipelines.
 """
 
-from aim.watcher.rules import Rule, UnanalyzedConversationRule
+from aim.watcher.rules import (
+    Rule,
+    RuleMatch,
+    UnanalyzedConversationRule,
+    AnalysisWithSummaryRule,
+    PostSummaryAnalysisRule,
+    StaleConversationRule,
+)
+from aim.watcher.stability import StabilityTracker
 from aim.watcher.watcher import Watcher
 
 __all__ = [
     "Rule",
+    "RuleMatch",
     "UnanalyzedConversationRule",
+    "AnalysisWithSummaryRule",
+    "PostSummaryAnalysisRule",
+    "StaleConversationRule",
+    "StabilityTracker",
     "Watcher",
 ]

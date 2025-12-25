@@ -31,8 +31,13 @@ from datetime import datetime
 
 from aim.config import ChatConfig
 from aim.conversation.model import ConversationModel
-from aim.watcher import Watcher, UnanalyzedConversationRule
-from aim.watcher.rules import StaleConversationRule
+from aim.watcher import Watcher
+from aim.watcher.rules import (
+    AnalysisWithSummaryRule,
+    PostSummaryAnalysisRule,
+    StaleConversationRule,
+    UnanalyzedConversationRule,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,19 +55,26 @@ def setup_logging(verbose: bool = False) -> None:
     logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
-def create_default_rules(args: argparse.Namespace) -> list:
+def create_default_rules(args: argparse.Namespace, config: ChatConfig) -> list:
     """Create the default set of rules."""
     rules = []
 
-    # Rule 1: Unanalyzed conversations
-    rules.append(UnanalyzedConversationRule(
-        scenario="analyst",
+    # Rule 1: Analysis with summary chaining
+    # Routes conversations over token threshold to summarizer first
+    rules.append(AnalysisWithSummaryRule(
+        config=config,
         persona_id=args.persona,
         model=args.model,
+        token_threshold_ratio=args.token_threshold,
         min_messages=1,
     ))
 
-    # Future rules can be added here or loaded from config
+    # Rule 2: Post-summary analysis
+    # Catches summarized-but-not-analyzed conversations (self-healing chain)
+    rules.append(PostSummaryAnalysisRule(
+        persona_id=args.persona,
+        model=args.model,
+    ))
 
     return rules
 
@@ -100,7 +112,7 @@ async def run_watcher(args: argparse.Namespace) -> int:
         return 1
 
     # Create rules
-    rules = create_default_rules(args)
+    rules = create_default_rules(args, config)
 
     # Create watcher
     watcher = Watcher(
@@ -109,6 +121,7 @@ async def run_watcher(args: argparse.Namespace) -> int:
         rules=rules,
         poll_interval=args.interval,
         dry_run=args.dry_run,
+        stability_seconds=args.stability,
     )
 
     # Set up callbacks
@@ -129,6 +142,8 @@ async def run_watcher(args: argparse.Namespace) -> int:
     print(f"Dream Watcher starting...")
     print(f"  Rules: {len(rules)}")
     print(f"  Interval: {args.interval}s")
+    print(f"  Stability: {args.stability}s")
+    print(f"  Token threshold: {args.token_threshold:.0%} of model context")
     print(f"  Dry run: {args.dry_run}")
     print()
 
@@ -170,6 +185,18 @@ def main() -> int:
         type=int,
         default=60,
         help="Polling interval in seconds (default: 60)",
+    )
+    parser.add_argument(
+        "--stability",
+        type=int,
+        default=120,
+        help="Seconds message count must be stable before triggering (default: 120)",
+    )
+    parser.add_argument(
+        "--token-threshold",
+        type=float,
+        default=0.8,
+        help="Token ratio (0.0-1.0) of model context above which summarization is required (default: 0.8 = 80%%)",
     )
     parser.add_argument(
         "--dry-run",

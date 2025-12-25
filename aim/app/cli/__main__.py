@@ -18,7 +18,6 @@ from ...chat.app import ChatApp
 from ...conversation.model import ConversationModel
 from ...io.jsonl import write_jsonl, read_jsonl
 from ...llm.llm import LLMProvider, OpenAIProvider, ChatConfig
-from ...pipeline.factory import pipeline_factory, BasePipeline
 from ...conversation.message import ConversationMessage
 from ...utils.turns import process_think_tag_in_message, extract_and_update_emotions_from_header
 from ...conversation.loader import ConversationLoader
@@ -256,36 +255,6 @@ def chat(co: ContextObject, model_url, api_key, user_id, persona_id, conversatio
     cm = co.build_chat()
     save = not test_mode
     cm.chat_loop(save=save)
-
-@cli.command()
-@click.argument('pipeline_type')
-@click.argument('persona_id')
-@click.argument('conversation_id')
-@click.option('--mood', default=None, help='The mood of the persona')
-@click.option('--no-retry', is_flag=True, help='Do not prompt the user for input')
-@click.option('--guidance', is_flag=True, help='Prompt for guidance for the conversation')
-@click.argument('query', nargs=-1)
-@click.pass_obj
-def pipeline(co: ContextObject, pipeline_type, persona_id, conversation_id, mood, query, no_retry, guidance):
-    """Run the journal pipeline"""
-    from ...pipeline.factory import pipeline_factory, BasePipeline
-    co.accept(
-        persona_id=persona_id,
-        conversation_id=conversation_id,
-        no_retry=no_retry,
-        mood=mood,
-        query_text=' '.join(query),
-    )
-
-    if guidance:
-        value = click.prompt('Enter your guidance', type=str)
-        co.config.guidance = value
-        print(f"Guidance: {co.config.guidance}")
-
-    base = BasePipeline.from_config(co.config)
-    pipeline = pipeline_factory(pipeline_type=pipeline_type)
-    asyncio.run(pipeline(self=base, **(co.config_dict)))
-
 
 def _show_chunk_stats(index, click):
     """Display chunk level statistics for the index."""

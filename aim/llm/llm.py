@@ -177,6 +177,14 @@ class OpenAIProvider(LLMProvider):
             tenpct = int(config.max_tokens * 0.1)
 
             try:
+                # Write all messages to trace file
+                if messages:
+                    import json
+                    from pathlib import Path
+                    trace_path = Path("local/trace.txt")
+                    trace_path.parent.mkdir(parents=True, exist_ok=True)
+                    trace_path.write_text(json.dumps(messages, indent=2, default=str))
+
                 for t in self.openai.chat.completions.create(
                     model=model,
                     messages=messages,
@@ -196,7 +204,8 @@ class OpenAIProvider(LLMProvider):
                     if pct > (lastpct + tenpct):
                         lastpct = pct
                         logger.info(f"{pct*100}% done")
-                    yield c.choices[0].delta.content
+                    if c.choices:
+                        yield c.choices[0].delta.content
 
                 # Success - log and return
                 logger.info(f"Generation complete. {progress}/{config.max_tokens} tokens processed.")

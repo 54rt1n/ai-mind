@@ -167,6 +167,7 @@ class DreamerClient:
         query_text: Optional[str] = None,
         persona_id: Optional[str] = None,
         user_id: Optional[str] = None,
+        guidance: Optional[str] = None,
     ) -> PipelineResult:
         """Start a new pipeline.
 
@@ -177,17 +178,18 @@ class DreamerClient:
             query_text: Optional query text for journaler/philosopher
             persona_id: Optional persona ID
             user_id: Optional user ID (defaults to persona_id if not set)
+            guidance: Optional guidance text for the pipeline
 
         Returns:
             PipelineResult with pipeline_id on success
         """
         if self.mode == "direct":
             return await self._start_direct(
-                scenario_name, conversation_id, model_name, query_text, persona_id, user_id
+                scenario_name, conversation_id, model_name, query_text, persona_id, user_id, guidance
             )
         else:
             return await self._start_http(
-                scenario_name, conversation_id, model_name, query_text, persona_id, user_id
+                scenario_name, conversation_id, model_name, query_text, persona_id, user_id, guidance
             )
 
     async def _start_direct(
@@ -198,6 +200,7 @@ class DreamerClient:
         query_text: Optional[str],
         persona_id: Optional[str] = None,
         user_id: Optional[str] = None,
+        guidance: Optional[str] = None,
     ) -> PipelineResult:
         """Start pipeline via direct Redis connection."""
         try:
@@ -211,6 +214,7 @@ class DreamerClient:
                 query_text=query_text,
                 persona_id=persona_id,
                 user_id=user_id,
+                guidance=guidance,
             )
             return PipelineResult(
                 success=True,
@@ -232,6 +236,7 @@ class DreamerClient:
         query_text: Optional[str],
         persona_id: Optional[str] = None,
         user_id: Optional[str] = None,
+        guidance: Optional[str] = None,
     ) -> PipelineResult:
         """Start pipeline via HTTP API."""
         try:
@@ -244,6 +249,7 @@ class DreamerClient:
                     "query_text": query_text,
                     "persona_id": persona_id,
                     "user_id": user_id,
+                    "guidance": guidance,
                 },
             )
             response.raise_for_status()
@@ -546,6 +552,7 @@ class DreamerClient:
         query_text: Optional[str] = None,
         persona_id: Optional[str] = None,
         user_id: Optional[str] = None,
+        guidance: Optional[str] = None,
         poll_interval: float = 2.0,
         timeout: Optional[float] = None,
         on_progress: Optional[Callable] = None,
@@ -561,6 +568,7 @@ class DreamerClient:
             query_text: Optional query text
             persona_id: Optional persona ID
             user_id: Optional user ID (defaults to persona_id if not set)
+            guidance: Optional guidance text for the pipeline
             poll_interval: Seconds between status checks
             timeout: Optional timeout in seconds
             on_progress: Optional callback(status) for progress updates
@@ -569,7 +577,7 @@ class DreamerClient:
             PipelineResult with final status
         """
         # Start the pipeline
-        result = await self.start(scenario_name, conversation_id, model_name, query_text, persona_id, user_id)
+        result = await self.start(scenario_name, conversation_id, model_name, query_text, persona_id, user_id, guidance)
 
         if not result.success:
             return result

@@ -160,6 +160,10 @@ def parse_args():
         help="Query text for journaler/philosopher scenarios",
     )
     start_parser.add_argument(
+        "--guidance", "-g",
+        help="Guidance text for the pipeline",
+    )
+    start_parser.add_argument(
         "--wait", "-w",
         action="store_true",
         help="Wait for pipeline to complete",
@@ -434,12 +438,15 @@ async def cmd_start(args, client: DreamerClient, config: ChatConfig) -> int:
 
     if args.query:
         print(f"Query: {args.query}")
+    if args.guidance:
+        print(f"Guidance: {args.guidance}")
 
     result = await client.start(
         scenario_name=args.scenario,
         conversation_id=args.conversation_id,
         model_name=model,
         query_text=args.query,
+        guidance=args.guidance,
     )
 
     if not result.success:

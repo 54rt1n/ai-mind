@@ -12,9 +12,12 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, Callable
 
+import redis.asyncio as redis
+
 from aim.config import ChatConfig
 from aim.conversation.model import ConversationModel
 from aim.watcher.rules import Rule, RuleMatch
+from aim.watcher.stability import StabilityTracker
 from aim.app.dream_agent.client import DreamerClient
 
 logger = logging.getLogger(__name__)
@@ -49,6 +52,7 @@ class Watcher:
         rules: list[Rule],
         poll_interval: int = 60,
         dry_run: bool = False,
+        stability_seconds: int = 120,
     ):
         """
         Args:
@@ -57,17 +61,20 @@ class Watcher:
             rules: List of rules to evaluate
             poll_interval: Seconds between polling cycles
             dry_run: If True, don't actually trigger pipelines
+            stability_seconds: How long message count must be stable before triggering
         """
         self.config = config
         self.cvm = cvm
         self.rules = rules
         self.poll_interval = poll_interval
         self.dry_run = dry_run
+        self.stability_seconds = stability_seconds
 
         self.stats = WatcherStats()
         self._running = False
         self._processed: set[str] = set()  # Track processed conversation_ids
         self._client: Optional[DreamerClient] = None
+        self._stability_tracker: Optional[StabilityTracker] = None
 
         # Callbacks
         self.on_match: Optional[Callable[[RuleMatch], None]] = None
@@ -80,6 +87,21 @@ class Watcher:
             self._client = DreamerClient.direct(self.config)
             await self._client.connect()
         return self._client
+
+    async def _get_stability_tracker(self) -> StabilityTracker:
+        """Get or create the StabilityTracker."""
+        if self._stability_tracker is None:
+            redis_client = redis.Redis(
+                host=self.config.redis_host,
+                port=self.config.redis_port,
+                db=self.config.redis_db,
+                password=getattr(self.config, 'redis_password', None),
+            )
+            self._stability_tracker = StabilityTracker(
+                redis_client,
+                stability_seconds=self.stability_seconds,
+            )
+        return self._stability_tracker
 
     def _make_processed_key(self, match: RuleMatch) -> str:
         """Create a unique key for tracking processed matches."""
@@ -187,15 +209,33 @@ class Watcher:
         self.stats.matches_found += len(matches)
 
         # Process matches
+        tracker = await self._get_stability_tracker()
+
         for match in matches:
             if self.on_match:
                 self.on_match(match)
 
+            # Check stability before triggering (only for matches with message_count)
+            if match.message_count > 0:
+                is_stable, snapshot = await tracker.update_and_check(
+                    match.conversation_id,
+                    match.message_count,
+                    match.token_count,
+                )
+                if not is_stable:
+                    logger.debug(
+                        f"Skipping {match.conversation_id}: not stable yet "
+                        f"(msgs={match.message_count}, tokens={match.token_count}, needs {self.stability_seconds}s)"
+                    )
+                    continue
+
             pipeline_id = await self.trigger_pipeline(match)
 
             if pipeline_id or self.dry_run:
-                # Mark as processed
+                # Mark as processed and cleanup stability tracking
                 self._processed.add(self._make_processed_key(match))
+                if match.message_count > 0:
+                    await tracker.mark_processed(match.conversation_id)
                 triggered += 1
 
         return triggered

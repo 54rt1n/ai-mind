@@ -15,41 +15,61 @@ from ..constants import (
     CHUNK_LEVEL_256, CHUNK_LEVEL_768, CHUNK_LEVEL_FULL,
     CHUNK_SIZE_256, CHUNK_SIZE_768, CHUNK_SLIDE_256, CHUNK_SLIDE_768
 )
+from .blacklist import STOPWORDS, BLACKLIST_WORDS, CONTRACTIONS
 from .embedding import HuggingFaceEmbedding
 from .message import VISIBLE_COLUMNS, QUERY_COLUMNS
 
 logger = logging.getLogger(__name__)
 
 
-def boost_query_terms(text: str, base_boost: float = 1.0, keyword_boost: float = 2.0) -> str:
+def clean_query_text(text: str) -> str:
+    """Clean text for Tantivy query parsing: remove contractions and special chars."""
+    if not text:
+        return text
+    # Remove contractions entirely (they'll be filtered as stopwords anyway)
+    words = text.split()
+    filtered = [w for w in words if w.lower().rstrip(".,!?;:'\"") not in CONTRACTIONS]
+    joined = ' '.join(filtered)
+    # Remove special chars except word chars and whitespace, normalize whitespace
+    cleaned = re.sub(r"\s+", ' ', re.sub(r'[^\w\s]', ' ', joined))
+    return cleaned.strip()
+
+
+def boost_query_terms(text: str, base_boost: float = 1.0, keyword_boost: float = 2.0, max_terms: int = 0) -> str:
     """
     Boost query terms with position-based and keyword-based weights.
 
-    Applies two types of boosting:
-    1. base_boost: Applied to ALL terms (for recency/position weighting)
-    2. keyword_boost: Additional boost for capitalized words (proper nouns, acronyms)
+    Filters out stopwords and blacklist words, then sorts by importance
+    (length, capitalization) and keeps top N terms.
 
     Args:
         text: Original query text
         base_boost: Base multiplier for all terms (default 1.0)
         keyword_boost: Additional multiplier for capitalized terms (default 2.0)
+        max_terms: Maximum number of terms to include (0 = unlimited)
 
     Returns:
         Query string with terms boosted.
         e.g., with base_boost=1.5, keyword_boost=2.0:
-        "I met John at NASA" -> 'i^1.5 met^1.5 john^3.0 at^1.5 nasa^3.0'
+        "I met John at NASA" -> 'john^3.0 nasa^3.0 met^1.5'
     """
     if not text:
         return text
 
     words = text.split()
-    result_parts = []
+    term_info = []  # List of (clean_word, clean_lower, is_keyword, length)
 
     for i, word in enumerate(words):
         # Clean the word for analysis (remove punctuation at edges)
         clean_word = re.sub(r'^[^\w]+|[^\w]+$', '', word)
 
         if not clean_word:
+            continue
+
+        clean_lower = clean_word.lower()
+
+        # Filter out stopwords and blacklist words
+        if clean_lower in STOPWORDS or clean_word in BLACKLIST_WORDS:
             continue
 
         # Check capitalization for keyword boost
@@ -60,8 +80,18 @@ def boost_query_terms(text: str, base_boost: float = 1.0, keyword_boost: float =
         # Keyword boost if: ALL CAPS (acronyms), or capitalized but not sentence-start
         is_keyword = is_all_caps or (is_capitalized and not is_first_word)
 
-        clean_lower = clean_word.lower()
+        term_info.append((clean_word, clean_lower, is_keyword, len(clean_word)))
 
+    # Sort by (length desc, is_keyword desc) - longer words and keywords first
+    term_info.sort(key=lambda x: (x[3], x[2]), reverse=True)
+
+    # Limit terms if max_terms is set
+    if max_terms > 0 and len(term_info) > max_terms:
+        term_info = term_info[:max_terms]
+
+    # Build result with boosts
+    result_parts = []
+    for clean_word, clean_lower, is_keyword, _ in term_info:
         # Calculate total boost: base * keyword_multiplier
         if is_keyword and keyword_boost > 1.0:
             total_boost = base_boost * keyword_boost
@@ -369,14 +399,12 @@ class SearchIndex:
                         # Outside window: leveled out at 1.0
                         position_boost = 1.0
 
-                # Apply both position boost and keyword boost
-                boosted_query = boost_query_terms(query_text, base_boost=position_boost, keyword_boost=keyword_boost)
+                # Clean first (expand contractions, remove special chars), then boost
+                cleaned_text = clean_query_text(query_text)
+                boosted_query = boost_query_terms(cleaned_text, base_boost=position_boost, keyword_boost=keyword_boost, max_terms=64)
 
-                # Clean the query: remove special chars, normalize whitespace
-                clean_query = re.sub(r"\s+", ' ', re.sub(r'[^\w\s\^.]', ' ', boosted_query))
-
-                # logger.debug(f"Query {idx+1}/{n_queries} (boost={position_boost:.1f}): {clean_query[:60]}...")
-                text_query = self.index.parse_query(query=clean_query, default_field_names=["content"])
+                # logger.debug(f"Query {idx+1}/{n_queries} (boost={position_boost:.1f}): {boosted_query[:60]}...")
+                text_query = self.index.parse_query(query=boosted_query, default_field_names=["content"])
                 text_subqueries.append((Occur.Should, text_query))
             subqueries.append((Occur.Must, Query.boolean_query(text_subqueries)))
         else:

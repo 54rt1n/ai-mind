@@ -3,7 +3,6 @@
 
 from .weather import WeatherTool
 from .system import SystemTool
-from .pipeline import PipelineTool
 from .file_ops import FileTool
 from .web import WebTool
 from .memory import MemoryTool
@@ -13,7 +12,6 @@ from .schedule import ScheduleTool
 __all__ = [
     'WeatherTool',
     'SystemTool',
-    'PipelineTool',
     'FileTool',
     'WebTool',
     'MemoryTool',
