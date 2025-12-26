@@ -342,7 +342,7 @@ class TestExpectedStepSequences:
     """Test expected step sequences for each scenario."""
 
     def test_analyst_step_sequence(self):
-        """Analyst should flow: ner → emotional_trace → ... → motd."""
+        """Analyst should flow: ner → emotional_trace → ... → brainstorm."""
         scenario = load_scenario("analyst")
         scenario.compute_dependencies()
 
@@ -350,8 +350,8 @@ class TestExpectedStepSequences:
 
         # First step should be ner
         assert order[0] == "ner"
-        # Last step should be motd
-        assert order[-1] == "motd"
+        # Last step should be brainstorm
+        assert order[-1] == "brainstorm"
         # Should have expected steps
         expected_steps = {
             "ner", "emotional_trace", "questions", "reflection",

@@ -457,7 +457,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         history_cutoff_threshold = 0.5
 
         # if our history is over 50%, we need to reduce its size
-        if history_tokens_pct > history_cutoff_threshold:
+        if history_tokens_pct >= history_cutoff_threshold:
             # Calculate overage in tokens
             overage_tokens = int((history_tokens_pct - history_cutoff_threshold) * usable_context_tokens)
             logger.info(f"History is over {history_cutoff_threshold:.2f}, applying compression strategy")
