@@ -89,7 +89,7 @@ function createChatStore() {
             metadata: {
                 user_id: config?.user_id || undefined,
                 persona_id: config?.persona_id || undefined,
-                pinned_messages: options.pinnedMessages ? options.pinnedMessages.map(message => message.doc_id) : undefined,
+                pinned_messages: (options.pinnedMessages || config?.pinnedMessages)?.map(message => message.doc_id) || undefined,
                 active_document: options.activeDocument ? options.activeDocument.name : undefined,
                 workspace_content: options.workspaceContent || undefined,
                 thought_content: config?.thoughtContent || undefined,

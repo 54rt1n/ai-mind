@@ -57,6 +57,9 @@ class CurrentState:
     # Tool/workspace state
     current_workspace: str | None = None
     current_scratch_pad: str | None = None
+
+    # Pinned messages
+    pinned_messages: list[str] = field(default_factory=list)
     
     def reset_turn(self) -> None:
         """Reset the turn state to defaults."""

@@ -189,9 +189,9 @@ class TestGetConsciousMemoryUnit:
         xml_output, _ = unit_test_xml_strategy.get_conscious_memory(sample_persona)
 
         # Assert Pinned section exists and contains the content (doc_id is not included in the tag)
-        assert f'<Pinned date="{pinned_date_str}" type="pinned_note">' in xml_output
-        assert ">This is **CriticallyImportant** pinned content with a **SpecialKeyword**.</Pinned>" in xml_output or \
-               re.search(r">\s*This is \*\*CriticallyImportant\*\* pinned content with a \*\*SpecialKeyword\*\*\.\s*</Pinned>", xml_output)
+        assert f'<memory_pinned date="{pinned_date_str}" type="pinned_note">' in xml_output
+        assert ">This is **CriticallyImportant** pinned content with a **SpecialKeyword**.</memory_pinned>" in xml_output or \
+               re.search(r">\s*This is \*\*CriticallyImportant\*\* pinned content with a \*\*SpecialKeyword\*\*\.\s*</memory_pinned>", xml_output)
 
         # Assert emotions and keywords from pinned message are in global aggregates
         # Assuming nowrap=True for global tags as per user's update

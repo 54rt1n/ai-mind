@@ -200,7 +200,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                     for _, row in pinned_docs_df.iterrows():
                          if row['doc_id'] in self.pinned:
                              row_entry_content = row.get('content', "Error: Pinned content not found.")
-                             formatter.add_element(self.hud_name, "Active Memory", "Pinned",
+                             formatter.add_element(self.hud_name, "Active Memory", "memory_pinned",
                                                    date=row.get('date'), type=row.get('document_type'),
                                                    content=row_entry_content, noindent=True, priority=2)
                              emotions, keywords = self.extract_memory_metadata(row)

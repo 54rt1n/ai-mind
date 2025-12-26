@@ -7,6 +7,18 @@ sampler_settings:
     min_p: 0.05
     top_p: 0.9
     top_k: 0
+  llama3:
+    temperature: 0.7
+    frequency_penalty: 0.0
+    presence_penalty: 0.0
+    repetition_penalty: 1.0
+    min_p: 0.05
+  mistral-small:
+    temperature: 0.7
+    frequency_penalty: 0.0
+    presence_penalty: 0.0
+    repetition_penalty: 1.0
+    min_p: 0.05
   llama3.1:
     temperature: 0.7
     frequency_penalty: 0.0
@@ -31,12 +43,22 @@ sampler_settings:
     presence_penalty: 0.0
     repetition_penalty: 1.0
     min_p: 0.05
+  qwen3:
+    temperature: 0.7
+    frequency_penalty: 0.0
+    presence_penalty: 0.0
+    repetition_penalty: 1.0
+    min_p: 0.05
   deepseekv3:
     temperature: 0.7
     frequency_penalty: 0.0
     presence_penalty: 0.0
     repetition_penalty: 1.0
     min_p: 0.05
+  gemma3:
+    temperature: 0.7
+  glm4:
+    temperature: 0.7
   gpt4:
     temperature: 0.7
     frequency_penalty: 0.0
@@ -81,6 +103,43 @@ models:
       - analysis
       - thought
       - workspace
+  # OpenRouter models
+  - name: meta-llama/llama-3.3-70b-instruct
+    architecture: llama3.3
+    provider: openrouter
+    size: 70B
+    category:
+      - conversation
+      - analysis
+      - thought
+      - workspace
+  - name: qwen/qwen-2.5-72b-instruct
+    architecture: qwen2.5
+    provider: openrouter
+    size: 72B
+    category:
+      - conversation
+      - analysis
+      - thought
+      - workspace
+  - name: google/gemini-2.0-flash-001
+    architecture: gemini
+    provider: openrouter
+    size: 0B
+    category:
+      - conversation
+      - analysis
+      - thought
+      - workspace
+  - name: anthropic/claude-3.5-sonnet
+    architecture: claude3
+    provider: openrouter
+    size: 0B
+    category:
+      - conversation
+      - analysis
+      - thought
+      - workspace
   - name: deepseek-ai/DeepSeek-V3-0324
     architecture: deepseekv3
     provider: featherless
@@ -90,7 +149,7 @@ models:
       - analysis
       - thought
       - workspace
-  - name: deepseek-ai/DeepSeek-R1
+  - name: deepseek-ai/DeepSeek-R1-0528
     architecture: deepseekv3
     provider: featherless
     size: 671B
@@ -100,6 +159,180 @@ models:
       - analysis
       - functions
       - workspace
+  - name: moonshotai/Kimi-K2-Instruct-0905
+    architecture: qwen2.5
+    provider: featherless
+    size: 32B
+    category:
+      - conversation
+      - thought
+      - analysis
+      - functions
+      - workspace
+  - name: MiniMaxAI/MiniMax-M2
+    architecture: deepseekv3
+    provider: featherless
+    size: 229B
+    category:
+      - conversation
+      - analysis
+      - thought
+      - workspace
+  - name: zai-org/GLM-4.7
+    architecture: deepseekv3
+    provider: featherless
+    size: 357B
+    category:
+      - conversation
+      - analysis
+      - thought
+      - workspace
+  - name: zai-org/GLM-4.6
+    architecture: deepseekv3
+    provider: featherless
+    size: 357B
+    category:
+      - conversation
+      - analysis
+      - thought
+      - workspace
+  - name: inclusionAI/Ling-1T
+    architecture: deepseekv3
+    provider: featherless
+    size: 1T
+    category:
+      - conversation
+      - analysis
+      - thought
+      - workspace
+  - name: moonshotai/Kimi-K2-Instruct
+    architecture: qwen2.5
+    provider: featherless
+    size: 32B
+    category:
+      - conversation
+      - thought
+      - analysis
+      - functions
+      - workspace
+  - name: moonshotai/Kimi-K2-Thinking
+    architecture: qwen2.5
+    provider: featherless
+    size: 32B
+    category:
+      - conversation
+      - thought
+      - analysis
+      - functions
+      - workspace
+  - name: mistralai/Mistral-Large-Instruct-2411
+    architecture: deepseekv3
+    provider: featherless
+    size: 123B
+    category:
+      - conversation
+      - analysis
+      - thought
+      - workspace
+  - name: roslein/Qwen3-32B-abliterated
+    architecture: qwen3
+    provider: featherless
+    size: 32B
+    category:
+      - conversation
+      - analysis
+      - thought
+      - workspace
+  - name: miromind-ai/MiroThinker-32B-DPO-v0.1
+    architecture: qwen3
+    provider: featherless
+    size: 32B
+    category:
+      - conversation
+      - analysis
+      - thought
+      - workspace
+  - name: miromind-ai/MiroThinker-32B-DPO-v0.2
+    architecture: qwen3
+    provider: featherless
+    size: 32B
+    category:
+      - conversation
+      - analysis
+      - thought
+      - workspace
+  - name: QuixiAI/Ina-v11.1
+    architecture: llama3
+    provider: featherless
+    size: 70B
+    category:
+      - conversation
+      - analysis
+      - thought
+      - workspace
+  - name: qihoo360/Light-IF-32B
+    architecture: qwen3
+    provider: featherless
+    size: 32B
+    category:
+      - conversation
+      - analysis
+      - thought
+      - workspace
+  - name: MetaStoneTec/XBai-o4
+    architecture: qwen3
+    provider: featherless
+    size: 32B
+    category:
+      - conversation
+      - analysis
+      - thought
+      - workspace
+  - name: google/gemma-3-27b-it
+    architecture: gemma3
+    provider: featherless
+    size: 27B
+    category:
+      - conversation
+      - analysis
+      - thought
+      - workspace
+  - name: maldv/Eva-Mindlink-72b
+    architecture: qwen2.5
+    provider: featherless
+    size: 72B
+    category:
+      - conversation
+      - thought
+      - analysis
+      - functions
+      - workspace
+  - name: mlabonne/gemma-3-27b-it-abliterated-v2
+    architecture: gemma3
+    provider: featherless
+    size: 27B
+    category:
+      - conversation
+      - analysis
+      - thought
+      - workspace
+  - name: THUDM/GLM-4-32B-0414
+    architecture: glm4
+    provider: featherless
+    size: 32B
+    category:
+      - conversation
+      - analysis
+      - thought
+      - workspace
+  - name: NousResearch/Hermes-4-70B
+    architecture: llama3.1
+    provider: featherless
+    size: 70B
+    category:
+      - conversation
+      - analysis
+      - workspace
   - name: nvidia/Llama-3.1-Nemotron-70B-Instruct-HF
     architecture: llama3.1
     provider: featherless
@@ -108,7 +341,55 @@ models:
       - conversation
       - analysis
       - workspace
+  - name: LatitudeGames/Nova-70B-Llama-3.3
+    architecture: qwen2.5
+    provider: featherless
+    size: 32B
+    category:
+      - conversation
+      - analysis
+      - functions
+  - name: agentica-org/DeepSWE-Preview
+    architecture: qwen3
+    provider: featherless
+    size: 32B
+    category:
+      - conversation
+      - thought
+      - analysis
+      - functions
+      - workspace
+  - name: ArliAI/QwQ-32B-ArliAI-RpR-v3
+    architecture: qwen2.5
+    provider: featherless
+    size: 32B
+    category:
+      - conversation
+      - thought
+      - analysis
+      - functions
+      - workspace
+  - name: trashpanda-org/QwQ-32B-Snowdrop-v0
+    architecture: qwen2.5
+    provider: featherless
+    size: 32B
+    category:
+      - conversation
+      - thought
+      - analysis
+      - functions
+      - workspace
   - name: maldv/Loqwqtus2.5-32B-Instruct
+    architecture: qwen2.5
+    provider: featherless
+    size: 32B
+    category:
+      - conversation
+      - thought
+      - analysis
+      - functions
+      - workspace
+  - name: all-hands/openhands-lm-32b-v0.1
     architecture: qwen2.5
     provider: featherless
     size: 32B
@@ -208,6 +489,26 @@ models:
       - analysis
       - functions
       - workspace
+  - name: maldv/praxis-bookwriter-qwen2.5-14b-sft
+    architecture: qwen2.5
+    provider: featherless
+    size: 14B
+    category:
+      - conversation
+      - thought
+      - analysis
+      - functions
+      - workspace
+  - name: maldv/praxis-bookwriter-llama3.1-8b-sft
+    architecture: llama3
+    provider: featherless
+    size: 8B
+    category:
+      - conversation
+      - thought
+      - analysis
+      - functions
+      - workspace
   - name: open-r1/OlympicCoder-32B
     architecture: qwen2.5
     provider: featherless
@@ -254,7 +555,7 @@ models:
       - analysis
       - thought
       - workspace
-  - name: unsloth/Llama-3.3-70B-Instruct
+  - name: ReadyArt/Forgotten-Safeword-70B-v5.0
     architecture: llama3.3
     provider: featherless
     size: 70B
@@ -323,6 +624,16 @@ models:
       - thought
       - functions
       - workspace
+  - name: darkc0de/XortronCriminalComputingConfig
+    architecture: mistral
+    provider: featherless
+    size: 24B
+    category:
+      - functions
+      - conversation
+      - analysis
+      - thought
+      - workspace
   - name: mistralai/Mistral-Small-24B-Instruct-2501
     architecture: mistral
     provider: featherless
@@ -353,6 +664,12 @@ models:
       - analysis
       - workspace
       - completion
+  - name: meta-llama/Meta-Llama-3-70B
+    architecture: llama3
+    provider: featherless
+    size: 70B
+    category:
+      - completion
   - name: empower-dev/llama3-empower-functions-large-v1.1
     architecture: llama3.3
     provider: featherless
@@ -368,6 +685,7 @@ models:
   - name: gpt-4-turbo-preview
     architecture: gpt4
     provider: openai
+    nsfw: false
     size: 1.8T
     category:
       - conversation
@@ -378,12 +696,14 @@ models:
   - name: gpt-4-vision-preview
     architecture: gpt4
     provider: openai
+    nsfw: false
     size: 1.8T
     category:
       - vision
   - name: gpt-4
     architecture: gpt4
     provider: openai
+    nsfw: false
     size: 1.8T
     category:
       - conversation
@@ -393,12 +713,14 @@ models:
   - name: gpt-3.5-turbo
     architecture: gpt3.5
     provider: openai
+    nsfw: false
     size: 175B
     category:
       - conversation
   - name: claude-3-opus
     architecture: claude3
     provider: anthropic
+    nsfw: false
     size: 2.7T
     category:
       - conversation
@@ -408,6 +730,7 @@ models:
   - name: claude-3-5-sonnet
     architecture: claude3
     provider: anthropic
+    nsfw: false
     size: 1.8T
     category:
       - conversation
@@ -418,6 +741,7 @@ models:
   - name: claude-3-5-haiku
     architecture: claude3
     provider: anthropic
+    nsfw: false
     size: 1.2T
     category:
       - conversation
@@ -426,6 +750,7 @@ models:
   - name: mixtral-8x7b-32768
     architecture: mixtral
     provider: groq
+    nsfw: false
     size: 47B
     category:
       - conversation
@@ -435,6 +760,7 @@ models:
   - name: gemini-1.5-flash
     architecture: gemini
     provider: google
+    nsfw: false
     size: 1.5T
     category:
       - conversation
@@ -444,9 +770,23 @@ models:
   - name: gemini-1.5-pro
     architecture: gemini
     provider: google
+    nsfw: false
     size: 1.5T
     category:
       - conversation
       - analysis
       - thought
       - workspace
+  - name: Llama-4-Maverick-17B-128E-Instruct-FP8
+    architecture: llama4
+    provider: meta
+    nsfw: false
+    size: 2.2T
+    category:
+      - conversation
+      - analysis
+      - thought
+      - workspace
+      - functions
+      - completion
+      - vision

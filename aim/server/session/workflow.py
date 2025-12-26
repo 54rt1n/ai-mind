@@ -56,14 +56,20 @@ class SessionWorkflow:
         # Set current workspace if available
         if self.current.current_workspace:
             self.chat.current_workspace = self.current.current_workspace
-            
+
         # Set thought content if available
         if self.current.thought_content:
             self.chat_strategy.thought_content = self.current.thought_content
-            
+
         # Set scratch pad if available
         if self.current.current_scratch_pad:
             self.chat_strategy.scratch_pad = self.current.current_scratch_pad
+
+        # Set pinned messages if available
+        self.chat_strategy.clear_pinned()
+        if self.current.pinned_messages:
+            for doc_id in self.current.pinned_messages:
+                self.chat_strategy.pin_message(doc_id)
     
     def _convert_persona_tools_to_dto(self, persona_tools: List[PersonaTool]) -> List[DtoTool]:
         """Convert persona tools to DTO format expected by ToolUser.
