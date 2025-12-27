@@ -119,7 +119,10 @@ class UnanalyzedConversationRule(Rule):
         # Find conversations that have conversation but no analysis
         unanalyzed = has_conversation - has_analysis
 
-        logger.info(f"Found {len(unanalyzed)} unanalyzed conversations")
+        if unanalyzed:
+            logger.info(f"Found {len(unanalyzed)} unanalyzed conversations")
+        else:
+            logger.debug("No unanalyzed conversations found")
 
         for conversation_id in unanalyzed:
             # Check minimum message count
@@ -311,7 +314,10 @@ class AnalysisWithSummaryRule(Rule):
         # Find conversations that have conversation but no analysis
         unanalyzed = has_conversation - has_analysis
 
-        logger.info(f"Found {len(unanalyzed)} unanalyzed conversations")
+        if unanalyzed:
+            logger.info(f"Found {len(unanalyzed)} unanalyzed conversations")
+        else:
+            logger.debug("No unanalyzed conversations found")
 
         for conversation_id in unanalyzed:
             # Get messages for this conversation
@@ -400,7 +406,10 @@ class PostSummaryAnalysisRule(Rule):
         # Find conversations with summary but no analysis
         needs_analysis = has_summary - has_analysis
 
-        logger.info(f"Found {len(needs_analysis)} summarized conversations needing analysis")
+        if needs_analysis:
+            logger.info(f"Found {len(needs_analysis)} summarized conversations needing analysis")
+        else:
+            logger.debug("No summarized conversations needing analysis")
 
         for conversation_id in needs_analysis:
             matches.append(RuleMatch(

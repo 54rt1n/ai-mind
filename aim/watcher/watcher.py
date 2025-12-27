@@ -19,6 +19,7 @@ from aim.conversation.model import ConversationModel
 from aim.watcher.rules import Rule, RuleMatch
 from aim.watcher.stability import StabilityTracker
 from aim.app.dream_agent.client import DreamerClient
+from aim.utils.redis_cache import RedisCache
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,7 @@ class Watcher:
         self._processed: set[str] = set()  # Track processed conversation_ids
         self._client: Optional[DreamerClient] = None
         self._stability_tracker: Optional[StabilityTracker] = None
+        self._redis_cache: Optional[RedisCache] = None
 
         # Callbacks
         self.on_match: Optional[Callable[[RuleMatch], None]] = None
@@ -102,6 +104,31 @@ class Watcher:
                 stability_seconds=self.stability_seconds,
             )
         return self._stability_tracker
+
+    def _get_redis_cache(self) -> RedisCache:
+        """Get or create RedisCache instance."""
+        if self._redis_cache is None:
+            self._redis_cache = RedisCache(self.config)
+        return self._redis_cache
+
+    def is_api_idle(self, idle_threshold: int = 120) -> bool:
+        """Check if the API has been idle for the threshold duration.
+
+        Args:
+            idle_threshold: Seconds of inactivity to consider idle (default: 120)
+
+        Returns:
+            True if API is idle (no recent activity), False if active
+        """
+        import time
+        cache = self._get_redis_cache()
+        last_activity = cache.get_api_last_activity()
+
+        if last_activity is None:
+            return True
+
+        elapsed = time.time() - last_activity
+        return elapsed >= idle_threshold
 
     def _make_processed_key(self, match: RuleMatch) -> str:
         """Create a unique key for tracking processed matches."""
@@ -144,10 +171,15 @@ class Watcher:
             match: RuleMatch describing what to trigger
 
         Returns:
-            Pipeline ID if started, None if dry_run or error
+            Pipeline ID if started, None if dry_run, api_busy, or error
         """
         if self.dry_run:
             logger.info(f"[DRY RUN] Would trigger {match.scenario} for {match.conversation_id}")
+            return None
+
+        # Check if API is idle before triggering
+        if not self.is_api_idle():
+            logger.debug(f"API busy, skipping trigger for {match.conversation_id}")
             return None
 
         try:

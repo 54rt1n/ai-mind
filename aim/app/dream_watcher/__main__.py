@@ -25,6 +25,9 @@ Examples:
 
     # Refiner with custom intervals
     python -m aim.app.dream_watcher --refiner --refiner-interval 300 --refiner-idle-threshold 600
+
+    # Refiner with immediate first check (retries until success)
+    python -m aim.app.dream_watcher --refiner --refiner-nodelay
 """
 
 from __future__ import annotations
@@ -115,6 +118,7 @@ async def run_refiner_loop(
     interval: int,
     stats: dict,
     stop_event: asyncio.Event,
+    nodelay: bool = False,
 ) -> None:
     """Run the refiner exploration loop.
 
@@ -124,44 +128,65 @@ async def run_refiner_loop(
         interval: Seconds between exploration checks
         stats: Mutable dict to track refiner statistics
         stop_event: Event to signal when to stop the loop
+        nodelay: If True, run first check immediately without waiting
     """
     from aim.refiner.engine import ExplorationEngine  # Type hint import
 
-    logger.info(f"Refiner loop started, checking every {interval}s")
+    logger.info(f"Refiner loop started, checking every {interval}s{' (nodelay)' if nodelay else ''}")
 
+    first_run = True
     while not stop_event.is_set():
-        try:
-            # Check if refiner is enabled via Redis
-            cache = RedisCache(config)
-            if not cache.is_refiner_enabled():
-                logger.debug("Refiner disabled via Redis, skipping cycle")
-                # Wait for the interval, but respect stop_event
+        # Skip initial wait if nodelay and first run
+        if not (first_run and nodelay):
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=interval)
+                break  # stop_event was set
+            except asyncio.TimeoutError:
+                pass  # Normal timeout, continue
+        first_run = False
+
+        # Check if refiner is enabled via Redis
+        cache = RedisCache(config)
+        if not cache.is_refiner_enabled():
+            logger.debug("Refiner disabled via Redis, skipping cycle")
+            continue
+
+        # Keep trying until we get an accepted exploration
+        first_attempt = True
+        seed_query = None  # Suggested topic from previous rejection
+        while not stop_event.is_set():
+            try:
+                stats["checks"] = stats.get("checks", 0) + 1
+                logger.info(f"Refiner check #{stats['checks']}")
+
+                # Skip idle check: on first attempt if nodelay, always on retries
+                skip_idle = nodelay or not first_attempt
+                pipeline_id, suggested = await engine.run_exploration(
+                    skip_idle_check=skip_idle,
+                    seed_query=seed_query,
+                )
+                first_attempt = False
+
+                if pipeline_id:
+                    stats["explorations"] = stats.get("explorations", 0) + 1
+                    logger.info(f"Refiner started exploration: {pipeline_id}")
+                    break  # Success, exit inner loop and wait for next interval
+
+                # Rejected - use suggested query for next attempt if provided
+                seed_query = suggested
+
+                # Wait a bit before retrying
+                logger.info("Exploration rejected, retrying in 10s...")
                 try:
-                    await asyncio.wait_for(stop_event.wait(), timeout=interval)
+                    await asyncio.wait_for(stop_event.wait(), timeout=10)
                     break  # stop_event was set
                 except asyncio.TimeoutError:
-                    pass  # Normal timeout, continue loop
-                continue
+                    pass  # Continue retrying
 
-            stats["checks"] = stats.get("checks", 0) + 1
-            logger.debug(f"Refiner check #{stats['checks']}")
-
-            pipeline_id = await engine.run_exploration()
-
-            if pipeline_id:
-                stats["explorations"] = stats.get("explorations", 0) + 1
-                logger.info(f"Refiner started exploration: {pipeline_id}")
-
-        except Exception as e:
-            stats["errors"] = stats.get("errors", 0) + 1
-            logger.error(f"Refiner error: {e}", exc_info=True)
-
-        # Wait for the interval, but respect stop_event
-        try:
-            await asyncio.wait_for(stop_event.wait(), timeout=interval)
-            break  # stop_event was set
-        except asyncio.TimeoutError:
-            pass  # Normal timeout, continue loop
+            except Exception as e:
+                stats["errors"] = stats.get("errors", 0) + 1
+                logger.error(f"Refiner error: {e}", exc_info=True)
+                break  # Error, exit inner loop and wait for next interval
 
 
 async def run_watcher(args: argparse.Namespace) -> int:
@@ -256,6 +281,7 @@ async def run_watcher(args: argparse.Namespace) -> int:
                     interval=args.refiner_interval,
                     stats=refiner_stats,
                     stop_event=refiner_stop_event,
+                    nodelay=args.refiner_nodelay,
                 )
             )
             logger.info("Refiner task started")
@@ -365,6 +391,11 @@ def main() -> int:
         type=int,
         default=300,
         help="Seconds of API inactivity before considering idle (default: 300)",
+    )
+    parser.add_argument(
+        "--refiner-nodelay",
+        action="store_true",
+        help="Run first refiner check immediately without waiting for interval",
     )
     parser.add_argument(
         "-v", "--verbose",

@@ -1002,6 +1002,7 @@ def build_topic_selection_prompt(
     paradigm: str,
     documents: List[dict],
     persona: "Persona",
+    seed_query: Optional[str] = None,
 ) -> Tuple[str, str]:
     """
     Build the appropriate selection prompt based on paradigm.
@@ -1010,17 +1011,30 @@ def build_topic_selection_prompt(
         paradigm: The exploration paradigm ("brainstorm", "daydream", "knowledge")
         documents: List of document dicts from context gathering
         persona: The Persona with aspects
+        seed_query: Optional suggested topic from previous rejection
 
     Returns:
         Tuple of (system_message, user_message)
     """
     if paradigm == "brainstorm":
-        return build_brainstorm_selection_prompt(documents, persona)
+        system_msg, user_msg = build_brainstorm_selection_prompt(documents, persona)
     elif paradigm == "daydream":
-        return build_daydream_selection_prompt(documents, persona)
+        system_msg, user_msg = build_daydream_selection_prompt(documents, persona)
     elif paradigm == "knowledge":
-        return build_knowledge_selection_prompt(documents, persona)
+        system_msg, user_msg = build_knowledge_selection_prompt(documents, persona)
     else:
         # Default to brainstorm
         logger.warning(f"Unknown paradigm '{paradigm}', defaulting to brainstorm")
-        return build_brainstorm_selection_prompt(documents, persona)
+        system_msg, user_msg = build_brainstorm_selection_prompt(documents, persona)
+
+    # If we have a seed query from a previous rejection, add it as a hint
+    if seed_query:
+        seed_hint = f"""
+
+<suggested_direction>
+A previous reflection suggested exploring: "{seed_query}"
+Consider whether this unexplored path calls to you, or find your own.
+</suggested_direction>"""
+        user_msg = user_msg + seed_hint
+
+    return system_msg, user_msg

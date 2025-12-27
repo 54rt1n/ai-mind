@@ -509,15 +509,23 @@ async def execute_step(
     )
 
     # 9. Generate response (streaming)
-    # Update activity timestamp before LLM call to prevent cascading triggers
+    # Update activity timestamp during streaming to prevent cascading triggers
     from ..utils.redis_cache import RedisCache
     cache = RedisCache(config)
     cache.update_api_activity()
 
     chunks = []
+    chunk_count = 0
     for chunk in provider.stream_turns(turns, step_config):
         if chunk:
             chunks.append(chunk)
+            chunk_count += 1
+            # Update activity every 50 chunks to keep timestamp fresh during long streams
+            if chunk_count % 50 == 0:
+                cache.update_api_activity()
+
+    # Final activity update after streaming completes
+    cache.update_api_activity()
     response = ''.join(chunks)
 
     # 10. Extract <think> tags if present

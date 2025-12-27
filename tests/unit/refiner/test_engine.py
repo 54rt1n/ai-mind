@@ -244,9 +244,9 @@ This territory has been well-explored...
     async def test_run_exploration_returns_none_when_not_idle(self, engine, mock_redis_cache_active):
         """run_exploration should return None when API is not idle."""
         with patch.object(engine, '_get_redis_cache', return_value=mock_redis_cache_active):
-            result = await engine.run_exploration()
+            pipeline_id, suggested = await engine.run_exploration()
 
-        assert result is None
+        assert pipeline_id is None
 
     # Test 3-step flow - full acceptance
     @pytest.mark.asyncio
@@ -275,12 +275,12 @@ This territory has been well-explored...
         with patch.object(engine, '_get_redis_cache', return_value=mock_redis_cache_idle):
             with patch.object(engine, '_get_llm_provider', return_value=mock_provider):
                 engine.context_gatherer = mock_context_gatherer
-                result = await engine.run_exploration()
+                pipeline_id, suggested = await engine.run_exploration()
 
         # Should have called LLM twice (step 1 and step 2)
         assert mock_provider.stream_turns.call_count == 2
         # Should return pipeline ID
-        assert result == "pipeline-123"
+        assert pipeline_id == "pipeline-123"
 
     # Test 3-step flow - rejection
     @pytest.mark.asyncio
@@ -307,10 +307,10 @@ This territory has been well-explored...
         with patch.object(engine, '_get_redis_cache', return_value=mock_redis_cache_idle):
             with patch.object(engine, '_get_llm_provider', return_value=mock_provider):
                 engine.context_gatherer = mock_context_gatherer
-                result = await engine.run_exploration()
+                pipeline_id, suggested = await engine.run_exploration()
 
         # Should return None (no pipeline)
-        assert result is None
+        assert pipeline_id is None
         # Pipeline should not have been triggered
         mock_dreamer_client.start.assert_not_called()
 
@@ -327,9 +327,9 @@ This territory has been well-explored...
 
         with patch.object(engine, '_get_redis_cache', return_value=mock_redis_cache_idle):
             engine.context_gatherer = mock_gatherer
-            result = await engine.run_exploration()
+            pipeline_id, suggested = await engine.run_exploration()
 
-        assert result is None
+        assert pipeline_id is None
 
     @pytest.mark.asyncio
     async def test_run_exploration_returns_none_on_empty_targeted_context(
@@ -357,9 +357,9 @@ This territory has been well-explored...
         with patch.object(engine, '_get_redis_cache', return_value=mock_redis_cache_idle):
             with patch.object(engine, '_get_llm_provider', return_value=mock_provider):
                 engine.context_gatherer = mock_gatherer
-                result = await engine.run_exploration()
+                pipeline_id, suggested = await engine.run_exploration()
 
-        assert result is None
+        assert pipeline_id is None
 
     @pytest.mark.asyncio
     async def test_run_exploration_passes_context_documents_to_pipeline(
@@ -407,9 +407,9 @@ This territory has been well-explored...
         with patch.object(engine, '_get_redis_cache', return_value=mock_redis_cache_idle):
             with patch.object(engine, '_get_llm_provider', return_value=mock_provider):
                 engine.context_gatherer = mock_context_gatherer
-                result = await engine.run_exploration()
+                pipeline_id, suggested = await engine.run_exploration()
 
-        assert result is None
+        assert pipeline_id is None
 
 
 class TestExplorationEngineToolValidation:

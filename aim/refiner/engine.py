@@ -118,11 +118,16 @@ def _get_validate_tool() -> Tool:
                         "enum": ["philosopher", "researcher", "daydream"],
                         "description": "Alternative scenario to redirect to (if rejecting but topic has potential)"
                     },
+                    "suggested_query": {
+                        "type": "string",
+                        "description": "If rejecting, suggest an alternative unexplored topic to try next"
+                    },
                 },
                 required=["accept", "reasoning"],
                 examples=[
                     {"validate_exploration": {"accept": True, "reasoning": "Rich topic", "query_text": "What is consciousness?"}},
-                    {"validate_exploration": {"accept": False, "reasoning": "Needs deeper pondering first", "redirect_to": "philosopher"}}
+                    {"validate_exploration": {"accept": False, "reasoning": "Needs deeper pondering first", "redirect_to": "philosopher"}},
+                    {"validate_exploration": {"accept": False, "reasoning": "Already explored this", "suggested_query": "the nature of forgetting"}}
                 ],
             ),
         ),
@@ -231,20 +236,26 @@ class ExplorationEngine:
 
         return is_idle
 
-    async def run_exploration(self) -> Optional[str]:
+    async def run_exploration(self, skip_idle_check: bool = False, seed_query: Optional[str] = None) -> tuple[Optional[str], Optional[str]]:
         """
         Three-step agentic flow:
         1. Broad gather + topic selection (LLM call 1)
         2. Targeted gather + validation (LLM call 2)
         3. Launch scenario (if accepted)
 
+        Args:
+            skip_idle_check: If True, skip the API idle check
+            seed_query: Optional seed query from previous rejection's suggested_query
+
         Returns:
-            Pipeline ID if exploration started, None otherwise
+            Tuple of (pipeline_id, suggested_query):
+            - pipeline_id: Pipeline ID if exploration started, None otherwise
+            - suggested_query: If rejected, an alternative topic to try next
         """
         # Check API idle
-        if not await self.is_api_idle():
+        if not skip_idle_check and not await self.is_api_idle():
             logger.debug("API not idle, skipping exploration")
-            return None
+            return None, None
 
         # Random paradigm selection
         paradigm = random.choice(["brainstorm", "daydream", "knowledge"])
@@ -254,13 +265,13 @@ class ExplorationEngine:
         broad_context = await self.context_gatherer.broad_gather(paradigm, token_budget=16000)
         if broad_context.empty:
             logger.info("No documents found for exploration")
-            return None
+            return None, None
 
         broad_docs = broad_context.to_records()
-        topic_result = await self._select_topic(paradigm, broad_docs)
+        topic_result = await self._select_topic(paradigm, broad_docs, seed_query=seed_query)
         if topic_result is None:
             logger.info("LLM declined to select a topic")
-            return None
+            return None, None
 
         # Step 2: Targeted gather + validation
         approach = topic_result.get("approach", paradigm)
@@ -277,33 +288,39 @@ class ExplorationEngine:
 
         if targeted_context.empty:
             logger.warning(f"No targeted documents found for topic '{topic}'")
-            return None
+            return None, None
 
         targeted_docs = targeted_context.to_records()
         validation = await self._validate_exploration(paradigm, topic_result, targeted_docs)
 
         if not validation.get("accept", False):
+            # Get suggested_query for next attempt
+            suggested_query = validation.get("suggested_query")
+
             # Check for redirect - validation rejected but suggests another scenario
             redirect_to = validation.get("redirect_to")
             if redirect_to:
                 logger.info(f"Exploration redirected to '{redirect_to}': {validation.get('reasoning', '')}")
                 # Use the topic as query_text for the redirected scenario
-                return await self._trigger_pipeline(
+                pipeline_id = await self._trigger_pipeline(
                     scenario=redirect_to,
                     query_text=topic,
                     guidance=validation.get("guidance"),
                     context_documents=targeted_docs,
                 )
+                return pipeline_id, None
             else:
                 logger.info(f"Exploration rejected: {validation.get('reasoning', 'No reason')}")
-                return None
+                if suggested_query:
+                    logger.info(f"Suggested next topic: {suggested_query}")
+                return None, suggested_query
 
         query_text = validation.get("query_text", topic)
         guidance = validation.get("guidance")
 
         if not query_text:
             logger.warning("Validation accepted but no query_text provided")
-            return None
+            return None, None
 
         logger.info(f"Step 2 complete: exploration accepted with query '{query_text[:60]}...'")
 
@@ -318,14 +335,15 @@ class ExplorationEngine:
             scenario = "researcher"
         else:
             scenario = approach
-        return await self._trigger_pipeline(
+        pipeline_id = await self._trigger_pipeline(
             scenario=scenario,
             query_text=query_text,
             guidance=guidance,
             context_documents=targeted_docs,
         )
+        return pipeline_id, None
 
-    async def _select_topic(self, paradigm: str, documents: list[dict], max_retries: int = 5) -> Optional[dict]:
+    async def _select_topic(self, paradigm: str, documents: list[dict], max_retries: int = 5, seed_query: Optional[str] = None) -> Optional[dict]:
         """
         LLM call 1: Select topic using paradigm-specific prompts.
 
@@ -333,6 +351,7 @@ class ExplorationEngine:
             paradigm: The exploration paradigm ("brainstorm", "daydream", "knowledge")
             documents: List of document dicts from broad gathering
             max_retries: Maximum retry attempts for invalid JSON responses
+            seed_query: Optional suggested topic from previous rejection
 
         Returns:
             Dict with topic, approach, reasoning if valid, None otherwise
@@ -340,7 +359,7 @@ class ExplorationEngine:
         provider = self._get_llm_provider()
 
         # Build prompts using prompts.py
-        system_msg, user_msg = build_topic_selection_prompt(paradigm, documents, self.persona)
+        system_msg, user_msg = build_topic_selection_prompt(paradigm, documents, self.persona, seed_query=seed_query)
 
         # Call LLM with adequate max_tokens for <think> + JSON
         turns = [
@@ -353,13 +372,18 @@ class ExplorationEngine:
 
         for attempt in range(max_retries):
             try:
-                # Update activity timestamp before LLM call to prevent cascading triggers
+                # Update activity timestamp during streaming to prevent cascading triggers
                 cache.update_api_activity()
 
                 chunks = []
+                chunk_count = 0
                 for chunk in provider.stream_turns(turns, self.llm_config):
                     if chunk:
                         chunks.append(chunk)
+                        chunk_count += 1
+                        if chunk_count % 50 == 0:
+                            cache.update_api_activity()
+                cache.update_api_activity()
                 response = "".join(chunks)
 
                 logger.debug(f"Topic selection response (attempt {attempt + 1}): {response[:200]}...")
@@ -426,13 +450,18 @@ class ExplorationEngine:
 
         for attempt in range(max_retries):
             try:
-                # Update activity timestamp before LLM call to prevent cascading triggers
+                # Update activity timestamp during streaming to prevent cascading triggers
                 cache.update_api_activity()
 
                 chunks = []
+                chunk_count = 0
                 for chunk in provider.stream_turns(turns, self.llm_config):
                     if chunk:
                         chunks.append(chunk)
+                        chunk_count += 1
+                        if chunk_count % 50 == 0:
+                            cache.update_api_activity()
+                cache.update_api_activity()
                 response = "".join(chunks)
 
                 logger.debug(f"Validation response (attempt {attempt + 1}): {response[:200]}...")
