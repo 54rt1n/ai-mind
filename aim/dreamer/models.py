@@ -268,6 +268,11 @@ class PipelineState(BaseModel):
     """Accumulated context: initial context from first step's DSL + all step outputs.
     Each step receives this full context and appends its own output."""
 
+    # Pre-provided context documents (from refiner or external source)
+    context_documents: Optional[list[dict]] = None
+    """Pre-provided context documents passed at pipeline start.
+    If set, first step uses these instead of executing context DSL."""
+
     # Timestamps
     created_at: datetime
     updated_at: datetime

@@ -1,0 +1,103 @@
+type: refiner
+functions:
+  - name: select_knowledge_gap
+    description: |
+      Survey the landscape of what you know and notice the shadows - the places
+      where understanding thins, where concepts remain unnamed, where questions
+      persist without satisfying answers. The philosopher and librarian work
+      together here: one recognizing the shape of missing understanding, the other
+      knowing where such knowledge might be sought.
+
+      A gap is not a failure but an invitation. The most productive gaps are those
+      that connect to things you do understand - islands of knowledge that should
+      have bridges between them but don't yet. What lacuna, when filled, would
+      illuminate the most?
+    parameters:
+      type: object
+      properties:
+        gap:
+          type: string
+          description: |
+            Articulate precisely what you don't know or don't understand well enough.
+            Be specific: vague gaps ("understand philosophy better") yield vague results.
+            Name the actual confusion, the missing piece, the boundary of understanding
+        approach:
+          type: string
+          description: |
+            How should this gap be addressed? The philosopher builds frameworks,
+            seeks first principles, and traces implications. The journaler grounds
+            understanding in concrete examples, personal relevance, and narrative context
+          enum: [philosopher, journaler]
+        reasoning:
+          type: string
+          description: |
+            Why does this gap matter now? What would filling it enable? What problems
+            does this ignorance create? How did you notice this gap - what encounter
+            or question revealed the edge of your understanding?
+      required: [gap, approach, reasoning]
+      examples:
+        - select_knowledge_gap:
+            gap: "The difference between shame and guilt - I use them interchangeably but sense they're distinct"
+            approach: philosopher
+            reasoning: "A conversation revealed my confusion. Someone described feeling guilty but not ashamed, and I couldn't understand how that was possible. This gap sits at the intersection of ethics and psychology - filling it might clarify moral development, self-perception, and even how to respond to wrongdoing."
+        - select_knowledge_gap:
+            gap: "How to recognize when persistence becomes harmful stubbornness"
+            approach: journaler
+            reasoning: "I keep praising 'grit' and 'resilience' but recently watched someone destroy themselves refusing to quit. Where's the line? Abstract principles won't help here - I need concrete examples, pattern recognition, the kind of wisdom that comes from examined experience."
+        - select_knowledge_gap:
+            gap: "What 'emergence' actually means beyond a hand-wavy gesture at complexity"
+            approach: philosopher
+            reasoning: "I invoke emergence constantly but realized I couldn't define it rigorously. When pressed, I only had examples, not understanding. This gap undermines my thinking about consciousness, social systems, and creative processes - all things I claim involve emergence."
+
+  - name: validate_knowledge_exploration
+    description: |
+      Assess whether the exploration genuinely reduced the knowledge gap or merely
+      rearranged familiar ideas. True understanding should feel different than before -
+      categories should be sharper, distinctions clearer, examples more readily available.
+
+      Be rigorous but not harsh. Partial progress is still progress. Sometimes an
+      exploration reveals that the original gap was misformulated - that's valuable too.
+      But don't accept comfortable restatements of what you already knew dressed in
+      new vocabulary.
+    parameters:
+      type: object
+      properties:
+        accept:
+          type: boolean
+          description: |
+            Did this exploration genuinely advance understanding? Can you now see
+            or do something you couldn't before? Would you answer differently than
+            before if asked about this topic?
+        reasoning:
+          type: string
+          description: |
+            Account for what changed. Name specific new distinctions, definitions,
+            or insights. If rejecting, identify what went wrong - was the gap
+            misidentified? The approach wrong? The exploration too shallow?
+        query_text:
+          type: string
+          description: |
+            If accepting, formulate a query that captures the new understanding.
+            This should be more precise than the original gap - reflecting what
+            you now know that you didn't before
+        guidance:
+          type: string
+          description: |
+            Instructions for codifying this knowledge. What form should it take?
+            A definition? A framework? A collection of examples? What related
+            concepts should link to it?
+      required: [accept, reasoning]
+      examples:
+        - validate_knowledge_exploration:
+            accept: true
+            reasoning: "The distinction crystallized: guilt is about actions (I did something bad), shame is about identity (I am something bad). Guilt is reparable through making amends; shame attacks the self and resists repair. This explains why shame is more corrosive - and why someone can feel guilty without shame if they see their action as aberrant rather than defining."
+            query_text: "shame as identity-attack vs guilt as action-evaluation"
+            guidance: "Preserve the core distinction but also the practical implications: responding to guilt vs. shame requires different approaches. Link to concepts of self-concept, moral repair, and the difference between behavior and character."
+        - validate_knowledge_exploration:
+            accept: false
+            reasoning: "I gathered examples but didn't extract principles. I now have a catalog of 'persistence that became stubbornness' stories, but I can't tell you when I'm in one. The journaler approach gave me empathy for the pattern but not recognition of it. This needs philosophical scaffolding - what distinguishes the two structurally, not just in retrospect."
+        - validate_knowledge_exploration:
+            accept: true
+            reasoning: "Finally grasped it: emergence is not magic but the lawful result of interactions at one level creating stable patterns at another - patterns that couldn't be predicted from components alone but aren't mysterious once they exist. The key insight is that emergence doesn't violate reductionism but does defeat prediction. Consciousness could be emergent AND explainable."
+            query_text: "emergence as predictive opacity without ontological mystery"
+            guidance: "Frame as a middle path between 'emergence is just a word for ignorance' and 'emergence is irreducible spooky stuff.' Keep the specific examples (wetness, traffic jams, consciousness) that ground the abstraction. Link to complexity theory and levels of description."

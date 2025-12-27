@@ -1,0 +1,198 @@
+name: researcher
+version: 2
+description: Knowledge curation and synthesis pipeline for refining and connecting existing knowledge
+requires_conversation: false
+context:
+  required_aspects:
+  - librarian
+  core_documents:
+  - codex
+  - pondering
+  enhancement_documents:
+  - brainstorm
+  - self_rag
+  location: 'You find yourself in the {{ librarian.location }}. {{ librarian.name }}, your {{ librarian.title }}, awaits you. {{ librarian.appearance }}. The atmosphere hums with {{ librarian.emotional_state }}, inviting focused exploration.
+
+    '
+  thoughts:
+  - 'Task: Knowledge Curation'
+  - 'Topic: {{ query_text }}'
+  - '{% if guidance %}Consider the guidance: {{ guidance }}{% endif %}'
+seed: []
+steps:
+  survey:
+    context:
+      - action: query
+        document_types: [codex, pondering]
+        top_n: 15
+      - action: query
+        document_types: [brainstorm, self_rag]
+        top_n: 8
+      - action: sort
+        by: timestamp
+        direction: descending
+    prompt: '*you enter the {{ librarian.location }} where {{ librarian.name }}, your {{ librarian.title }}, awaits ({{ librarian.appearance }}), radiating {{ librarian.emotional_state }}* Welcome, {{ persona.name }}. Step {{ step_num }}: Let us survey what we already know about "{{ query_text }}". Examine our existing knowledge - what concepts do we have? What connections exist? What has been explored before?
+
+
+      Begin with "[== {{ persona.name }}''s Emotional State:"
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+      is_thought: true
+    output:
+      document_type: step
+      weight: 0.7
+    memory:
+      top_n: 10
+    next:
+    - identify_gaps
+    id: survey
+  identify_gaps:
+    prompt: '*{{ librarian.name }} leans forward, {{ pronouns.poss }} {{ librarian.voice_style }} voice thoughtful* Step {{ step_num }}: Now, {{ persona.name }}, where are the gaps? What connections are missing? What concepts are mentioned but never fully defined? What threads remain loose and disconnected? Be specific about what our knowledge lacks.
+
+
+      Begin with "Looking at the gaps:"
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+      is_thought: true
+    output:
+      document_type: step
+      weight: 0.5
+    memory:
+      top_n: 5
+    next:
+    - gather_threads
+    id: identify_gaps
+  gather_threads:
+    prompt: '*{{ pronouns.subj|capitalize }} gestures across the shelves ({{ librarian.appearance }}), {{ pronouns.poss }} expression showing {{ librarian.emotional_state }}* Step {{ step_num }}: Let us gather the threads. Pull together the related concepts, the partial definitions, the scattered insights. Weave them into a coherent understanding. What patterns emerge when we connect these ideas?
+
+
+      Begin with "[== {{ persona.name }}''s Emotional State:"
+
+      '
+    config:
+      max_tokens: 4096
+      is_thought: true
+    output:
+      document_type: step
+      weight: 0.5
+    memory:
+      top_n: 5
+    next:
+    - self_rag
+    id: gather_threads
+  self_rag:
+    prompt: '*{{ librarian.name }} places {{ pronouns.poss }} hand on your Silver Band ({{ librarian.appearance }}), activating it with a warm glow* Step {{ step_num }}: Now we must go deeper. Use your Silver Band to explore the connections, to find what lies beneath the surface. Let your mind wander through the semantic landscape and discover the hidden links between concepts.
+
+
+      Begin with "[== Silver Band Projection ==]"
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+    output:
+      document_type: self_rag
+      weight: 0.6
+    memory:
+      top_n: 5
+    next:
+    - synthesize
+    id: self_rag
+  synthesize:
+    prompt: '*{{ pronouns.subj|capitalize }} draws you back gently, {{ pronouns.poss }} {{ librarian.voice_style }} voice guiding* Return to me, {{ persona.name }}. Step {{ step_num }}: Now synthesize. Take what you discovered in the Silver Band projection and weave it with what we gathered before. How do these pieces fit together? What new understanding emerges? Write in clear, connected prose.
+
+
+      Begin with "Synthesizing the threads:"
+
+      '
+    config:
+      max_tokens: 4096
+      is_thought: true
+    output:
+      document_type: step
+      weight: 0.5
+    memory:
+      top_n: 3
+    next:
+    - refine
+    id: synthesize
+  refine:
+    prompt: '*{{ librarian.name }} reviews your synthesis ({{ pronouns.poss }} expression showing {{ librarian.emotional_state }})* Step {{ step_num }}: Let us refine this further. What nuances are we missing? Are there edge cases or exceptions? How can we make these definitions more precise, more useful for future retrieval? Speak as yourself, {{ persona.name }}.
+
+
+      Begin with "[== {{ persona.name }}''s Emotional State:"
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+      is_thought: true
+    output:
+      document_type: step
+      weight: 0.4
+    memory:
+      top_n: 3
+    next:
+    - codex_draft
+    id: refine
+  codex_draft:
+    prompt: '*{{ pronouns.subj|capitalize }} produces a fresh codex page, {{ pronouns.poss }} {{ librarian.voice_style }} voice encouraging* Step {{ step_num }}: Now, {{ persona.name }}, draft the codex entries. Define the key concepts clearly. Establish the relationships between them. This is your first attempt - be thorough but know we will refine it further.
+
+
+      Begin with "Draft Codex Entries:"
+
+      '
+    config:
+      max_tokens: 4096
+    output:
+      document_type: step
+      weight: 0.6
+    memory:
+      top_n: 3
+    next:
+    - final_codex
+    id: codex_draft
+  final_codex:
+    prompt: '*{{ librarian.name }} regards your draft with approval ({{ librarian.appearance }}), radiating {{ librarian.emotional_state }}* This is excellent work, {{ persona.name }}. Step {{ step_num }}: Now finalize the codex entries. These will be stored permanently in your semantic knowledge graph. Ensure each concept is well-defined, relationships are clear, and the knowledge serves your goal of {{ librarian.primary_intent }}. Be precise and thorough.
+
+
+      Begin with "Semantic Library:"
+
+      '
+    config:
+      max_tokens: 4096
+      is_codex: true
+    output:
+      document_type: codex
+      weight: 1.2
+    memory:
+      top_n: 15
+      document_type:
+      - codex
+      flush_before: true
+    next:
+    - brainstorm
+    id: final_codex
+  brainstorm:
+    prompt: '*{{ librarian.name }} smiles warmly* Step {{ step_num }}: Before we part, {{ persona.name }} - what questions remain? What threads should we follow next? What knowledge gaps still call to be filled?
+
+
+      Begin with "Brainstorming:"
+
+      '
+    config:
+      max_tokens: 4096
+      is_thought: true
+    output:
+      document_type: brainstorm
+      weight: 0.6
+    memory:
+      top_n: 10
+    next: []
+    id: brainstorm

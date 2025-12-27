@@ -47,6 +47,11 @@ def is_retryable_error(error: Exception) -> bool:
         "503",
         "502",
         "504",
+        "no completions",  # OpenAI backend timeout
+        "backend",  # Backend errors
+        "overloaded",  # Server overloaded
+        "internal server error",  # 500 errors
+        "500",
     ]
     return any(pattern in error_msg for pattern in retryable_patterns)
 

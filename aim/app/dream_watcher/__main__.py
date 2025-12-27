@@ -19,6 +19,12 @@ Examples:
 
     # Run once and exit
     python -m aim.app.dream_watcher --once
+
+    # Enable refiner for idle-time exploration
+    python -m aim.app.dream_watcher --refiner
+
+    # Refiner with custom intervals
+    python -m aim.app.dream_watcher --refiner --refiner-interval 300 --refiner-idle-threshold 600
 """
 
 from __future__ import annotations
@@ -28,9 +34,11 @@ import asyncio
 import logging
 import sys
 from datetime import datetime
+from typing import Optional
 
 from aim.config import ChatConfig
 from aim.conversation.model import ConversationModel
+from aim.utils.redis_cache import RedisCache
 from aim.watcher import Watcher
 from aim.watcher.rules import (
     AnalysisWithSummaryRule,
@@ -79,7 +87,7 @@ def create_default_rules(args: argparse.Namespace, config: ChatConfig) -> list:
     return rules
 
 
-def print_stats(watcher: Watcher) -> None:
+def print_stats(watcher: Watcher, refiner_stats: Optional[dict] = None) -> None:
     """Print watcher statistics."""
     stats = watcher.stats
     uptime = datetime.now() - stats.started_at
@@ -92,7 +100,68 @@ def print_stats(watcher: Watcher) -> None:
     print(f"Errors:      {stats.errors}")
     if stats.last_cycle:
         print(f"Last cycle:  {stats.last_cycle.strftime('%H:%M:%S')}")
+
+    if refiner_stats:
+        print(f"\n--- Refiner Stats ---")
+        print(f"Checks:      {refiner_stats.get('checks', 0)}")
+        print(f"Explorations:{refiner_stats.get('explorations', 0)}")
+        print(f"Errors:      {refiner_stats.get('errors', 0)}")
     print()
+
+
+async def run_refiner_loop(
+    engine: "ExplorationEngine",
+    config: ChatConfig,
+    interval: int,
+    stats: dict,
+    stop_event: asyncio.Event,
+) -> None:
+    """Run the refiner exploration loop.
+
+    Args:
+        engine: The ExplorationEngine instance
+        config: ChatConfig for Redis connection
+        interval: Seconds between exploration checks
+        stats: Mutable dict to track refiner statistics
+        stop_event: Event to signal when to stop the loop
+    """
+    from aim.refiner.engine import ExplorationEngine  # Type hint import
+
+    logger.info(f"Refiner loop started, checking every {interval}s")
+
+    while not stop_event.is_set():
+        try:
+            # Check if refiner is enabled via Redis
+            cache = RedisCache(config)
+            if not cache.is_refiner_enabled():
+                logger.debug("Refiner disabled via Redis, skipping cycle")
+                # Wait for the interval, but respect stop_event
+                try:
+                    await asyncio.wait_for(stop_event.wait(), timeout=interval)
+                    break  # stop_event was set
+                except asyncio.TimeoutError:
+                    pass  # Normal timeout, continue loop
+                continue
+
+            stats["checks"] = stats.get("checks", 0) + 1
+            logger.debug(f"Refiner check #{stats['checks']}")
+
+            pipeline_id = await engine.run_exploration()
+
+            if pipeline_id:
+                stats["explorations"] = stats.get("explorations", 0) + 1
+                logger.info(f"Refiner started exploration: {pipeline_id}")
+
+        except Exception as e:
+            stats["errors"] = stats.get("errors", 0) + 1
+            logger.error(f"Refiner error: {e}", exc_info=True)
+
+        # Wait for the interval, but respect stop_event
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=interval)
+            break  # stop_event was set
+        except asyncio.TimeoutError:
+            pass  # Normal timeout, continue loop
 
 
 async def run_watcher(args: argparse.Namespace) -> int:
@@ -145,9 +214,52 @@ async def run_watcher(args: argparse.Namespace) -> int:
     print(f"  Stability: {args.stability}s")
     print(f"  Token threshold: {args.token_threshold:.0%} of model context")
     print(f"  Dry run: {args.dry_run}")
+
+    # Refiner setup
+    refiner_task: Optional[asyncio.Task] = None
+    refiner_stats: Optional[dict] = None
+    refiner_stop_event: Optional[asyncio.Event] = None
+    dreamer_client = None
+
+    if args.refiner:
+        print(f"  Refiner: enabled")
+        print(f"  Refiner interval: {args.refiner_interval}s")
+        print(f"  Refiner idle threshold: {args.refiner_idle_threshold}s")
+    else:
+        print(f"  Refiner: disabled")
     print()
 
     try:
+        # Set up refiner if enabled
+        if args.refiner:
+            from aim.refiner.engine import ExplorationEngine
+            from aim.app.dream_agent.client import DreamerClient
+
+            dreamer_client = DreamerClient.direct(config)
+            await dreamer_client.connect()
+
+            engine = ExplorationEngine(
+                config=config,
+                cvm=cvm,
+                dreamer_client=dreamer_client,
+                idle_threshold_seconds=args.refiner_idle_threshold,
+                model_name=args.model,
+            )
+
+            refiner_stats = {"checks": 0, "explorations": 0, "errors": 0}
+            refiner_stop_event = asyncio.Event()
+
+            refiner_task = asyncio.create_task(
+                run_refiner_loop(
+                    engine=engine,
+                    config=config,
+                    interval=args.refiner_interval,
+                    stats=refiner_stats,
+                    stop_event=refiner_stop_event,
+                )
+            )
+            logger.info("Refiner task started")
+
         if args.once:
             # Run single cycle
             print("Running single cycle...")
@@ -160,9 +272,26 @@ async def run_watcher(args: argparse.Namespace) -> int:
     except KeyboardInterrupt:
         print("\nShutting down...")
         watcher.stop()
+
+        # Stop refiner task if running
+        if refiner_stop_event:
+            refiner_stop_event.set()
+        if refiner_task:
+            try:
+                await asyncio.wait_for(refiner_task, timeout=5.0)
+            except asyncio.TimeoutError:
+                refiner_task.cancel()
+                try:
+                    await refiner_task
+                except asyncio.CancelledError:
+                    pass
     finally:
-        print_stats(watcher)
+        print_stats(watcher, refiner_stats)
         await watcher.close()
+
+        # Close dreamer client if opened
+        if dreamer_client:
+            await dreamer_client.close()
 
     return 0
 
@@ -219,6 +348,23 @@ def main() -> int:
         type=str,
         default=None,
         help="Model to use for triggered pipelines",
+    )
+    parser.add_argument(
+        "--refiner",
+        action="store_true",
+        help="Enable ExplorationEngine to run during idle periods",
+    )
+    parser.add_argument(
+        "--refiner-interval",
+        type=int,
+        default=300,
+        help="Seconds between refiner exploration checks (default: 300)",
+    )
+    parser.add_argument(
+        "--refiner-idle-threshold",
+        type=int,
+        default=300,
+        help="Seconds of API inactivity before considering idle (default: 300)",
     )
     parser.add_argument(
         "-v", "--verbose",

@@ -205,14 +205,15 @@ def load_prior_outputs(
     cvm: ConversationModel,
 ) -> tuple[list[dict], list[str], bool]:
     """
-    Load context documents from CVM.
+    Load context documents from CVM or use pre-provided documents.
 
-    Context accumulates through the pipeline:
-    - First step with context DSL: executes DSL to build initial context
-    - Subsequent steps: receive accumulated context (initial + all prior outputs)
+    Context sources (in priority order):
+    1. Pre-provided context_documents in state (from refiner/external source)
+    2. Accumulated context_doc_ids from prior steps
+    3. Context DSL execution for first step
 
     Args:
-        state: Current pipeline state with context_doc_ids
+        state: Current pipeline state with context_doc_ids and optional context_documents
         step_def: Step definition with optional context DSL
         cvm: ConversationModel for loading documents
 
@@ -220,9 +221,23 @@ def load_prior_outputs(
         Tuple of (outputs, context_doc_ids, is_initial_context):
         - outputs: List of output dictionaries with 'content' and optional 'think'
         - context_doc_ids: The doc_ids used (for state update)
-        - is_initial_context: True if this is new context from DSL
+        - is_initial_context: True if this is new context from DSL or pre-provided docs
     """
     outputs = []
+
+    # Check for pre-provided context documents (from refiner)
+    # Only use for first step (when context_doc_ids is empty)
+    if state.context_documents and not state.context_doc_ids:
+        logger.info(f"Using {len(state.context_documents)} pre-provided context documents")
+        for doc in state.context_documents:
+            outputs.append({
+                'content': doc.get('content', ''),
+                'think': doc.get('think'),
+                'source': 'pre-provided',
+            })
+        # Return empty context_doc_ids since these aren't from CVM
+        # The documents are already in outputs
+        return outputs, [], True
 
     # Get context - either from DSL or accumulated from prior steps
     context_doc_ids, is_initial_context = prepare_step_context(step_def, state, cvm)
@@ -494,6 +509,11 @@ async def execute_step(
     )
 
     # 9. Generate response (streaming)
+    # Update activity timestamp before LLM call to prevent cascading triggers
+    from ..utils.redis_cache import RedisCache
+    cache = RedisCache(config)
+    cache.update_api_activity()
+
     chunks = []
     for chunk in provider.stream_turns(turns, step_config):
         if chunk:

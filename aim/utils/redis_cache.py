@@ -1,6 +1,7 @@
 import hashlib
 import json
 import logging
+import time
 from typing import Any, Optional, Union
 
 import redis
@@ -193,5 +194,94 @@ class RedisCache:
         # Cache the result
         if result:
             self.set(content_hash, result, expire)
-            
-        return result 
+
+        return result
+
+    def update_api_activity(self, ttl: int = 86400) -> bool:
+        """
+        Update the API last activity timestamp.
+
+        Used by the chat endpoint to signal that a request is being processed,
+        allowing external workers to check API activity state.
+
+        Args:
+            ttl: Time-to-live in seconds (default: 24 hours)
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if not self.redis:
+            return False
+
+        try:
+            key = "aim:api:last_activity"
+            value = str(time.time())
+            return bool(self.redis.set(key, value, ex=ttl))
+        except Exception as e:
+            logger.warning(f"Redis API activity update error: {e}")
+            return False
+
+    def get_api_last_activity(self) -> Optional[float]:
+        """
+        Get the timestamp of the last API activity.
+
+        Returns:
+            Optional[float]: Unix timestamp of last activity, or None if not set
+        """
+        if not self.redis:
+            return None
+
+        try:
+            key = "aim:api:last_activity"
+            value = self.redis.get(key)
+            if value is not None:
+                return float(value)
+            return None
+        except Exception as e:
+            logger.warning(f"Redis API activity get error: {e}")
+            return None
+
+    def set_refiner_enabled(self, enabled: bool) -> bool:
+        """
+        Set the refiner enabled/disabled state.
+
+        Used to dynamically enable or disable the dream_watcher refiner
+        without restarting the process.
+
+        Args:
+            enabled: True to enable refiner, False to disable
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if not self.redis:
+            return False
+
+        try:
+            key = "aim:refiner:enabled"
+            value = "1" if enabled else "0"
+            # No TTL - persists until explicitly changed
+            return bool(self.redis.set(key, value))
+        except Exception as e:
+            logger.warning(f"Redis refiner enabled set error: {e}")
+            return False
+
+    def is_refiner_enabled(self) -> bool:
+        """
+        Check if the refiner is enabled.
+
+        Returns:
+            bool: True if enabled (or if not set - default enabled), False if disabled
+        """
+        if not self.redis:
+            return True  # Default to enabled if Redis unavailable
+
+        try:
+            key = "aim:refiner:enabled"
+            value = self.redis.get(key)
+            if value is None:
+                return True  # Default to enabled if not set
+            return value == "1"
+        except Exception as e:
+            logger.warning(f"Redis refiner enabled get error: {e}")
+            return True  # Default to enabled on error

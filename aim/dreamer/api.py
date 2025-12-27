@@ -181,6 +181,7 @@ async def start_pipeline(
     query_text: Optional[str] = None,
     guidance: Optional[str] = None,
     mood: Optional[str] = None,
+    context_documents: Optional[list[dict]] = None,
 ) -> str:
     """
     Start a new pipeline execution.
@@ -259,6 +260,7 @@ async def start_pipeline(
         query_text=query_text,
         persona_mood=mood or config.persona_mood,
         branch=branch,
+        context_documents=context_documents,
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )

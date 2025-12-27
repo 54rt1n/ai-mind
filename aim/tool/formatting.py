@@ -95,12 +95,18 @@ class ToolUser:
         # Document each tool with example
         for tool in self.tools:
             # Create example arguments
-            example_args = {}
+            example = None
             if tool.function.parameters.examples and len(tool.function.parameters.examples) > 0:
                 # Use the first example if available
-                example_args = tool.function.parameters.examples[0]
+                first_example = tool.function.parameters.examples[0]
+                # Check if example already has tool name as key (don't double-wrap)
+                if isinstance(first_example, dict) and tool.function.name in first_example:
+                    example = first_example
+                else:
+                    example = {tool.function.name: first_example}
             else:
                 # Fall back to generating examples
+                example_args = {}
                 for (
                     param_name,
                     param_info,
@@ -115,8 +121,7 @@ class ToolUser:
                         example_args[param_name] = True
                     else:
                         example_args[param_name] = f"Example {param_name}"
-
-            example = {tool.function.name: example_args}
+                example = {tool.function.name: example_args}
 
             # Add tool documentation
             xml.add_element(
@@ -250,20 +255,77 @@ class ToolUser:
         )
 
     def _extract_tool_call(self, response: str) -> Optional[Dict[str, Any]]:
-        """Extract tool call JSON from response."""
+        """Extract tool call JSON from response.
+
+        Handles various LLM output formats:
+        - Pure JSON response
+        - JSON wrapped in markdown code blocks (```json ... ```)
+        - JSON after <think>...</think> blocks
+        - Multiple JSON candidates (tries each)
+        """
+        # Strip leading/trailing whitespace
+        text = response.strip()
+
+        # Try to parse entire response as JSON first
         try:
-            # Try to parse entire response as JSON first
-            return json.loads(response)
+            return json.loads(text)
         except json.JSONDecodeError:
-            # If that fails, try to find JSON block
-            json_pattern = r"\{[\s\S]*\}"
-            match = re.search(json_pattern, response)
-            if match:
-                try:
-                    return json.loads(match.group())
-                except json.JSONDecodeError:
-                    return None
-            return None
+            pass
+
+        # Strip markdown code blocks if present
+        # Match ```json ... ``` or ``` ... ```
+        code_block_pattern = r"```(?:json)?\s*([\s\S]*?)```"
+        code_matches = re.findall(code_block_pattern, text)
+        for code_content in code_matches:
+            try:
+                return json.loads(code_content.strip())
+            except json.JSONDecodeError:
+                continue
+
+        # Look for JSON after </think> tag if present
+        if "</think>" in text:
+            after_think = text.split("</think>")[-1].strip()
+            try:
+                return json.loads(after_think)
+            except json.JSONDecodeError:
+                # Try to find JSON block after think
+                json_match = re.search(r"\{[^{}]*\{[^{}]*\}[^{}]*\}|\{[^{}]+\}", after_think)
+                if json_match:
+                    try:
+                        return json.loads(json_match.group())
+                    except json.JSONDecodeError:
+                        pass
+
+        # Find all potential JSON objects (non-greedy, looking for balanced braces)
+        # This pattern finds objects like {"key": {"nested": "value"}}
+        json_candidates = []
+        brace_depth = 0
+        start_idx = None
+
+        for i, char in enumerate(text):
+            if char == '{':
+                if brace_depth == 0:
+                    start_idx = i
+                brace_depth += 1
+            elif char == '}':
+                brace_depth -= 1
+                if brace_depth == 0 and start_idx is not None:
+                    json_candidates.append(text[start_idx:i+1])
+                    start_idx = None
+
+        # Try each candidate, preferring later ones (after thinking)
+        for candidate in reversed(json_candidates):
+            try:
+                parsed = json.loads(candidate)
+                # Validate it looks like a tool call (dict with string keys)
+                if isinstance(parsed, dict) and len(parsed) == 1:
+                    key = next(iter(parsed))
+                    if isinstance(key, str) and isinstance(parsed[key], dict):
+                        return parsed
+            except json.JSONDecodeError:
+                continue
+
+        return None
 
 
 class ToolValidator:

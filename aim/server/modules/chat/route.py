@@ -17,6 +17,7 @@ from fastapi.responses import StreamingResponse
 from ....llm.models import LanguageModelV2, LLMProvider, ModelCategory
 from ....chat import ChatManager, chat_strategy_for
 from ....config import ChatConfig
+from ....utils.redis_cache import RedisCache
 from ....utils.turns import validate_turns
 from ....utils.xml import XmlFormatter
 from ....tool.formatting import ToolUser
@@ -131,6 +132,13 @@ class ChatModule:
         """Handle the chat completion request."""
         if self.config.server_api_key is not None and (credentials is None or credentials.credentials != self.config.server_api_key):
             raise HTTPException(status_code=401, detail=f"Invalid API key")
+
+        # Record API activity for external worker coordination
+        try:
+            cache = RedisCache(self.config)
+            cache.update_api_activity()
+        except Exception:
+            pass  # Non-critical, don't fail requests
 
         selected_model : LanguageModelV2 | None = self.models.get(request.model, None)
         if selected_model is None or type(selected_model) is not LanguageModelV2:
