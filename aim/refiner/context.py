@@ -27,6 +27,8 @@ from aim.constants import (
     DOC_CODEX,
     DOC_SELF_RAG,
     DOC_JOURNAL,
+    DOC_INSPIRATION,
+    DOC_UNDERSTANDING,
     CHUNK_LEVEL_256,
     CHUNK_LEVEL_768,
 )
@@ -66,9 +68,10 @@ def row_to_context_doc(row) -> dict:
 
 # Paradigm configurations for document types and query strategies
 PARADIGM_DOC_TYPES = {
-    "brainstorm": [DOC_BRAINSTORM, DOC_PONDERING, DOC_DAYDREAM, DOC_JOURNAL],
-    "daydream": [DOC_SUMMARY, DOC_ANALYSIS, DOC_DAYDREAM, DOC_CONVERSATION],
-    "knowledge": [DOC_CODEX, DOC_PONDERING, DOC_BRAINSTORM, DOC_SELF_RAG],
+    "brainstorm": [DOC_BRAINSTORM, DOC_PONDERING, DOC_DAYDREAM, DOC_JOURNAL, DOC_INSPIRATION, DOC_UNDERSTANDING],
+    "daydream": [DOC_SUMMARY, DOC_ANALYSIS, DOC_DAYDREAM, DOC_CONVERSATION, DOC_JOURNAL, DOC_PONDERING, DOC_BRAINSTORM, DOC_CODEX, DOC_INSPIRATION, DOC_UNDERSTANDING],
+    "knowledge": [DOC_CODEX, DOC_PONDERING, DOC_BRAINSTORM, DOC_SELF_RAG, DOC_UNDERSTANDING],
+    "critique": [DOC_UNDERSTANDING, DOC_JOURNAL, DOC_ANALYSIS, DOC_PONDERING, DOC_INSPIRATION],
 }
 
 # Query templates for each paradigm - multiple varied queries for discovery diversity
@@ -91,13 +94,20 @@ PARADIGM_QUERIES = {
         {"text": "philosophical inquiry analytical frameworks", "weight": 0.8},
         {"text": "insights wisdom accumulated learning", "weight": 0.7},
     ],
+    "critique": [
+        {"text": "patterns behaviors defenses psychological insights", "weight": 1.0},
+        {"text": "blind spots self-deception hidden truths", "weight": 0.9},
+        {"text": "emotional patterns recurring themes growth areas", "weight": 0.8},
+        {"text": "transformation understanding self-knowledge", "weight": 0.7},
+    ],
 }
 
 # Approach-specific document types for targeted gathering
 APPROACH_DOC_TYPES = {
-    "philosopher": [DOC_CODEX, DOC_PONDERING, DOC_ANALYSIS, DOC_BRAINSTORM],
-    "journaler": [DOC_JOURNAL, DOC_CONVERSATION, DOC_SUMMARY, DOC_ANALYSIS],
-    "daydream": [DOC_DAYDREAM, DOC_JOURNAL, DOC_BRAINSTORM, DOC_SUMMARY],
+    "philosopher": [DOC_CODEX, DOC_PONDERING, DOC_ANALYSIS, DOC_BRAINSTORM, DOC_UNDERSTANDING],
+    "journaler": [DOC_JOURNAL, DOC_CONVERSATION, DOC_SUMMARY, DOC_ANALYSIS, DOC_INSPIRATION],
+    "daydream": [DOC_DAYDREAM, DOC_JOURNAL, DOC_BRAINSTORM, DOC_SUMMARY, DOC_INSPIRATION],
+    "critique": [DOC_UNDERSTANDING, DOC_JOURNAL, DOC_ANALYSIS, DOC_PONDERING, DOC_INSPIRATION],
 }
 
 

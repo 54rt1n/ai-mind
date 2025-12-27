@@ -375,17 +375,17 @@ class TestExpectedStepSequences:
         assert set(order) == expected_steps
 
     def test_daydream_step_sequence(self):
-        """Daydream should flow: intro → agent_1 → partner_1 → ... → partner_3."""
+        """Daydream should flow: intro → agent_1 → partner_1 → ... → partner_3 → epilogue → inspiration."""
         scenario = load_scenario("daydream")
         scenario.compute_dependencies()
 
         order = scenario.topological_order()
 
         assert order[0] == "intro"
-        assert order[-1] == "partner_3"
+        assert order[-1] == "inspiration"
         expected_steps = {
             "intro", "agent_1", "partner_1", "agent_2",
-            "partner_2", "agent_3", "partner_3"
+            "partner_2", "agent_3", "partner_3", "epilogue", "inspiration"
         }
         assert set(order) == expected_steps
 

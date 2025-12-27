@@ -159,8 +159,8 @@ async def run_refiner_loop(
                 stats["checks"] = stats.get("checks", 0) + 1
                 logger.info(f"Refiner check #{stats['checks']}")
 
-                # Skip idle check: on first attempt if nodelay, always on retries
-                skip_idle = nodelay or not first_attempt
+                # Only skip idle check on first attempt if nodelay is enabled
+                skip_idle = nodelay and first_attempt
                 pipeline_id, suggested = await engine.run_exploration(
                     skip_idle_check=skip_idle,
                     seed_query=seed_query,

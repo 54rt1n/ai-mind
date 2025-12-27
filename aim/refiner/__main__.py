@@ -438,7 +438,7 @@ Examples:
         "-p", "--paradigm",
         type=str,
         default="random",
-        choices=["brainstorm", "daydream", "knowledge", "random"],
+        choices=["brainstorm", "daydream", "knowledge", "critique", "random"],
         help="Paradigm to use (default: random)",
     )
     parser.add_argument(

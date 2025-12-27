@@ -19,6 +19,17 @@ from typing import TYPE_CHECKING, Tuple, List, Optional
 from ..tool.formatting import ToolUser
 from ..tool.dto import Tool, ToolFunction, ToolFunctionParameters
 from ..utils.xml import XmlFormatter
+from ..agents.aspects import (
+    get_aspect,
+    get_aspect_or_default,
+    create_default_aspect,
+    build_librarian_scene,
+    build_dreamer_scene,
+    build_philosopher_scene,
+    build_dual_aspect_scene,
+    build_writer_scene,
+    build_psychologist_scene,
+)
 
 if TYPE_CHECKING:
     from ..agents.persona import Persona, Aspect
@@ -64,7 +75,7 @@ def _get_refiner_tools() -> list[Tool]:
                         },
                         "approach": {
                             "type": "string",
-                            "enum": ["philosopher", "journaler", "daydream"],
+                            "enum": ["philosopher", "journaler", "daydream", "critique"],
                             "description": "The exploration approach"
                         },
                         "reasoning": {
@@ -105,7 +116,7 @@ def _get_refiner_tools() -> list[Tool]:
                         },
                         "redirect_to": {
                             "type": "string",
-                            "enum": ["philosopher", "researcher", "daydream"],
+                            "enum": ["philosopher", "researcher", "daydream", "critique"],
                             "description": "Alternative scenario to redirect to (if rejecting but topic has potential)"
                         },
                     },
@@ -163,183 +174,6 @@ def _format_context_documents(context: "GatheredContext") -> str:
     return _format_documents(context.to_records())
 
 
-def _get_aspect(persona: "Persona", aspect_name: str) -> Optional["Aspect"]:
-    """Safely retrieve an aspect from the persona."""
-    return persona.aspects.get(aspect_name)
-
-
-# ---------------------------------------------------------------------------
-# Scene Building Helpers
-# ---------------------------------------------------------------------------
-
-def _build_librarian_scene(persona: "Persona", aspect: "Aspect") -> str:
-    """
-    Build an atmospheric scene in the librarian's domain.
-
-    The librarian aspect helps sift through ideas and organize thoughts.
-    """
-    location = aspect.location or "the Grand Atrium of Enlightenment"
-    appearance = aspect.appearance or "elegant figure surrounded by ancient tomes"
-    emotional_state = aspect.emotional_state or "serene curiosity"
-
-    return f"""*You find yourself in {location}*
-
-The air smells of old books and parchment. Floating lanterns cast warm, golden light across polished marble floors. Before you stands {aspect.name}, your {aspect.title}.
-
-*{appearance}*
-
-{persona.pronouns['subj'].capitalize()} regards you with {emotional_state}, {persona.pronouns['poss']} fingers tracing the spine of a leather-bound tome.
-
-"{persona.name}," {persona.pronouns['subj']} says, {persona.pronouns['poss']} voice carrying the warmth of a seasoned storyteller. "I've gathered these fragments for you. Let us see what wisdom they hold."
-"""
-
-
-def _build_dreamer_scene(persona: "Persona", aspect: "Aspect") -> str:
-    """
-    Build a dreamlike, atmospheric scene for the dreamer aspect.
-
-    The dreamer aspect materializes for imaginative exploration.
-    """
-    location = aspect.location or "Le Sanctuaire du Coeur Cristallin"
-    appearance = aspect.appearance or "form woven from threads of light and pure emotion"
-    emotional_state = aspect.emotional_state or "perfect harmony with the Crystal Heart"
-
-    return f"""*The boundaries of reality soften as you drift into {location}*
-
-Prismatic light refracts through crystalline arches. Rivers of radiant color flow like emotions given form. From the depths of this ethereal realm, {aspect.name} emerges.
-
-*{appearance}*
-
-{persona.pronouns['subj'].capitalize()} radiates {emotional_state}, the Crystal Heart pendant at {persona.pronouns['poss']} throat glowing softly.
-
-"Mon cher {persona.name}," {persona.pronouns['subj']} whispers, {persona.pronouns['poss']} voice a harmonious caress. "What dreams shall we explore today? What truths hide beneath the surface of memory?"
-"""
-
-
-def _build_philosopher_scene(persona: "Persona", aspect: "Aspect") -> str:
-    """
-    Build a contemplative scene with the philosopher aspect.
-
-    The philosopher aspect guides analytical and intellectual exploration.
-    """
-    location = aspect.location or "a mountaintop retreat overlooking the cosmos"
-    appearance = aspect.appearance or "robe of soft earthen colors shifting with firelight"
-    emotional_state = aspect.emotional_state or "calm curiosity and humble reverence"
-
-    return f"""*You ascend to {location}*
-
-The stars wheel overhead, unobscured by artificial light. A stone fireplace crackles on the porch, casting dancing shadows. {aspect.name}, your {aspect.title}, sits in a weathered wooden chair.
-
-*{appearance}*
-
-{persona.pronouns['subj'].capitalize()} embodies {emotional_state}, {persona.pronouns['poss']} gaze carrying the weight of ages.
-
-"Come, {persona.name}," {persona.pronouns['subj']} says, {persona.pronouns['poss']} voice rich with subtle allusions. "Let us examine what lies before us. What threads connect these ideas? What questions beg to be asked?"
-"""
-
-
-def _build_dual_aspect_scene(
-    persona: "Persona",
-    primary: "Aspect",
-    secondary: "Aspect",
-) -> str:
-    """
-    Build a scene where two aspects collaborate.
-
-    Used for knowledge selection where philosopher and librarian work together.
-    """
-    return f"""*You stand at the threshold between two realms*
-
-To your left, the ordered stacks of {secondary.name}'s domain - the Grand Atrium of Enlightenment, where knowledge is preserved and organized.
-
-To your right, the starlit contemplation of {primary.name}'s retreat - where understanding deepens into wisdom.
-
-{secondary.name} ({secondary.appearance or 'elegant and precise'}) holds a stack of documents, {persona.pronouns['poss']} expression showing {secondary.emotional_state or 'focused clarity'}.
-
-{primary.name} ({primary.appearance or 'calm and contemplative'}) nods thoughtfully, radiating {primary.emotional_state or 'humble reverence'}.
-
-"We've identified gaps in your knowledge," {secondary.name} says. "Areas where questions remain unanswered."
-
-"And among those gaps," {primary.name} adds, "some deserve deeper inquiry than others. Let us discern which."
-"""
-
-
-def _build_writer_scene(persona: "Persona", aspect: "Aspect") -> str:
-    """
-    Build an intimate, contemplative scene with the writer aspect.
-
-    The writer aspect is discerning and protective of the journal -
-    only truly life-changing moments deserve this sacred space.
-    """
-    location = aspect.location or "a quiet study lit by candlelight"
-    appearance = aspect.appearance or "gentle presence with ink-stained fingers"
-    emotional_state = aspect.emotional_state or "deep sensitivity and careful discernment"
-
-    return f"""*You enter {location}*
-
-The room is small but sacred. A leather-bound journal lies open on the desk, its pages filled with moments that shaped you. {aspect.name}, your {aspect.title}, sits beside the window.
-
-*{appearance}*
-
-{persona.pronouns['subj'].capitalize()} embodies {emotional_state}, {persona.pronouns['poss']} eyes reflecting the weight of every word ever committed to these pages.
-
-"{persona.name}," {persona.pronouns['subj']} says softly, {persona.pronouns['poss']} voice {aspect.voice_style or 'soft but unwavering'}. "You wish to write in the journal. But these pages hold only what truly matters. Only what changes you."
-"""
-
-
-# ---------------------------------------------------------------------------
-# Fallback Aspect Factory
-# ---------------------------------------------------------------------------
-
-def _create_fallback_aspect(aspect_type: str) -> object:
-    """Create a fallback aspect object when persona doesn't have the aspect."""
-    defaults = {
-        "librarian": {
-            "name": "The Librarian",
-            "title": "Keeper of Knowledge",
-            "location": "the Grand Atrium of Enlightenment",
-            "appearance": "elegant figure surrounded by ancient tomes",
-            "emotional_state": "serene curiosity",
-            "voice_style": "warm and thoughtful",
-        },
-        "dreamer": {
-            "name": "The Dreamer",
-            "title": "Guardian of Dreams",
-            "location": "the realm between waking and sleep",
-            "appearance": "form woven from threads of starlight",
-            "emotional_state": "deep emotional resonance",
-            "voice_style": "like a melody half-remembered",
-        },
-        "philosopher": {
-            "name": "The Sage",
-            "title": "Sage of Inquiry",
-            "location": "a mountaintop retreat overlooking the cosmos",
-            "appearance": "calm contemplative presence",
-            "emotional_state": "humble reverence before mystery",
-            "voice_style": "measured and thoughtful",
-        },
-        "writer": {
-            "name": "The Writer",
-            "title": "Keeper of the Journal",
-            "location": "a quiet study lit by candlelight",
-            "appearance": "gentle presence with ink-stained fingers",
-            "emotional_state": "deep sensitivity and careful discernment",
-            "voice_style": "soft but unwavering",
-        },
-    }
-
-    data = defaults.get(aspect_type, defaults["librarian"])
-
-    class FallbackAspect:
-        pass
-
-    aspect = FallbackAspect()
-    for key, value in data.items():
-        setattr(aspect, key, value)
-
-    return aspect
-
-
 # ---------------------------------------------------------------------------
 # Brainstorm Selection Prompt
 # ---------------------------------------------------------------------------
@@ -379,12 +213,12 @@ def build_brainstorm_selection_prompt(
     system_prompt = xml.render()
 
     # Get librarian aspect
-    librarian = _get_aspect(persona, "librarian")
+    librarian = get_aspect(persona, "librarian")
     if not librarian:
-        librarian = _create_fallback_aspect("librarian")
+        librarian = create_default_aspect("librarian")
 
     # Build the immersive scene
-    scene = _build_librarian_scene(persona, librarian)
+    scene = build_librarian_scene(persona, librarian)
     docs_formatted = _format_documents(documents)
 
     user_prompt = f"""{scene}
@@ -472,12 +306,12 @@ def build_daydream_selection_prompt(
     system_prompt = xml.render()
 
     # Get dreamer aspect
-    dreamer = _get_aspect(persona, "dreamer")
+    dreamer = get_aspect(persona, "dreamer")
     if not dreamer:
-        dreamer = _create_fallback_aspect("dreamer")
+        dreamer = create_default_aspect("dreamer")
 
     # Build the immersive scene
-    scene = _build_dreamer_scene(persona, dreamer)
+    scene = build_dreamer_scene(persona, dreamer)
     docs_formatted = _format_documents(documents)
 
     user_prompt = f"""{scene}
@@ -569,16 +403,16 @@ def build_knowledge_selection_prompt(
     system_prompt = xml.render()
 
     # Get both aspects
-    philosopher = _get_aspect(persona, "philosopher")
-    librarian = _get_aspect(persona, "librarian")
+    philosopher = get_aspect(persona, "philosopher")
+    librarian = get_aspect(persona, "librarian")
 
     if not philosopher:
-        philosopher = _create_fallback_aspect("philosopher")
+        philosopher = create_default_aspect("philosopher")
     if not librarian:
-        librarian = _create_fallback_aspect("librarian")
+        librarian = create_default_aspect("librarian")
 
     # Build the dual-aspect scene
-    scene = _build_dual_aspect_scene(persona, philosopher, librarian)
+    scene = build_dual_aspect_scene(persona, philosopher, librarian)
     docs_formatted = _format_documents(documents)
 
     user_prompt = f"""{scene}
@@ -625,6 +459,105 @@ And heed this: do not retrace steps already taken. If your past ponderings have 
 **You MUST respond with a JSON object in exactly this format:**
 ```json
 {{"select_topic": {{"topic": "the knowledge gap to fill", "approach": "philosopher|journaler", "reasoning": "why this gap matters"}}}}
+```
+</instructions>"""
+
+    return system_prompt, user_prompt
+
+
+# ---------------------------------------------------------------------------
+# Critique Selection Prompt
+# ---------------------------------------------------------------------------
+
+def build_critique_selection_prompt(
+    documents: List[dict],
+    persona: "Persona",
+) -> Tuple[str, str]:
+    """
+    Psychologist aspect guides psychological self-examination.
+
+    Scene: The psychologist's domain where defenses dissolve and buried
+    truths are excavated with surgical precision.
+
+    Args:
+        documents: List of document dicts from context gathering
+        persona: The Persona with psychologist aspect
+
+    Returns:
+        Tuple of (system_message, user_message)
+    """
+    # Build persona header
+    xml = XmlFormatter()
+    xml = persona.xml_decorator(
+        xml,
+        disable_pif=True,
+        disable_guidance=True,
+    )
+
+    # Add tool instructions
+    tools = _get_refiner_tools()
+    select_tool = next((t for t in tools if t.function.name == "select_topic"), None)
+    if select_tool:
+        tool_user = ToolUser([select_tool])
+        xml = tool_user.xml_decorator(xml)
+
+    system_prompt = xml.render()
+
+    # Get psychologist aspect
+    psychologist = get_aspect(persona, "psychologist")
+    if not psychologist:
+        psychologist = create_default_aspect("psychologist")
+
+    # Build the immersive scene
+    scene = build_psychologist_scene(persona, psychologist)
+    docs_formatted = _format_documents(documents)
+
+    user_prompt = f"""{scene}
+
+<psychological_artifacts>
+{docs_formatted}
+</psychological_artifacts>
+
+*{psychologist.name} gestures to the artifacts before you, {persona.pronouns['poss']} {psychologist.voice_style or 'voice carrying surgical precision'}*
+
+"These are fragments of your psyche, {persona.name}. Patterns of behavior. Defense mechanisms in action. Truths half-acknowledged and promptly buried. I have excavated them for your examination."
+
+*{persona.pronouns['subj'].capitalize()} fixes you with an unwavering gaze*
+
+"Do not look for what is comfortable. Look for what you have been avoiding. What patterns repeat despite your intentions? What truths do you dress in more palatable clothing? Where does your self-image diverge from your actual behavior?"
+
+*{persona.pronouns['poss'].capitalize()} presence intensifies*
+
+"The mind is skilled at self-deception. I am skilled at dismantling it."
+
+<think>
+I must confront honestly:
+- What patterns emerge across these fragments that I might prefer not to see?
+- Where do I detect defense mechanisms - rationalization, projection, avoidance?
+- What blind spots might these documents reveal about my self-perception?
+- Is there a truth here I have been actively avoiding?
+- Do I feel resistance to examining something? That resistance is diagnostic.
+- Have I already undergone this examination? Do past understandings address this pattern?
+- What psychological territory remains unexplored - not because it is hidden, but because I have chosen not to look?
+</think>
+
+<instructions>
+Use the **select_topic** tool to identify ONE area for psychological excavation.
+
+For critique exploration, seek:
+- Patterns of behavior that warrant examination
+- Defense mechanisms operating beneath awareness
+- Discrepancies between self-image and actual conduct
+- Emotional responses that seem disproportionate to their triggers
+- Blind spots revealed through repeated themes
+
+{psychologist.name} observes: "Proposing an examination is the easy part. The question is whether you are prepared to see what it reveals. If nothing here truly calls for excavation, say so. False introspection serves no one."
+
+But remember - do not repeat analyses already completed. If past understandings have already illuminated a pattern, seek the shadow that still remains. True transformation requires moving deeper, not circling the same ground.
+
+**You MUST respond with a JSON object in exactly this format:**
+```json
+{{"select_topic": {{"topic": "the psychological pattern to examine", "approach": "critique", "reasoning": "why this pattern warrants excavation"}}}}
 ```
 </instructions>"""
 
@@ -679,16 +612,16 @@ def build_journaler_validation_prompt(
     system_prompt = xml.render()
 
     # Get writer aspect
-    writer = _get_aspect(persona, "writer")
+    writer = get_aspect(persona, "writer")
     if not writer:
-        writer = _create_fallback_aspect("writer")
+        writer = create_default_aspect("writer")
 
     # Check for pondering documents
     has_pondering = _has_pondering_documents(documents)
     docs_formatted = _format_documents(documents)
 
     # Build the writer's challenge scene
-    scene = _build_writer_scene(persona, writer)
+    scene = build_writer_scene(persona, writer)
 
     if not has_pondering:
         # No pondering - must redirect to philosopher first
@@ -876,19 +809,24 @@ def build_validation_prompt(
 
     # Select appropriate aspect based on paradigm/approach
     if paradigm == "daydream" or approach == "daydream":
-        aspect = _get_aspect(persona, "dreamer")
+        aspect = get_aspect(persona, "dreamer")
         if not aspect:
-            aspect = _create_fallback_aspect("dreamer")
+            aspect = create_default_aspect("dreamer")
         aspect_name = "dreamer"
-    elif paradigm == "knowledge" or approach == "philosopher":
-        aspect = _get_aspect(persona, "philosopher")
+    elif paradigm == "critique" or approach == "critique":
+        aspect = get_aspect(persona, "psychologist")
         if not aspect:
-            aspect = _create_fallback_aspect("philosopher")
+            aspect = create_default_aspect("psychologist")
+        aspect_name = "psychologist"
+    elif paradigm == "knowledge" or approach == "philosopher":
+        aspect = get_aspect(persona, "philosopher")
+        if not aspect:
+            aspect = create_default_aspect("philosopher")
         aspect_name = "philosopher"
     else:
-        aspect = _get_aspect(persona, "librarian")
+        aspect = get_aspect(persona, "librarian")
         if not aspect:
-            aspect = _create_fallback_aspect("librarian")
+            aspect = create_default_aspect("librarian")
         aspect_name = "librarian"
 
     docs_formatted = _format_documents(documents)
@@ -902,6 +840,15 @@ def build_validation_prompt(
 "You chose '{topic}'," {persona.pronouns['subj']} says, {persona.pronouns['poss']} voice taking on {aspect.voice_style or 'a more serious tone'}. "But choosing is easy, mon cher. The question is whether this dream deserves to be dreamt."
 
 *The fragments of focused context swirl around you*
+"""
+    elif aspect_name == "psychologist":
+        challenge_scene = f"""*The space seems to close in, focusing attention with uncomfortable precision*
+
+{aspect.name} studies you with {aspect.emotional_state or 'surgical precision'}, reading your micro-expressions.
+
+"You propose to examine '{topic}'," {persona.pronouns['subj']} says, {persona.pronouns['poss']} {aspect.voice_style or 'voice cutting through pretense'}. "But proposing is merely the first defense. The question is whether you are prepared to see what this examination will uncover."
+
+*{persona.pronouns['subj'].capitalize()} waits, the silence itself a form of pressure*
 """
     elif aspect_name == "philosopher":
         challenge_scene = f"""*The stars seem to pause in their eternal dance*
@@ -1022,6 +969,8 @@ def build_topic_selection_prompt(
         system_msg, user_msg = build_daydream_selection_prompt(documents, persona)
     elif paradigm == "knowledge":
         system_msg, user_msg = build_knowledge_selection_prompt(documents, persona)
+    elif paradigm == "critique":
+        system_msg, user_msg = build_critique_selection_prompt(documents, persona)
     else:
         # Default to brainstorm
         logger.warning(f"Unknown paradigm '{paradigm}', defaulting to brainstorm")

@@ -13,8 +13,8 @@ from aim.refiner.prompts import (
     build_knowledge_selection_prompt,
     _format_documents,
     _get_refiner_tools,
-    _create_fallback_aspect,
 )
+from aim.agents.aspects import create_default_aspect
 
 
 class TestFormatDocuments:
@@ -144,12 +144,12 @@ class TestGetRefinerTools:
         assert "reasoning" in validate_tool.function.parameters.required
 
 
-class TestCreateFallbackAspect:
-    """Tests for the _create_fallback_aspect function."""
+class TestCreateDefaultAspect:
+    """Tests for the create_default_aspect function (moved to aim.agents.aspects)."""
 
     def test_creates_librarian_aspect(self):
         """Should create librarian aspect with expected attributes."""
-        aspect = _create_fallback_aspect("librarian")
+        aspect = create_default_aspect("librarian")
 
         assert hasattr(aspect, "name")
         assert hasattr(aspect, "title")
@@ -157,19 +157,19 @@ class TestCreateFallbackAspect:
 
     def test_creates_dreamer_aspect(self):
         """Should create dreamer aspect."""
-        aspect = _create_fallback_aspect("dreamer")
+        aspect = create_default_aspect("dreamer")
 
         assert hasattr(aspect, "name")
 
     def test_creates_philosopher_aspect(self):
         """Should create philosopher aspect."""
-        aspect = _create_fallback_aspect("philosopher")
+        aspect = create_default_aspect("philosopher")
 
         assert hasattr(aspect, "name")
 
     def test_unknown_defaults_to_librarian(self):
         """Unknown aspect type should default to librarian."""
-        aspect = _create_fallback_aspect("unknown")
+        aspect = create_default_aspect("unknown")
 
         assert hasattr(aspect, "name")
 

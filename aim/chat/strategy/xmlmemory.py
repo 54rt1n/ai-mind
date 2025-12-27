@@ -19,7 +19,13 @@ from ...agents.persona import Persona
 from aim.nlp.summarize import TextSummarizer, get_default_summarizer
 from aim.utils.redis_cache import RedisCache
 from aim.conversation.rerank import MemoryReranker, TaggedResult
-from aim.constants import DOC_CONVERSATION, CHUNK_LEVEL_256, CHUNK_LEVEL_768
+from aim.constants import (
+    DOC_CONVERSATION, CHUNK_LEVEL_256, CHUNK_LEVEL_768,
+    DOC_INSPIRATION, DOC_UNDERSTANDING, DOC_PONDERING, DOC_BRAINSTORM
+)
+
+# Insight documents - rich generative content that benefits from larger chunks (768)
+INSIGHT_DOC_TYPES = [DOC_INSPIRATION, DOC_UNDERSTANDING, DOC_PONDERING, DOC_BRAINSTORM]
 
 logger = logging.getLogger(__name__)
 
@@ -65,9 +71,12 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                           source_tag: str,
                           seen_docs: set,
                           top_n: int,
-                          length_boost: float = 0.0) -> Tuple[List[TaggedResult], List[TaggedResult]]:
+                          length_boost: float = 0.0) -> Tuple[List[TaggedResult], List[TaggedResult], List[TaggedResult]]:
         """
-        Execute dual queries: conversations at chunk_768, others at chunk_256.
+        Execute triple queries for optimal document distribution:
+        - Conversations at chunk_768 (dialog context)
+        - Insights at chunk_768 (rich generative content)
+        - All types at chunk_256 (broad memory distribution)
 
         Args:
             queries: Query texts to search for
@@ -77,10 +86,11 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
             length_boost: Length boost factor
 
         Returns:
-            (conversation_results, other_results) as lists of (source_tag, row)
+            (conversation_results, insight_results, broad_results) as lists of (source_tag, row)
         """
         conversation_results: List[TaggedResult] = []
-        other_results: List[TaggedResult] = []
+        insight_results: List[TaggedResult] = []
+        broad_results: List[TaggedResult] = []
 
         # Query 1: Conversations at chunk_768 (larger context for dialog)
         conv_df = self.chat.cvm.query(
@@ -96,9 +106,23 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
             for _, row in conv_df.iterrows():
                 conversation_results.append((source_tag, row))
 
-        # Query 2: Other docs at chunk_256 (denser for analytical content)
-        # Note: query_document_type doesn't support "NOT", so we filter post-query
-        other_df = self.chat.cvm.query(
+        # Query 2: Insights at chunk_768 (rich content deserves longer context)
+        insight_df = self.chat.cvm.query(
+            queries,
+            filter_doc_ids=seen_docs,
+            top_n=top_n,
+            filter_metadocs=True,
+            query_document_type=INSIGHT_DOC_TYPES,
+            chunk_level=CHUNK_LEVEL_768,
+            length_boost_factor=length_boost,
+        )
+        if not insight_df.empty:
+            for _, row in insight_df.iterrows():
+                insight_results.append((source_tag + "_insight", row))
+
+        # Query 3: Broad distribution at chunk_256 (all doc types for memory breadth)
+        # Only NER, step, and MOTD excluded via filter_metadocs=True
+        broad_df = self.chat.cvm.query(
             queries,
             filter_doc_ids=seen_docs,
             top_n=top_n,
@@ -106,12 +130,11 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
             chunk_level=CHUNK_LEVEL_256,
             length_boost_factor=length_boost,
         )
-        if not other_df.empty:
-            other_df = other_df[other_df['document_type'] != DOC_CONVERSATION]
-            for _, row in other_df.iterrows():
-                other_results.append((source_tag, row))
+        if not broad_df.empty:
+            for _, row in broad_df.iterrows():
+                broad_results.append((source_tag + "_broad", row))
 
-        return conversation_results, other_results
+        return conversation_results, insight_results, broad_results
 
     def get_conscious_memory(self, persona: Persona, query: Optional[str] = None, user_queries: list[str] = [], assistant_queries: list[str] = [], content_len: int = 0, thought_stream: list[str] = [], max_context_tokens: int = DEFAULT_MAX_CONTEXT, max_output_tokens: int = DEFAULT_MAX_OUTPUT) -> tuple[str, int]:
         """
@@ -297,9 +320,10 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                     "memory_type_tag": "memory_asst"
                 })
 
-            # Collect into two buckets: conversation and other
+            # Collect into three buckets: conversation, insight, and broad
             all_conversation_results: List[TaggedResult] = []
-            all_other_results: List[TaggedResult] = []
+            all_insight_results: List[TaggedResult] = []
+            all_broad_results: List[TaggedResult] = []
 
             if query_sources_data:
                 top_n_per_source = self.chat.config.memory_window * 2
@@ -313,7 +337,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                         logger.debug(f"Skipping query for {source_data['name']}")
                         continue
 
-                    conv_results, other_results = self._query_by_buckets(
+                    conv_results, insight_results, broad_results = self._query_by_buckets(
                         queries=source_data["queries"],
                         source_tag=source_data["memory_type_tag"],
                         seen_docs=seen_docs,
@@ -321,11 +345,15 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                         length_boost=source_data["length_boost"]
                     )
                     all_conversation_results.extend(conv_results)
-                    all_other_results.extend(other_results)
-                    logger.debug(f"Queried {source_data['name']}: {len(conv_results)} conv, {len(other_results)} other")
+                    all_insight_results.extend(insight_results)
+                    all_broad_results.extend(broad_results)
+                    logger.debug(f"Queried {source_data['name']}: {len(conv_results)} conv, {len(insight_results)} insight, {len(broad_results)} broad")
 
-            # Pass to reranker - conversations get 60% of budget, rest goes to other docs
-            if all_conversation_results or all_other_results:
+            # Pass to reranker - conversations + insights get 60% of budget (both chunk_768), broad gets 40%
+            # Combine conversations and insights as primary content (both benefit from longer context)
+            all_long_context = all_conversation_results + all_insight_results
+
+            if all_long_context or all_broad_results:
                 reranker = MemoryReranker(
                     token_counter=self.count_tokens,
                     lambda_param=0.7,
@@ -333,8 +361,8 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                 )
 
                 reranked_results = reranker.rerank(
-                    conversation_results=all_conversation_results,
-                    other_results=all_other_results,
+                    conversation_results=all_long_context,  # Conversations + Insights (chunk_768)
+                    other_results=all_broad_results,        # Broad distribution (chunk_256)
                     token_budget=available_tokens_for_dynamic_queries,
                     seen_parent_ids=seen_docs,
                 )
@@ -354,7 +382,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                     for k in keywords: aggregated_keywords[k] += 1 if k else 0
                     seen_docs.add(row.get('parent_doc_id', row.get('doc_id', '')))
 
-                logger.info(f"Added {len(reranked_results)} reranked results from {len(all_conversation_results)} conv + {len(all_other_results)} other candidates")
+                logger.info(f"Added {len(reranked_results)} reranked results from {len(all_conversation_results)} conv + {len(all_insight_results)} insight + {len(all_broad_results)} broad candidates")
             else:
                 logger.info("No dynamic query sources had results.")
         else:

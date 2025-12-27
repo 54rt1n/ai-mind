@@ -70,7 +70,7 @@ def _get_select_topic_tool() -> Tool:
                     },
                     "approach": {
                         "type": "string",
-                        "enum": ["philosopher", "journaler", "daydream"],
+                        "enum": ["philosopher", "journaler", "daydream", "critique"],
                         "description": "The exploration approach"
                     },
                     "reasoning": {
@@ -115,7 +115,7 @@ def _get_validate_tool() -> Tool:
                     },
                     "redirect_to": {
                         "type": "string",
-                        "enum": ["philosopher", "researcher", "daydream"],
+                        "enum": ["philosopher", "researcher", "daydream", "critique"],
                         "description": "Alternative scenario to redirect to (if rejecting but topic has potential)"
                     },
                     "suggested_query": {
@@ -258,7 +258,7 @@ class ExplorationEngine:
             return None, None
 
         # Random paradigm selection
-        paradigm = random.choice(["brainstorm", "daydream", "knowledge"])
+        paradigm = random.choice(["brainstorm", "daydream", "knowledge", "critique"])
         logger.info(f"Selected paradigm: {paradigm}")
 
         # Step 1: Broad gather + topic selection
@@ -328,11 +328,14 @@ class ExplorationEngine:
         # Map paradigms to scenarios:
         # - daydream paradigm → daydream scenario
         # - knowledge paradigm → researcher scenario (librarian-led knowledge curation)
+        # - critique paradigm → critique scenario (psychologist-led self-examination)
         # - brainstorm paradigm → approach (philosopher or journaler)
         if paradigm == "daydream":
             scenario = "daydream"
         elif paradigm == "knowledge":
             scenario = "researcher"
+        elif paradigm == "critique":
+            scenario = "critique"
         else:
             scenario = approach
         pipeline_id = await self._trigger_pipeline(
