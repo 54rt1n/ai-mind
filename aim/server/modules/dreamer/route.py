@@ -14,6 +14,7 @@ from ....dreamer.api import (
     cancel_pipeline,
     delete_pipeline,
     resume_pipeline,
+    refresh_pipeline,
     list_pipelines,
 )
 from ....dreamer.state import StateStore
@@ -43,6 +44,7 @@ class DreamerModule:
         self._redis_client: Optional[redis.Redis] = None
         self._state_store: Optional[StateStore] = None
         self._scheduler: Optional[Scheduler] = None
+        self._cvm = None
 
         self.setup_routes()
 
@@ -72,6 +74,13 @@ class DreamerModule:
             state_store = await self.get_state_store()
             self._scheduler = Scheduler(redis_client, state_store)
         return self._scheduler
+
+    def get_cvm(self):
+        """Lazy initialization of ConversationModel."""
+        if self._cvm is None:
+            from ....conversation.model import ConversationModel
+            self._cvm = ConversationModel.from_config(self.config)
+        return self._cvm
 
     async def cleanup(self):
         """Cleanup Redis connection on shutdown."""
@@ -230,15 +239,18 @@ class DreamerModule:
         @self.router.post("/pipeline/{pipeline_id}/resume", response_model=ResumePipelineResponse)
         async def resume_pipeline_endpoint(
             pipeline_id: str,
+            force: bool = False,
             credentials: HTTPAuthorizationCredentials = Depends(self.security),
         ):
             """
             Resume a failed or cancelled pipeline from where it stopped.
 
             Re-enqueues failed steps whose dependencies are satisfied.
+            When force=True, also resets stuck RUNNING steps.
 
             Args:
                 pipeline_id: Pipeline identifier
+                force: If True, also reset RUNNING steps (for stuck pipelines)
                 credentials: API key authentication
 
             Returns:
@@ -250,21 +262,93 @@ class DreamerModule:
             try:
                 state_store = await self.get_state_store()
                 scheduler = await self.get_scheduler()
+                cvm = self.get_cvm()
 
-                success = await resume_pipeline(pipeline_id, state_store, scheduler)
+                result = await resume_pipeline(pipeline_id, state_store, scheduler, cvm, force=force)
 
-                if not success:
+                if not result.found:
                     raise HTTPException(status_code=404, detail=f"Pipeline {pipeline_id} not found")
+
+                # Build descriptive message
+                parts = []
+                if result.new_steps_added:
+                    parts.append(f"added {len(result.new_steps_added)} new step(s): {', '.join(result.new_steps_added)}")
+                if result.steps_enqueued:
+                    parts.append(f"enqueued {len(result.steps_enqueued)} step(s): {', '.join(result.steps_enqueued)}")
+                if result.steps_reset:
+                    parts.append(f"reset {len(result.steps_reset)} step(s)")
+                if result.orphaned_steps_cleaned:
+                    parts.append(f"cleaned {len(result.orphaned_steps_cleaned)} orphaned step(s): {', '.join(result.orphaned_steps_cleaned)}")
+
+                if parts:
+                    message = f"Pipeline {pipeline_id}: {'; '.join(parts)}"
+                else:
+                    message = f"Pipeline {pipeline_id}: no changes needed"
 
                 return ResumePipelineResponse(
                     status="success",
-                    message=f"Pipeline {pipeline_id} resumed successfully",
+                    message=message,
                 )
             except HTTPException:
                 raise
             except Exception as e:
                 logger.exception(f"Failed to resume pipeline: {e}")
                 raise HTTPException(status_code=500, detail=f"Failed to resume pipeline: {e}")
+
+        @self.router.post("/pipeline/{pipeline_id}/refresh", response_model=ResumePipelineResponse)
+        async def refresh_pipeline_endpoint(
+            pipeline_id: str,
+            credentials: HTTPAuthorizationCredentials = Depends(self.security),
+        ):
+            """
+            Refresh a complete pipeline by syncing with current scenario.
+
+            Detects scenario changes (new/removed steps), validates documents
+            exist for completed steps, and enqueues new work.
+
+            Args:
+                pipeline_id: Pipeline identifier
+                credentials: API key authentication
+
+            Returns:
+                ResumePipelineResponse with details of changes
+
+            Raises:
+                HTTPException: If pipeline not found or refresh fails
+            """
+            try:
+                state_store = await self.get_state_store()
+                scheduler = await self.get_scheduler()
+                cvm = self.get_cvm()
+
+                result = await refresh_pipeline(pipeline_id, state_store, scheduler, cvm)
+
+                if not result.found:
+                    raise HTTPException(status_code=404, detail=f"Pipeline {pipeline_id} not found")
+
+                # Build descriptive message
+                parts = []
+                if result.new_steps_added:
+                    parts.append(f"found {len(result.new_steps_added)} new step(s): {', '.join(result.new_steps_added)}")
+                if result.steps_reset:
+                    parts.append(f"reset {len(result.steps_reset)} step(s) with missing documents: {', '.join(result.steps_reset)}")
+                if result.orphaned_steps_cleaned:
+                    parts.append(f"cleaned {len(result.orphaned_steps_cleaned)} orphaned step(s): {', '.join(result.orphaned_steps_cleaned)}")
+
+                if parts:
+                    message = f"Pipeline {pipeline_id}: {'; '.join(parts)}. Click Resume to restart."
+                else:
+                    message = f"Pipeline {pipeline_id}: fully synced, no changes needed"
+
+                return ResumePipelineResponse(
+                    status="success",
+                    message=message,
+                )
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.exception(f"Failed to refresh pipeline: {e}")
+                raise HTTPException(status_code=500, detail=f"Failed to refresh pipeline: {e}")
 
         @self.router.delete("/pipeline/{pipeline_id}", response_model=DeletePipelineResponse)
         async def delete_pipeline_endpoint(

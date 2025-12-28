@@ -99,9 +99,10 @@ class Api {
         }
     }
 
-    async resumeDreamerPipeline(pipelineId: string): Promise<any> {
+    async resumeDreamerPipeline(pipelineId: string, force: boolean = false): Promise<any> {
         try {
-            const response = await this.fetch(`/api/dreamer/pipeline/${pipelineId}/resume`, {
+            const params = force ? '?force=true' : '';
+            const response = await this.fetch(`/api/dreamer/pipeline/${pipelineId}/resume${params}`, {
                 method: 'POST',
             });
             if (!response.ok) {
@@ -111,6 +112,22 @@ class Api {
             return response.json();
         } catch (error) {
             console.error('Error resuming dreamer pipeline:', error);
+            throw error;
+        }
+    }
+
+    async refreshDreamerPipeline(pipelineId: string): Promise<any> {
+        try {
+            const response = await this.fetch(`/api/dreamer/pipeline/${pipelineId}/refresh`, {
+                method: 'POST',
+            });
+            if (!response.ok) {
+                const data = await response.json();
+                throw new Error(`API call failed: ${data.detail || data}`);
+            }
+            return response.json();
+        } catch (error) {
+            console.error('Error refreshing dreamer pipeline:', error);
             throw error;
         }
     }

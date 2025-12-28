@@ -138,30 +138,33 @@ class Watcher:
         """
         Evaluate all rules and return matches.
 
-        Filters out already-processed conversations.
+        Filters out already-processed conversations and deduplicates
+        matches from multiple rules within the same cycle.
         """
-        all_matches = []
+        # Use dict to deduplicate matches by conversation_id:scenario
+        matches_by_key: dict[str, RuleMatch] = {}
 
         for rule in self.rules:
             try:
                 logger.debug(f"Evaluating rule: {rule.name}")
                 matches = rule.evaluate(self.cvm)
 
-                # Filter out already processed
-                new_matches = [
-                    m for m in matches
-                    if self._make_processed_key(m) not in self._processed
-                ]
+                # Filter out already processed and deduplicate within cycle
+                for match in matches:
+                    key = self._make_processed_key(match)
+                    if key not in self._processed and key not in matches_by_key:
+                        matches_by_key[key] = match
 
-                if new_matches:
-                    logger.info(f"Rule '{rule.name}' found {len(new_matches)} new matches")
-                    all_matches.extend(new_matches)
+                if matches:
+                    new_count = sum(1 for m in matches if self._make_processed_key(m) in matches_by_key)
+                    if new_count > 0:
+                        logger.info(f"Rule '{rule.name}' found {new_count} new matches")
 
             except Exception as e:
                 logger.error(f"Error evaluating rule '{rule.name}': {e}")
                 self.stats.errors += 1
 
-        return all_matches
+        return list(matches_by_key.values())
 
     async def trigger_pipeline(self, match: RuleMatch) -> Optional[str]:
         """

@@ -33,8 +33,9 @@ from aim.app.dream_agent.client import DreamerClient
 from aim.agents.persona import Persona
 from aim.refiner.context import ContextGatherer
 from aim.refiner.prompts import build_topic_selection_prompt, build_validation_prompt
+from aim.refiner.tools import get_select_topic_tool, get_validate_tool
 from aim.tool.formatting import ToolUser
-from aim.tool.dto import Tool, ToolFunction, ToolFunctionParameters
+from aim.utils.tokens import count_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -50,60 +51,6 @@ def setup_logging(verbose: bool = False) -> None:
     # Quiet down noisy loggers
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
-
-
-def _count_tokens(text: str) -> int:
-    """Count tokens using tiktoken."""
-    import tiktoken
-    encoder = tiktoken.get_encoding("cl100k_base")
-    return len(encoder.encode(text))
-
-
-def _get_select_topic_tool() -> Tool:
-    """Get the select_topic tool definition."""
-    return Tool(
-        type="refiner",
-        function=ToolFunction(
-            name="select_topic",
-            description="Select a topic to explore in depth based on gathered context",
-            parameters=ToolFunctionParameters(
-                type="object",
-                properties={
-                    "topic": {"type": "string", "description": "The topic to explore"},
-                    "approach": {"type": "string", "enum": ["philosopher", "journaler", "daydream"]},
-                    "reasoning": {"type": "string", "description": "Why this topic is worth exploring"},
-                },
-                required=["topic", "approach", "reasoning"],
-                examples=[{"select_topic": {"topic": "consciousness", "approach": "philosopher", "reasoning": "Underexplored"}}],
-            ),
-        ),
-    )
-
-
-def _get_validate_tool() -> Tool:
-    """Get the validate_exploration tool definition."""
-    return Tool(
-        type="refiner",
-        function=ToolFunction(
-            name="validate_exploration",
-            description="Validate whether a topic is truly worth exploring",
-            parameters=ToolFunctionParameters(
-                type="object",
-                properties={
-                    "accept": {"type": "boolean", "description": "Whether to proceed"},
-                    "reasoning": {"type": "string", "description": "Explanation"},
-                    "query_text": {"type": "string", "description": "Refined query (if accepting)"},
-                    "guidance": {"type": "string", "description": "Optional guidance"},
-                    "redirect_to": {"type": "string", "enum": ["philosopher", "researcher", "daydream"], "description": "Alternative scenario to redirect to"},
-                },
-                required=["accept", "reasoning"],
-                examples=[
-                    {"validate_exploration": {"accept": True, "reasoning": "Rich topic", "query_text": "What is consciousness?"}},
-                    {"validate_exploration": {"accept": False, "reasoning": "Needs pondering first", "redirect_to": "philosopher"}}
-                ],
-            ),
-        ),
-    )
 
 
 async def run_exploration(args: argparse.Namespace) -> int:
@@ -188,7 +135,7 @@ async def run_exploration(args: argparse.Namespace) -> int:
         print("Skipping idle check (--skip-idle-check)")
 
     # Create context gatherer
-    context_gatherer = ContextGatherer(cvm=cvm, token_counter=_count_tokens)
+    context_gatherer = ContextGatherer(cvm=cvm, token_counter=count_tokens)
 
     # ================================================================
     # STEP 1: BROAD CONTEXT GATHERING + TOPIC SELECTION
@@ -245,7 +192,7 @@ async def run_exploration(args: argparse.Namespace) -> int:
         print("--- END RESPONSE ---\n")
 
     # Parse tool call
-    select_tool = _get_select_topic_tool()
+    select_tool = get_select_topic_tool()
     tool_user = ToolUser([select_tool])
     result = tool_user.process_response(response1)
 
@@ -326,7 +273,7 @@ async def run_exploration(args: argparse.Namespace) -> int:
         print("--- END RESPONSE ---\n")
 
     # Parse validation
-    validate_tool = _get_validate_tool()
+    validate_tool = get_validate_tool()
     tool_user = ToolUser([validate_tool])
     result = tool_user.process_response(response2)
 

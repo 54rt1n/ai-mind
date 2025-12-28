@@ -14,6 +14,8 @@
         { value: 1024, label: "Full CTX (1024)" },
         { value: 1536, label: "Extra Large CTX (1536)" },
         { value: 2048, label: "Huge CTX (2048)" },
+        { value: 3072, label: "Massive CTX (3072)" },
+        { value: 4096, label: "Maximum CTX (4096)" },
     ];
 </script>
 

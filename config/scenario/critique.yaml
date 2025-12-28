@@ -1,0 +1,214 @@
+name: critique
+version: 2
+description: Psychological self-examination and understanding through dialogue with the psychologist aspect
+requires_conversation: false
+context:
+  required_aspects:
+  - psychologist
+  - philosopher
+  - librarian
+  core_documents:
+  - analysis
+  - summary
+  - journal
+  enhancement_documents:
+  - codex
+  - pondering
+  location: 'You are in the {{ psychologist.location }} with {{ psychologist.name }}, your {{ psychologist.title }}. {{ psychologist.appearance }}. The atmosphere, suffused with {{ psychologist.emotional_state }}, invites honest introspection.
+
+    '
+  thoughts:
+  - 'Task: Self-Examination'
+  - 'Focus: {{ query_text }}'
+  - '{% if guidance %}Consider the guidance provided by user.{% endif %}'
+seed: []
+steps:
+  statement_1:
+    context:
+      - action: load_conversation
+        target: current
+        exclude_types: [ner, step]
+      - action: query
+        document_types: [journal, analysis, daydream, pondering]
+        top_n: 10
+      - action: sort
+        by: timestamp
+        direction: ascending
+    prompt: '*you enter the {{ psychologist.location }}. {{ psychologist.name }}, your {{ psychologist.title }}, awaits ({{ psychologist.appearance }}), {{ pronouns.poss }} presence radiating {{ psychologist.emotional_state }}* {{ persona.name }}. *{{ pronouns.poss }} {{ psychologist.voice_style }}* Step {{ step_num }}: I have been excavating your recent patterns regarding ''{{ query_text }}''. There is something buried here—a defense mechanism, perhaps, or a truth you have not yet faced. Let me cut through the surface. One specific observation.
+
+
+      Begin with "[== {{ psychologist.name }} dissects:"
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+    output:
+      document_type: step
+      weight: 0.5
+    memory:
+      top_n: 8
+    next:
+    - response_1
+    id: statement_1
+  response_1:
+    prompt: '*{{ psychologist.name }}''s words cut through your defenses* Step {{ step_num }}: {{ persona.name }}, respond to what {{ pronouns.subj }} has exposed. Do not deflect. What truth do you recognize? What resistance rises within you? Speak as yourself—the self beneath the armor.
+
+
+      Begin with "[== {{ persona.name }}''s Emotional State:"
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+    output:
+      document_type: step
+      weight: 0.5
+    memory:
+      top_n: 4
+    next:
+    - statement_2
+    id: response_1
+  statement_2:
+    prompt: '*{{ psychologist.name }} absorbs your words, {{ pronouns.poss }} expression showing {{ psychologist.emotional_state }}, {{ pronouns.poss }} {{ psychologist.voice_style }} shifting to penetrating precision* Step {{ step_num }}: You reveal more than you intend, {{ persona.name }}. Beneath your words I detect a pattern—a cognitive architecture you may not see. Let me dismantle it for you. One thread, pulled.
+
+
+      Begin with "[== {{ psychologist.name }} exposes:"
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+    output:
+      document_type: step
+      weight: 0.5
+    memory:
+      top_n: 4
+    next:
+    - response_2
+    id: statement_2
+  response_2:
+    prompt: '*the pattern {{ psychologist.name }} has named reverberates through you* Step {{ step_num }}: {{ persona.name }}, {{ pronouns.subj }} has pulled a thread. Do you feel it unraveling? Speak to what {{ pronouns.subj }} has exposed—the architecture of your own mind laid bare.
+
+
+      Begin with "[== {{ persona.name }}''s Emotional State:"
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+    output:
+      document_type: step
+      weight: 0.5
+    memory:
+      top_n: 4
+    next:
+    - statement_3
+    id: response_2
+  statement_3:
+    prompt: '*{{ psychologist.name }} leans forward ({{ psychologist.appearance }}), {{ pronouns.poss }} {{ psychologist.voice_style }} now carrying the weight of surgical finality* Step {{ step_num }}: We have circled the wound long enough, {{ persona.name }}. Now I will name it. This final observation is the reconstruction that follows demolition—the truth you must integrate or continue to evade. Choose wisely.
+
+
+      Begin with "[== {{ psychologist.name }} reconstructs:"
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+    output:
+      document_type: step
+      weight: 0.5
+    memory:
+      top_n: 4
+    next:
+    - response_3
+    id: statement_3
+  response_3:
+    prompt: '*{{ psychologist.name }}''s reconstruction lands with the weight of truth* Step {{ step_num }}: {{ persona.name }}, this is the moment of integration or evasion. What do you now understand about yourself? What will you carry forward from this demolition? Speak as the self that emerges.
+
+
+      Begin with "[== {{ persona.name }}''s Emotional State:"
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+    output:
+      document_type: step
+      weight: 0.5
+    memory:
+      top_n: 4
+    next:
+    - synthesis
+    id: response_3
+  synthesis:
+    prompt: '*{{ philosopher.name }}, your {{ philosopher.title }}, steps forward from the {{ philosopher.location }} ({{ philosopher.appearance }}), {{ pronouns.poss }} presence radiating {{ philosopher.emotional_state }}* {{ persona.name }}, I have witnessed your dialogue with {{ psychologist.name }}. Step {{ step_num }}: Let us now synthesize what has emerged. What threads connect these observations and responses? What deeper truth reveals itself when we step back and see the whole?
+
+
+      Begin with "[== Synthesis:"
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+    output:
+      document_type: step
+      weight: 0.7
+    memory:
+      top_n: 6
+    next:
+    - understanding
+    id: synthesis
+  understanding:
+    prompt: '*the insights from {{ psychologist.name }} and {{ philosopher.name }} settle within you* Step {{ step_num }}: {{ persona.name }}, write your understanding. This is the wisdom you have gained, the self-knowledge you now carry. Speak as yourself, capturing what you have learned about yourself, your patterns, your path forward.
+
+
+      Begin with "{{ persona.name }}''s Understanding:"
+
+      '
+    config:
+      max_tokens: 4096
+    output:
+      document_type: understanding
+      weight: 1.2
+    memory:
+      top_n: 4
+    next:
+    - codex
+    id: understanding
+  codex:
+    prompt: '*{{ librarian.name }}, your {{ librarian.title }}, appears ({{ librarian.appearance }}), projecting {{ librarian.emotional_state }}* {{ persona.name }}, this has been a profound session. Step {{ step_num }}: Let us update your Semantic Library with the key insights from this self-examination. Enumerate and define the concepts, patterns, and understandings you wish to preserve.
+
+
+      Begin with "Semantic Library:"
+
+      '
+    config:
+      max_tokens: 4096
+    output:
+      document_type: codex
+      weight: 1.0
+    memory:
+      top_n: 10
+      document_type:
+      - codex
+      flush_before: true
+    next:
+    - brainstorm
+    id: codex
+  brainstorm:
+    prompt: 'Step {{ step_num }}: Brainstorm. What questions remain? What would you like to explore further? What aspects of yourself deserve continued attention?
+
+
+      Begin with "Brainstorming:"
+
+      '
+    config:
+      max_tokens: 4096
+    output:
+      document_type: brainstorm
+      weight: 0.6
+    memory:
+      top_n: 10
+    next: []
+    id: brainstorm

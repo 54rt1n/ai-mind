@@ -7,7 +7,6 @@ from datetime import datetime
 from typing import Optional
 import logging
 import re
-import tiktoken
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +18,7 @@ from ..config import ChatConfig
 from ..conversation.model import ConversationModel
 from ..conversation.message import ConversationMessage
 from ..llm.models import LanguageModelV2
+from ..utils.tokens import count_tokens
 
 
 class RetryableError(Exception):
@@ -53,19 +53,6 @@ def select_model_name(state: PipelineState, step_config: StepConfig) -> str:
         return state.thought_model
 
     return state.model
-
-
-# Shared tiktoken encoder
-_encoder: tiktoken.Encoding = None
-
-def _get_encoder() -> tiktoken.Encoding:
-    global _encoder
-    if _encoder is None:
-        _encoder = tiktoken.get_encoding("cl100k_base")
-    return _encoder
-
-def _count_tokens(text: str) -> int:
-    return len(_get_encoder().encode(text))
 
 
 def build_turns(
@@ -121,17 +108,17 @@ def build_turns(
     # Account for fixed content (system, prompt, wakeup)
     wakeup = persona.get_wakeup()
     fixed_tokens = (
-        _count_tokens(system_message) +
-        _count_tokens(prompt) +
-        _count_tokens(wakeup)
+        count_tokens(system_message) +
+        count_tokens(prompt) +
+        count_tokens(wakeup)
     )
 
     # Calculate tokens for prior outputs content
-    prior_output_tokens = sum(_count_tokens(o.get('content', '')) for o in prior_outputs)
+    prior_output_tokens = sum(count_tokens(o.get('content', '')) for o in prior_outputs)
 
     # Calculate tokens for thought stream
     thought_stream = format_thought_stream(prior_outputs) if include_thought_stream else ""
-    thought_stream_tokens = _count_tokens(thought_stream)
+    thought_stream_tokens = count_tokens(thought_stream)
 
     # Budget remaining after fixed content
     remaining_budget = available_tokens - fixed_tokens
@@ -150,7 +137,7 @@ def build_turns(
     while trimmed_outputs and prior_output_tokens > remaining_budget:
         # Remove oldest (first) output
         removed = trimmed_outputs.pop(0)
-        removed_tokens = _count_tokens(removed.get('content', ''))
+        removed_tokens = count_tokens(removed.get('content', ''))
         prior_output_tokens -= removed_tokens
         evicted_count += 1
         logger.info(f"Evicting prior output {evicted_count} ({removed_tokens} tokens)")
@@ -166,7 +153,7 @@ def build_turns(
     memory_tokens = 0
     for mem in reversed(memories):
         content = mem.get('content', '')
-        mem_tokens = _count_tokens(content)
+        mem_tokens = count_tokens(content)
         if memory_tokens + mem_tokens <= memory_budget:
             trimmed_memories.insert(0, mem)  # Prepend to maintain order
             memory_tokens += mem_tokens
@@ -398,7 +385,6 @@ async def execute_step(
     cvm: ConversationModel,
     persona: Persona,
     config: ChatConfig,
-    encoder: tiktoken.Encoding,
 ) -> tuple[StepResult, list[str], bool]:
     """
     Execute a single pipeline step.
@@ -423,7 +409,6 @@ async def execute_step(
         cvm: ConversationModel for memory queries
         persona: Persona for context
         config: ChatConfig for LLM access
-        encoder: Token encoder for counting
 
     Returns:
         Tuple of (StepResult, context_doc_ids, is_initial_context):
@@ -535,7 +520,7 @@ async def execute_step(
     if not response.strip():
         raise RetryableError("Empty response from model")
 
-    tokens_used = len(encoder.encode(response))
+    tokens_used = count_tokens(response)
     result = StepResult(
         step_id=step_def.id,
         response=response,

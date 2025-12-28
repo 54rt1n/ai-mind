@@ -5,7 +5,6 @@
 import pytest
 from datetime import datetime
 from unittest.mock import Mock, MagicMock, patch
-import tiktoken
 
 from aim.dreamer.executor import (
     select_model_name,
@@ -532,8 +531,6 @@ class TestExecuteStep:
         # Use real ChatConfig instead of Mock for dataclass compatibility
         mock_config = ChatConfig(temperature=0.7)
 
-        encoder = tiktoken.get_encoding("cl100k_base")
-
         # Create state
         state = PipelineState(
             pipeline_id="test-123",
@@ -585,7 +582,6 @@ class TestExecuteStep:
                 cvm=mock_cvm,
                 persona=mock_persona,
                 config=mock_config,
-                encoder=encoder,
             )
 
         # Verify result
@@ -612,8 +608,6 @@ class TestExecuteStep:
         mock_persona.aspects = {}
 
         mock_config = ChatConfig(temperature=0.7)
-
-        encoder = tiktoken.get_encoding("cl100k_base")
 
         state = PipelineState(
             pipeline_id="test-123",
@@ -664,7 +658,6 @@ class TestExecuteStep:
                 cvm=mock_cvm,
                 persona=mock_persona,
                 config=mock_config,
-                encoder=encoder,
             )
 
         assert result.response == "Visible response."
@@ -692,8 +685,6 @@ class TestExecuteStep:
         mock_persona.aspects = {}
 
         mock_config = ChatConfig(temperature=0.7)
-
-        encoder = tiktoken.get_encoding("cl100k_base")
 
         state = PipelineState(
             pipeline_id="test-123",
@@ -741,7 +732,6 @@ class TestExecuteStep:
                 cvm=mock_cvm,
                 persona=mock_persona,
                 config=mock_config,
-                encoder=encoder,
             )
 
         # Verify memory query was called

@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 import logging
 import pandas as pd
 import random
-import tiktoken
 from typing import Optional, List, Dict, Any, Tuple
 
 from ..manager import ChatManager
@@ -18,6 +17,7 @@ from ...utils.keywords import extract_semantic_keywords
 from ...agents.persona import Persona
 from aim.nlp.summarize import TextSummarizer, get_default_summarizer
 from aim.utils.redis_cache import RedisCache
+from aim.utils.tokens import count_tokens as _count_tokens
 from aim.conversation.rerank import MemoryReranker, TaggedResult
 from aim.constants import (
     DOC_CONVERSATION, CHUNK_LEVEL_256, CHUNK_LEVEL_768,
@@ -33,16 +33,10 @@ DEFAULT_MAX_CONTEXT = 32768
 DEFAULT_MAX_OUTPUT = 4096
 
 class XMLMemoryTurnStrategy(ChatTurnStrategy):
-    _encoder: tiktoken.Encoding = None
-
-    @classmethod
-    def get_encoder(cls) -> tiktoken.Encoding:
-        if cls._encoder is None:
-            cls._encoder = tiktoken.get_encoding("cl100k_base")
-        return cls._encoder
 
     def count_tokens(self, text: str) -> int:
-        return len(self.get_encoder().encode(text))
+        """Count tokens using shared utility."""
+        return _count_tokens(text)
 
     def __init__(self, chat : ChatManager):
         super().__init__(chat)

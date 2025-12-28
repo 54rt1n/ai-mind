@@ -14,8 +14,10 @@ from aim.dreamer.api import (
     get_status,
     cancel_pipeline,
     resume_pipeline,
+    refresh_pipeline,
     list_pipelines,
     PipelineStatus,
+    ResumeResult,
 )
 from aim.dreamer.models import (
     PipelineState,
@@ -55,6 +57,8 @@ def mock_state_store():
     store = AsyncMock(spec=StateStore)
     store.key_prefix = "dreamer"
     store.redis = AsyncMock()
+    # Default to empty DAG for hgetall
+    store.redis.hgetall.return_value = {}
     return store
 
 
@@ -110,6 +114,16 @@ def mock_pipeline_state():
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )
+
+
+@pytest.fixture
+def mock_cvm():
+    """Create a mock ConversationModel with index.get_document support."""
+    cvm = MagicMock()
+    cvm.index = MagicMock()
+    # Default: all documents exist
+    cvm.index.get_document = MagicMock(return_value={"doc_id": "test-doc", "content": "test"})
+    return cvm
 
 
 # Tests for generate_pipeline_id
@@ -521,12 +535,18 @@ async def test_cancel_pipeline_not_found(mock_state_store):
 # Tests for resume_pipeline
 
 @pytest.mark.asyncio
-async def test_resume_pipeline_success(mock_state_store, mock_scheduler, mock_pipeline_state, simple_scenario):
+async def test_resume_pipeline_success(mock_state_store, mock_scheduler, mock_pipeline_state, simple_scenario, mock_cvm):
     """Test successful pipeline resume."""
     with patch('aim.dreamer.api.load_scenario') as mock_load_scenario:
         # Setup mocks
         mock_state_store.load_state.return_value = mock_pipeline_state
         mock_load_scenario.return_value = simple_scenario
+
+        # Mock DAG entries - both steps exist in DAG
+        mock_state_store.redis.hgetall.return_value = {
+            b"step1": b"failed",
+            b"step2": b"pending",
+        }
 
         # First step failed, second pending (deps not satisfied)
         step_statuses = {
@@ -542,9 +562,9 @@ async def test_resume_pipeline_success(mock_state_store, mock_scheduler, mock_pi
         # First step has no deps, so can be resumed
         mock_scheduler.all_deps_complete.return_value = True
 
-        result = await resume_pipeline("test-pipeline", mock_state_store, mock_scheduler)
+        result = await resume_pipeline("test-pipeline", mock_state_store, mock_scheduler, mock_cvm)
 
-        assert result is True
+        assert result.found is True
 
         # Step1 should be reset to pending and enqueued
         mock_state_store.set_step_status.assert_called()
@@ -555,13 +575,376 @@ async def test_resume_pipeline_success(mock_state_store, mock_scheduler, mock_pi
 
 
 @pytest.mark.asyncio
-async def test_resume_pipeline_not_found(mock_state_store, mock_scheduler):
+async def test_resume_pipeline_not_found(mock_state_store, mock_scheduler, mock_cvm):
     """Test resume_pipeline for non-existent pipeline."""
     mock_state_store.load_state.return_value = None
 
-    result = await resume_pipeline("nonexistent", mock_state_store, mock_scheduler)
+    result = await resume_pipeline("nonexistent", mock_state_store, mock_scheduler, mock_cvm)
 
-    assert result is False
+    assert result.found is False
+
+
+@pytest.mark.asyncio
+async def test_resume_complete_pipeline_with_new_step(mock_state_store, mock_scheduler, mock_pipeline_state, mock_cvm):
+    """Test resuming a complete pipeline with new steps added to scenario.
+
+    This tests the Resume functionality where:
+    1. Pipeline completed with steps A, B
+    2. Scenario YAML updated to add step C (depends on B)
+    3. User clicks Resume (force=True)
+    4. New step C should be detected and enqueued
+    """
+    # Create scenario with 3 steps - original 2 + 1 new
+    scenario_with_new_step = Scenario(
+        name="test_scenario",
+        version=2,
+        description="Test scenario with new step",
+        context=ScenarioContext(
+            required_aspects=["coder"],
+            core_documents=["summary"],
+            location="Test location",
+        ),
+        seed=[],
+        steps={
+            "step1": StepDefinition(
+                id="step1",
+                prompt="Step 1 prompt",
+                output=StepOutput(document_type="test", weight=1.0),
+                next=["step2"],
+            ),
+            "step2": StepDefinition(
+                id="step2",
+                prompt="Step 2 prompt",
+                output=StepOutput(document_type="test", weight=1.0),
+                depends_on=["step1"],
+                next=["step3"],  # Now points to new step
+            ),
+            "step3": StepDefinition(
+                id="step3",
+                prompt="Step 3 prompt - NEW",
+                output=StepOutput(document_type="test", weight=1.0),
+                depends_on=["step2"],
+                next=[],
+            ),
+        },
+    )
+
+    with patch('aim.dreamer.api.load_scenario') as mock_load_scenario:
+        # Setup mocks
+        # Pipeline state shows only step1, step2 were completed
+        mock_pipeline_state.completed_steps = ["step1", "step2"]
+        mock_pipeline_state.step_doc_ids = {"step1": "doc-step1", "step2": "doc-step2"}
+        mock_state_store.load_state.return_value = mock_pipeline_state
+        mock_load_scenario.return_value = scenario_with_new_step
+
+        # Mock DAG entries - only step1, step2 exist (step3 is new)
+        mock_state_store.redis.hgetall.return_value = {
+            b"step1": b"complete",
+            b"step2": b"complete",
+        }
+
+        # DAG has step1, step2 as COMPLETE, step3 is NOT in DAG (returns PENDING by default)
+        step_statuses = {
+            "step1": StepStatus.COMPLETE,
+            "step2": StepStatus.COMPLETE,
+            "step3": StepStatus.PENDING,  # New step, not in original DAG
+        }
+
+        async def mock_get_step_status(pipeline_id, step_id):
+            return step_statuses.get(step_id, StepStatus.PENDING)
+
+        mock_state_store.get_step_status.side_effect = mock_get_step_status
+
+        # Step3 depends on step2, which is COMPLETE, so all_deps_complete should return True
+        # Let's use the real implementation logic instead of mocking
+        async def mock_all_deps_complete(pipeline_id, step_def):
+            # Simulate real logic: check if all depends_on steps are COMPLETE
+            if not step_def.depends_on:
+                return True
+            for dep_id in step_def.depends_on:
+                status = step_statuses.get(dep_id, StepStatus.PENDING)
+                if status != StepStatus.COMPLETE:
+                    return False
+            return True
+
+        mock_scheduler.all_deps_complete.side_effect = mock_all_deps_complete
+
+        # All documents exist in CVM
+        mock_cvm.index.get_document.return_value = {"doc_id": "test", "content": "test"}
+
+        # Call resume_pipeline with force=True (Resume click)
+        result = await resume_pipeline("test-pipeline", mock_state_store, mock_scheduler, mock_cvm, force=True)
+
+        # Assertions
+        assert result.found is True
+        assert "step3" in result.steps_enqueued, "New step3 should be enqueued"
+        assert "step3" in result.new_steps_added, "step3 should be in new_steps_added"
+
+        # Verify step3 was added to DAG
+        mock_state_store.redis.hset.assert_called()
+
+        # Verify step3 was enqueued
+        enqueue_calls = mock_scheduler.enqueue_step.call_args_list
+        enqueued_steps = [call[0][1] for call in enqueue_calls]
+        assert "step3" in enqueued_steps, "step3 should have been enqueued"
+
+        # State should be saved
+        mock_state_store.save_state.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_resume_pipeline_resets_steps_with_missing_documents(mock_state_store, mock_scheduler, mock_pipeline_state, simple_scenario, mock_cvm):
+    """Test that resume_pipeline resets COMPLETE steps when their documents are missing from CVM."""
+    with patch('aim.dreamer.api.load_scenario') as mock_load_scenario:
+        # Setup mocks
+        mock_pipeline_state.completed_steps = ["step1"]
+        mock_pipeline_state.step_doc_ids = {"step1": "doc-step1"}
+        mock_state_store.load_state.return_value = mock_pipeline_state
+        mock_load_scenario.return_value = simple_scenario
+
+        # Mock DAG entries
+        mock_state_store.redis.hgetall.return_value = {
+            b"step1": b"complete",
+            b"step2": b"pending",
+        }
+
+        step_statuses = {
+            "step1": StepStatus.COMPLETE,
+            "step2": StepStatus.PENDING,
+        }
+
+        async def mock_get_step_status(pipeline_id, step_id):
+            return step_statuses.get(step_id, StepStatus.PENDING)
+
+        mock_state_store.get_step_status.side_effect = mock_get_step_status
+        mock_scheduler.all_deps_complete.return_value = True
+
+        # Document for step1 is MISSING in CVM
+        def get_document_mock(doc_id):
+            if doc_id == "doc-step1":
+                return None  # Document missing!
+            return {"doc_id": doc_id, "content": "test"}
+
+        mock_cvm.index.get_document.side_effect = get_document_mock
+
+        result = await resume_pipeline("test-pipeline", mock_state_store, mock_scheduler, mock_cvm)
+
+        assert result.found is True
+        # step1 should be reset because its document is missing
+        assert "step1" in result.steps_reset, "step1 should be reset due to missing document"
+
+        # Verify document was checked
+        mock_cvm.index.get_document.assert_called_with("doc-step1")
+
+
+@pytest.mark.asyncio
+async def test_resume_pipeline_enqueues_after_document_verification(mock_state_store, mock_scheduler, mock_pipeline_state, simple_scenario, mock_cvm):
+    """Test that resume_pipeline DOES enqueue steps after verifying documents."""
+    with patch('aim.dreamer.api.load_scenario') as mock_load_scenario:
+        # Setup mocks
+        mock_pipeline_state.completed_steps = []
+        mock_pipeline_state.step_doc_ids = {}
+        mock_state_store.load_state.return_value = mock_pipeline_state
+        mock_load_scenario.return_value = simple_scenario
+
+        # Mock DAG entries - step1 failed, step2 pending
+        mock_state_store.redis.hgetall.return_value = {
+            b"step1": b"failed",
+            b"step2": b"pending",
+        }
+
+        step_statuses = {
+            "step1": StepStatus.FAILED,
+            "step2": StepStatus.PENDING,
+        }
+
+        async def mock_get_step_status(pipeline_id, step_id):
+            return step_statuses.get(step_id, StepStatus.PENDING)
+
+        mock_state_store.get_step_status.side_effect = mock_get_step_status
+        mock_scheduler.all_deps_complete.return_value = True
+
+        result = await resume_pipeline("test-pipeline", mock_state_store, mock_scheduler, mock_cvm)
+
+        assert result.found is True
+        # resume_pipeline SHOULD enqueue failed steps
+        assert "step1" in result.steps_enqueued, "resume should enqueue failed step1"
+        mock_scheduler.enqueue_step.assert_called()
+
+
+# Tests for refresh_pipeline
+
+@pytest.mark.asyncio
+async def test_refresh_pipeline_does_not_enqueue(mock_state_store, mock_scheduler, mock_pipeline_state, simple_scenario, mock_cvm):
+    """Test that refresh_pipeline does NOT enqueue any steps - it only syncs state."""
+    with patch('aim.dreamer.api.load_scenario') as mock_load_scenario:
+        # Setup mocks
+        mock_pipeline_state.completed_steps = ["step1"]
+        mock_pipeline_state.step_doc_ids = {"step1": "doc-step1"}
+        mock_state_store.load_state.return_value = mock_pipeline_state
+        mock_load_scenario.return_value = simple_scenario
+
+        # Mock DAG entries
+        mock_state_store.redis.hgetall.return_value = {
+            b"step1": b"complete",
+            b"step2": b"pending",
+        }
+
+        step_statuses = {
+            "step1": StepStatus.COMPLETE,
+            "step2": StepStatus.PENDING,
+        }
+
+        async def mock_get_step_status(pipeline_id, step_id):
+            return step_statuses.get(step_id, StepStatus.PENDING)
+
+        mock_state_store.get_step_status.side_effect = mock_get_step_status
+
+        # All documents exist
+        mock_cvm.index.get_document.return_value = {"doc_id": "test", "content": "test"}
+
+        result = await refresh_pipeline("test-pipeline", mock_state_store, mock_scheduler, mock_cvm)
+
+        assert result.found is True
+        # refresh_pipeline should NOT enqueue anything
+        assert result.steps_enqueued == [], "refresh should NOT enqueue any steps"
+        mock_scheduler.enqueue_step.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_refresh_pipeline_resets_steps_with_missing_documents(mock_state_store, mock_scheduler, mock_pipeline_state, simple_scenario, mock_cvm):
+    """Test that refresh_pipeline resets COMPLETE steps when their documents are missing from CVM."""
+    with patch('aim.dreamer.api.load_scenario') as mock_load_scenario:
+        # Setup mocks
+        mock_pipeline_state.completed_steps = ["step1"]
+        mock_pipeline_state.step_doc_ids = {"step1": "doc-step1"}
+        mock_state_store.load_state.return_value = mock_pipeline_state
+        mock_load_scenario.return_value = simple_scenario
+
+        # Mock DAG entries
+        mock_state_store.redis.hgetall.return_value = {
+            b"step1": b"complete",
+            b"step2": b"pending",
+        }
+
+        step_statuses = {
+            "step1": StepStatus.COMPLETE,
+            "step2": StepStatus.PENDING,
+        }
+
+        async def mock_get_step_status(pipeline_id, step_id):
+            return step_statuses.get(step_id, StepStatus.PENDING)
+
+        mock_state_store.get_step_status.side_effect = mock_get_step_status
+
+        # Document for step1 is MISSING in CVM
+        def get_document_mock(doc_id):
+            if doc_id == "doc-step1":
+                return None  # Document missing!
+            return {"doc_id": doc_id, "content": "test"}
+
+        mock_cvm.index.get_document.side_effect = get_document_mock
+
+        result = await refresh_pipeline("test-pipeline", mock_state_store, mock_scheduler, mock_cvm)
+
+        assert result.found is True
+        # step1 should be reset because its document is missing
+        assert "step1" in result.steps_reset, "step1 should be reset due to missing document"
+        # But refresh should NOT enqueue
+        assert result.steps_enqueued == [], "refresh should NOT enqueue any steps"
+        mock_scheduler.enqueue_step.assert_not_called()
+
+        # Verify document was checked
+        mock_cvm.index.get_document.assert_called_with("doc-step1")
+
+
+@pytest.mark.asyncio
+async def test_refresh_pipeline_not_found(mock_state_store, mock_scheduler, mock_cvm):
+    """Test refresh_pipeline for non-existent pipeline."""
+    mock_state_store.load_state.return_value = None
+
+    result = await refresh_pipeline("nonexistent", mock_state_store, mock_scheduler, mock_cvm)
+
+    assert result.found is False
+    assert result.steps_enqueued == []
+
+
+@pytest.mark.asyncio
+async def test_refresh_pipeline_adds_new_steps_without_enqueue(mock_state_store, mock_scheduler, mock_pipeline_state, mock_cvm):
+    """Test that refresh_pipeline adds new scenario steps to DAG but does NOT enqueue them."""
+    # Create scenario with 3 steps - original 2 + 1 new
+    scenario_with_new_step = Scenario(
+        name="test_scenario",
+        version=2,
+        description="Test scenario with new step",
+        context=ScenarioContext(
+            required_aspects=["coder"],
+            core_documents=["summary"],
+            location="Test location",
+        ),
+        seed=[],
+        steps={
+            "step1": StepDefinition(
+                id="step1",
+                prompt="Step 1 prompt",
+                output=StepOutput(document_type="test", weight=1.0),
+                next=["step2"],
+            ),
+            "step2": StepDefinition(
+                id="step2",
+                prompt="Step 2 prompt",
+                output=StepOutput(document_type="test", weight=1.0),
+                depends_on=["step1"],
+                next=["step3"],
+            ),
+            "step3": StepDefinition(
+                id="step3",
+                prompt="Step 3 prompt - NEW",
+                output=StepOutput(document_type="test", weight=1.0),
+                depends_on=["step2"],
+                next=[],
+            ),
+        },
+    )
+
+    with patch('aim.dreamer.api.load_scenario') as mock_load_scenario:
+        # Setup mocks
+        mock_pipeline_state.completed_steps = ["step1", "step2"]
+        mock_pipeline_state.step_doc_ids = {"step1": "doc-step1", "step2": "doc-step2"}
+        mock_state_store.load_state.return_value = mock_pipeline_state
+        mock_load_scenario.return_value = scenario_with_new_step
+
+        # Mock DAG entries - only step1, step2 exist (step3 is new)
+        mock_state_store.redis.hgetall.return_value = {
+            b"step1": b"complete",
+            b"step2": b"complete",
+        }
+
+        step_statuses = {
+            "step1": StepStatus.COMPLETE,
+            "step2": StepStatus.COMPLETE,
+            "step3": StepStatus.PENDING,
+        }
+
+        async def mock_get_step_status(pipeline_id, step_id):
+            return step_statuses.get(step_id, StepStatus.PENDING)
+
+        mock_state_store.get_step_status.side_effect = mock_get_step_status
+
+        # All documents exist
+        mock_cvm.index.get_document.return_value = {"doc_id": "test", "content": "test"}
+
+        result = await refresh_pipeline("test-pipeline", mock_state_store, mock_scheduler, mock_cvm)
+
+        assert result.found is True
+        # New step should be detected
+        assert "step3" in result.new_steps_added, "step3 should be in new_steps_added"
+        # But refresh should NOT enqueue
+        assert result.steps_enqueued == [], "refresh should NOT enqueue any steps"
+        mock_scheduler.enqueue_step.assert_not_called()
+
+        # Verify step3 was added to DAG
+        mock_state_store.redis.hset.assert_called()
 
 
 # Tests for list_pipelines

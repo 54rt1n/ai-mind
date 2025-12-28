@@ -12,9 +12,11 @@ from .api import (
     get_status,
     cancel_pipeline,
     resume_pipeline,
+    refresh_pipeline,
     list_pipelines,
     generate_pipeline_id,
     PipelineStatus,
+    ResumeResult,
 )
 from .models import (
     PipelineState,
@@ -41,9 +43,11 @@ __all__ = [
     "get_status",
     "cancel_pipeline",
     "resume_pipeline",
+    "refresh_pipeline",
     "list_pipelines",
     "generate_pipeline_id",
     "PipelineStatus",
+    "ResumeResult",
     # Models
     "PipelineState",
     "StepResult",

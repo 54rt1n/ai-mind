@@ -28,8 +28,34 @@
         pipelineStore.reset();
     }
 
-    function resumeTask(pipelineId: string) {
-        taskStore.resumeTask(pipelineId);
+    // Force resume modal state
+    let showForceResumeModal = false;
+    let forceResumePipelineId: string | null = null;
+
+    function handleResumeClick(pipelineId: string, status: string) {
+        if (status === "running") {
+            // Show confirmation modal for running tasks
+            forceResumePipelineId = pipelineId;
+            showForceResumeModal = true;
+        } else if (status === "complete") {
+            // Refresh: sync with current scenario, check for new steps
+            taskStore.refreshTask(pipelineId);
+        } else {
+            // Resume immediately for failed tasks
+            taskStore.resumeTask(pipelineId, false);
+        }
+    }
+
+    function confirmForceResume() {
+        if (forceResumePipelineId) {
+            taskStore.resumeTask(forceResumePipelineId, true);
+        }
+        closeForceResumeModal();
+    }
+
+    function closeForceResumeModal() {
+        showForceResumeModal = false;
+        forceResumePipelineId = null;
     }
 
     function cancelTask(pipelineId: string) {
@@ -150,12 +176,12 @@
                                     >
                                     <td class="action-buttons">
                                         <button
-                                            class="retry-button"
+                                            class="retry-button {task.status === 'complete' ? 'refresh-button' : ''}"
                                             on:click={() =>
-                                                resumeTask(task.pipeline_id)}
-                                            disabled={task.status !== "failed"}
+                                                handleResumeClick(task.pipeline_id, task.status)}
+                                            disabled={!["failed", "running", "complete"].includes(task.status)}
                                         >
-                                            Resume
+                                            {task.status === "complete" ? "Refresh" : "Resume"}
                                         </button>
                                         {#if task.status === "complete" || task.status === "failed"}
                                             <button
@@ -227,6 +253,24 @@
         </section>
     </div>
 </main>
+
+<!-- Force Resume Confirmation Modal -->
+{#if showForceResumeModal}
+    <div class="modal-overlay" on:click={closeForceResumeModal} role="presentation">
+        <div class="modal" on:click|stopPropagation role="dialog" aria-modal="true" aria-labelledby="modal-title">
+            <h3 id="modal-title">Force Resume Pipeline?</h3>
+            <p>
+                This pipeline appears to be stuck. Force resuming will reset any
+                running steps and restart them from the beginning.
+            </p>
+            <p class="modal-warning">Continue?</p>
+            <div class="modal-buttons">
+                <button class="modal-cancel" on:click={closeForceResumeModal}>Cancel</button>
+                <button class="modal-confirm" on:click={confirmForceResume}>Force Resume</button>
+            </div>
+        </div>
+    </div>
+{/if}
 
 <style>
     .main-page {
@@ -344,6 +388,14 @@
         background-color: #2563eb;
     }
 
+    .retry-button.refresh-button {
+        background-color: #10b981;
+    }
+
+    .retry-button.refresh-button:hover:not(:disabled) {
+        background-color: #059669;
+    }
+
     .cancel-button,
     .remove-button {
         width: 5.5rem;
@@ -423,7 +475,7 @@
             flex-direction: column;
         }
     }
-    .refresh-button {
+    .refresh-controls .refresh-button {
         background: none;
         border: 1px solid #ddd;
         border-radius: 4px;
@@ -436,13 +488,13 @@
         color: #666;
     }
 
-    .refresh-button:hover:not(:disabled) {
+    .refresh-controls .refresh-button:hover:not(:disabled) {
         background: #f5f5f5;
         border-color: #ccc;
         color: #333;
     }
 
-    .refresh-button:disabled {
+    .refresh-controls .refresh-button:disabled {
         opacity: 0.5;
         cursor: not-allowed;
     }
@@ -458,5 +510,69 @@
         to {
             transform: rotate(360deg);
         }
+    }
+
+    /* Force Resume Modal */
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+    }
+
+    .modal {
+        background: white;
+        border-radius: 8px;
+        padding: 1.5rem;
+        max-width: 400px;
+        width: 90%;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    }
+
+    .modal h3 {
+        margin: 0 0 1rem 0;
+        color: #1f2937;
+    }
+
+    .modal p {
+        margin: 0 0 0.75rem 0;
+        color: #4b5563;
+        line-height: 1.5;
+    }
+
+    .modal-warning {
+        font-weight: 500;
+        color: #d97706;
+    }
+
+    .modal-buttons {
+        display: flex;
+        gap: 0.75rem;
+        justify-content: flex-end;
+        margin-top: 1.5rem;
+    }
+
+    .modal-cancel {
+        background: #e5e7eb;
+        color: #374151;
+    }
+
+    .modal-cancel:hover {
+        background: #d1d5db;
+    }
+
+    .modal-confirm {
+        background: #f59e0b;
+        color: white;
+    }
+
+    .modal-confirm:hover {
+        background: #d97706;
     }
 </style>

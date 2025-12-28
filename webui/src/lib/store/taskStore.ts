@@ -65,10 +65,10 @@ function createTaskStore() {
                 alert(error);
             }
         },
-        resumeTask: async (pipelineId: string) => {
+        resumeTask: async (pipelineId: string, force: boolean = false) => {
             update(store => ({ ...store, loading: true, error: null }));
             try {
-                const result = await api.resumeDreamerPipeline(pipelineId);
+                const result = await api.resumeDreamerPipeline(pipelineId, force);
                 if (result.status === 'success') {
                     await taskStore.fetchTasks();
                 } else {
@@ -76,6 +76,20 @@ function createTaskStore() {
                 }
             } catch (error) {
                 update(store => ({ ...store, error: 'Failed to resume task', loading: false }));
+                alert(error);
+            }
+        },
+        refreshTask: async (pipelineId: string) => {
+            update(store => ({ ...store, loading: true, error: null }));
+            try {
+                const result = await api.refreshDreamerPipeline(pipelineId);
+                if (result.status === 'success') {
+                    await taskStore.fetchTasks();
+                } else {
+                    throw new Error(result.message);
+                }
+            } catch (error) {
+                update(store => ({ ...store, error: 'Failed to refresh task', loading: false }));
                 alert(error);
             }
         },

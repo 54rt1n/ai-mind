@@ -332,9 +332,16 @@ class TestStepFlowExecution:
             else:
                 state.context_doc_ids.append(step_output_doc_id)
 
-        # Final state should have accumulated context from all steps
-        assert len(state.context_doc_ids) >= len(order), (
-            f"Final context should have at least {len(order)} doc_ids, got {len(state.context_doc_ids)}"
+        # Final state should have accumulated context
+        # Note: Scenarios with multiple context DSL steps will reset context at each
+        # such step, so we can't assume len >= number of steps. Instead, verify that
+        # we have some context and that the last step's output is included.
+        assert len(state.context_doc_ids) > 0, (
+            f"Final context should have at least some doc_ids"
+        )
+        last_step_output = f"output_{order[-1]}"
+        assert last_step_output in state.context_doc_ids, (
+            f"Final context should include last step's output: {last_step_output}"
         )
 
 
@@ -375,17 +382,18 @@ class TestExpectedStepSequences:
         assert set(order) == expected_steps
 
     def test_daydream_step_sequence(self):
-        """Daydream should flow: intro → agent_1 → partner_1 → ... → partner_3 → epilogue → inspiration."""
+        """Daydream should flow: intro → agent_1 → partner_1 → ... → partner_3 → epilogue → inspiration → codex → brainstorm."""
         scenario = load_scenario("daydream")
         scenario.compute_dependencies()
 
         order = scenario.topological_order()
 
         assert order[0] == "intro"
-        assert order[-1] == "inspiration"
+        assert order[-1] == "brainstorm"
         expected_steps = {
             "intro", "agent_1", "partner_1", "agent_2",
-            "partner_2", "agent_3", "partner_3", "epilogue", "inspiration"
+            "partner_2", "agent_3", "partner_3", "epilogue", "inspiration",
+            "codex", "brainstorm"
         }
         assert set(order) == expected_steps
 

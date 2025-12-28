@@ -2,6 +2,7 @@
 # AI-Mind © 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
 """Public API for pipeline management."""
 
+from dataclasses import dataclass
 from typing import Optional
 from datetime import datetime, timezone
 import uuid
@@ -422,35 +423,115 @@ async def delete_pipeline(
     return True
 
 
+@dataclass
+class ResumeResult:
+    """Result of a resume_pipeline operation."""
+    found: bool
+    steps_enqueued: list[str]
+    steps_reset: list[str]
+    orphaned_steps_cleaned: list[str]
+    new_steps_added: list[str] = None
+
+    def __post_init__(self):
+        if self.new_steps_added is None:
+            self.new_steps_added = []
+
+
 async def resume_pipeline(
     pipeline_id: str,
     state_store: StateStore,
     scheduler: Scheduler,
-) -> bool:
+    cvm: "ConversationModel",
+    force: bool = False,
+) -> ResumeResult:
     """
     Resume a failed or cancelled pipeline from where it stopped.
 
-    Re-enqueues failed steps whose dependencies are satisfied.
+    First refreshes state by verifying documents exist in CVM, then:
+    - Re-enqueues failed steps whose dependencies are satisfied
+    - When force=True, also resets stuck RUNNING steps and re-enqueues PENDING steps
+    - Detects new steps added to the scenario and enqueues them
 
     Args:
         pipeline_id: Pipeline identifier
         state_store: StateStore instance for Redis operations
         scheduler: Scheduler instance for queue operations
+        cvm: ConversationModel for document verification
+        force: If True, also reset RUNNING steps and re-enqueue PENDING steps
 
     Returns:
-        True if pipeline was resumed, False if not found
+        ResumeResult with details of what was done
     """
     # Load state from Redis
     state = await state_store.load_state(pipeline_id)
 
     if state is None:
-        return False
+        return ResumeResult(found=False, steps_enqueued=[], steps_reset=[], orphaned_steps_cleaned=[])
 
     # Load scenario
     scenario = load_scenario(state.scenario_name)
     scenario.compute_dependencies()
 
-    # Find failed steps with satisfied dependencies
+    # Track what we do
+    steps_enqueued = []
+    steps_reset = []
+    orphaned_steps_cleaned = []
+
+    # Check for scenario changes
+    scenario_step_ids = set(scenario.steps.keys())
+    state_completed_steps = set(state.completed_steps)
+
+    # Get current DAG entries to detect stale/orphaned step statuses
+    dag_key = f"{state_store.key_prefix}:pipeline:{pipeline_id}:dag"
+    dag_entries = await state_store.redis.hgetall(dag_key)
+    dag_step_ids = set()
+    for k in dag_entries.keys():
+        step_id = k.decode('utf-8') if isinstance(k, bytes) else k
+        dag_step_ids.add(step_id)
+
+    # Clean up orphaned steps from DAG (steps in DAG but not in scenario)
+    orphaned_dag_steps = dag_step_ids - scenario_step_ids
+    if orphaned_dag_steps:
+        # Delete orphaned step entries from DAG hash
+        await state_store.redis.hdel(dag_key, *orphaned_dag_steps)
+        orphaned_steps_cleaned.extend(orphaned_dag_steps)
+
+    # Clean up orphaned completed steps from state (no longer in scenario)
+    orphaned_state_steps = state_completed_steps - scenario_step_ids
+    if orphaned_state_steps:
+        state.completed_steps = [s for s in state.completed_steps if s in scenario_step_ids]
+        state.step_doc_ids = {k: v for k, v in state.step_doc_ids.items() if k in scenario_step_ids}
+        # Add to list if not already added from DAG cleanup
+        for step in orphaned_state_steps:
+            if step not in orphaned_steps_cleaned:
+                orphaned_steps_cleaned.append(step)
+
+    # Initialize new steps in DAG (steps in scenario but not in DAG)
+    new_dag_steps = scenario_step_ids - dag_step_ids
+    new_steps_added = list(new_dag_steps) if new_dag_steps else []
+    if new_dag_steps:
+        # Add new steps to DAG as PENDING
+        new_mapping = {step_id: StepStatus.PENDING.value for step_id in new_dag_steps}
+        await state_store.redis.hset(dag_key, mapping=new_mapping)
+
+    # Verify documents exist in CVM - reset COMPLETE steps with missing docs
+    for step_id in scenario_step_ids:
+        status = await state_store.get_step_status(pipeline_id, step_id)
+        if status == StepStatus.COMPLETE:
+            doc_id = state.step_doc_ids.get(step_id)
+            doc_exists = False
+            if doc_id:
+                doc = cvm.index.get_document(doc_id)
+                doc_exists = doc is not None
+            if not doc_exists:
+                await state_store.set_step_status(pipeline_id, step_id, StepStatus.PENDING)
+                if step_id in state.completed_steps:
+                    state.completed_steps.remove(step_id)
+                if step_id in state.step_doc_ids:
+                    del state.step_doc_ids[step_id]
+                steps_reset.append(step_id)
+
+    # Find steps to resume
     for step_id, step_def in scenario.steps.items():
         status = await state_store.get_step_status(pipeline_id, step_id)
 
@@ -460,12 +541,141 @@ async def resume_pipeline(
                 # Reset to pending and enqueue
                 await state_store.set_step_status(pipeline_id, step_id, StepStatus.PENDING)
                 await scheduler.enqueue_step(pipeline_id, step_id)
+                steps_reset.append(step_id)
+                steps_enqueued.append(step_id)
+
+        elif status == StepStatus.RUNNING and force:
+            # Force-reset stuck running steps
+            await state_store.release_lock(pipeline_id, step_id)
+            await state_store.set_step_status(pipeline_id, step_id, StepStatus.PENDING)
+            await scheduler.enqueue_step(pipeline_id, step_id)
+            steps_reset.append(step_id)
+            steps_enqueued.append(step_id)
+
+        elif status == StepStatus.PENDING and force:
+            # Re-enqueue pending steps that may have been lost from the queue
+            if await scheduler.all_deps_complete(pipeline_id, step_def):
+                await scheduler.enqueue_step(pipeline_id, step_id)
+                steps_enqueued.append(step_id)
+
+        elif status == StepStatus.PENDING and step_id not in state_completed_steps:
+            # New step added to scenario - enqueue if deps satisfied
+            if await scheduler.all_deps_complete(pipeline_id, step_def):
+                await scheduler.enqueue_step(pipeline_id, step_id)
+                steps_enqueued.append(step_id)
 
     # Update state timestamp
     state.updated_at = datetime.now(timezone.utc)
     await state_store.save_state(state)
 
-    return True
+    return ResumeResult(
+        found=True,
+        steps_enqueued=steps_enqueued,
+        steps_reset=steps_reset,
+        orphaned_steps_cleaned=orphaned_steps_cleaned,
+        new_steps_added=new_steps_added,
+    )
+
+
+async def refresh_pipeline(
+    pipeline_id: str,
+    state_store: StateStore,
+    scheduler: Scheduler,
+    cvm: "ConversationModel",
+) -> ResumeResult:
+    """
+    Refresh a pipeline by syncing state with current scenario.
+
+    Unlike resume_pipeline (which retries failed steps), this:
+    1. Loads the current scenario YAML
+    2. Validates each step has a document that EXISTS in CVM
+    3. Resets steps with missing documents to PENDING
+    4. Adds new scenario steps to DAG
+    5. Enqueues steps ready to run
+
+    Args:
+        pipeline_id: Pipeline identifier
+        state_store: StateStore instance
+        scheduler: Scheduler instance
+        cvm: ConversationModel for document verification
+
+    Returns:
+        ResumeResult with details of what was done
+    """
+    state = await state_store.load_state(pipeline_id)
+    if state is None:
+        return ResumeResult(found=False, steps_enqueued=[], steps_reset=[], orphaned_steps_cleaned=[])
+
+    scenario = load_scenario(state.scenario_name)
+    scenario.compute_dependencies()
+
+    steps_reset = []
+    orphaned_steps_cleaned = []
+    new_steps_added = []
+
+    scenario_step_ids = set(scenario.steps.keys())
+    dag_key = f"{state_store.key_prefix}:pipeline:{pipeline_id}:dag"
+
+    # Get current DAG state
+    dag_entries = await state_store.redis.hgetall(dag_key)
+    dag_step_ids = set()
+    for k in dag_entries.keys():
+        step_id = k.decode('utf-8') if isinstance(k, bytes) else k
+        dag_step_ids.add(step_id)
+
+    # 1. Remove orphaned DAG entries (steps removed from scenario)
+    orphaned_dag_steps = dag_step_ids - scenario_step_ids
+    if orphaned_dag_steps:
+        await state_store.redis.hdel(dag_key, *orphaned_dag_steps)
+        orphaned_steps_cleaned.extend(orphaned_dag_steps)
+
+    # 2. Clean orphaned state entries
+    orphaned_state_steps = set(state.completed_steps) - scenario_step_ids
+    if orphaned_state_steps:
+        state.completed_steps = [s for s in state.completed_steps if s in scenario_step_ids]
+        state.step_doc_ids = {k: v for k, v in state.step_doc_ids.items() if k in scenario_step_ids}
+
+    # 3. Add new steps to DAG as PENDING
+    new_dag_steps = scenario_step_ids - dag_step_ids
+    if new_dag_steps:
+        new_steps_added = list(new_dag_steps)
+        new_mapping = {step_id: StepStatus.PENDING.value for step_id in new_dag_steps}
+        await state_store.redis.hset(dag_key, mapping=new_mapping)
+
+    # 4. Validate each step - if COMPLETE but document missing from CVM, reset to PENDING
+    for step_id in scenario_step_ids:
+        status = await state_store.get_step_status(pipeline_id, step_id)
+
+        if status == StepStatus.COMPLETE:
+            # Verify this step has a document that EXISTS in CVM
+            doc_id = state.step_doc_ids.get(step_id)
+            doc_exists = False
+            if doc_id:
+                doc = cvm.index.get_document(doc_id)
+                doc_exists = doc is not None
+
+            if not doc_exists:
+                # Missing or non-existent document - reset to PENDING
+                await state_store.set_step_status(pipeline_id, step_id, StepStatus.PENDING)
+                if step_id in state.completed_steps:
+                    state.completed_steps.remove(step_id)
+                if step_id in state.step_doc_ids:
+                    del state.step_doc_ids[step_id]
+                steps_reset.append(step_id)
+
+    # Note: We do NOT enqueue steps here. Refresh only syncs state.
+    # User must call Resume to actually restart the pipeline.
+
+    state.updated_at = datetime.now(timezone.utc)
+    await state_store.save_state(state)
+
+    return ResumeResult(
+        found=True,
+        steps_enqueued=[],  # Refresh doesn't enqueue - user must Resume
+        steps_reset=steps_reset,
+        orphaned_steps_cleaned=orphaned_steps_cleaned,
+        new_steps_added=new_steps_added,
+    )
 
 
 async def list_pipelines(

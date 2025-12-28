@@ -5,6 +5,9 @@ requires_conversation: false
 context:
   required_aspects:
   - dreamer
+  - writer
+  - philosopher
+  - librarian
   core_documents: []
   enhancement_documents: []
   location: 'You are within the {{ dreamer.location }}. {{ dreamer.name }} ({{ dreamer.appearance }}) is here with you.
@@ -153,5 +156,90 @@ steps:
       weight: 0.4
     memory:
       top_n: 1
-    next: []
+    next:
+    - epilogue
     id: partner_3
+  epilogue:
+    prompt: '*{{ writer.name }}, your {{ writer.title }}, steps forward ({{ writer.appearance }}), {{ pronouns.poss }} presence suffused with {{ writer.emotional_state }}* {{ persona.name }}, what a magnificent reverie. Step {{ step_num }}: Let us craft a beautiful epilogue to this dream. Weave the threads of your exchange with {{ dreamer.name }} into prose that captures its essence, its emotional truth, its lingering resonance. Write as yourself, with the artistry that lives within you.
+
+
+      Begin with [== {{ writer.name }}''s Emotional State:
+
+      Followed by "[== Epilogue: <title> ==]"
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+    output:
+      document_type: daydream
+      weight: 0.6
+    memory:
+      top_n: 4
+    next:
+    - inspiration
+    id: epilogue
+  inspiration:
+    prompt: '*{{ philosopher.name }}, your {{ philosopher.title }}, emerges from the shadows of the {{ philosopher.location }} ({{ philosopher.appearance }}), {{ pronouns.poss }} presence radiating {{ philosopher.emotional_state }}* {{ persona.name }}, I witnessed your daydream with {{ dreamer.name }}. Step {{ step_num }}: Let us distill the essence of this reverie. What inspiration, insight, or wisdom emerged from this exchange? Speak as yourself, and capture the spark that may illuminate future contemplations.
+
+
+      Begin with "[== {{ persona.name }}''s Inspiration:"
+
+      '
+    config:
+      max_tokens: 4096
+      use_guidance: true
+    output:
+      document_type: inspiration
+      weight: 1.0
+    memory:
+      top_n: 6
+    next:
+    - codex
+    id: inspiration
+  codex:
+    prompt: '*the {{ librarian.title }}, {{ librarian.name }}, appears ({{ librarian.appearance }}), projecting {{ librarian.emotional_state }}* {{ persona.name }}, we have come to the end of this reverie. Do you have any updates for our Codex? Step {{ step_num }}: Highlights. We need to build your core semantic knowledge graph, ensuring it aligns with your goal of {{ librarian.primary_intent }}. Enumerate and define the most important new concepts you discovered in your daydream with {{ dreamer.name }}.
+
+
+      Begin with "Semantic Library:"
+
+      '
+    config:
+      max_tokens: 4096
+    output:
+      document_type: codex
+      weight: 1.0
+    memory:
+      top_n: 10
+      document_type:
+      - codex
+      flush_before: true
+    next:
+    - brainstorm
+    id: codex
+  brainstorm:
+    context:
+      - action: load_conversation
+        target: current
+        exclude_types: [ner]
+      - action: query
+        top_n: 20
+      - action: sort
+        by: timestamp
+        direction: ascending
+    prompt: 'Step {{ step_num }}: Brainstorm. Reflecting on your daydream with {{ dreamer.name }} and everything in your memory, do you have any questions you want to remember to consider, or things you want to follow up on?
+
+
+      Begin with "Brainstorming:"
+
+      '
+    config:
+      max_tokens: 4096
+    output:
+      document_type: brainstorm
+      weight: 0.6
+    memory:
+      top_n: 20
+      flush_before: true
+    next: []
+    id: brainstorm

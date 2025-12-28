@@ -6,10 +6,9 @@ import asyncio
 import signal
 from datetime import datetime
 from typing import Optional
-import tiktoken
 
 from .executor import execute_step, create_message, RetryableError
-from .models import StepJob
+from .models import StepJob, StepStatus
 from .scenario import load_scenario
 from .scheduler import Scheduler
 from .state import StateStore
@@ -42,19 +41,16 @@ class DreamerWorker:
         # Initialize shared resources (loaded once, reused across jobs)
         self.cvm: Optional[ConversationModel] = None
         self.roster: Optional[Roster] = None
-        self.encoder: Optional[tiktoken.Encoding] = None
 
     async def start(self) -> None:
         """Start the worker loop.
 
-        Initializes shared resources (CVM, Roster, encoder) and enters
-        the main processing loop, consuming jobs from the queue until
-        stopped.
+        Initializes shared resources (CVM, Roster) and enters the main
+        processing loop, consuming jobs from the queue until stopped.
         """
         # Initialize shared resources once
         self.cvm = ConversationModel.from_config(self.config)
         self.roster = Roster.from_config(self.config)
-        self.encoder = tiktoken.get_encoding("cl100k_base")
 
         # Set running flag
         self.running = True
@@ -120,6 +116,22 @@ class DreamerWorker:
             return
 
         try:
+            # 1b. Check if step should be processed
+            current_status = await self.state_store.get_step_status(
+                job.pipeline_id, job.step_id
+            )
+            if current_status == StepStatus.COMPLETE:
+                # Already done - skip
+                return
+            if current_status == StepStatus.FAILED:
+                # Already failed - needs explicit resume, skip
+                return
+
+            # 1c. Mark step as RUNNING
+            await self.state_store.set_step_status(
+                job.pipeline_id, job.step_id, StepStatus.RUNNING
+            )
+
             # 2. Load state and scenario
             state = await self.state_store.load_state(job.pipeline_id)
 
@@ -163,7 +175,6 @@ class DreamerWorker:
                 cvm=self.cvm,
                 persona=persona,
                 config=self.config,
-                encoder=self.encoder,
             )
 
             # 5. Persist result to CVM immediately

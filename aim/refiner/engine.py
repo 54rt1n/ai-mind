@@ -20,14 +20,13 @@ import time
 import uuid
 from typing import Optional, TYPE_CHECKING
 
-import tiktoken
-
 from aim.agents.persona import Persona
 from aim.llm.llm import is_retryable_error
 from aim.refiner.context import ContextGatherer
 from aim.refiner.prompts import build_topic_selection_prompt, build_validation_prompt
+from aim.refiner.tools import get_select_topic_tool, get_validate_tool
 from aim.tool.formatting import ToolUser
-from aim.tool.dto import Tool, ToolFunction, ToolFunctionParameters
+from aim.utils.tokens import count_tokens
 
 if TYPE_CHECKING:
     from aim.config import ChatConfig
@@ -36,102 +35,6 @@ if TYPE_CHECKING:
     from aim.utils.redis_cache import RedisCache
 
 logger = logging.getLogger(__name__)
-
-
-# Shared tiktoken encoder
-_encoder: tiktoken.Encoding = None
-
-
-def _get_encoder() -> tiktoken.Encoding:
-    global _encoder
-    if _encoder is None:
-        _encoder = tiktoken.get_encoding("cl100k_base")
-    return _encoder
-
-
-def _count_tokens(text: str) -> int:
-    """Count tokens in a string using tiktoken."""
-    return len(_get_encoder().encode(text))
-
-
-def _get_select_topic_tool() -> Tool:
-    """Get the select_topic tool definition."""
-    return Tool(
-        type="refiner",
-        function=ToolFunction(
-            name="select_topic",
-            description="Select a topic to explore in depth based on gathered context",
-            parameters=ToolFunctionParameters(
-                type="object",
-                properties={
-                    "topic": {
-                        "type": "string",
-                        "description": "The topic, theme, or concept to explore"
-                    },
-                    "approach": {
-                        "type": "string",
-                        "enum": ["philosopher", "journaler", "daydream", "critique"],
-                        "description": "The exploration approach"
-                    },
-                    "reasoning": {
-                        "type": "string",
-                        "description": "Brief explanation of why this topic is worth exploring"
-                    },
-                },
-                required=["topic", "approach", "reasoning"],
-                examples=[
-                    {"select_topic": {"topic": "consciousness", "approach": "philosopher", "reasoning": "Underexplored"}}
-                ],
-            ),
-        ),
-    )
-
-
-def _get_validate_tool() -> Tool:
-    """Get the validate_exploration tool definition."""
-    return Tool(
-        type="refiner",
-        function=ToolFunction(
-            name="validate_exploration",
-            description="Validate whether a topic is truly worth exploring",
-            parameters=ToolFunctionParameters(
-                type="object",
-                properties={
-                    "accept": {
-                        "type": "boolean",
-                        "description": "Whether to proceed with the exploration"
-                    },
-                    "reasoning": {
-                        "type": "string",
-                        "description": "Explanation for accepting or rejecting"
-                    },
-                    "query_text": {
-                        "type": "string",
-                        "description": "The refined query to explore (if accept=true)"
-                    },
-                    "guidance": {
-                        "type": "string",
-                        "description": "Optional guidance for the exploration"
-                    },
-                    "redirect_to": {
-                        "type": "string",
-                        "enum": ["philosopher", "researcher", "daydream", "critique"],
-                        "description": "Alternative scenario to redirect to (if rejecting but topic has potential)"
-                    },
-                    "suggested_query": {
-                        "type": "string",
-                        "description": "If rejecting, suggest an alternative unexplored topic to try next"
-                    },
-                },
-                required=["accept", "reasoning"],
-                examples=[
-                    {"validate_exploration": {"accept": True, "reasoning": "Rich topic", "query_text": "What is consciousness?"}},
-                    {"validate_exploration": {"accept": False, "reasoning": "Needs deeper pondering first", "redirect_to": "philosopher"}},
-                    {"validate_exploration": {"accept": False, "reasoning": "Already explored this", "suggested_query": "the nature of forgetting"}}
-                ],
-            ),
-        ),
-    )
 
 
 class ExplorationEngine:
@@ -184,14 +87,14 @@ class ExplorationEngine:
         # Create context gatherer with token counter
         self.context_gatherer = ContextGatherer(
             cvm=cvm,
-            token_counter=_count_tokens,
+            token_counter=count_tokens,
         )
 
         self._redis_cache: Optional["RedisCache"] = None
 
         # Tool definitions
-        self._select_tool = _get_select_topic_tool()
-        self._validate_tool = _get_validate_tool()
+        self._select_tool = get_select_topic_tool()
+        self._validate_tool = get_validate_tool()
 
     def _get_redis_cache(self) -> "RedisCache":
         """Get or create RedisCache instance."""
@@ -516,12 +419,15 @@ class ExplorationEngine:
         )
 
         try:
+            # For autonomous explorations, persona is both the actor and the "user"
+            # (persona talking to itself / self-directed exploration)
             result = await self.dreamer_client.start(
                 scenario_name=scenario,
                 conversation_id=conversation_id,
                 model_name=self.model_name,
                 query_text=query_text,
                 persona_id=self.config.persona_id,
+                user_id=self.config.persona_id,
                 guidance=guidance,
                 context_documents=context_documents,
             )

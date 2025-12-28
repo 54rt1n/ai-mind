@@ -43,7 +43,6 @@ class TestDreamerWorkerInit:
         assert worker.running is False
         assert worker.cvm is None
         assert worker.roster is None
-        assert worker.encoder is None
 
 
 class TestDreamerWorkerStop:
@@ -210,8 +209,6 @@ class TestDreamerWorkerProcessJob:
         mock_roster.personas = {"assistant": mock_persona}
         worker.roster = mock_roster
 
-        import tiktoken
-        worker.encoder = tiktoken.get_encoding("cl100k_base")
 
         # Mock execute_step and create_message
         step_result = StepResult(
@@ -382,8 +379,6 @@ class TestDreamerWorkerProcessJob:
         worker.roster = mock_roster
         worker.cvm = Mock()
 
-        import tiktoken
-        worker.encoder = tiktoken.get_encoding("cl100k_base")
 
         with patch("aim.dreamer.worker.load_scenario") as mock_load_scenario, \
              patch("aim.dreamer.worker.execute_step") as mock_execute_step:
@@ -464,8 +459,6 @@ class TestDreamerWorkerProcessJob:
         worker.roster = mock_roster
         worker.cvm = Mock()
 
-        import tiktoken
-        worker.encoder = tiktoken.get_encoding("cl100k_base")
 
         with patch("aim.dreamer.worker.load_scenario") as mock_load_scenario, \
              patch("aim.dreamer.worker.execute_step") as mock_execute_step:
@@ -544,8 +537,6 @@ class TestDreamerWorkerProcessJob:
         worker.roster = mock_roster
         worker.cvm = Mock()
 
-        import tiktoken
-        worker.encoder = tiktoken.get_encoding("cl100k_base")
 
         with patch("aim.dreamer.worker.load_scenario") as mock_load_scenario, \
              patch("aim.dreamer.worker.execute_step") as mock_execute_step:
@@ -611,7 +602,7 @@ class TestDreamerWorkerStart:
 
     @pytest.mark.asyncio
     async def test_start_initializes_resources(self):
-        """Test that start() initializes CVM, Roster, and encoder."""
+        """Test that start() initializes CVM and Roster."""
         mock_config = Mock(spec=ChatConfig)
         mock_state_store = AsyncMock()
         mock_scheduler = AsyncMock()
@@ -636,8 +627,7 @@ class TestDreamerWorkerStart:
         )
 
         with patch("aim.dreamer.worker.ConversationModel") as mock_cvm_class, \
-             patch("aim.dreamer.worker.Roster") as mock_roster_class, \
-             patch("aim.dreamer.worker.tiktoken") as mock_tiktoken:
+             patch("aim.dreamer.worker.Roster") as mock_roster_class:
 
             mock_cvm = Mock()
             mock_cvm_class.from_config.return_value = mock_cvm
@@ -645,15 +635,11 @@ class TestDreamerWorkerStart:
             mock_roster = Mock()
             mock_roster_class.from_config.return_value = mock_roster
 
-            mock_encoder = Mock()
-            mock_tiktoken.get_encoding.return_value = mock_encoder
-
             await worker.start()
 
             # Verify resources were initialized
             assert worker.cvm == mock_cvm
             assert worker.roster == mock_roster
-            assert worker.encoder == mock_encoder
             assert worker.running is False  # Stopped by our mock
 
 

@@ -13,11 +13,10 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional
 
-import tiktoken
-
 from aim.config import ChatConfig
 from aim.conversation.model import ConversationModel
 from aim.llm.models import LanguageModelV2
+from aim.utils.tokens import count_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -253,9 +252,6 @@ class AnalysisWithSummaryRule(Rule):
         self.threshold_ratio = token_threshold_ratio
         self.min_messages = min_messages
 
-        # Initialize token counting
-        self._encoder = tiktoken.get_encoding("cl100k_base")
-
         # Look up model's max_tokens
         model_name = model or config.default_model
         if model_name:
@@ -269,12 +265,6 @@ class AnalysisWithSummaryRule(Rule):
             f"AnalysisWithSummaryRule: token threshold = {self._token_threshold} "
             f"({self.threshold_ratio:.0%} of {self._model_max_tokens})"
         )
-
-    def _count_tokens(self, text: str) -> int:
-        """Count tokens in text using tiktoken."""
-        if not text:
-            return 0
-        return len(self._encoder.encode(text))
 
     def evaluate(self, cvm: ConversationModel) -> list[RuleMatch]:
         """Find unanalyzed conversations, routing long ones to summarizer first."""
@@ -329,7 +319,7 @@ class AnalysisWithSummaryRule(Rule):
 
             # Count total tokens
             total_tokens = sum(
-                self._count_tokens(str(content))
+                count_tokens(str(content))
                 for content in conv_messages['content'].tolist()
             )
 
