@@ -603,8 +603,8 @@ def build_journaler_validation_prompt(
         disable_guidance=True,
     )
 
-    # Add validation tool
-    tools = _get_refiner_tools()
+    # Add validation tool from journaler paradigm
+    tools = _get_refiner_tools("journaler")
     validate_tool = next((t for t in tools if t.function.name == "validate_exploration"), None)
     if validate_tool:
         tool_user = ToolUser([validate_tool])

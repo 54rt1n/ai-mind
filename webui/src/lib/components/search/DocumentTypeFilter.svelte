@@ -29,25 +29,38 @@
             // Blues
             conversation: '#e6f3ff',
             analysis: '#dbeafe',
-            
+            daydream: '#e0f2fe',
+            poem: '#dbeafe',
+
             // Greens
             chore: '#dcfce7',
             codex: '#d1fae5',
-            
+            'ner-task': '#ccfbf1',
+            'silver-band': '#cffafe',
+
             // Purples
             pondering: '#f3e8ff',
             reflection: '#ede9fe',
+            summary: '#e0e7ff',
+
+            // Yellows/Ambers
             journal: '#fef3c7',
             highlight: '#fff7ed',
+            inspiration: '#fef9c3',
+            motd: '#fefce8',
+
+            // Reds/Pinks
             'battle-score': '#ffe4e6',
             arena: '#fce7f3',
-            daydream: '#e0f2fe',
-            poem: '#dbeafe',
-            summary: '#e0e7ff',
             adventure: '#fff1f2',
             brainstorm: '#fef2f2',
-            'ner-task': '#ccfbf1',
-            'silver-band': '#cffafe',
+
+            // Teals/Cyans - insight documents
+            understanding: '#ccfbf1',
+            'self-rag': '#cffafe',
+
+            // Grays
+            'source-code': '#f1f5f9',
             step: '#f5f5f4',
             report: '#f3f4f6',
             default: '#f3f4f6'
@@ -57,23 +70,41 @@
     
     function getTextColor(documentType: string): string {
         const colors: Record<string, string> = {
+            // Blues
             conversation: '#1d4ed8',
             analysis: '#2563eb',
-            chore: '#16a34a',
-            codex: '#059669',
-            pondering: '#7e22ce',
-            reflection: '#6d28d9',
-            journal: '#b45309',
-            highlight: '#c2410c',
-            'battle-score': '#be123c',
-            arena: '#be185d',
             daydream: '#0284c7',
             poem: '#2563eb',
-            summary: '#4338ca',
-            adventure: '#be123c',
-            brainstorm: '#dc2626',
+
+            // Greens
+            chore: '#16a34a',
+            codex: '#059669',
             'ner-task': '#0f766e',
             'silver-band': '#0e7490',
+
+            // Purples
+            pondering: '#7e22ce',
+            reflection: '#6d28d9',
+            summary: '#4338ca',
+
+            // Yellows/Ambers
+            journal: '#b45309',
+            highlight: '#c2410c',
+            inspiration: '#ca8a04',
+            motd: '#a16207',
+
+            // Reds/Pinks
+            'battle-score': '#be123c',
+            arena: '#be185d',
+            adventure: '#be123c',
+            brainstorm: '#dc2626',
+
+            // Teals/Cyans - insight documents
+            understanding: '#0f766e',
+            'self-rag': '#0e7490',
+
+            // Grays
+            'source-code': '#475569',
             step: '#44403c',
             report: '#4b5563',
             default: '#666666'

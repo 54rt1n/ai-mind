@@ -33,6 +33,9 @@ from aim.constants import (
     CHUNK_LEVEL_768,
 )
 
+# Insight documents - rich generative content that benefits from larger chunks (768)
+INSIGHT_DOC_TYPES = [DOC_INSPIRATION, DOC_UNDERSTANDING, DOC_PONDERING, DOC_BRAINSTORM]
+
 if TYPE_CHECKING:
     from aim.conversation.model import ConversationModel
 
@@ -123,11 +126,18 @@ def get_approach_doc_types(approach: str, paradigm: str = "") -> List[str]:
             doc_types = config.get_approach_doc_types(approach)
             return _resolve_doc_types(doc_types)
 
-    # Try loading the approach as a paradigm (e.g., "critique" approach uses critique config)
+    # Try loading the approach as a paradigm (e.g., "critique", "journaler" approach uses its own config)
     config = get_paradigm_config(approach)
     if config:
         doc_types = config.get_approach_doc_types(approach)
         return _resolve_doc_types(doc_types)
+
+    # philosopher is an approach within brainstorm paradigm
+    if approach == "philosopher":
+        config = get_paradigm_config("brainstorm")
+        if config:
+            doc_types = config.get_approach_doc_types(approach)
+            return _resolve_doc_types(doc_types)
 
     # Fallback defaults
     logger.warning(f"No config for approach '{approach}', using defaults")
@@ -207,9 +217,12 @@ class ContextGatherer:
         top_n: int,
         doc_types: Optional[List[str]] = None,
         length_boost: float = 0.0,
-    ) -> Tuple[List[TaggedResult], List[TaggedResult]]:
+    ) -> Tuple[List[TaggedResult], List[TaggedResult], List[TaggedResult]]:
         """
-        Execute dual queries: conversations at chunk_768, others at chunk_256.
+        Execute triple queries for optimal document distribution:
+        - Conversations at chunk_768 (dialog context)
+        - Insights at chunk_768 (rich generative content)
+        - All types at chunk_256 (broad memory distribution)
 
         This mirrors the XMLMemoryTurnStrategy._query_by_buckets pattern for
         optimal retrieval across different document types.
@@ -223,10 +236,11 @@ class ContextGatherer:
             length_boost: Length boost factor
 
         Returns:
-            (conversation_results, other_results) as lists of (source_tag, row)
+            (conversation_results, insight_results, broad_results) as lists of (source_tag, row)
         """
         conversation_results: List[TaggedResult] = []
-        other_results: List[TaggedResult] = []
+        insight_results: List[TaggedResult] = []
+        broad_results: List[TaggedResult] = []
 
         # Query 1: Conversations at chunk_768 (larger context for dialog)
         conv_df = self.cvm.query(
@@ -242,8 +256,22 @@ class ContextGatherer:
             for _, row in conv_df.iterrows():
                 conversation_results.append((source_tag, row))
 
-        # Query 2: Other docs at chunk_256 (denser for analytical content)
-        other_df = self.cvm.query(
+        # Query 2: Insights at chunk_768 (rich content deserves longer context)
+        insight_df = self.cvm.query(
+            queries,
+            filter_doc_ids=seen_docs,
+            top_n=top_n,
+            filter_metadocs=True,
+            query_document_type=INSIGHT_DOC_TYPES,
+            chunk_level=CHUNK_LEVEL_768,
+            length_boost_factor=length_boost,
+        )
+        if not insight_df.empty:
+            for _, row in insight_df.iterrows():
+                insight_results.append((source_tag + "_insight", row))
+
+        # Query 3: Broad distribution at chunk_256 (all doc types for memory breadth)
+        broad_df = self.cvm.query(
             queries,
             filter_doc_ids=seen_docs,
             top_n=top_n,
@@ -252,13 +280,11 @@ class ContextGatherer:
             chunk_level=CHUNK_LEVEL_256,
             length_boost_factor=length_boost,
         )
-        if not other_df.empty:
-            # Filter out conversations if they slipped through
-            other_df = other_df[other_df['document_type'] != DOC_CONVERSATION]
-            for _, row in other_df.iterrows():
-                other_results.append((source_tag, row))
+        if not broad_df.empty:
+            for _, row in broad_df.iterrows():
+                broad_results.append((source_tag + "_broad", row))
 
-        return conversation_results, other_results
+        return conversation_results, insight_results, broad_results
 
     def _get_paradigm_doc_types(self, paradigm: str) -> List[str]:
         """
@@ -382,7 +408,7 @@ class ContextGatherer:
         seen_docs: set = set()
 
         # Single focused query with the topic
-        conv_results, other_results = self._query_by_buckets(
+        conv_results, insight_results, broad_results = self._query_by_buckets(
             queries=[topic],
             source_tag=f"targeted_{approach}",
             seen_docs=seen_docs,
@@ -391,11 +417,14 @@ class ContextGatherer:
             length_boost=0.05,
         )
 
+        # Combine conversations and insights as primary content (both benefit from longer context)
+        all_long_context = conv_results + insight_results
+
         # Apply MMR reranking
-        if conv_results or other_results:
+        if all_long_context or broad_results:
             reranked_results = self.reranker.rerank(
-                conversation_results=conv_results,
-                other_results=other_results,
+                conversation_results=all_long_context,
+                other_results=broad_results,
                 token_budget=token_budget,
                 seen_parent_ids=seen_docs,
             )

@@ -379,18 +379,22 @@ class TestContextGatherer:
         assert result.other_count == 1
 
     # Test _query_by_buckets
-    def test_query_by_buckets_queries_conversations_and_others(self, mock_cvm, mock_token_counter):
-        """_query_by_buckets should query both conversation and other doc types."""
+    def test_query_by_buckets_queries_conversations_insights_and_broad(self, mock_cvm, mock_token_counter):
+        """_query_by_buckets should query conversations, insights, and broad doc types."""
         with patch('aim.refiner.context.MemoryReranker') as mock_reranker_class:
             mock_reranker_class.return_value = MagicMock()
             gatherer = ContextGatherer(mock_cvm, mock_token_counter)
 
-            gatherer._query_by_buckets(
+            conv, insight, broad = gatherer._query_by_buckets(
                 queries=["test query"],
                 source_tag="test",
                 seen_docs=set(),
                 top_n=10,
             )
 
-        # Should have called query twice (conversations and others)
-        assert mock_cvm.query.call_count == 2
+        # Should have called query three times (conversations, insights, and broad)
+        assert mock_cvm.query.call_count == 3
+        # Should return three lists
+        assert isinstance(conv, list)
+        assert isinstance(insight, list)
+        assert isinstance(broad, list)
