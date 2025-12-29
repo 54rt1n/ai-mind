@@ -477,6 +477,12 @@ class ConversationModel:
             results = results.sort_values(by='timestamp', ascending=False)
             if top_n is not None:
                 results = results.head(top_n)
+        elif sort_by == 'random':
+            # Random sampling for exploration - no semantic ranking
+            if top_n is not None and len(results) > top_n:
+                results = results.sample(n=top_n)
+            elif len(results) > 0:
+                results = results.sample(frac=1)  # Shuffle all results
         elif sort_by == 'relevance':
             # Use MMR to balance relevance with diversity for unique entry recall
             # First sort by score to ensure MMR starts with the best candidates
@@ -570,6 +576,61 @@ class ConversationModel:
                 return combined.drop_duplicates(subset=['doc_id'])[VISIBLE_COLUMNS + ['date', 'speaker']].head(top_n)
 
         return random_entries[VISIBLE_COLUMNS + ['date', 'speaker']].head(top_n)
+
+    def sample_by_type(
+        self,
+        doc_types: List[str],
+        top_n: int = 20,
+        persona_id: Optional[str] = None,
+    ) -> pd.DataFrame:
+        """
+        Randomly sample documents by type without semantic search.
+
+        Args:
+            doc_types: List of document types to sample from
+            top_n: Maximum number of documents to return
+            persona_id: Optional persona ID filter
+
+        Returns:
+            DataFrame with randomly sampled documents
+        """
+        if not doc_types or top_n <= 0:
+            return pd.DataFrame(columns=VISIBLE_COLUMNS + ['date', 'speaker', 'score'])
+
+        all_results = []
+
+        # Query each doc type and collect results
+        for doc_type in doc_types:
+            results = self.index.search(
+                query_document_type=doc_type,
+                query_persona_id=persona_id,
+                query_limit=top_n * 2,  # Get extra to sample from
+            )
+            if not results.empty:
+                all_results.append(results)
+
+        if not all_results:
+            return pd.DataFrame(columns=VISIBLE_COLUMNS + ['date', 'speaker', 'score'])
+
+        # Combine all results
+        combined = pd.concat(all_results, ignore_index=True)
+        combined = self._fix_dataframe(combined)
+
+        # Remove duplicates
+        combined = combined.drop_duplicates(subset=['doc_id'])
+
+        # Random sample with weight influence
+        if len(combined) > top_n:
+            combined['random_score'] = np.random.rand(len(combined)) * combined['weight']
+            combined = combined.nlargest(top_n, 'random_score')
+        else:
+            combined = combined.sample(frac=1)  # Shuffle
+
+        combined['score'] = 1.0  # Dummy score for compatibility
+
+        return_columns = VISIBLE_COLUMNS + ['date', 'speaker', 'score']
+        available_columns = [col for col in return_columns if col in combined.columns]
+        return combined[available_columns]
 
     def _fix_dataframe(self, results: pd.DataFrame) -> pd.DataFrame:
         """

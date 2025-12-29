@@ -29,7 +29,7 @@ steps:
         target: current
         exclude_types: [ner, step]
       - action: query
-        document_types: [journal, analysis, daydream, pondering]
+        document_types: [journal, analysis, daydream, pondering, understanding]
         top_n: 10
       - action: sort
         by: timestamp

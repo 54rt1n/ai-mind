@@ -19,9 +19,9 @@ steps:
     context:
       - action: load_conversation
         target: current
-        document_types: [conversation, analysis, summary, reflection, brainstorm, codex, daydream, pondering]
+        document_types: [conversation, analysis, summary, reflection, brainstorm, codex, daydream, pondering, understanding]
       - action: query
-        document_types: [reflection, pondering, analysis, summary, daydream, brainstorm, codex]
+        document_types: [reflection, pondering, analysis, summary, daydream, brainstorm, codex, understanding]
         top_n: 10
         min_memories: 5
       - action: sort

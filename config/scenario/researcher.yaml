@@ -23,7 +23,7 @@ steps:
   survey:
     context:
       - action: query
-        document_types: [codex, pondering]
+        document_types: [codex, pondering, understanding]
         top_n: 15
       - action: query
         document_types: [brainstorm, self_rag]
