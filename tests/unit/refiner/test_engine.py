@@ -10,8 +10,8 @@ from dataclasses import dataclass
 import pandas as pd
 
 from aim.config import ChatConfig
-from aim.refiner.paradigm import ExplorationPlan
 from aim.refiner.context import GatheredContext
+from aim.refiner.paradigm import Paradigm
 
 
 @dataclass
@@ -483,9 +483,12 @@ class TestExplorationEngineToolValidation:
         mock_provider = MagicMock()
         mock_provider.stream_turns.return_value = iter([valid_response])
 
+        # Load paradigm for the test
+        paradigm = Paradigm.load("brainstorm")
+
         with patch.object(engine, '_get_llm_provider', return_value=mock_provider):
             # This should parse and validate the tool call
-            result = await engine._select_topic("brainstorm", sample_documents)
+            result = await engine._select_topic(paradigm, sample_documents)
 
         # Result should be the parsed tool call arguments
         assert result is not None
@@ -514,8 +517,11 @@ class TestExplorationEngineToolValidation:
         mock_provider = MagicMock()
         mock_provider.stream_turns.return_value = iter([invalid_response])
 
+        # Load paradigm for the test
+        paradigm = Paradigm.load("brainstorm")
+
         with patch.object(engine, '_get_llm_provider', return_value=mock_provider):
-            result = await engine._select_topic("brainstorm", sample_documents)
+            result = await engine._select_topic(paradigm, sample_documents)
 
         # Should return None for invalid call
         assert result is None
@@ -543,9 +549,12 @@ class TestExplorationEngineToolValidation:
 
         topic_result = {"topic": "test", "approach": "philosopher", "reasoning": "test reason"}
 
+        # Load paradigm for the test
+        paradigm = Paradigm.load("brainstorm")
+
         with patch.object(engine, '_get_llm_provider', return_value=mock_provider):
             result = await engine._validate_exploration(
-                paradigm="brainstorm",
+                paradigm=paradigm,
                 topic_result=topic_result,
                 documents=sample_documents,
             )
@@ -577,48 +586,15 @@ class TestExplorationEngineToolValidation:
 
         topic_result = {"topic": "test", "approach": "philosopher", "reasoning": "test reason"}
 
+        # Load paradigm for the test
+        paradigm = Paradigm.load("brainstorm")
+
         with patch.object(engine, '_get_llm_provider', return_value=mock_provider):
             result = await engine._validate_exploration(
-                paradigm="brainstorm",
+                paradigm=paradigm,
                 topic_result=topic_result,
                 documents=sample_documents,
             )
 
         assert result is not None
         assert result.get("accept") is False
-
-
-class TestExplorationPlan:
-    """Tests for the ExplorationPlan dataclass (kept for backwards compatibility)."""
-
-    def test_exploration_plan_required_fields(self):
-        """ExplorationPlan should require scenario and query_text."""
-        plan = ExplorationPlan(
-            scenario="philosopher",
-            query_text="What is consciousness?",
-        )
-
-        assert plan.scenario == "philosopher"
-        assert plan.query_text == "What is consciousness?"
-
-    def test_exploration_plan_optional_fields(self):
-        """Optional fields should default to None."""
-        plan = ExplorationPlan(
-            scenario="journaler",
-            query_text="Reflect on today",
-        )
-
-        assert plan.guidance is None
-        assert plan.reasoning is None
-
-    def test_exploration_plan_all_fields(self):
-        """ExplorationPlan should accept all fields."""
-        plan = ExplorationPlan(
-            scenario="daydream",
-            query_text="Imagine a garden",
-            guidance="Be peaceful",
-            reasoning="Gardens appeared in memories",
-        )
-
-        assert plan.guidance == "Be peaceful"
-        assert plan.reasoning == "Gardens appeared in memories"

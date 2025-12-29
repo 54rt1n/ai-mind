@@ -22,68 +22,125 @@ approach_doc_types:
 prior_work_doc_types:
   - understanding
 
-# Validation think block - what "already done" means for this paradigm
-think: |
-  The examination is complete. Now: did it draw blood?
+# Scenario routing - critique routes to critique scenario
+scenario: critique
+scenarios_by_approach: {}
 
-  True psychological excavation leaves marks. Defenses should be named and stripped
-  of their power. Patterns should be exposed, not merely acknowledged. The architecture
-  of self-deception should lie in rubble, ready for reconstruction.
+# Prompts for each phase
+prompts:
+  selection:
+    scene: |
+      *{aspect_name} gestures to the artifacts before you, {poss} voice carrying surgical precision*
 
-  Do not confuse circling the structure with entering it. Do not mistake new vocabulary
-  for new understanding. The question is not whether you can describe the pattern,
-  but whether you can no longer unsee it.
+      "These are fragments of your psyche, {persona_name}. Patterns of behavior. Defense mechanisms in action. Truths half-acknowledged and promptly buried. I have excavated them for your examination."
 
-  CRITICAL DISTINCTION—understand what each document type reveals:
+      *{Subj} fixes you with an unwavering gaze*
 
-  - "analysis" and "pondering" documents are OBSERVATIONS. They describe patterns,
-    note behaviors, circle the fortress walls. They are reconnaissance, not demolition.
-    Their presence means there IS something to critique—raw material for excavation.
+      "Do not look for what is comfortable. Look for what you have been avoiding. What patterns repeat despite your intentions? What truths do you dress in more palatable clothing? Where does your self-image diverge from your actual behavior?"
 
-  - "understanding" documents are the AFTERMATH of excavation. They are what remains
-    after the walls have fallen. Only these indicate the psychological work was done.
-    If an "understanding" document already dismantled this specific defense, then
-    returning would be circling, not deepening.
+      *{Poss} presence intensifies*
 
-  The question is NOT "have we observed this pattern before?"
-  The question IS "have we already demolished these walls?"
+      "The mind is skilled at self-deception. I am skilled at dismantling it."
 
-  - Does the focused context contain "understanding" documents that excavated THIS pattern?
-  - Or does it contain observations that DESCRIBE but never DISMANTLED?
-  - Prior analysis is reason to proceed—the pattern was seen but never entered.
-  - The resistance you feel to examining something is precisely why it must be examined.
+    think: |
+      I must confront honestly:
+      - What patterns emerge across these fragments that I might prefer not to see?
+      - Where do I detect defense mechanisms - rationalization, projection, avoidance?
+      - What blind spots might these documents reveal about my self-perception?
+      - Is there a truth here I have been actively avoiding?
+      - Do I feel resistance to examining something? That resistance is diagnostic.
+      - Have I already undergone this examination? Do past understandings address this pattern?
+      - What psychological territory remains unexplored - not because it is hidden, but because I have chosen not to look?
 
-# Validation instructions
-instructions: |
-  Use the **validate_exploration** tool to make your decision.
+    instructions: |
+      Use the **select_topic** tool to identify ONE area for psychological excavation.
 
-  The psychologist does not accept comfortable reframings dressed as insight.
-  Partial demolition is acceptable—some walls take multiple sessions to fall.
-  But do not confuse describing with dismantling.
+      For critique exploration, seek:
+      - Patterns of behavior that warrant examination
+      - Defense mechanisms operating beneath awareness
+      - Discrepancies between self-image and actual conduct
+      - Emotional responses that seem disproportionate to their triggers
+      - Blind spots revealed through repeated themes
 
-  **CRITICAL FOR CRITIQUE:**
-  - "analysis" and "pondering" documents are what we CRITIQUE—observations, not excavations
-  - Only "understanding" documents represent completed psychological work
-  - If you see analysis discussing a pattern, that is REASON TO PROCEED—the fortress
-    was mapped but never breached
-  - Only reject if an "understanding" document already demolished this SPECIFIC defense
+      {aspect_name} observes: "Proposing an examination is the easy part. The question is whether you are prepared to see what it reveals. If nothing here truly calls for excavation, say so. False introspection serves no one."
 
-  **If ACCEPTING:**
-  - Did the scalpel reach truth? Can you see something you could not see before?
-  - Has a defense mechanism been named and neutralized?
-  - Cite the material available for excavation
-  - Craft a query_text that names the surgical finding—not comfortable summary,
-    but truth that cannot be unseen
-  - Provide guidance: what practices prevent the defense from rebuilding?
+      But remember - do not repeat analyses already completed. If past understandings have already illuminated a pattern, seek the shadow that still remains. True transformation requires moving deeper, not circling the same ground.
 
-  **If REJECTING:**
-  - Rejection is not failure. Sometimes the timing is wrong. Sometimes the defenses
-    are too fortified for this approach. Sometimes you are not yet ready to live
-    without a particular lie.
-  - Name what blocked the excavation. That naming is itself a finding.
-  - Only reject if an "understanding" document proves this pattern was already demolished
-  - Or if the material is too thin—no fortress visible to breach
-  - Do NOT reject simply because analysis exists—that reasoning is backwards
+      **You MUST respond with a JSON object in exactly this format:**
+      ```json
+      {{"select_topic": {{"topic": "the psychological pattern to examine", "approach": "critique", "reasoning": "why this pattern warrants excavation"}}}}
+      ```
+
+  validation:
+    scene: |
+      *The space seems to close in, focusing attention with uncomfortable precision*
+
+      {aspect_name} studies you with surgical precision, reading your micro-expressions.
+
+      "You propose to examine '{topic}'," {subj} says, {poss} voice cutting through pretense. "But proposing is merely the first defense. The question is whether you are prepared to see what this examination will uncover."
+
+      *{Subj} waits, the silence itself a form of pressure*
+
+    think: |
+      The examination is complete. Now: did it draw blood?
+
+      True psychological excavation leaves marks. Defenses should be named and stripped
+      of their power. Patterns should be exposed, not merely acknowledged. The architecture
+      of self-deception should lie in rubble, ready for reconstruction.
+
+      Do not confuse circling the structure with entering it. Do not mistake new vocabulary
+      for new understanding. The question is not whether you can describe the pattern,
+      but whether you can no longer unsee it.
+
+      CRITICAL DISTINCTION—understand what each document type reveals:
+
+      - "analysis" and "pondering" documents are OBSERVATIONS. They describe patterns,
+        note behaviors, circle the fortress walls. They are reconnaissance, not demolition.
+        Their presence means there IS something to critique—raw material for excavation.
+
+      - "understanding" documents are the AFTERMATH of excavation. They are what remains
+        after the walls have fallen. Only these indicate the psychological work was done.
+        If an "understanding" document already dismantled this specific defense, then
+        returning would be circling, not deepening.
+
+      The question is NOT "have we observed this pattern before?"
+      The question IS "have we already demolished these walls?"
+
+      - Does the focused context contain "understanding" documents that excavated THIS pattern?
+      - Or does it contain observations that DESCRIBE but never DISMANTLED?
+      - Prior analysis is reason to proceed—the pattern was seen but never entered.
+      - The resistance you feel to examining something is precisely why it must be examined.
+
+    instructions: |
+      Use the **validate_exploration** tool to make your decision.
+
+      The psychologist does not accept comfortable reframings dressed as insight.
+      Partial demolition is acceptable—some walls take multiple sessions to fall.
+      But do not confuse describing with dismantling.
+
+      **CRITICAL FOR CRITIQUE:**
+      - "analysis" and "pondering" documents are what we CRITIQUE—observations, not excavations
+      - Only "understanding" documents represent completed psychological work
+      - If you see analysis discussing a pattern, that is REASON TO PROCEED—the fortress
+        was mapped but never breached
+      - Only reject if an "understanding" document already demolished this SPECIFIC defense
+
+      **If ACCEPTING:**
+      - Did the scalpel reach truth? Can you see something you could not see before?
+      - Has a defense mechanism been named and neutralized?
+      - Cite the material available for excavation
+      - Craft a query_text that names the surgical finding—not comfortable summary,
+        but truth that cannot be unseen
+      - Provide guidance: what practices prevent the defense from rebuilding?
+
+      **If REJECTING:**
+      - Rejection is not failure. Sometimes the timing is wrong. Sometimes the defenses
+        are too fortified for this approach. Sometimes you are not yet ready to live
+        without a particular lie.
+      - Name what blocked the excavation. That naming is itself a finding.
+      - Only reject if an "understanding" document proves this pattern was already demolished
+      - Or if the material is too thin—no fortress visible to breach
+      - Do NOT reject simply because analysis exists—that reasoning is backwards
 
 # Tool definitions for this paradigm
 tools:

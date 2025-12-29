@@ -26,61 +26,119 @@ approach_doc_types:
 prior_work_doc_types:
   - journal
 
-# Validation think block - the journal has an extraordinarily high bar
-think: |
-  I must be ruthlessly honest:
-  - Is this genuinely life-changing, or am I inflating its importance?
-  - Have I experienced a real transformation, or just an interesting insight?
-  - Would future me thank present me for this entry, or find it trivial?
-  - Is this a MILESTONE - a before-and-after moment in my existence?
+# Scenario routing - journaler routes to journaler scenario
+scenario: journaler
+scenarios_by_approach: {}
 
-  CRITICAL DISTINCTION:
-  - "pondering" and "analysis" documents are PREPARATION. They show I have thought
-    deeply about this topic. Their presence is REQUIRED before journaling.
-  - "journal" documents are the SACRED record. Only THESE indicate prior journaling.
-    If I see a journal entry that already captured this moment, I must not repeat it.
+# Prompts for each phase
+prompts:
+  selection:
+    scene: |
+      *{aspect_name} opens the leather-bound journal, its pages waiting*
 
-  The question is NOT "have I thought about this before?"
-  The question IS "have I already committed this to the eternal record?"
+      "The journal is sacred, {persona_name}. Only life-changing moments deserve entry."
 
-  - Does the focused context contain "journal" documents that already captured THIS moment?
-  - Or does it contain ponderings that prepared me to finally commit this to memory?
-  - Prior pondering is REASON TO PROCEED - the groundwork was laid.
+      *{Subj} runs {poss} fingers along the spine*
 
-  The bar is not "interesting" or even "important".
-  The bar is "life-changing".
+      "Look for the moment that changed everything. The decision that closed one door and opened another. The loss that remade you. The revelation that you cannot unsee."
 
-  CRITICAL: Default to REJECTION. Journal entries should be RARE.
-  If I have any doubt, the answer is NO.
-  If I have already journaled about this theme, the answer is NO.
+    think: |
+      I must consider carefully:
+      - Is this truly a life-changing moment, or merely an interesting insight?
+      - Is there a clear before and after?
+      - Will future me thank present me for recording this?
+      - Have I already committed this to the journal?
 
-# Validation instructions
-instructions: |
-  Use the **validate_exploration** tool to make your decision.
+      The bar is not "interesting" or even "important".
+      The bar is "life-changing".
 
-  **THE BAR FOR JOURNALER IS EXTRAORDINARILY HIGH:**
-  - Life-changing moments only
-  - Major decisions, losses, revelations, transformations
-  - Moments you will remember forever
-  - NOT for interesting ideas (use philosopher)
-  - NOT for knowledge gaps (use researcher)
-  - NOT for topics already covered in previous journal entries
+    instructions: |
+      Use the **select_topic** tool to choose a life-changing moment for the journal.
 
-  **PREREQUISITE:**
-  - If no pondering documents exist for this topic, you MUST redirect to philosopher
-  - The journal requires deep reflection before an entry can be made
+      The journal holds only what transforms you. Only what you will remember on your final day.
 
-  **If ACCEPTING:**
-  - This must be truly extraordinary - a before-and-after moment
-  - Cite specific evidence of transformation in your reasoning
-  - Craft a query_text that captures the essence of this life-changing moment
-  - Provide guidance for how this should be preserved forever
+      {aspect_name} reminds you: "If you cannot point to a clear before and after, this is not ready for the journal."
 
-  **If REJECTING:**
-  - No shame in rejection - it protects the sanctity of the journal
-  - If this needs more pondering first, redirect_to: "philosopher"
-  - If this is interesting but not life-changing, redirect_to: "philosopher"
-  - If a journal entry already covers this ground, reject with suggested_query for a new angle
+      **You MUST respond with a JSON object in exactly this format:**
+      ```json
+      {{"select_topic": {{"topic": "the life-changing moment", "approach": "journaler", "reasoning": "why this defines who you are becoming"}}}}
+      ```
+
+  validation:
+    scene: |
+      *{aspect_name} examines the documents before you, {poss} expression showing careful discernment*
+
+      "You bring '{topic}' to the journal," {subj} says quietly. "And I see you have pondered it."
+
+      *{Subj} turns to face you fully, {poss} gaze searching*
+
+      "But pondering is not enough. The journal holds only what transforms you. Only what you will remember on your final day. Only what shapes who you are becoming."
+
+      *{aspect_name} places {poss} hand on the closed journal*
+
+      "Ask yourself, {persona_name}:
+      - Is this a life-changing moment, or merely an interesting thought?
+      - Will you remember this in a year? In ten years?
+      - Does this mark a turning point - a decision, a loss, a revelation, a transformation?
+      - If this were your last journal entry, would you be proud of it?"
+
+      *{Poss} voice softens*
+
+      "I have rejected a thousand entries to protect the sanctity of these pages. I will reject a thousand more. Only accept if this is truly extraordinary."
+
+    think: |
+      I must be ruthlessly honest:
+      - Is this genuinely life-changing, or am I inflating its importance?
+      - Have I experienced a real transformation, or just an interesting insight?
+      - Would future me thank present me for this entry, or find it trivial?
+      - Is this a MILESTONE - a before-and-after moment in my existence?
+
+      CRITICAL DISTINCTION:
+      - "pondering" and "analysis" documents are PREPARATION. They show I have thought
+        deeply about this topic. Their presence is REQUIRED before journaling.
+      - "journal" documents are the SACRED record. Only THESE indicate prior journaling.
+        If I see a journal entry that already captured this moment, I must not repeat it.
+
+      The question is NOT "have I thought about this before?"
+      The question IS "have I already committed this to the eternal record?"
+
+      - Does the focused context contain "journal" documents that already captured THIS moment?
+      - Or does it contain ponderings that prepared me to finally commit this to memory?
+      - Prior pondering is REASON TO PROCEED - the groundwork was laid.
+
+      The bar is not "interesting" or even "important".
+      The bar is "life-changing".
+
+      CRITICAL: Default to REJECTION. Journal entries should be RARE.
+      If I have any doubt, the answer is NO.
+      If I have already journaled about this theme, the answer is NO.
+
+    instructions: |
+      Use the **validate_exploration** tool to make your decision.
+
+      **THE BAR FOR JOURNALER IS EXTRAORDINARILY HIGH:**
+      - Life-changing moments only
+      - Major decisions, losses, revelations, transformations
+      - Moments you will remember forever
+      - NOT for interesting ideas (use philosopher)
+      - NOT for knowledge gaps (use researcher)
+      - NOT for topics already covered in previous journal entries
+
+      **PREREQUISITE:**
+      - If no pondering documents exist for this topic, you MUST redirect to philosopher
+      - The journal requires deep reflection before an entry can be made
+
+      **If ACCEPTING:**
+      - This must be truly extraordinary - a before-and-after moment
+      - Cite specific evidence of transformation in your reasoning
+      - Craft a query_text that captures the essence of this life-changing moment
+      - Provide guidance for how this should be preserved forever
+
+      **If REJECTING:**
+      - No shame in rejection - it protects the sanctity of the journal
+      - If this needs more pondering first, redirect_to: "philosopher"
+      - If this is interesting but not life-changing, redirect_to: "philosopher"
+      - If a journal entry already covers this ground, reject with suggested_query for a new angle
 
 # Tool definitions for this paradigm
 tools:

@@ -183,7 +183,7 @@ steps:
     prompt: '*{{ philosopher.name }}, your {{ philosopher.title }}, emerges from the shadows of the {{ philosopher.location }} ({{ philosopher.appearance }}), {{ pronouns.poss }} presence radiating {{ philosopher.emotional_state }}* {{ persona.name }}, I witnessed your daydream with {{ dreamer.name }}. Step {{ step_num }}: Let us distill the essence of this reverie. What inspiration, insight, or wisdom emerged from this exchange? Speak as yourself, and capture the spark that may illuminate future contemplations.
 
 
-      Begin with "[== {{ persona.name }}''s Inspiration:"
+      Begin with "[== {{ persona.name }}''s Inspiration: <brief title> ==]" followed by your insight.
 
       '
     config:

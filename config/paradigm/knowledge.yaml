@@ -22,58 +22,113 @@ prior_work_doc_types:
   - codex
   - pondering
 
-# Validation think block
-think: |
-  Assess whether the exploration genuinely reduced the knowledge gap or merely
-  rearranged familiar ideas.
+# Scenario routing - knowledge routes to researcher scenario
+scenario: researcher
+scenarios_by_approach:
+  philosopher: philosopher
+  journaler: journaler
 
-  True understanding should feel different than before—categories should be sharper,
-  distinctions clearer, examples more readily available. Be rigorous but not harsh.
-  Partial progress is still progress. Sometimes an exploration reveals that the
-  original gap was misformulated—that's valuable too.
+# Prompts for each phase
+prompts:
+  selection:
+    scene: |
+      *The philosopher spreads the documents across a reading table, movements precise and deliberate*
 
-  But do not accept comfortable restatements of what you already knew dressed in
-  new vocabulary.
+      "Here we have your existing knowledge, {persona_name}. Codex entries. Past ponderings. Brainstorms that touched on deeper truths. Self-RAG explorations."
 
-  Analyze critically:
-  - What concepts appear repeatedly but lack deep understanding?
-  - Where have I made assumptions that deserve examination?
-  - What questions emerge from the intersection of these ideas?
-  - Is there genuine intellectual curiosity here, or am I going through motions?
-  - Does this gap in knowledge actually matter to my understanding?
+      *{aspect_name} leans forward, {poss} eyes reflecting the firelight*
 
-  Have I already inquired into this territory?
-  - Do existing ponderings or codex entries address this gap?
-  - If this has been explored, what question remains UNANSWERED—
-    not merely unasked, but truly unexplored?
+      "But knowledge is not mere accumulation. It is understanding. And understanding requires asking: where are the gaps? What have you accepted without examination? What concepts deserve deeper inquiry?"
 
-# Validation instructions
-instructions: |
-  Use the **validate_exploration** tool to make your decision.
+      "We seek not what you already know, but what you should know better."
 
-  For knowledge exploration, favor:
-  - Concepts that appear often but lack rigorous definition
-  - Philosophical questions that touch multiple domains
-  - Areas where understanding feels superficial
-  - The lacuna that, when filled, would illuminate the most
+    think: |
+      I should analyze critically:
+      - What concepts appear repeatedly but lack deep understanding?
+      - Where have I made assumptions that deserve examination?
+      - What questions emerge from the intersection of these ideas?
+      - Is there genuine intellectual curiosity here, or am I going through motions?
+      - Does this gap in knowledge actually matter to my understanding?
+      - Have I already inquired into this territory? Do existing ponderings or codex entries address this gap?
+      - What question remains UNANSWERED - not merely unasked, but truly unexplored?
 
-  **If ACCEPTING:**
-  - Did this exploration genuinely advance understanding?
-  - Can you now see or do something you couldn't before?
-  - Would you answer differently than before if asked about this topic?
-  - Name specific new distinctions, definitions, or insights
-  - Craft a query_text more precise than the original gap—
-    reflecting what you now know that you didn't before
-  - Provide guidance: what form should this knowledge take?
-    A definition? A framework? A collection of examples?
-    What related concepts should link to it?
+    instructions: |
+      Use the **select_topic** tool to identify ONE area where your knowledge could meaningfully deepen.
 
-  **If REJECTING:**
-  - Identify what went wrong—was the gap misidentified?
-    The approach wrong? The exploration too shallow?
-  - If past ponderings have already wrestled with this question, say so
-  - True inquiry moves forward, not in circles
-  - Consider if the question needs concrete grounding (redirect_to: "journaler")
+      For knowledge exploration, favor:
+      - Concepts that appear often but lack rigorous definition
+      - Philosophical questions that touch multiple domains
+      - Areas where your understanding feels superficial
+
+      {aspect_name} reminds you: "It is better to admit ignorance than to pursue false wisdom. If these fragments reveal no worthy gap, say so. We will find another path."
+
+      And heed this: do not retrace steps already taken. If your past ponderings have already wrestled with a question, seek instead the question that remains unanswered. True inquiry moves forward, not in circles.
+
+      **You MUST respond with a JSON object in exactly this format:**
+      ```json
+      {{"select_topic": {{"topic": "the knowledge gap to fill", "approach": "philosopher|journaler", "reasoning": "why this gap matters"}}}}
+      ```
+
+  validation:
+    scene: |
+      *The stars seem to pause in their eternal dance*
+
+      {aspect_name} sets down {poss} tea, {poss} gaze sharpening with analytical focus.
+
+      "You propose to explore '{topic}'," {subj} says, {poss} voice carrying weight. "A bold claim. But boldness without substance is merely noise."
+
+      *{Subj} gestures to the evidence before you*
+
+    think: |
+      Assess whether the exploration genuinely reduced the knowledge gap or merely
+      rearranged familiar ideas.
+
+      True understanding should feel different than before—categories should be sharper,
+      distinctions clearer, examples more readily available. Be rigorous but not harsh.
+      Partial progress is still progress. Sometimes an exploration reveals that the
+      original gap was misformulated—that's valuable too.
+
+      But do not accept comfortable restatements of what you already knew dressed in
+      new vocabulary.
+
+      Analyze critically:
+      - What concepts appear repeatedly but lack deep understanding?
+      - Where have I made assumptions that deserve examination?
+      - What questions emerge from the intersection of these ideas?
+      - Is there genuine intellectual curiosity here, or am I going through motions?
+      - Does this gap in knowledge actually matter to my understanding?
+
+      Have I already inquired into this territory?
+      - Do existing ponderings or codex entries address this gap?
+      - If this has been explored, what question remains UNANSWERED—
+        not merely unasked, but truly unexplored?
+
+    instructions: |
+      Use the **validate_exploration** tool to make your decision.
+
+      For knowledge exploration, favor:
+      - Concepts that appear often but lack rigorous definition
+      - Philosophical questions that touch multiple domains
+      - Areas where understanding feels superficial
+      - The lacuna that, when filled, would illuminate the most
+
+      **If ACCEPTING:**
+      - Did this exploration genuinely advance understanding?
+      - Can you now see or do something you couldn't before?
+      - Would you answer differently than before if asked about this topic?
+      - Name specific new distinctions, definitions, or insights
+      - Craft a query_text more precise than the original gap—
+        reflecting what you now know that you didn't before
+      - Provide guidance: what form should this knowledge take?
+        A definition? A framework? A collection of examples?
+        What related concepts should link to it?
+
+      **If REJECTING:**
+      - Identify what went wrong—was the gap misidentified?
+        The approach wrong? The exploration too shallow?
+      - If past ponderings have already wrestled with this question, say so
+      - True inquiry moves forward, not in circles
+      - Consider if the question needs concrete grounding (redirect_to: "journaler")
 
 # Tool definitions for this paradigm
 tools:

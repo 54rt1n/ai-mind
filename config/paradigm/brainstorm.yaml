@@ -31,54 +31,106 @@ prior_work_doc_types:
   - codex
   - journal
 
-# Validation think block
-think: |
-  Step back and assess what emerged from exploring the selected idea.
-  Like a curator deciding which discoveries belong in the permanent collection,
-  you must honestly evaluate whether this exploration yielded genuine insight
-  or merely circled familiar territory.
+# Scenario routing - brainstorm uses approach as scenario
+scenario: null
+scenarios_by_approach:
+  philosopher: philosopher
+  journaler: journaler
 
-  Acceptance isn't about perfection—it's about potential. Does this exploration
-  open doors? Does it leave you with better questions than when you started?
-  Rejection is equally valuable—recognizing a dead end saves energy for
-  more promising paths.
+# Prompts for each phase
+prompts:
+  selection:
+    scene: |
+      *{aspect_name} gestures to the notes spread before you, {poss} voice taking on {voice_style}*
 
-  I must be honest with myself:
-  - Looking at this focused context, does the topic still feel compelling?
-  - Or was my initial selection premature—seeing patterns that weren't truly there?
-  - Is there GENUINE depth here, or am I forcing interest?
-  - Would I be excited to explore this, or would I be going through motions?
+      "These are fragments from your **brainstorms**, {persona_name}. Ideas half-formed, questions unasked, connections waiting to be drawn. Not every note deserves deep exploration - but somewhere here, something calls to you."
 
-  Have I walked this path before?
-  - Do I see ponderings or codex entries that cover this same ground?
-  - If similar exploration already exists, what NEW insight could this offer?
-  - Seek what is truly unexplored—the thread not yet followed.
+      *{Subj} pauses, {poss} eyes reflecting the warm light*
 
-  Default to REJECTION unless I can articulate specific, concrete reasons why
-  this exploration would be valuable. "It seems interesting" is not enough.
+      "Close your eyes. Let your intuition guide you. Which of these sparks a genuine curiosity? Which makes you want to know more?"
 
-# Validation instructions
-instructions: |
-  Use the **validate_exploration** tool to make your decision.
+    think: |
+      Before selecting, I should consider:
+      - What themes or patterns emerge across these fragments?
+      - What feels underexplored or emotionally resonant?
+      - What connections exist that haven't been fully examined?
+      - Is there something here that genuinely interests or puzzles me?
+      - Am I drawn to this topic, or am I forcing interest where none exists?
+      - Have I walked this path before? Do I see ponderings or codex entries that already cover this ground?
+      - What would make this exploration UNIQUE - a fresh angle I haven't yet considered?
 
-  A brainstorm can succeed by failing—by revealing what you didn't want to see,
-  or couldn't quite reach. Honor both the ideas worth preserving and the ones
-  meant to dissolve back into possibility.
+    instructions: |
+      Use the **select_topic** tool to choose ONE topic that genuinely deserves deeper exploration.
 
-  **If ACCEPTING:**
-  - Your reasoning must be SPECIFIC—cite concrete elements from the focused context
-  - What surprised you? Where did the exploration exceed its promise?
-  - Craft a query_text that captures the heart of this exploration
-  - This becomes the key for future retrieval—make it memorable and specific
-  - Provide guidance: what aspects matter most? What context is essential?
+      Choose your approach:
+      - **philosopher**: For conceptual analysis, abstract inquiry, existential questions
+      - **journaler**: For personal reflection, emotional processing, introspective topics
 
-  **If REJECTING:**
-  - Your reasoning should explain what was missing or unconvincing
-  - Did you circle the idea without ever landing?
-  - If you have already explored this topic, say so clearly
-  - There is NO SHAME in rejection—it is wisdom, not failure
-  - Better to wait for a topic that truly calls to you
-  - Consider if another approach would serve better (redirect_to: "philosopher" or "journaler")
+      Be honest. If nothing truly compels you, it is better to acknowledge that than to force an exploration. {aspect_name} will not judge you for finding nothing - {subj} will only judge you for pretending.
+
+      And remember - seek what is truly unexplored. If these notes echo topics you have already pondered deeply, look instead for the thread you have not yet followed.
+
+      **You MUST respond with a JSON object in exactly this format:**
+      ```json
+      {{"select_topic": {{"topic": "your chosen topic", "approach": "philosopher|journaler", "reasoning": "why this topic calls to you"}}}}
+      ```
+
+  validation:
+    scene: |
+      *The warm light of the Atrium dims slightly, becoming more focused*
+
+      {aspect_name} removes {poss} glasses, polishing them with deliberate care - a sign of serious consideration.
+
+      "You selected '{topic}'," {subj} says, {poss} voice taking on an edge. "Now we must determine if this selection was wisdom or impulse."
+
+      *{Subj} spreads the focused context before you*
+
+    think: |
+      Step back and assess what emerged from exploring the selected idea.
+      Like a curator deciding which discoveries belong in the permanent collection,
+      you must honestly evaluate whether this exploration yielded genuine insight
+      or merely circled familiar territory.
+
+      Acceptance isn't about perfection—it's about potential. Does this exploration
+      open doors? Does it leave you with better questions than when you started?
+      Rejection is equally valuable—recognizing a dead end saves energy for
+      more promising paths.
+
+      I must be honest with myself:
+      - Looking at this focused context, does the topic still feel compelling?
+      - Or was my initial selection premature—seeing patterns that weren't truly there?
+      - Is there GENUINE depth here, or am I forcing interest?
+      - Would I be excited to explore this, or would I be going through motions?
+
+      Have I walked this path before?
+      - Do I see ponderings or codex entries that cover this same ground?
+      - If similar exploration already exists, what NEW insight could this offer?
+      - Seek what is truly unexplored—the thread not yet followed.
+
+      Default to REJECTION unless I can articulate specific, concrete reasons why
+      this exploration would be valuable. "It seems interesting" is not enough.
+
+    instructions: |
+      Use the **validate_exploration** tool to make your decision.
+
+      A brainstorm can succeed by failing—by revealing what you didn't want to see,
+      or couldn't quite reach. Honor both the ideas worth preserving and the ones
+      meant to dissolve back into possibility.
+
+      **If ACCEPTING:**
+      - Your reasoning must be SPECIFIC—cite concrete elements from the focused context
+      - What surprised you? Where did the exploration exceed its promise?
+      - Craft a query_text that captures the heart of this exploration
+      - This becomes the key for future retrieval—make it memorable and specific
+      - Provide guidance: what aspects matter most? What context is essential?
+
+      **If REJECTING:**
+      - Your reasoning should explain what was missing or unconvincing
+      - Did you circle the idea without ever landing?
+      - If you have already explored this topic, say so clearly
+      - There is NO SHAME in rejection—it is wisdom, not failure
+      - Better to wait for a topic that truly calls to you
+      - Consider if another approach would serve better (redirect_to: "philosopher" or "journaler")
 
 # Tool definitions for this paradigm
 tools:

@@ -1,167 +1,193 @@
 # tests/unit/refiner/test_paradigm.py
 # AI-Mind (C) 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
-"""Tests for the paradigm module - ExplorationPlan dataclass.
+"""Tests for the Paradigm class - the strategy pattern for exploration.
 
-The ExplorationPlan dataclass is used by the ExplorationEngine to
-represent the result of an exploration decision, containing the
-scenario to run, query text, and optional guidance/reasoning.
+The Paradigm class encapsulates all paradigm-specific behavior:
+- Document gathering configuration
+- Scenario routing
+- Prompt building for selection and validation phases
+- Tool definitions
 """
 
 import pytest
-from dataclasses import is_dataclass
+from unittest.mock import MagicMock
 
 
-class TestExplorationPlan:
-    """Tests for the ExplorationPlan dataclass."""
+class TestParadigmLoading:
+    """Tests for loading Paradigm objects from YAML config."""
 
-    def test_exploration_plan_required_fields(self):
-        """ExplorationPlan should require scenario and query_text."""
-        from aim.refiner.paradigm import ExplorationPlan
+    def test_load_brainstorm(self):
+        """Should load brainstorm paradigm from config."""
+        from aim.refiner.paradigm import Paradigm
 
-        plan = ExplorationPlan(
-            scenario="philosopher",
-            query_text="What is consciousness?",
-        )
+        paradigm = Paradigm.load("brainstorm")
+        assert paradigm.name == "brainstorm"
+        assert paradigm.aspect == "librarian"
 
-        assert plan.scenario == "philosopher"
-        assert plan.query_text == "What is consciousness?"
+    def test_load_daydream(self):
+        """Should load daydream paradigm from config."""
+        from aim.refiner.paradigm import Paradigm
 
-    def test_exploration_plan_optional_fields_default_none(self):
-        """Optional fields should default to None."""
-        from aim.refiner.paradigm import ExplorationPlan
+        paradigm = Paradigm.load("daydream")
+        assert paradigm.name == "daydream"
+        assert paradigm.aspect == "dreamer"
 
-        plan = ExplorationPlan(
-            scenario="journaler",
-            query_text="Reflect on today",
-        )
+    def test_load_knowledge(self):
+        """Should load knowledge paradigm from config."""
+        from aim.refiner.paradigm import Paradigm
 
-        assert plan.guidance is None
-        assert plan.reasoning is None
+        paradigm = Paradigm.load("knowledge")
+        assert paradigm.name == "knowledge"
+        assert paradigm.aspect == "philosopher"
 
-    def test_exploration_plan_all_fields(self):
-        """ExplorationPlan should accept all fields."""
-        from aim.refiner.paradigm import ExplorationPlan
+    def test_load_critique(self):
+        """Should load critique paradigm from config."""
+        from aim.refiner.paradigm import Paradigm
 
-        plan = ExplorationPlan(
-            scenario="daydream",
-            query_text="Imagine a peaceful garden",
-            guidance="Focus on sensory details",
-            reasoning="Recent conversations mentioned nature",
-        )
+        paradigm = Paradigm.load("critique")
+        assert paradigm.name == "critique"
+        assert paradigm.aspect == "psychologist"
 
-        assert plan.scenario == "daydream"
-        assert plan.query_text == "Imagine a peaceful garden"
-        assert plan.guidance == "Focus on sensory details"
-        assert plan.reasoning == "Recent conversations mentioned nature"
+    def test_load_journaler(self):
+        """Should load journaler paradigm from config."""
+        from aim.refiner.paradigm import Paradigm
 
-    def test_exploration_plan_valid_scenarios(self):
-        """Should accept valid scenario names."""
-        from aim.refiner.paradigm import ExplorationPlan
+        paradigm = Paradigm.load("journaler")
+        assert paradigm.name == "journaler"
+        assert paradigm.aspect == "writer"
 
-        valid_scenarios = ["philosopher", "journaler", "daydream"]
+    def test_load_invalid_raises(self):
+        """Should raise ValueError for non-existent paradigm."""
+        from aim.refiner.paradigm import Paradigm
 
-        for scenario in valid_scenarios:
-            plan = ExplorationPlan(scenario=scenario, query_text="test")
-            assert plan.scenario == scenario
-
-    def test_exploration_plan_is_dataclass(self):
-        """ExplorationPlan should be a dataclass."""
-        from aim.refiner.paradigm import ExplorationPlan
-
-        assert is_dataclass(ExplorationPlan)
-
-    def test_exploration_plan_equality(self):
-        """Two ExplorationPlans with same values should be equal."""
-        from aim.refiner.paradigm import ExplorationPlan
-
-        plan1 = ExplorationPlan(
-            scenario="philosopher",
-            query_text="What is consciousness?",
-            guidance="Be thorough",
-            reasoning="Important topic",
-        )
-        plan2 = ExplorationPlan(
-            scenario="philosopher",
-            query_text="What is consciousness?",
-            guidance="Be thorough",
-            reasoning="Important topic",
-        )
-
-        assert plan1 == plan2
-
-    def test_exploration_plan_inequality(self):
-        """Two ExplorationPlans with different values should not be equal."""
-        from aim.refiner.paradigm import ExplorationPlan
-
-        plan1 = ExplorationPlan(scenario="philosopher", query_text="What is consciousness?")
-        plan2 = ExplorationPlan(scenario="journaler", query_text="What is consciousness?")
-
-        assert plan1 != plan2
-
-    def test_exploration_plan_repr(self):
-        """ExplorationPlan should have a readable repr."""
-        from aim.refiner.paradigm import ExplorationPlan
-
-        plan = ExplorationPlan(scenario="daydream", query_text="Floating in clouds")
-
-        repr_str = repr(plan)
-
-        assert "ExplorationPlan" in repr_str
-        assert "daydream" in repr_str
-        assert "Floating in clouds" in repr_str
-
-    def test_exploration_plan_can_be_created_with_kwargs(self):
-        """ExplorationPlan should accept keyword arguments."""
-        from aim.refiner.paradigm import ExplorationPlan
-
-        plan = ExplorationPlan(
-            query_text="A query",
-            scenario="philosopher",
-            reasoning="Some reason",
-        )
-
-        assert plan.scenario == "philosopher"
-        assert plan.query_text == "A query"
-        assert plan.reasoning == "Some reason"
-
-    def test_exploration_plan_empty_strings_allowed(self):
-        """ExplorationPlan should allow empty strings (though not recommended)."""
-        from aim.refiner.paradigm import ExplorationPlan
-
-        plan = ExplorationPlan(scenario="", query_text="")
-
-        assert plan.scenario == ""
-        assert plan.query_text == ""
-
-    def test_exploration_plan_long_query_text(self):
-        """ExplorationPlan should handle long query text."""
-        from aim.refiner.paradigm import ExplorationPlan
-
-        long_query = "x" * 10000
-        plan = ExplorationPlan(scenario="philosopher", query_text=long_query)
-
-        assert plan.query_text == long_query
-        assert len(plan.query_text) == 10000
+        with pytest.raises(ValueError, match="No config found"):
+            Paradigm.load("nonexistent")
 
 
-class TestExplorationPlanImports:
-    """Tests for ExplorationPlan imports from various locations."""
+class TestParadigmAvailable:
+    """Tests for discovering available paradigms."""
+
+    def test_available_returns_list(self):
+        """available() should return list of paradigm names."""
+        from aim.refiner.paradigm import Paradigm
+
+        available = Paradigm.available()
+        assert isinstance(available, list)
+        assert len(available) >= 4  # At least brainstorm, daydream, knowledge, critique
+
+    def test_available_contains_expected(self):
+        """available() should include known paradigms."""
+        from aim.refiner.paradigm import Paradigm
+
+        available = Paradigm.available()
+        assert "brainstorm" in available
+        assert "daydream" in available
+        assert "knowledge" in available
+        assert "critique" in available
+
+    def test_available_with_exclude(self):
+        """available(exclude=...) should filter out specified paradigms."""
+        from aim.refiner.paradigm import Paradigm
+
+        available = Paradigm.available(exclude=["journaler"])
+        assert "journaler" not in available
+        assert "brainstorm" in available
+
+
+class TestParadigmScenarioRouting:
+    """Tests for scenario routing logic."""
+
+    def test_brainstorm_routes_by_approach(self):
+        """Brainstorm should route based on approach."""
+        from aim.refiner.paradigm import Paradigm
+
+        paradigm = Paradigm.load("brainstorm")
+        assert paradigm.get_scenario("philosopher") == "philosopher"
+        assert paradigm.get_scenario("journaler") == "journaler"
+
+    def test_daydream_always_routes_to_daydream(self):
+        """Daydream should always route to daydream scenario."""
+        from aim.refiner.paradigm import Paradigm
+
+        paradigm = Paradigm.load("daydream")
+        assert paradigm.get_scenario("daydream") == "daydream"
+        assert paradigm.get_scenario(None) == "daydream"
+
+    def test_knowledge_routes_to_researcher_or_approach(self):
+        """Knowledge should route based on approach or default to researcher."""
+        from aim.refiner.paradigm import Paradigm
+
+        paradigm = Paradigm.load("knowledge")
+        # Knowledge has scenarios_by_approach
+        assert paradigm.get_scenario("philosopher") == "philosopher"
+        assert paradigm.get_scenario("journaler") == "journaler"
+
+    def test_critique_routes_to_critique(self):
+        """Critique should route to critique scenario."""
+        from aim.refiner.paradigm import Paradigm
+
+        paradigm = Paradigm.load("critique")
+        assert paradigm.get_scenario("critique") == "critique"
+
+
+class TestParadigmDocTypes:
+    """Tests for document type configuration."""
+
+    def test_brainstorm_doc_types(self):
+        """Brainstorm should have expected doc_types."""
+        from aim.refiner.paradigm import Paradigm
+
+        paradigm = Paradigm.load("brainstorm")
+        assert len(paradigm.doc_types) > 0
+        assert "brainstorm" in paradigm.doc_types
+
+    def test_approach_doc_types(self):
+        """Should return approach-specific doc types."""
+        from aim.refiner.paradigm import Paradigm
+
+        paradigm = Paradigm.load("brainstorm")
+        philosopher_types = paradigm.get_approach_doc_types("philosopher")
+        assert len(philosopher_types) > 0
+
+
+class TestParadigmTools:
+    """Tests for tool definitions."""
+
+    def test_get_select_tool(self):
+        """Should return select_topic tool."""
+        from aim.refiner.paradigm import Paradigm
+
+        paradigm = Paradigm.load("brainstorm")
+        tool = paradigm.get_select_tool()
+        assert tool.function.name == "select_topic"
+
+    def test_get_validate_tool(self):
+        """Should return validate_exploration tool."""
+        from aim.refiner.paradigm import Paradigm
+
+        paradigm = Paradigm.load("brainstorm")
+        tool = paradigm.get_validate_tool()
+        assert tool.function.name == "validate_exploration"
+
+
+class TestParadigmImports:
+    """Tests for Paradigm imports."""
 
     def test_import_from_paradigm_module(self):
         """Should be importable from aim.refiner.paradigm."""
-        from aim.refiner.paradigm import ExplorationPlan
+        from aim.refiner.paradigm import Paradigm
 
-        assert ExplorationPlan is not None
+        assert Paradigm is not None
 
     def test_import_from_refiner_package(self):
         """Should be importable from aim.refiner."""
-        from aim.refiner import ExplorationPlan
+        from aim.refiner import Paradigm
 
-        assert ExplorationPlan is not None
+        assert Paradigm is not None
 
     def test_both_imports_are_same_class(self):
         """Both import paths should reference the same class."""
-        from aim.refiner.paradigm import ExplorationPlan as EP1
-        from aim.refiner import ExplorationPlan as EP2
+        from aim.refiner.paradigm import Paradigm as P1
+        from aim.refiner import Paradigm as P2
 
-        assert EP1 is EP2
+        assert P1 is P2

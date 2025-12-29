@@ -92,52 +92,45 @@ def _resolve_doc_types(names: List[str]) -> List[str]:
 
 def get_paradigm_doc_types(paradigm: str) -> List[str]:
     """Get document types for a paradigm from config."""
-    from aim.refiner.paradigm_config import get_paradigm_config
+    from aim.refiner.paradigm import Paradigm
 
-    config = get_paradigm_config(paradigm)
-    if config:
-        return _resolve_doc_types(config.doc_types)
-
-    # Fallback defaults
-    logger.warning(f"No config for paradigm '{paradigm}', using defaults")
-    return [DOC_BRAINSTORM, DOC_PONDERING]
-
-
-def get_paradigm_queries(paradigm: str) -> List[dict]:
-    """Get queries for a paradigm from config."""
-    from aim.refiner.paradigm_config import get_paradigm_config
-
-    config = get_paradigm_config(paradigm)
-    if config:
-        return config.queries
-
-    # Fallback defaults
-    return [{"text": "unexplored ideas", "weight": 1.0}]
+    try:
+        p = Paradigm.load(paradigm)
+        return _resolve_doc_types(p.doc_types)
+    except ValueError:
+        logger.warning(f"No config for paradigm '{paradigm}', using defaults")
+        return [DOC_BRAINSTORM, DOC_PONDERING]
 
 
 def get_approach_doc_types(approach: str, paradigm: str = "") -> List[str]:
     """Get document types for an approach from config."""
-    from aim.refiner.paradigm_config import get_paradigm_config
+    from aim.refiner.paradigm import Paradigm
 
     # Try to get from the paradigm config first
     if paradigm:
-        config = get_paradigm_config(paradigm)
-        if config:
-            doc_types = config.get_approach_doc_types(approach)
+        try:
+            p = Paradigm.load(paradigm)
+            doc_types = p.get_approach_doc_types(approach)
             return _resolve_doc_types(doc_types)
+        except ValueError:
+            pass
 
     # Try loading the approach as a paradigm (e.g., "critique", "journaler" approach uses its own config)
-    config = get_paradigm_config(approach)
-    if config:
-        doc_types = config.get_approach_doc_types(approach)
+    try:
+        p = Paradigm.load(approach)
+        doc_types = p.get_approach_doc_types(approach)
         return _resolve_doc_types(doc_types)
+    except ValueError:
+        pass
 
     # philosopher is an approach within brainstorm paradigm
     if approach == "philosopher":
-        config = get_paradigm_config("brainstorm")
-        if config:
-            doc_types = config.get_approach_doc_types(approach)
+        try:
+            p = Paradigm.load("brainstorm")
+            doc_types = p.get_approach_doc_types(approach)
             return _resolve_doc_types(doc_types)
+        except ValueError:
+            pass
 
     # Fallback defaults
     logger.warning(f"No config for approach '{approach}', using defaults")
@@ -302,7 +295,8 @@ class ContextGatherer:
         """
         Get multiple varied query texts for each paradigm.
 
-        Multiple queries help cast a wider net for discovery diversity.
+        Note: This method is currently unused as broad_gather uses random
+        sampling rather than semantic search. Kept for potential future use.
 
         Args:
             paradigm: One of "brainstorm", "daydream", "knowledge", "critique"
@@ -310,7 +304,8 @@ class ContextGatherer:
         Returns:
             List of dicts with 'text' and 'weight' keys
         """
-        return get_paradigm_queries(paradigm)
+        # Return default queries - the queries field in YAML was never populated
+        return [{"text": "unexplored ideas", "weight": 1.0}]
 
     async def broad_gather(
         self,

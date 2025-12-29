@@ -32,8 +32,7 @@ from aim.conversation.model import ConversationModel
 from aim.app.dream_agent.client import DreamerClient
 from aim.agents.persona import Persona
 from aim.refiner.context import ContextGatherer
-from aim.refiner.prompts import build_topic_selection_prompt, build_validation_prompt
-from aim.refiner.tools import get_select_topic_tool, get_validate_tool
+from aim.refiner.paradigm import Paradigm
 from aim.tool.formatting import ToolUser
 from aim.utils.tokens import count_tokens
 
@@ -113,11 +112,19 @@ async def run_exploration(args: argparse.Namespace) -> int:
         return 1
 
     # Select paradigm
+    available_paradigms = Paradigm.available(exclude=["journaler"])
     if args.paradigm == "random":
-        paradigm = random.choice(["brainstorm", "daydream", "knowledge"])
+        paradigm_name = random.choice(available_paradigms)
     else:
-        paradigm = args.paradigm
-    print(f"Selected paradigm: {paradigm}")
+        paradigm_name = args.paradigm
+    print(f"Selected paradigm: {paradigm_name}")
+
+    # Load paradigm strategy
+    try:
+        paradigm = Paradigm.load(paradigm_name)
+    except ValueError as e:
+        print(f"Error loading paradigm '{paradigm_name}': {e}", file=sys.stderr)
+        return 1
 
     # Check idle status (unless skipped)
     if not args.skip_idle_check:
@@ -144,8 +151,8 @@ async def run_exploration(args: argparse.Namespace) -> int:
     print("STEP 1: BROAD CONTEXT GATHERING + TOPIC SELECTION")
     print("=" * 60)
 
-    print(f"\nGathering broad context for {paradigm}...")
-    broad_context = await context_gatherer.broad_gather(paradigm, token_budget=16000)
+    print(f"\nGathering broad context for {paradigm_name}...")
+    broad_context = await context_gatherer.broad_gather(paradigm_name, token_budget=16000)
 
     if broad_context.empty:
         print("No documents found for exploration.")
@@ -164,8 +171,8 @@ async def run_exploration(args: argparse.Namespace) -> int:
             print(f"... and {len(broad_docs) - 5} more")
         print("--- END DOCUMENTS ---\n")
 
-    # Build topic selection prompt
-    system_msg, user_msg = build_topic_selection_prompt(paradigm, broad_docs, persona)
+    # Build topic selection prompt using paradigm strategy
+    system_msg, user_msg = paradigm.build_selection_prompt(broad_docs, persona)
 
     if verbose:
         print("\n--- TOPIC SELECTION PROMPT ---")
@@ -191,8 +198,8 @@ async def run_exploration(args: argparse.Namespace) -> int:
         print(response1)
         print("--- END RESPONSE ---\n")
 
-    # Parse tool call
-    select_tool = get_select_topic_tool()
+    # Parse tool call using paradigm's tool definition
+    select_tool = paradigm.get_select_tool()
     tool_user = ToolUser([select_tool])
     result = tool_user.process_response(response1)
 
@@ -202,7 +209,7 @@ async def run_exploration(args: argparse.Namespace) -> int:
 
     topic_result = result.arguments
     topic = topic_result.get("topic", "")
-    approach = topic_result.get("approach", paradigm)
+    approach = topic_result.get("approach", paradigm.name)
     reasoning = topic_result.get("reasoning", "")
 
     print(f"\nTopic selected: {topic}")
@@ -238,15 +245,8 @@ async def run_exploration(args: argparse.Namespace) -> int:
             print(f"... and {len(targeted_docs) - 5} more")
         print("--- END DOCUMENTS ---\n")
 
-    # Build validation prompt
-    system_msg, user_msg = build_validation_prompt(
-        paradigm=paradigm,
-        topic=topic,
-        approach=approach,
-        reasoning=reasoning,
-        documents=targeted_docs,
-        persona=persona,
-    )
+    # Build validation prompt using paradigm strategy
+    system_msg, user_msg = paradigm.build_validation_prompt(targeted_docs, persona, topic, approach)
 
     if verbose:
         print("\n--- VALIDATION PROMPT ---")
@@ -272,8 +272,8 @@ async def run_exploration(args: argparse.Namespace) -> int:
         print(response2)
         print("--- END RESPONSE ---\n")
 
-    # Parse validation
-    validate_tool = get_validate_tool()
+    # Parse validation using paradigm's tool definition
+    validate_tool = paradigm.get_validate_tool()
     tool_user = ToolUser([validate_tool])
     result = tool_user.process_response(response2)
 
@@ -305,13 +305,8 @@ async def run_exploration(args: argparse.Namespace) -> int:
     print("STEP 3: SCENARIO LAUNCH")
     print("=" * 60)
 
-    # Map paradigms to scenarios
-    if paradigm == "daydream":
-        scenario = "daydream"
-    elif paradigm == "knowledge":
-        scenario = "researcher"
-    else:
-        scenario = approach
+    # Get scenario from paradigm config
+    scenario = paradigm.get_scenario(approach)
 
     if args.dry_run:
         print("\n[DRY RUN] Would trigger pipeline:")

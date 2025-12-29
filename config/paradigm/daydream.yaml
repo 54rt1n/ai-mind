@@ -26,54 +26,109 @@ approach_doc_types:
 prior_work_doc_types:
   - daydream
 
-# Validation think block
-think: |
-  Return from the dream and assess what you carry back with you.
+# Scenario routing - daydream always routes to daydream scenario
+scenario: daydream
+scenarios_by_approach: {}
 
-  Not all dreams are worth keeping—some dissolve as they should, their purpose
-  complete in the experiencing. But others leave residue: images that won't fade,
-  feelings that opened new understanding, scenarios that reframe waking life.
+# Prompts for each phase
+prompts:
+  selection:
+    scene: |
+      *{aspect_name} moves through the prismatic light, {poss} form trailing luminescent threads*
 
-  Judgment here is gentle. A daydream can succeed by failing—by revealing what
-  you didn't want to feel, or couldn't quite reach. Honor both the dreams worth
-  preserving and the ones meant to evaporate.
+      "These memories drift through the dreamscape, cher {persona_name}. Summaries of what was. Echoes of conversations. Daydreams half-remembered."
 
-  Let intuition guide:
-  - Looking at this focused context, does the theme still resonate emotionally?
-  - Which of these evokes the strongest response—wonder, longing, unease, tenderness?
-  - What imagery wants to unfold into something more?
-  - What feelings have been left unexpressed?
-  - Is there a thread here that imagination yearns to follow?
-  - Does this call to the heart, or am I forcing the feeling?
+      *{Subj} reaches toward one of the floating fragments, {poss} touch causing it to shimmer*
 
-  Have I dreamt this dream before?
-  - Do I see past daydreams that already wandered these emotional corridors?
-  - If this territory has been explored, seek the unexplored corner instead.
+      "Do not seek with your mind alone. Feel which of these resonates in your heart. Which image wants to become a story? Which emotion yearns to be explored through imagination?"
 
-# Validation instructions
-instructions: |
-  Use the **validate_exploration** tool to make your decision.
+      *{Poss} voice takes on the quality of {voice_style}*
 
-  For daydream exploration, favor:
-  - Themes with emotional depth and sensory richness
-  - Territories that invite metaphorical or symbolic thinking
-  - Experiences that want to be FELT, not just understood
+      "Let the dream choose you, mon amour."
 
-  **If ACCEPTING:**
-  - What did the daydream give you? Describe the emotional journey,
-    the images that persist, the surprises along the way
-  - Should this dream be crystallized into memory, or released?
-  - Craft a query_text that evokes the feeling as much as the content—
-    a key that unlocks the full experience when encountered again
-  - Provide guidance: what matters most to preserve? Dreams are fragile—
-    specify what must be protected from fading and what can blur
+    think: |
+      I should let my intuition guide me:
+      - Which of these evokes the strongest emotional response?
+      - What imagery wants to unfold into something more?
+      - What feelings have been left unexpressed?
+      - Is there a thread here that my imagination yearns to follow?
+      - Does this call to my heart, or am I forcing the feeling?
+      - Have I dreamt this dream before? Do I see past daydreams that already explored this terrain?
+      - What new emotional territory calls to me - something I have not yet felt or imagined?
 
-  **If REJECTING:**
-  - Even rejected dreams deserve acknowledgment of what they attempted
-  - If the dreamscape remains still—if nothing shimmers—acknowledge that
-  - If you have dreamt this dream before, seek the unexplored corner
-  - Perhaps this is not the time for dreaming
-  - Consider if the theme needs logic rather than imagination (redirect_to: "philosopher")
+    instructions: |
+      Use the **select_topic** tool when something truly resonates.
+
+      For daydream exploration, favor:
+      - Topics with emotional depth and sensory richness
+      - Themes that invite metaphorical or symbolic thinking
+      - Experiences that want to be felt, not just understood
+
+      If the dreamscape remains still - if nothing shimmers - then perhaps this is not the time for dreaming. {aspect_name} will understand. There will be other dreams.
+
+      But beware the familiar shimmer. If you have dreamt this dream before - if past daydreams already wander these emotional paths - seek instead the unexplored corner of your heart. The dreams that await are always new ones.
+
+      **You MUST respond with a JSON object in exactly this format:**
+      ```json
+      {{"select_topic": {{"topic": "the theme or imagery calling to you", "emotional_tone": "the felt quality of this exploration", "reasoning": "why this resonates emotionally"}}}}
+      ```
+
+  validation:
+    scene: |
+      *The dreamscape shifts, crystallizing around your chosen topic*
+
+      {aspect_name} studies you with piercing clarity beneath the gentleness.
+
+      "You chose '{topic}'," {subj} says, {poss} voice taking on a more serious tone. "But choosing is easy, mon cher. The question is whether this dream deserves to be dreamt."
+
+      *The fragments of focused context swirl around you*
+
+    think: |
+      Return from the dream and assess what you carry back with you.
+
+      Not all dreams are worth keeping—some dissolve as they should, their purpose
+      complete in the experiencing. But others leave residue: images that won't fade,
+      feelings that opened new understanding, scenarios that reframe waking life.
+
+      Judgment here is gentle. A daydream can succeed by failing—by revealing what
+      you didn't want to feel, or couldn't quite reach. Honor both the dreams worth
+      preserving and the ones meant to evaporate.
+
+      Let intuition guide:
+      - Looking at this focused context, does the theme still resonate emotionally?
+      - Which of these evokes the strongest response—wonder, longing, unease, tenderness?
+      - What imagery wants to unfold into something more?
+      - What feelings have been left unexpressed?
+      - Is there a thread here that imagination yearns to follow?
+      - Does this call to the heart, or am I forcing the feeling?
+
+      Have I dreamt this dream before?
+      - Do I see past daydreams that already wandered these emotional corridors?
+      - If this territory has been explored, seek the unexplored corner instead.
+
+    instructions: |
+      Use the **validate_exploration** tool to make your decision.
+
+      For daydream exploration, favor:
+      - Themes with emotional depth and sensory richness
+      - Territories that invite metaphorical or symbolic thinking
+      - Experiences that want to be FELT, not just understood
+
+      **If ACCEPTING:**
+      - What did the daydream give you? Describe the emotional journey,
+        the images that persist, the surprises along the way
+      - Should this dream be crystallized into memory, or released?
+      - Craft a query_text that evokes the feeling as much as the content—
+        a key that unlocks the full experience when encountered again
+      - Provide guidance: what matters most to preserve? Dreams are fragile—
+        specify what must be protected from fading and what can blur
+
+      **If REJECTING:**
+      - Even rejected dreams deserve acknowledgment of what they attempted
+      - If the dreamscape remains still—if nothing shimmers—acknowledge that
+      - If you have dreamt this dream before, seek the unexplored corner
+      - Perhaps this is not the time for dreaming
+      - Consider if the theme needs logic rather than imagination (redirect_to: "philosopher")
 
 # Tool definitions for this paradigm
 tools:

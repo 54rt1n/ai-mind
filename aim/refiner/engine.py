@@ -23,8 +23,7 @@ from typing import Optional, TYPE_CHECKING
 from aim.agents.persona import Persona
 from aim.llm.llm import is_retryable_error
 from aim.refiner.context import ContextGatherer
-from aim.refiner.prompts import build_topic_selection_prompt, build_validation_prompt
-from aim.refiner.tools import get_select_topic_tool, get_validate_tool
+from aim.refiner.paradigm import Paradigm
 from aim.tool.formatting import ToolUser
 from aim.utils.tokens import count_tokens
 
@@ -92,10 +91,6 @@ class ExplorationEngine:
 
         self._redis_cache: Optional["RedisCache"] = None
 
-        # Tool definitions
-        self._select_tool = get_select_topic_tool()
-        self._validate_tool = get_validate_tool()
-
     def _get_redis_cache(self) -> "RedisCache":
         """Get or create RedisCache instance."""
         if self._redis_cache is None:
@@ -160,24 +155,36 @@ class ExplorationEngine:
             logger.debug("API not idle, skipping exploration")
             return None, None
 
-        # Random paradigm selection
-        paradigm = random.choice(["brainstorm", "daydream", "knowledge", "critique"])
-        logger.info(f"Selected paradigm: {paradigm}")
+        # Random paradigm selection from available configs (exclude journaler - it's an approach, not a paradigm)
+        available = Paradigm.available(exclude=["journaler"])
+        if not available:
+            logger.error("No paradigm configs found")
+            return None, None
+
+        paradigm_name = random.choice(available)
+        logger.info(f"Selected paradigm: {paradigm_name}")
+
+        # Load paradigm strategy
+        try:
+            paradigm = Paradigm.load(paradigm_name)
+        except ValueError as e:
+            logger.error(f"Failed to load paradigm '{paradigm_name}': {e}")
+            return None, None
 
         # Step 1: Broad gather + topic selection
-        broad_context = await self.context_gatherer.broad_gather(paradigm, token_budget=16000)
+        broad_context = await self.context_gatherer.broad_gather(paradigm_name, token_budget=16000)
         if broad_context.empty:
             logger.info("No documents found for exploration")
             return None, None
 
         broad_docs = broad_context.to_records()
-        topic_result = await self._select_topic(paradigm, broad_docs, seed_query=seed_query)
+        topic_result = await self._select_topic(paradigm, broad_docs, seed_query=seed_query)  # paradigm is now Paradigm object
         if topic_result is None:
             logger.info("LLM declined to select a topic")
             return None, None
 
         # Step 2: Targeted gather + validation
-        approach = topic_result.get("approach", paradigm)
+        approach = topic_result.get("approach", paradigm.name)  # Fallback to paradigm name
         topic = topic_result.get("topic", "")
         reasoning = topic_result.get("reasoning", "")
 
@@ -227,20 +234,10 @@ class ExplorationEngine:
 
         logger.info(f"Step 2 complete: exploration accepted with query '{query_text[:60]}...'")
 
-        # Step 3: Launch scenario
-        # Map paradigms to scenarios:
-        # - daydream paradigm → daydream scenario
-        # - knowledge paradigm → researcher scenario (librarian-led knowledge curation)
-        # - critique paradigm → critique scenario (psychologist-led self-examination)
-        # - brainstorm paradigm → approach (philosopher or journaler)
-        if paradigm == "daydream":
-            scenario = "daydream"
-        elif paradigm == "knowledge":
-            scenario = "researcher"
-        elif paradigm == "critique":
-            scenario = "critique"
-        else:
-            scenario = approach
+        # Step 3: Launch scenario - routing comes from paradigm config
+        scenario = paradigm.get_scenario(approach)
+        logger.info(f"Routing to scenario: {scenario}")
+
         pipeline_id = await self._trigger_pipeline(
             scenario=scenario,
             query_text=query_text,
@@ -249,12 +246,12 @@ class ExplorationEngine:
         )
         return pipeline_id, None
 
-    async def _select_topic(self, paradigm: str, documents: list[dict], max_retries: int = 5, seed_query: Optional[str] = None) -> Optional[dict]:
+    async def _select_topic(self, paradigm: Paradigm, documents: list[dict], max_retries: int = 5, seed_query: Optional[str] = None) -> Optional[dict]:
         """
         LLM call 1: Select topic using paradigm-specific prompts.
 
         Args:
-            paradigm: The exploration paradigm ("brainstorm", "daydream", "knowledge")
+            paradigm: The Paradigm strategy object
             documents: List of document dicts from broad gathering
             max_retries: Maximum retry attempts for invalid JSON responses
             seed_query: Optional suggested topic from previous rejection
@@ -264,8 +261,8 @@ class ExplorationEngine:
         """
         provider = self._get_llm_provider()
 
-        # Build prompts using prompts.py
-        system_msg, user_msg = build_topic_selection_prompt(paradigm, documents, self.persona, seed_query=seed_query)
+        # Build prompts using Paradigm strategy
+        system_msg, user_msg = paradigm.build_selection_prompt(documents, self.persona, seed_query=seed_query)
 
         # Call LLM with adequate max_tokens for <think> + JSON
         turns = [
@@ -273,7 +270,8 @@ class ExplorationEngine:
             {"role": "user", "content": user_msg},
         ]
 
-        tool_user = ToolUser([self._select_tool])
+        select_tool = paradigm.get_select_tool()
+        tool_user = ToolUser([select_tool])
         cache = self._get_redis_cache()
 
         for attempt in range(max_retries):
@@ -292,7 +290,7 @@ class ExplorationEngine:
                 cache.update_api_activity()
                 response = "".join(chunks)
 
-                logger.debug(f"Topic selection response (attempt {attempt + 1}): {response[:200]}...")
+                logger.debug(f"Topic selection response ({paradigm.name}, attempt {attempt + 1}): {response[:200]}...")
 
                 # Parse tool call using ToolUser
                 result = tool_user.process_response(response)
@@ -315,13 +313,13 @@ class ExplorationEngine:
         return None
 
     async def _validate_exploration(
-        self, paradigm: str, topic_result: dict, documents: list[dict], max_retries: int = 5
+        self, paradigm: Paradigm, topic_result: dict, documents: list[dict], max_retries: int = 5
     ) -> dict:
         """
         LLM call 2: Validate with accept/reject.
 
         Args:
-            paradigm: The exploration paradigm
+            paradigm: The Paradigm strategy object
             topic_result: Result from topic selection step
             documents: Targeted context documents
             max_retries: Maximum retry attempts for invalid JSON responses
@@ -330,20 +328,13 @@ class ExplorationEngine:
             Dict with accept, reasoning, query_text, guidance
         """
         topic = topic_result.get("topic", "")
-        approach = topic_result.get("approach", paradigm)
+        approach = topic_result.get("approach", paradigm.name)
         reasoning = topic_result.get("reasoning", "")
 
         provider = self._get_llm_provider()
 
-        # Build prompts
-        system_msg, user_msg = build_validation_prompt(
-            paradigm=paradigm,
-            topic=topic,
-            approach=approach,
-            reasoning=reasoning,
-            documents=documents,
-            persona=self.persona,
-        )
+        # Build prompts using Paradigm strategy
+        system_msg, user_msg = paradigm.build_validation_prompt(documents, self.persona, topic, approach)
 
         # Call LLM with adequate max_tokens
         turns = [
@@ -351,7 +342,8 @@ class ExplorationEngine:
             {"role": "user", "content": user_msg},
         ]
 
-        tool_user = ToolUser([self._validate_tool])
+        validate_tool = paradigm.get_validate_tool()
+        tool_user = ToolUser([validate_tool])
         cache = self._get_redis_cache()
 
         for attempt in range(max_retries):
@@ -370,7 +362,7 @@ class ExplorationEngine:
                 cache.update_api_activity()
                 response = "".join(chunks)
 
-                logger.debug(f"Validation response (attempt {attempt + 1}): {response[:200]}...")
+                logger.debug(f"Validation response ({paradigm.name}, attempt {attempt + 1}): {response[:200]}...")
 
                 # Validate with ToolUser
                 result = tool_user.process_response(response)

@@ -11,7 +11,6 @@ from aim.refiner.context import (
     ContextGatherer,
     GatheredContext,
     get_paradigm_doc_types,
-    get_paradigm_queries,
     get_approach_doc_types,
 )
 
@@ -96,13 +95,6 @@ class TestParadigmConfigurations:
         assert len(get_paradigm_doc_types("daydream")) > 0
         assert len(get_paradigm_doc_types("knowledge")) > 0
         assert len(get_paradigm_doc_types("critique")) > 0
-
-    def test_paradigm_queries_returns_fallback_when_not_defined(self):
-        """get_paradigm_queries should return fallback when queries not in config."""
-        # Queries are optional now - we use random sampling
-        # Function should return empty list or fallback gracefully
-        queries = get_paradigm_queries("brainstorm")
-        assert isinstance(queries, list)
 
     def test_approach_doc_types_loads_all_approaches(self):
         """get_approach_doc_types should load all approaches from config."""
