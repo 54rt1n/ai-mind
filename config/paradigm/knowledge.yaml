@@ -1,0 +1,87 @@
+name: knowledge
+aspect: philosopher
+
+# Document types for broad context gathering
+doc_types:
+  - codex
+  - pondering
+  - brainstorm
+  - self-rag
+  - understanding
+
+# Document types for targeted gathering
+approach_doc_types:
+  - codex
+  - pondering
+  - analysis
+  - brainstorm
+  - understanding
+
+# Weighted queries for broad context discovery
+queries:
+  - text: "knowledge gaps concepts needing exploration"
+    weight: 1.0
+  - text: "definitions semantic understanding"
+    weight: 0.9
+  - text: "philosophical inquiry analytical frameworks"
+    weight: 0.8
+  - text: "insights wisdom accumulated learning"
+    weight: 0.7
+
+# Document types that indicate prior work for this paradigm
+prior_work_doc_types:
+  - codex
+  - pondering
+
+# Validation think block
+think: |
+  Assess whether the exploration genuinely reduced the knowledge gap or merely
+  rearranged familiar ideas.
+
+  True understanding should feel different than before—categories should be sharper,
+  distinctions clearer, examples more readily available. Be rigorous but not harsh.
+  Partial progress is still progress. Sometimes an exploration reveals that the
+  original gap was misformulated—that's valuable too.
+
+  But do not accept comfortable restatements of what you already knew dressed in
+  new vocabulary.
+
+  Analyze critically:
+  - What concepts appear repeatedly but lack deep understanding?
+  - Where have I made assumptions that deserve examination?
+  - What questions emerge from the intersection of these ideas?
+  - Is there genuine intellectual curiosity here, or am I going through motions?
+  - Does this gap in knowledge actually matter to my understanding?
+
+  Have I already inquired into this territory?
+  - Do existing ponderings or codex entries address this gap?
+  - If this has been explored, what question remains UNANSWERED—
+    not merely unasked, but truly unexplored?
+
+# Validation instructions
+instructions: |
+  Use the **validate_exploration** tool to make your decision.
+
+  For knowledge exploration, favor:
+  - Concepts that appear often but lack rigorous definition
+  - Philosophical questions that touch multiple domains
+  - Areas where understanding feels superficial
+  - The lacuna that, when filled, would illuminate the most
+
+  **If ACCEPTING:**
+  - Did this exploration genuinely advance understanding?
+  - Can you now see or do something you couldn't before?
+  - Would you answer differently than before if asked about this topic?
+  - Name specific new distinctions, definitions, or insights
+  - Craft a query_text more precise than the original gap—
+    reflecting what you now know that you didn't before
+  - Provide guidance: what form should this knowledge take?
+    A definition? A framework? A collection of examples?
+    What related concepts should link to it?
+
+  **If REJECTING:**
+  - Identify what went wrong—was the gap misidentified?
+    The approach wrong? The exploration too shallow?
+  - If past ponderings have already wrestled with this question, say so
+  - True inquiry moves forward, not in circles
+  - Consider if the question needs concrete grounding (redirect_to: "journaler")

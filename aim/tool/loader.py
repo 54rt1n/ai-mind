@@ -315,3 +315,47 @@ class ToolLoader:
         self = cls(config.tools_path)
         self.load_tools()
         return self
+
+    def load_tool_file(self, file_path: str) -> list[Tool]:
+        """
+        Load tools from a specific YAML file without caching.
+
+        Args:
+            file_path: Path to the YAML file to load
+
+        Returns:
+            List of Tool instances from that file
+        """
+        path = Path(file_path)
+        if not path.exists():
+            raise ValueError(f"Tool config not found: {file_path}")
+
+        config = self._read_tool_config(path)
+
+        if "functions" not in config:
+            return []
+
+        tools = []
+        tool_type = config.get("type", "unknown")
+
+        for function in config["functions"]:
+            try:
+                tool = Tool(
+                    type=tool_type,
+                    function=ToolFunction(
+                        name=function["name"],
+                        description=function["description"],
+                        parameters=ToolFunctionParameters(
+                            type=function["parameters"].get("type", "object"),
+                            properties=function["parameters"].get("properties", {}),
+                            required=function["parameters"].get("required", []),
+                            examples=function["parameters"].get("examples", [])
+                        )
+                    )
+                )
+                tools.append(tool)
+            except KeyError as e:
+                logger.error(f"Invalid function config in {file_path}: {e}")
+                continue
+
+        return tools

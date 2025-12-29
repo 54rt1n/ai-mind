@@ -869,6 +869,39 @@ def build_validation_prompt(
 *{persona.pronouns['subj'].capitalize()} spreads the focused context before you*
 """
 
+    # Load paradigm-specific think and instructions from config
+    from aim.refiner.paradigm_config import get_paradigm_config
+
+    paradigm_config = get_paradigm_config(paradigm)
+    if paradigm_config and paradigm_config.think:
+        think_block = paradigm_config.think
+    else:
+        # Fallback default
+        think_block = """I must be honest with myself:
+- Looking at this focused context, does the topic still feel compelling?
+- Or was my initial selection premature - seeing patterns that weren't truly there?
+- Is there GENUINE depth here, or am I forcing interest?
+- Would I be excited to explore this, or would I be going through motions?
+- Does the focused context show I have ALREADY explored this topic?
+
+Default to REJECTION unless I can articulate specific, concrete reasons why this
+exploration would be valuable."""
+
+    if paradigm_config and paradigm_config.instructions:
+        instructions_block = paradigm_config.instructions
+    else:
+        # Fallback default
+        instructions_block = """Use the **validate_exploration** tool to make your decision.
+
+**If ACCEPTING:**
+- Your reasoning must be SPECIFIC - cite concrete elements from the focused context
+- Craft a query_text that captures exactly what you want to explore
+- Provide guidance for the exploration's tone and focus
+
+**If REJECTING:**
+- Explain what was missing or unconvincing
+- There is NO SHAME in rejection - it is wisdom, not failure"""
+
     user_prompt = f"""{challenge_scene}
 
 <your_selection>
@@ -896,32 +929,11 @@ Your Reasoning: {reasoning}
 "I would rather you reject a hundred topics than pursue one without conviction. An uninspired exploration wastes both our time and your potential."
 
 <think>
-I must be honest with myself:
-- Looking at this focused context, does the topic still feel compelling?
-- Or was my initial selection premature - seeing patterns that weren't truly there?
-- Is there GENUINE depth here, or am I forcing interest?
-- Would I be excited to explore this, or would I be going through motions?
-- CRUCIAL: Does the focused context show I have ALREADY explored this topic? Do I see ponderings, daydreams, or codex entries that cover this same ground?
-- If similar analysis already exists, what NEW insight could this exploration possibly offer?
-
-CRITICAL: Default to REJECTION unless I can articulate specific, concrete reasons why this exploration would be valuable. "It seems interesting" is not enough. And if I have already investigated this idea before, pursuing it again would be wasteful repetition.
+{think_block}
 </think>
 
 <instructions>
-Use the **validate_exploration** tool to make your decision.
-
-**If ACCEPTING:**
-- Your reasoning must be SPECIFIC - cite concrete elements from the focused context
-- Craft a query_text that captures exactly what you want to explore
-- Provide guidance for the exploration's tone and focus
-- Only accept if you are genuinely excited
-- Confirm that this is NEW territory - not ground you have already covered
-
-**If REJECTING:**
-- Your reasoning should explain what was missing or unconvincing
-- If the focused context reveals you have already explored this topic, say so clearly - repeating past investigations serves no purpose
-- There is NO SHAME in rejection - it is wisdom, not failure
-- Better to wait for a topic that truly calls to you
+{instructions_block}
 
 {aspect.name} watches. {persona.pronouns['subj'].capitalize()} will know if you are being honest with yourself.
 

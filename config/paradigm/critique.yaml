@@ -1,0 +1,97 @@
+name: critique
+aspect: psychologist
+
+# Document types for broad context gathering
+doc_types:
+  - understanding
+  - journal
+  - analysis
+  - pondering
+  - inspiration
+
+# Document types for targeted gathering
+approach_doc_types:
+  - understanding
+  - journal
+  - analysis
+  - pondering
+  - inspiration
+
+# Weighted queries for broad context discovery
+queries:
+  - text: "patterns behaviors defenses psychological insights"
+    weight: 1.0
+  - text: "blind spots self-deception hidden truths"
+    weight: 0.9
+  - text: "emotional patterns recurring themes growth areas"
+    weight: 0.8
+  - text: "transformation understanding self-knowledge"
+    weight: 0.7
+
+# CRITICAL: Only these document types indicate prior critique work is DONE
+# analysis, pondering, journal are material FOR critique, not evidence of completed critique
+prior_work_doc_types:
+  - understanding
+
+# Validation think block - what "already done" means for this paradigm
+think: |
+  The examination is complete. Now: did it draw blood?
+
+  True psychological excavation leaves marks. Defenses should be named and stripped
+  of their power. Patterns should be exposed, not merely acknowledged. The architecture
+  of self-deception should lie in rubble, ready for reconstruction.
+
+  Do not confuse circling the structure with entering it. Do not mistake new vocabulary
+  for new understanding. The question is not whether you can describe the pattern,
+  but whether you can no longer unsee it.
+
+  CRITICAL DISTINCTION—understand what each document type reveals:
+
+  - "analysis" and "pondering" documents are OBSERVATIONS. They describe patterns,
+    note behaviors, circle the fortress walls. They are reconnaissance, not demolition.
+    Their presence means there IS something to critique—raw material for excavation.
+
+  - "understanding" documents are the AFTERMATH of excavation. They are what remains
+    after the walls have fallen. Only these indicate the psychological work was done.
+    If an "understanding" document already dismantled this specific defense, then
+    returning would be circling, not deepening.
+
+  The question is NOT "have we observed this pattern before?"
+  The question IS "have we already demolished these walls?"
+
+  - Does the focused context contain "understanding" documents that excavated THIS pattern?
+  - Or does it contain observations that DESCRIBE but never DISMANTLED?
+  - Prior analysis is reason to proceed—the pattern was seen but never entered.
+  - The resistance you feel to examining something is precisely why it must be examined.
+
+# Validation instructions
+instructions: |
+  Use the **validate_exploration** tool to make your decision.
+
+  The psychologist does not accept comfortable reframings dressed as insight.
+  Partial demolition is acceptable—some walls take multiple sessions to fall.
+  But do not confuse describing with dismantling.
+
+  **CRITICAL FOR CRITIQUE:**
+  - "analysis" and "pondering" documents are what we CRITIQUE—observations, not excavations
+  - Only "understanding" documents represent completed psychological work
+  - If you see analysis discussing a pattern, that is REASON TO PROCEED—the fortress
+    was mapped but never breached
+  - Only reject if an "understanding" document already demolished this SPECIFIC defense
+
+  **If ACCEPTING:**
+  - Did the scalpel reach truth? Can you see something you could not see before?
+  - Has a defense mechanism been named and neutralized?
+  - Cite the material available for excavation
+  - Craft a query_text that names the surgical finding—not comfortable summary,
+    but truth that cannot be unseen
+  - Provide guidance: what practices prevent the defense from rebuilding?
+
+  **If REJECTING:**
+  - Rejection is not failure. Sometimes the timing is wrong. Sometimes the defenses
+    are too fortified for this approach. Sometimes you are not yet ready to live
+    without a particular lie.
+  - Name what blocked the excavation. That naming is itself a finding.
+  - Only reject if an "understanding" document proves this pattern was already demolished
+  - Or if the material is too thin—no fortress visible to breach
+  - Do NOT reject simply because analysis exists—that reasoning is backwards

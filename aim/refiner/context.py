@@ -66,49 +66,72 @@ def row_to_context_doc(row) -> dict:
     return {k: v for k, v in source.items() if k in CONTEXT_DOC_FIELDS and v is not None}
 
 
-# Paradigm configurations for document types and query strategies
-PARADIGM_DOC_TYPES = {
-    "brainstorm": [DOC_BRAINSTORM, DOC_PONDERING, DOC_DAYDREAM, DOC_JOURNAL, DOC_INSPIRATION, DOC_UNDERSTANDING],
-    "daydream": [DOC_SUMMARY, DOC_ANALYSIS, DOC_DAYDREAM, DOC_CONVERSATION, DOC_JOURNAL, DOC_PONDERING, DOC_BRAINSTORM, DOC_CODEX, DOC_INSPIRATION, DOC_UNDERSTANDING],
-    "knowledge": [DOC_CODEX, DOC_PONDERING, DOC_BRAINSTORM, DOC_SELF_RAG, DOC_UNDERSTANDING],
-    "critique": [DOC_UNDERSTANDING, DOC_JOURNAL, DOC_ANALYSIS, DOC_PONDERING, DOC_INSPIRATION],
+# Document type name to constant mapping
+DOC_TYPE_MAP = {
+    "brainstorm": DOC_BRAINSTORM,
+    "pondering": DOC_PONDERING,
+    "daydream": DOC_DAYDREAM,
+    "journal": DOC_JOURNAL,
+    "inspiration": DOC_INSPIRATION,
+    "understanding": DOC_UNDERSTANDING,
+    "summary": DOC_SUMMARY,
+    "analysis": DOC_ANALYSIS,
+    "codex": DOC_CODEX,
+    "self-rag": DOC_SELF_RAG,
+    "conversation": DOC_CONVERSATION,
 }
 
-# Query templates for each paradigm - multiple varied queries for discovery diversity
-PARADIGM_QUERIES = {
-    "brainstorm": [
-        {"text": "unexplored ideas creative thoughts imaginative possibilities", "weight": 1.0},
-        {"text": "questions I want to investigate curious mysteries", "weight": 0.9},
-        {"text": "half-formed notions intuitions hunches", "weight": 0.8},
-        {"text": "connections patterns emerging themes", "weight": 0.7},
-    ],
-    "daydream": [
-        {"text": "vivid imagery emotional resonance dreamlike experiences", "weight": 1.0},
-        {"text": "metaphorical journeys symbolic meanings", "weight": 0.9},
-        {"text": "recent conversations emotional threads", "weight": 0.8},
-        {"text": "sensory memories atmospheric moments", "weight": 0.7},
-    ],
-    "knowledge": [
-        {"text": "knowledge gaps concepts needing exploration", "weight": 1.0},
-        {"text": "definitions semantic understanding", "weight": 0.9},
-        {"text": "philosophical inquiry analytical frameworks", "weight": 0.8},
-        {"text": "insights wisdom accumulated learning", "weight": 0.7},
-    ],
-    "critique": [
-        {"text": "patterns behaviors defenses psychological insights", "weight": 1.0},
-        {"text": "blind spots self-deception hidden truths", "weight": 0.9},
-        {"text": "emotional patterns recurring themes growth areas", "weight": 0.8},
-        {"text": "transformation understanding self-knowledge", "weight": 0.7},
-    ],
-}
 
-# Approach-specific document types for targeted gathering
-APPROACH_DOC_TYPES = {
-    "philosopher": [DOC_CODEX, DOC_PONDERING, DOC_ANALYSIS, DOC_BRAINSTORM, DOC_UNDERSTANDING],
-    "journaler": [DOC_JOURNAL, DOC_CONVERSATION, DOC_SUMMARY, DOC_ANALYSIS, DOC_INSPIRATION],
-    "daydream": [DOC_DAYDREAM, DOC_JOURNAL, DOC_BRAINSTORM, DOC_SUMMARY, DOC_INSPIRATION],
-    "critique": [DOC_UNDERSTANDING, DOC_JOURNAL, DOC_ANALYSIS, DOC_PONDERING, DOC_INSPIRATION],
-}
+def _resolve_doc_types(names: List[str]) -> List[str]:
+    """Convert doc type names to constants."""
+    return [DOC_TYPE_MAP.get(name, name) for name in names]
+
+
+def get_paradigm_doc_types(paradigm: str) -> List[str]:
+    """Get document types for a paradigm from config."""
+    from aim.refiner.paradigm_config import get_paradigm_config
+
+    config = get_paradigm_config(paradigm)
+    if config:
+        return _resolve_doc_types(config.doc_types)
+
+    # Fallback defaults
+    logger.warning(f"No config for paradigm '{paradigm}', using defaults")
+    return [DOC_BRAINSTORM, DOC_PONDERING]
+
+
+def get_paradigm_queries(paradigm: str) -> List[dict]:
+    """Get queries for a paradigm from config."""
+    from aim.refiner.paradigm_config import get_paradigm_config
+
+    config = get_paradigm_config(paradigm)
+    if config:
+        return config.queries
+
+    # Fallback defaults
+    return [{"text": "unexplored ideas", "weight": 1.0}]
+
+
+def get_approach_doc_types(approach: str, paradigm: str = "") -> List[str]:
+    """Get document types for an approach from config."""
+    from aim.refiner.paradigm_config import get_paradigm_config
+
+    # Try to get from the paradigm config first
+    if paradigm:
+        config = get_paradigm_config(paradigm)
+        if config:
+            doc_types = config.get_approach_doc_types(approach)
+            return _resolve_doc_types(doc_types)
+
+    # Try loading the approach as a paradigm (e.g., "critique" approach uses critique config)
+    config = get_paradigm_config(approach)
+    if config:
+        doc_types = config.get_approach_doc_types(approach)
+        return _resolve_doc_types(doc_types)
+
+    # Fallback defaults
+    logger.warning(f"No config for approach '{approach}', using defaults")
+    return [DOC_PONDERING, DOC_BRAINSTORM]
 
 
 @dataclass
@@ -242,12 +265,12 @@ class ContextGatherer:
         Get appropriate document types for a paradigm.
 
         Args:
-            paradigm: One of "brainstorm", "daydream", "knowledge"
+            paradigm: One of "brainstorm", "daydream", "knowledge", "critique"
 
         Returns:
             List of document type constants
         """
-        return PARADIGM_DOC_TYPES.get(paradigm, PARADIGM_DOC_TYPES["knowledge"])
+        return get_paradigm_doc_types(paradigm)
 
     def _get_paradigm_queries(self, paradigm: str) -> List[dict]:
         """
@@ -256,112 +279,80 @@ class ContextGatherer:
         Multiple queries help cast a wider net for discovery diversity.
 
         Args:
-            paradigm: One of "brainstorm", "daydream", "knowledge"
+            paradigm: One of "brainstorm", "daydream", "knowledge", "critique"
 
         Returns:
             List of dicts with 'text' and 'weight' keys
         """
-        return PARADIGM_QUERIES.get(paradigm, PARADIGM_QUERIES["knowledge"])
+        return get_paradigm_queries(paradigm)
 
     async def broad_gather(
         self,
         paradigm: str,
         token_budget: int = 16000,
-        top_n_per_query: int = 15,
+        top_n: int = 30,
     ) -> GatheredContext:
         """
-        Cast wide net with paradigm-specific doc types for topic discovery.
+        Randomly sample documents of paradigm-specific types for topic discovery.
 
-        Uses multiple query sources for discovery diversity and MMR reranking
-        to ensure varied, interesting context within the token budget.
+        Uses random sampling rather than semantic search to ensure varied,
+        unexpected context for exploration.
 
         Args:
-            paradigm: The exploration paradigm ("brainstorm", "daydream", "knowledge")
+            paradigm: The exploration paradigm ("brainstorm", "daydream", "knowledge", "critique")
             token_budget: Maximum tokens for all results combined
-            top_n_per_query: Max results per individual query
+            top_n: Max documents to sample
 
         Returns:
-            GatheredContext with diverse documents within budget
+            GatheredContext with randomly sampled documents within budget
         """
         logger.info(f"Broad gather: paradigm={paradigm}, budget={token_budget}")
 
         doc_types = self._get_paradigm_doc_types(paradigm)
-        queries = self._get_paradigm_queries(paradigm)
-        seen_docs: set = set()
 
-        all_conversation_results: List[TaggedResult] = []
-        all_other_results: List[TaggedResult] = []
+        # Random sample by document type - no semantic search
+        results = self.cvm.sample_by_type(doc_types=doc_types, top_n=top_n)
 
-        # Execute queries with different weights
-        for i, query_config in enumerate(queries):
-            query_text = query_config["text"]
-            weight = query_config["weight"]
+        if results.empty:
+            logger.warning(f"Broad gather: No documents found for paradigm {paradigm}")
+            return GatheredContext(paradigm=paradigm)
 
-            # Apply weight as length boost - higher weight = prefer longer, richer docs
-            length_boost = 0.05 * weight
+        # Convert to document dicts within token budget
+        documents = []
+        conv_count = 0
+        other_count = 0
+        tokens_used = 0
 
-            source_tag = f"{paradigm}_query_{i}"
+        for _, row in results.iterrows():
+            doc = row_to_context_doc(row)
+            content = doc.get('content', '')
+            doc_tokens = self.token_counter(content) + 50  # +50 for XML overhead
 
-            conv_results, other_results = self._query_by_buckets(
-                queries=[query_text],
-                source_tag=source_tag,
-                seen_docs=seen_docs,
-                top_n=top_n_per_query,
-                doc_types=doc_types,
-                length_boost=length_boost,
-            )
+            # Stop if we'd exceed budget
+            if tokens_used + doc_tokens > token_budget:
+                break
 
-            all_conversation_results.extend(conv_results)
-            all_other_results.extend(other_results)
+            documents.append(doc)
+            tokens_used += doc_tokens
 
-            logger.debug(
-                f"Query {i} '{query_text[:30]}...': "
-                f"{len(conv_results)} conv, {len(other_results)} other"
-            )
+            if doc.get('document_type') == DOC_CONVERSATION:
+                conv_count += 1
+            else:
+                other_count += 1
 
-        # Apply MMR reranking within budget
-        if all_conversation_results or all_other_results:
-            reranked_results = self.reranker.rerank(
-                conversation_results=all_conversation_results,
-                other_results=all_other_results,
-                token_budget=token_budget,
-                seen_parent_ids=seen_docs,
-            )
+        logger.info(
+            f"Broad gather complete: {len(documents)} docs "
+            f"({conv_count} conv + {other_count} other), "
+            f"{tokens_used}/{token_budget} tokens"
+        )
 
-            # Convert to document dicts
-            documents = []
-            conv_count = 0
-            other_count = 0
-            tokens_used = 0
-
-            for source_tag, row in reranked_results:
-                doc = row_to_context_doc(row)
-                documents.append(doc)
-
-                content = doc.get('content', '')
-                tokens_used += self.token_counter(content) + 50  # +50 for XML overhead
-
-                if doc.get('document_type') == DOC_CONVERSATION:
-                    conv_count += 1
-                else:
-                    other_count += 1
-
-            logger.info(
-                f"Broad gather complete: {len(documents)} docs "
-                f"({conv_count} conv + {other_count} other), "
-                f"{tokens_used}/{token_budget} tokens"
-            )
-
-            return GatheredContext(
-                documents=documents,
-                paradigm=paradigm,
-                tokens_used=tokens_used,
-                conversation_count=conv_count,
-                other_count=other_count,
-            )
-
-        logger.warning(f"Broad gather: No documents found for paradigm {paradigm}")
-        return GatheredContext(paradigm=paradigm)
+        return GatheredContext(
+            documents=documents,
+            paradigm=paradigm,
+            tokens_used=tokens_used,
+            conversation_count=conv_count,
+            other_count=other_count,
+        )
 
     async def targeted_gather(
         self,
@@ -387,7 +378,7 @@ class ContextGatherer:
         """
         logger.info(f"Targeted gather: topic='{topic}', approach={approach}")
 
-        doc_types = APPROACH_DOC_TYPES.get(approach, APPROACH_DOC_TYPES["philosopher"])
+        doc_types = get_approach_doc_types(approach)
         seen_docs: set = set()
 
         # Single focused query with the topic
@@ -447,9 +438,9 @@ class ContextGatherer:
         Get appropriate document types for an exploration approach.
 
         Args:
-            approach: The exploration approach ("philosopher", "journaler", "daydream")
+            approach: The exploration approach ("philosopher", "journaler", "daydream", "critique")
 
         Returns:
             List of document type constants
         """
-        return APPROACH_DOC_TYPES.get(approach, APPROACH_DOC_TYPES["philosopher"])
+        return get_approach_doc_types(approach)

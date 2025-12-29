@@ -74,10 +74,6 @@ class TestFormatDocuments:
 class TestGetRefinerTools:
     """Tests for the _get_refiner_tools function."""
 
-    # Paradigm-specific tool names
-    SELECT_TOOL_NAMES = {"select_brainstorm_idea", "select_daydream_theme", "select_knowledge_gap"}
-    VALIDATE_TOOL_NAMES = {"validate_brainstorm_exploration", "validate_daydream_exploration", "validate_knowledge_exploration"}
-
     def test_returns_list_of_tools(self):
         """Should return a list of Tool objects."""
         tools = _get_refiner_tools()
@@ -85,60 +81,37 @@ class TestGetRefinerTools:
         assert isinstance(tools, list)
         assert len(tools) >= 2
 
-    def test_includes_select_tool(self):
-        """Should include a paradigm-specific select tool."""
+    def test_includes_select_topic_tool(self):
+        """Should include a select_topic tool."""
         tools = _get_refiner_tools()
         tool_names = [t.function.name for t in tools]
 
-        # Should have at least one paradigm-specific select tool
-        assert any(name in self.SELECT_TOOL_NAMES for name in tool_names), \
-            f"Expected one of {self.SELECT_TOOL_NAMES}, got {tool_names}"
+        assert "select_topic" in tool_names, f"Expected 'select_topic', got {tool_names}"
 
     def test_includes_validate_exploration_tool(self):
-        """Should include a paradigm-specific validate tool."""
+        """Should include a validate_exploration tool."""
         tools = _get_refiner_tools()
         tool_names = [t.function.name for t in tools]
 
-        # Should have at least one paradigm-specific validate tool
-        assert any(name in self.VALIDATE_TOOL_NAMES for name in tool_names), \
-            f"Expected one of {self.VALIDATE_TOOL_NAMES}, got {tool_names}"
+        assert "validate_exploration" in tool_names, f"Expected 'validate_exploration', got {tool_names}"
 
-    def test_select_tool_has_required_params(self):
-        """Select tools should have required parameters."""
+    def test_select_topic_has_required_params(self):
+        """select_topic tool should have required parameters."""
         tools = _get_refiner_tools()
-        select_tools = [t for t in tools if t.function.name in self.SELECT_TOOL_NAMES]
+        select_tool = next((t for t in tools if t.function.name == "select_topic"), None)
 
-        assert len(select_tools) > 0, f"No select tools found. Available: {[t.function.name for t in tools]}"
-        select_tool = select_tools[0]
+        assert select_tool is not None, f"No select_topic tool found. Available: {[t.function.name for t in tools]}"
 
-        # Each paradigm has different topic parameter names:
-        # - brainstorm: idea, approach, reasoning
-        # - daydream: theme, emotional_tone, reasoning
-        # - knowledge: gap, approach, reasoning
         required = select_tool.function.parameters.required
-        tool_name = select_tool.function.name
-
-        # All select tools have reasoning as required
-        assert "reasoning" in required, f"{tool_name} missing 'reasoning' in required params"
-
-        # Check paradigm-specific topic parameter
-        if tool_name == "select_brainstorm_idea":
-            assert "idea" in required, f"{tool_name} missing 'idea' in required params"
-            assert "approach" in required, f"{tool_name} missing 'approach' in required params"
-        elif tool_name == "select_daydream_theme":
-            assert "theme" in required, f"{tool_name} missing 'theme' in required params"
-            assert "emotional_tone" in required, f"{tool_name} missing 'emotional_tone' in required params"
-        elif tool_name == "select_knowledge_gap":
-            assert "gap" in required, f"{tool_name} missing 'gap' in required params"
-            assert "approach" in required, f"{tool_name} missing 'approach' in required params"
+        assert "topic" in required, "select_topic missing 'topic' in required params"
+        assert "reasoning" in required, "select_topic missing 'reasoning' in required params"
 
     def test_validate_exploration_has_required_params(self):
-        """Validate tools should have required parameters."""
+        """validate_exploration tool should have required parameters."""
         tools = _get_refiner_tools()
-        validate_tools = [t for t in tools if t.function.name in self.VALIDATE_TOOL_NAMES]
+        validate_tool = next((t for t in tools if t.function.name == "validate_exploration"), None)
 
-        assert len(validate_tools) > 0, f"No validate tools found. Available: {[t.function.name for t in tools]}"
-        validate_tool = validate_tools[0]
+        assert validate_tool is not None, f"No validate_exploration tool found. Available: {[t.function.name for t in tools]}"
 
         assert "accept" in validate_tool.function.parameters.required
         assert "reasoning" in validate_tool.function.parameters.required

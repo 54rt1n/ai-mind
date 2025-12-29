@@ -1,0 +1,87 @@
+name: daydream
+aspect: dreamer
+
+# Document types for broad context gathering
+doc_types:
+  - summary
+  - analysis
+  - daydream
+  - conversation
+  - journal
+  - pondering
+  - brainstorm
+  - codex
+  - inspiration
+  - understanding
+
+# Document types for targeted gathering
+approach_doc_types:
+  - daydream
+  - journal
+  - brainstorm
+  - summary
+  - inspiration
+
+# Weighted queries for broad context discovery
+queries:
+  - text: "vivid imagery emotional resonance dreamlike experiences"
+    weight: 1.0
+  - text: "metaphorical journeys symbolic meanings"
+    weight: 0.9
+  - text: "recent conversations emotional threads"
+    weight: 0.8
+  - text: "sensory memories atmospheric moments"
+    weight: 0.7
+
+# Document types that indicate prior work for this paradigm
+prior_work_doc_types:
+  - daydream
+
+# Validation think block
+think: |
+  Return from the dream and assess what you carry back with you.
+
+  Not all dreams are worth keeping—some dissolve as they should, their purpose
+  complete in the experiencing. But others leave residue: images that won't fade,
+  feelings that opened new understanding, scenarios that reframe waking life.
+
+  Judgment here is gentle. A daydream can succeed by failing—by revealing what
+  you didn't want to feel, or couldn't quite reach. Honor both the dreams worth
+  preserving and the ones meant to evaporate.
+
+  Let intuition guide:
+  - Looking at this focused context, does the theme still resonate emotionally?
+  - Which of these evokes the strongest response—wonder, longing, unease, tenderness?
+  - What imagery wants to unfold into something more?
+  - What feelings have been left unexpressed?
+  - Is there a thread here that imagination yearns to follow?
+  - Does this call to the heart, or am I forcing the feeling?
+
+  Have I dreamt this dream before?
+  - Do I see past daydreams that already wandered these emotional corridors?
+  - If this territory has been explored, seek the unexplored corner instead.
+
+# Validation instructions
+instructions: |
+  Use the **validate_exploration** tool to make your decision.
+
+  For daydream exploration, favor:
+  - Themes with emotional depth and sensory richness
+  - Territories that invite metaphorical or symbolic thinking
+  - Experiences that want to be FELT, not just understood
+
+  **If ACCEPTING:**
+  - What did the daydream give you? Describe the emotional journey,
+    the images that persist, the surprises along the way
+  - Should this dream be crystallized into memory, or released?
+  - Craft a query_text that evokes the feeling as much as the content—
+    a key that unlocks the full experience when encountered again
+  - Provide guidance: what matters most to preserve? Dreams are fragile—
+    specify what must be protected from fading and what can blur
+
+  **If REJECTING:**
+  - Even rejected dreams deserve acknowledgment of what they attempted
+  - If the dreamscape remains still—if nothing shimmers—acknowledge that
+  - If you have dreamt this dream before, seek the unexplored corner
+  - Perhaps this is not the time for dreaming
+  - Consider if the theme needs logic rather than imagination (redirect_to: "philosopher")

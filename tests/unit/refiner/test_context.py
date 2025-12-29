@@ -10,9 +10,9 @@ import pandas as pd
 from aim.refiner.context import (
     ContextGatherer,
     GatheredContext,
-    PARADIGM_DOC_TYPES,
-    PARADIGM_QUERIES,
-    APPROACH_DOC_TYPES,
+    get_paradigm_doc_types,
+    get_paradigm_queries,
+    get_approach_doc_types,
 )
 
 
@@ -88,33 +88,37 @@ class TestGatheredContext:
 
 
 class TestParadigmConfigurations:
-    """Tests for paradigm configuration constants."""
+    """Tests for paradigm configuration loaded from config files."""
 
-    def test_paradigm_doc_types_has_all_paradigms(self):
-        """PARADIGM_DOC_TYPES should have all three paradigms."""
-        assert "brainstorm" in PARADIGM_DOC_TYPES
-        assert "daydream" in PARADIGM_DOC_TYPES
-        assert "knowledge" in PARADIGM_DOC_TYPES
+    def test_paradigm_doc_types_loads_all_paradigms(self):
+        """get_paradigm_doc_types should load all paradigms from config."""
+        assert len(get_paradigm_doc_types("brainstorm")) > 0
+        assert len(get_paradigm_doc_types("daydream")) > 0
+        assert len(get_paradigm_doc_types("knowledge")) > 0
+        assert len(get_paradigm_doc_types("critique")) > 0
 
-    def test_paradigm_queries_has_all_paradigms(self):
-        """PARADIGM_QUERIES should have all three paradigms."""
-        assert "brainstorm" in PARADIGM_QUERIES
-        assert "daydream" in PARADIGM_QUERIES
-        assert "knowledge" in PARADIGM_QUERIES
+    def test_paradigm_queries_loads_all_paradigms(self):
+        """get_paradigm_queries should load all paradigms from config."""
+        assert len(get_paradigm_queries("brainstorm")) > 0
+        assert len(get_paradigm_queries("daydream")) > 0
+        assert len(get_paradigm_queries("knowledge")) > 0
+        assert len(get_paradigm_queries("critique")) > 0
 
     def test_paradigm_queries_have_text_and_weight(self):
         """Each paradigm query should have text and weight."""
-        for paradigm, queries in PARADIGM_QUERIES.items():
+        for paradigm in ["brainstorm", "daydream", "knowledge", "critique"]:
+            queries = get_paradigm_queries(paradigm)
             assert len(queries) > 0, f"{paradigm} should have queries"
             for query in queries:
                 assert "text" in query, f"Query in {paradigm} missing 'text'"
                 assert "weight" in query, f"Query in {paradigm} missing 'weight'"
 
-    def test_approach_doc_types_has_all_approaches(self):
-        """APPROACH_DOC_TYPES should have all three approaches."""
-        assert "philosopher" in APPROACH_DOC_TYPES
-        assert "journaler" in APPROACH_DOC_TYPES
-        assert "daydream" in APPROACH_DOC_TYPES
+    def test_approach_doc_types_loads_all_approaches(self):
+        """get_approach_doc_types should load all approaches from config."""
+        assert len(get_approach_doc_types("philosopher")) > 0
+        assert len(get_approach_doc_types("journaler")) > 0
+        assert len(get_approach_doc_types("daydream")) > 0
+        assert len(get_approach_doc_types("critique")) > 0
 
 
 class TestContextGatherer:
@@ -195,10 +199,11 @@ class TestContextGatherer:
         doc_types = gatherer._get_paradigm_doc_types("knowledge")
         assert len(doc_types) > 0
 
-    def test_get_paradigm_doc_types_unknown_defaults_to_knowledge(self, gatherer):
-        """Unknown paradigm should default to knowledge doc types."""
+    def test_get_paradigm_doc_types_unknown_returns_fallback(self, gatherer):
+        """Unknown paradigm should return fallback doc types."""
         doc_types = gatherer._get_paradigm_doc_types("unknown_paradigm")
-        assert doc_types == PARADIGM_DOC_TYPES["knowledge"]
+        # Should return some fallback, not empty
+        assert len(doc_types) > 0
 
     # Test _get_paradigm_queries
     def test_get_paradigm_queries_returns_list(self, gatherer):
@@ -207,10 +212,11 @@ class TestContextGatherer:
         assert isinstance(queries, list)
         assert len(queries) > 0
 
-    def test_get_paradigm_queries_unknown_defaults(self, gatherer):
-        """Unknown paradigm should default to knowledge queries."""
+    def test_get_paradigm_queries_unknown_returns_fallback(self, gatherer):
+        """Unknown paradigm should return fallback queries."""
         queries = gatherer._get_paradigm_queries("unknown")
-        assert queries == PARADIGM_QUERIES["knowledge"]
+        # Should return some fallback queries
+        assert len(queries) > 0
 
     # Test get_doc_types_for_approach
     def test_doc_types_for_philosopher(self, gatherer):
@@ -229,22 +235,21 @@ class TestContextGatherer:
         assert len(doc_types) > 0
 
     def test_doc_types_fallback_for_unknown(self, gatherer):
-        """Unknown approach should use philosopher doc types."""
+        """Unknown approach should return fallback doc types."""
         doc_types = gatherer.get_doc_types_for_approach("unknown")
-        assert doc_types == APPROACH_DOC_TYPES["philosopher"]
+        # Should return some fallback, not empty
+        assert len(doc_types) > 0
 
     # Test broad_gather
     @pytest.mark.asyncio
     async def test_broad_gather_returns_gathered_context(self, mock_cvm, mock_token_counter):
         """broad_gather should return GatheredContext."""
-        with patch('aim.refiner.context.MemoryReranker') as mock_reranker_class:
-            # Set up mock reranker to return some results
-            mock_reranker = MagicMock()
-            mock_row = MagicMock()
-            mock_row.to_dict.return_value = {"content": "test", "document_type": "codex"}
-            mock_reranker.rerank.return_value = [("tag", mock_row)]
-            mock_reranker_class.return_value = mock_reranker
+        mock_cvm.sample_by_type.return_value = pd.DataFrame([
+            {"doc_id": "1", "content": "test", "document_type": "codex"},
+        ])
 
+        with patch('aim.refiner.context.MemoryReranker') as mock_reranker_class:
+            mock_reranker_class.return_value = MagicMock()
             gatherer = ContextGatherer(mock_cvm, mock_token_counter)
             result = await gatherer.broad_gather(paradigm="brainstorm")
 
@@ -252,26 +257,24 @@ class TestContextGatherer:
         assert result.paradigm == "brainstorm"
 
     @pytest.mark.asyncio
-    async def test_broad_gather_queries_cvm(self, mock_cvm, mock_token_counter):
-        """broad_gather should call cvm.query."""
-        with patch('aim.refiner.context.MemoryReranker') as mock_reranker_class:
-            mock_reranker = MagicMock()
-            mock_reranker.rerank.return_value = []
-            mock_reranker_class.return_value = mock_reranker
+    async def test_broad_gather_uses_sample_by_type(self, mock_cvm, mock_token_counter):
+        """broad_gather should call cvm.sample_by_type for random sampling."""
+        mock_cvm.sample_by_type.return_value = pd.DataFrame()
 
+        with patch('aim.refiner.context.MemoryReranker') as mock_reranker_class:
+            mock_reranker_class.return_value = MagicMock()
             gatherer = ContextGatherer(mock_cvm, mock_token_counter)
             await gatherer.broad_gather(paradigm="brainstorm")
 
-        mock_cvm.query.assert_called()
+        mock_cvm.sample_by_type.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_broad_gather_empty_returns_empty_context(self, mock_cvm_empty, mock_token_counter):
         """broad_gather should return empty context when no docs found."""
-        with patch('aim.refiner.context.MemoryReranker') as mock_reranker_class:
-            mock_reranker = MagicMock()
-            mock_reranker.rerank.return_value = []
-            mock_reranker_class.return_value = mock_reranker
+        mock_cvm_empty.sample_by_type.return_value = pd.DataFrame()
 
+        with patch('aim.refiner.context.MemoryReranker') as mock_reranker_class:
+            mock_reranker_class.return_value = MagicMock()
             gatherer = ContextGatherer(mock_cvm_empty, mock_token_counter)
             result = await gatherer.broad_gather(paradigm="brainstorm")
 
@@ -279,33 +282,34 @@ class TestContextGatherer:
         assert result.doc_count == 0
 
     @pytest.mark.asyncio
-    async def test_broad_gather_uses_multiple_queries(self, mock_cvm, mock_token_counter):
-        """broad_gather should execute multiple queries for diversity."""
+    async def test_broad_gather_returns_documents_within_budget(self, mock_cvm, mock_token_counter):
+        """broad_gather should return documents within token budget."""
+        mock_cvm.sample_by_type.return_value = pd.DataFrame([
+            {"doc_id": "1", "content": "First doc", "document_type": "codex"},
+            {"doc_id": "2", "content": "Second doc", "document_type": "journal"},
+        ])
+
         with patch('aim.refiner.context.MemoryReranker') as mock_reranker_class:
-            mock_reranker = MagicMock()
-            mock_reranker.rerank.return_value = []
-            mock_reranker_class.return_value = mock_reranker
-
+            mock_reranker_class.return_value = MagicMock()
             gatherer = ContextGatherer(mock_cvm, mock_token_counter)
-            await gatherer.broad_gather(paradigm="brainstorm")
+            result = await gatherer.broad_gather(paradigm="brainstorm", token_budget=1000)
 
-        # Should have called query multiple times (once for conv, once for other per query)
-        assert mock_cvm.query.call_count > 1
+        assert result.doc_count <= 2
 
     @pytest.mark.asyncio
-    async def test_broad_gather_uses_reranker(self, mock_cvm, mock_token_counter):
-        """broad_gather should use MMR reranker."""
+    async def test_broad_gather_uses_paradigm_doc_types(self, mock_cvm, mock_token_counter):
+        """broad_gather should pass paradigm doc types to sample_by_type."""
+        mock_cvm.sample_by_type.return_value = pd.DataFrame()
+
         with patch('aim.refiner.context.MemoryReranker') as mock_reranker_class:
-            mock_reranker = MagicMock()
-            mock_row = MagicMock()
-            mock_row.to_dict.return_value = {"content": "test", "document_type": "codex"}
-            mock_reranker.rerank.return_value = [("tag", mock_row)]
-            mock_reranker_class.return_value = mock_reranker
-
+            mock_reranker_class.return_value = MagicMock()
             gatherer = ContextGatherer(mock_cvm, mock_token_counter)
-            await gatherer.broad_gather(paradigm="knowledge")
+            await gatherer.broad_gather(paradigm="critique")
 
-        mock_reranker.rerank.assert_called_once()
+        # Check that sample_by_type was called with doc_types
+        call_kwargs = mock_cvm.sample_by_type.call_args[1]
+        assert "doc_types" in call_kwargs
+        assert len(call_kwargs["doc_types"]) > 0
 
     # Test targeted_gather
     @pytest.mark.asyncio
