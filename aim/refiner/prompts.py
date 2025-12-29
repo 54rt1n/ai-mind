@@ -42,22 +42,23 @@ logger = logging.getLogger(__name__)
 # Tool Definitions
 # ---------------------------------------------------------------------------
 
-def _get_refiner_tools() -> list[Tool]:
+def _get_refiner_tools(paradigm: str = "brainstorm") -> list[Tool]:
     """
-    Load refiner tools from the config.
+    Load refiner tools from the paradigm config.
+
+    Args:
+        paradigm: The paradigm to load tools for (brainstorm, daydream, knowledge, critique)
 
     Returns tools for select_topic and validate_exploration.
     Falls back to inline definitions if config loading fails.
     """
     try:
-        from ..tool.loader import ToolLoader
-        loader = ToolLoader()
-        loader.load_tools()
-        tools = loader.get_tools_by_type("refiner")
+        from .paradigm_config import get_paradigm_tools
+        tools = get_paradigm_tools(paradigm)
         if tools:
             return tools
     except Exception as e:
-        logger.warning(f"Failed to load refiner tools from config: {e}")
+        logger.warning(f"Failed to load refiner tools from paradigm config: {e}")
 
     # Fallback inline definitions
     return [
@@ -204,7 +205,7 @@ def build_brainstorm_selection_prompt(
     )
 
     # Add tool instructions
-    tools = _get_refiner_tools()
+    tools = _get_refiner_tools("brainstorm")
     select_tool = next((t for t in tools if t.function.name == "select_topic"), None)
     if select_tool:
         tool_user = ToolUser([select_tool])
@@ -297,7 +298,7 @@ def build_daydream_selection_prompt(
     )
 
     # Add tool instructions
-    tools = _get_refiner_tools()
+    tools = _get_refiner_tools("daydream")
     select_tool = next((t for t in tools if t.function.name == "select_topic"), None)
     if select_tool:
         tool_user = ToolUser([select_tool])
@@ -394,7 +395,7 @@ def build_knowledge_selection_prompt(
     )
 
     # Add tool instructions
-    tools = _get_refiner_tools()
+    tools = _get_refiner_tools("knowledge")
     select_tool = next((t for t in tools if t.function.name == "select_topic"), None)
     if select_tool:
         tool_user = ToolUser([select_tool])
@@ -495,7 +496,7 @@ def build_critique_selection_prompt(
     )
 
     # Add tool instructions
-    tools = _get_refiner_tools()
+    tools = _get_refiner_tools("critique")
     select_tool = next((t for t in tools if t.function.name == "select_topic"), None)
     if select_tool:
         tool_user = ToolUser([select_tool])
@@ -799,7 +800,7 @@ def build_validation_prompt(
     )
 
     # Add validation tool
-    tools = _get_refiner_tools()
+    tools = _get_refiner_tools(paradigm)
     validate_tool = next((t for t in tools if t.function.name == "validate_exploration"), None)
     if validate_tool:
         tool_user = ToolUser([validate_tool])

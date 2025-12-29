@@ -4,7 +4,7 @@
 Paradigm configuration loader.
 
 Loads paradigm configs from config/paradigm/*.yaml files.
-Each paradigm defines its own document types, queries, and validation logic.
+Each paradigm defines its own document types, queries, validation logic, and tools.
 """
 
 from __future__ import annotations
@@ -12,14 +12,50 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 
 import yaml
+
+from aim.tool.dto import Tool, ToolFunction, ToolFunctionParameters
 
 logger = logging.getLogger(__name__)
 
 # Default config directory
 CONFIG_DIR = Path(__file__).parent.parent.parent / "config" / "paradigm"
+
+
+def _parse_tool(name: str, tool_data: dict) -> Tool:
+    """Parse a tool definition from YAML into a Tool object."""
+    params = tool_data.get("parameters", {})
+
+    # Build properties dict in the format expected by ToolFunctionParameters
+    properties = {}
+    for param_name, param_def in params.items():
+        prop = {"type": param_def.get("type", "string")}
+        if "description" in param_def:
+            prop["description"] = param_def["description"]
+        if "enum" in param_def:
+            prop["enum"] = param_def["enum"]
+        properties[param_name] = prop
+
+    # Format examples with tool name wrapper
+    examples = []
+    for ex in tool_data.get("examples", []):
+        examples.append({name: ex})
+
+    return Tool(
+        type="refiner",
+        function=ToolFunction(
+            name=name,
+            description=tool_data.get("description", ""),
+            parameters=ToolFunctionParameters(
+                type="object",
+                properties=properties,
+                required=tool_data.get("required", []),
+                examples=examples,
+            ),
+        ),
+    )
 
 
 @dataclass
@@ -34,6 +70,7 @@ class ParadigmConfig:
     think: str
     instructions: str
     approach_doc_types: dict = field(default_factory=dict)
+    tools_data: dict = field(default_factory=dict)
 
     @classmethod
     def from_yaml(cls, path: Path) -> "ParadigmConfig":
@@ -56,6 +93,7 @@ class ParadigmConfig:
             think=data.get("think", ""),
             instructions=data.get("instructions", ""),
             approach_doc_types=approach_doc_types,
+            tools_data=data.get("tools", {}),
         )
 
     def get_approach_doc_types(self, approach: str) -> List[str]:
@@ -65,6 +103,16 @@ class ParadigmConfig:
         if "default" in self.approach_doc_types:
             return self.approach_doc_types["default"]
         return self.doc_types
+
+    def get_tools(self) -> List[Tool]:
+        """Get Tool objects for this paradigm."""
+        tools = []
+        for name, tool_data in self.tools_data.items():
+            try:
+                tools.append(_parse_tool(name, tool_data))
+            except Exception as e:
+                logger.error(f"Error parsing tool '{name}' for paradigm '{self.name}': {e}")
+        return tools
 
 
 class ParadigmConfigLoader:
@@ -123,3 +171,11 @@ def get_loader() -> ParadigmConfigLoader:
 def get_paradigm_config(paradigm: str) -> Optional[ParadigmConfig]:
     """Get a paradigm config by name."""
     return get_loader().load(paradigm)
+
+
+def get_paradigm_tools(paradigm: str) -> List[Tool]:
+    """Get tools for a paradigm."""
+    config = get_paradigm_config(paradigm)
+    if config:
+        return config.get_tools()
+    return []

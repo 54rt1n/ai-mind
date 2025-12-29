@@ -97,21 +97,12 @@ class TestParadigmConfigurations:
         assert len(get_paradigm_doc_types("knowledge")) > 0
         assert len(get_paradigm_doc_types("critique")) > 0
 
-    def test_paradigm_queries_loads_all_paradigms(self):
-        """get_paradigm_queries should load all paradigms from config."""
-        assert len(get_paradigm_queries("brainstorm")) > 0
-        assert len(get_paradigm_queries("daydream")) > 0
-        assert len(get_paradigm_queries("knowledge")) > 0
-        assert len(get_paradigm_queries("critique")) > 0
-
-    def test_paradigm_queries_have_text_and_weight(self):
-        """Each paradigm query should have text and weight."""
-        for paradigm in ["brainstorm", "daydream", "knowledge", "critique"]:
-            queries = get_paradigm_queries(paradigm)
-            assert len(queries) > 0, f"{paradigm} should have queries"
-            for query in queries:
-                assert "text" in query, f"Query in {paradigm} missing 'text'"
-                assert "weight" in query, f"Query in {paradigm} missing 'weight'"
+    def test_paradigm_queries_returns_fallback_when_not_defined(self):
+        """get_paradigm_queries should return fallback when queries not in config."""
+        # Queries are optional now - we use random sampling
+        # Function should return empty list or fallback gracefully
+        queries = get_paradigm_queries("brainstorm")
+        assert isinstance(queries, list)
 
     def test_approach_doc_types_loads_all_approaches(self):
         """get_approach_doc_types should load all approaches from config."""
@@ -207,10 +198,9 @@ class TestContextGatherer:
 
     # Test _get_paradigm_queries
     def test_get_paradigm_queries_returns_list(self, gatherer):
-        """_get_paradigm_queries should return list of query configs."""
+        """_get_paradigm_queries should return list (may be empty with random sampling)."""
         queries = gatherer._get_paradigm_queries("brainstorm")
         assert isinstance(queries, list)
-        assert len(queries) > 0
 
     def test_get_paradigm_queries_unknown_returns_fallback(self, gatherer):
         """Unknown paradigm should return fallback queries."""

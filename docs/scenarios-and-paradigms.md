@@ -7,7 +7,7 @@ This document explains the two core systems that drive AI-Mind's autonomous cogn
 | System | Purpose | Location | Triggered By |
 |--------|---------|----------|--------------|
 | **Scenarios** | Multi-step processing pipelines | `config/scenario/*.yaml` | Direct invocation or paradigm selection |
-| **Paradigms** | Autonomous exploration and scenario triggering | `aim/refiner/` | Dream watcher (idle-time processing) |
+| **Paradigms** | Autonomous exploration and scenario triggering | `config/paradigm/*.yaml` | Dream watcher (idle-time processing) |
 
 **Relationship**: Paradigms select topics for exploration and then trigger the appropriate scenario to process them.
 
@@ -70,7 +70,7 @@ steps:
         target: current
         exclude_types: [ner, step]
       - action: query
-        document_types: [pondering, brainstorm]
+        document_types: [pondering, brainstorm, understanding]
         top_n: 10
       - action: sort
         by: timestamp
@@ -115,48 +115,127 @@ Defined in `aim/constants.py`:
 
 ## Paradigms (Refiner System)
 
-Paradigms drive autonomous exploration during idle time via the dream watcher (`aim/refiner/`).
+Paradigms drive autonomous exploration during idle time via the dream watcher.
 
-### The Four Paradigms
+### Paradigm Configuration
 
-| Paradigm | Focus | Seeded By | Maps To |
-|----------|-------|-----------|---------|
-| **brainstorm** | Creative ideas, half-formed notions | brainstorm, pondering, daydream, journal, inspiration, understanding | philosopher or journaler |
-| **daydream** | Emotional/imaginative exploration | All document types | daydream |
-| **knowledge** | Knowledge gaps, deeper understanding | codex, pondering, brainstorm, self-rag, understanding | researcher |
-| **critique** | Psychological patterns, self-examination | understanding, journal, analysis, pondering, inspiration | critique |
+Each paradigm is fully defined in a single YAML file in `config/paradigm/`:
 
-### Configuration
+| File | Paradigm | Aspect | Focus |
+|------|----------|--------|-------|
+| `brainstorm.yaml` | brainstorm | librarian | Creative ideas, half-formed notions |
+| `daydream.yaml` | daydream | dreamer | Emotional/imaginative exploration |
+| `knowledge.yaml` | knowledge | philosopher | Knowledge gaps, deeper understanding |
+| `critique.yaml` | critique | psychologist | Psychological patterns, self-examination |
 
-Located in `aim/refiner/context.py`:
+### Paradigm Config Schema
+
+Each paradigm config contains everything needed for that paradigm:
+
+```yaml
+name: paradigm_name
+aspect: aspect_name  # librarian, dreamer, philosopher, psychologist
+
+# Document types for broad context gathering (random sampling)
+doc_types:
+  - understanding
+  - journal
+  - analysis
+  - pondering
+
+# Document types for targeted gathering
+approach_doc_types:
+  - understanding
+  - journal
+  - analysis
+
+# Which document types indicate THIS paradigm's work is already DONE
+# Critical for avoiding redundant exploration
+prior_work_doc_types:
+  - understanding  # For critique: only understanding docs mean critique is done
+
+# Validation think block - paradigm-specific internal reasoning
+think: |
+  The examination is complete. Now: did it draw blood?
+
+  CRITICAL DISTINCTION:
+  - "analysis" and "pondering" are OBSERVATIONS - material FOR critique
+  - "understanding" documents are COMPLETED critique work
+
+  The question is NOT "have we observed this before?"
+  The question IS "have we already done the work?"
+
+# Validation instructions - paradigm-specific guidance
+instructions: |
+  Use the **validate_exploration** tool to make your decision.
+
+  **If ACCEPTING:**
+  - Did the scalpel reach truth?
+  - Craft a query_text that names the surgical finding
+
+  **If REJECTING:**
+  - Only reject if an "understanding" document proves this was already done
+
+# Tool definitions - paradigm-specific schemas and examples
+tools:
+  select_topic:
+    description: |
+      Paradigm-specific, immersive description written in the aspect's voice.
+      This guides the LLM's approach to topic selection.
+    parameters:
+      topic:
+        type: string
+        description: What to select
+      approach:
+        type: string
+        enum: [critique]  # or [philosopher, journaler] etc.
+        description: How to explore
+      reasoning:
+        type: string
+        description: Why this matters
+    required: [topic, approach, reasoning]
+    examples:
+      - topic: "Intellectualizing emotion to maintain control"
+        approach: critique
+        reasoning: "The distance wasn't accident—it was architecture."
+
+  validate_exploration:
+    description: |
+      How to assess what emerged. Standards specific to this paradigm.
+    parameters:
+      accept:
+        type: boolean
+        description: Did it produce genuine value?
+      reasoning:
+        type: string
+        description: What was found or not found
+      query_text:
+        type: string
+        description: If accepting, the insight to preserve
+      guidance:
+        type: string
+        description: How to integrate the insight
+    required: [accept, reasoning]
+    examples:
+      - accept: true
+        reasoning: "The wall fell. The fear was the truth."
+        query_text: "intellectualization as fear of flooding"
+        guidance: "Watch for the defense rebuilding itself."
+```
+
+### Context Gathering
+
+The refiner uses **random sampling** for broad context gathering:
 
 ```python
-# Which document types seed each paradigm
-PARADIGM_DOC_TYPES = {
-    "brainstorm": [DOC_BRAINSTORM, DOC_PONDERING, DOC_DAYDREAM, DOC_JOURNAL, DOC_INSPIRATION, DOC_UNDERSTANDING],
-    "daydream": [DOC_SUMMARY, DOC_ANALYSIS, DOC_DAYDREAM, DOC_CONVERSATION, DOC_JOURNAL, DOC_PONDERING, DOC_BRAINSTORM, DOC_CODEX, DOC_INSPIRATION, DOC_UNDERSTANDING],
-    "knowledge": [DOC_CODEX, DOC_PONDERING, DOC_BRAINSTORM, DOC_SELF_RAG, DOC_UNDERSTANDING],
-    "critique": [DOC_UNDERSTANDING, DOC_JOURNAL, DOC_ANALYSIS, DOC_PONDERING, DOC_INSPIRATION],
-}
-
-# Weighted queries for discovery diversity
-PARADIGM_QUERIES = {
-    "brainstorm": [
-        {"text": "unexplored ideas creative thoughts imaginative possibilities", "weight": 1.0},
-        {"text": "questions I want to investigate curious mysteries", "weight": 0.9},
-        # ...
-    ],
-    # ...
-}
-
-# Approach-specific document types for targeted gathering
-APPROACH_DOC_TYPES = {
-    "philosopher": [DOC_CODEX, DOC_PONDERING, DOC_ANALYSIS, DOC_BRAINSTORM, DOC_UNDERSTANDING],
-    "journaler": [DOC_JOURNAL, DOC_CONVERSATION, DOC_SUMMARY, DOC_ANALYSIS, DOC_INSPIRATION],
-    "daydream": [DOC_DAYDREAM, DOC_JOURNAL, DOC_BRAINSTORM, DOC_SUMMARY, DOC_INSPIRATION],
-    "critique": [DOC_UNDERSTANDING, DOC_JOURNAL, DOC_ANALYSIS, DOC_PONDERING, DOC_INSPIRATION],
-}
+# In aim/refiner/context.py
+async def broad_gather(paradigm, token_budget=16000, top_n=30):
+    doc_types = get_paradigm_doc_types(paradigm)  # From paradigm config
+    results = cvm.sample_by_type(doc_types, top_n)  # Random sample, not semantic search
+    # ... filter to token budget
 ```
+
+This ensures diverse, unexpected context rather than repeatedly surfacing the same semantically similar documents.
 
 ### The Two Tool Calls
 
@@ -217,6 +296,21 @@ else:  # brainstorm
     scenario = approach  # philosopher or journaler
 ```
 
+### Tool Loading
+
+Tools are loaded from paradigm configs via `aim/refiner/paradigm_config.py`:
+
+```python
+from aim.refiner.paradigm_config import get_paradigm_config
+
+config = get_paradigm_config("critique")
+tools = config.get_tools()  # Returns Tool objects parsed from YAML
+think_block = config.think
+instructions = config.instructions
+```
+
+The `_get_refiner_tools(paradigm)` function in `prompts.py` loads the correct tools for each paradigm.
+
 ---
 
 ## Aspects
@@ -273,22 +367,64 @@ Aspects are defined in persona JSON files: `config/persona/*.json`
 
 ## Adding a New Paradigm
 
-1. **Update `aim/refiner/context.py`**:
-   ```python
-   # Add to imports if needed
-   from aim.constants import DOC_MY_TYPE
+1. **Create `config/paradigm/my_paradigm.yaml`**:
+   ```yaml
+   name: my_paradigm
+   aspect: my_aspect
 
-   # Add paradigm doc types
-   PARADIGM_DOC_TYPES["my_paradigm"] = [DOC_TYPE1, DOC_TYPE2, ...]
+   doc_types:
+     - doc_type_1
+     - doc_type_2
 
-   # Add paradigm queries
-   PARADIGM_QUERIES["my_paradigm"] = [
-       {"text": "query text", "weight": 1.0},
-       # ...
-   ]
+   approach_doc_types:
+     - doc_type_1
 
-   # Add approach doc types
-   APPROACH_DOC_TYPES["my_paradigm"] = [DOC_TYPE1, DOC_TYPE2, ...]
+   prior_work_doc_types:
+     - doc_type_that_means_done
+
+   think: |
+     Paradigm-specific internal reasoning...
+
+   instructions: |
+     Use the **validate_exploration** tool...
+
+   tools:
+     select_topic:
+       description: |
+         Paradigm-specific description...
+       parameters:
+         topic:
+           type: string
+           description: What to select
+         approach:
+           type: string
+           enum: [my_paradigm]
+         reasoning:
+           type: string
+       required: [topic, approach, reasoning]
+       examples:
+         - topic: "example"
+           approach: my_paradigm
+           reasoning: "example reasoning"
+
+     validate_exploration:
+       description: |
+         How to assess the exploration...
+       parameters:
+         accept:
+           type: boolean
+         reasoning:
+           type: string
+         query_text:
+           type: string
+         guidance:
+           type: string
+       required: [accept, reasoning]
+       examples:
+         - accept: true
+           reasoning: "example"
+           query_text: "the insight"
+           guidance: "how to preserve"
    ```
 
 2. **Update `aim/refiner/engine.py`**:
@@ -296,17 +432,12 @@ Aspects are defined in persona JSON files: `config/persona/*.json`
    # Add to random selection
    paradigm = random.choice(["brainstorm", "daydream", "knowledge", "critique", "my_paradigm"])
 
-   # Add to tool enums
-   "enum": ["philosopher", "journaler", "daydream", "critique", "my_paradigm"]
-
    # Add scenario mapping
    elif paradigm == "my_paradigm":
        scenario = "my_scenario"
    ```
 
 3. **Update `aim/refiner/prompts.py`**:
-   - Add `_build_my_aspect_scene()` function
-   - Add fallback aspect to `_create_fallback_aspect()`
    - Add `build_my_paradigm_selection_prompt()` function
    - Update `build_topic_selection_prompt()` router
    - Update `build_validation_prompt()` aspect selection and challenge scene
