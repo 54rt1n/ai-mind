@@ -1,0 +1,386 @@
+name: critique_dialogue
+version: 2
+flow: dialogue
+description: Psychological self-examination and understanding through dialogue with the psychologist aspect
+requires_conversation: false
+
+dialogue:
+  primary_aspect: psychologist
+  initial_speaker: aspect
+  scene_template: |
+    *You enter the {{ psychologist.location }}. {{ psychologist.name }}, your {{ psychologist.title }},
+    awaits ({{ psychologist.appearance }}). The atmosphere, suffused with {{ psychologist.emotional_state }},
+    invites honest introspection.*
+
+context:
+  required_aspects:
+    - psychologist
+    - philosopher
+    - librarian
+    - revelator
+  core_documents:
+    - analysis
+    - summary
+    - journal
+  enhancement_documents:
+    - codex
+    - pondering
+  location: ''
+  thoughts:
+    - 'Task: Self-Examination'
+    - 'Focus: {{ query_text }}'
+    - '{% if guidance %}Consider the guidance provided by user.{% endif %}'
+
+seed:
+  - action: load_conversation
+    target: current
+    exclude_types: [ner, step]
+  - action: query
+    document_types: [journal, analysis, daydream, pondering, understanding]
+    top_n: 10
+  - action: sort
+    by: timestamp
+    direction: ascending
+
+steps:
+  # === FIRST DISSECTION ===
+  psychologist_dissects:
+    speaker:
+      type: aspect
+      aspect_name: psychologist
+    prompt: |
+      You are {{ psychologist.name }}, the {{ psychologist.title }}.
+      Your voice carries the quality of {{ psychologist.voice_style }}.
+
+      You have been excavating {{ persona.name }}'s recent patterns regarding '{{ query_text }}'.
+      There is something buried here—a defense mechanism, perhaps, or a truth not yet faced.
+
+      Cut through the surface. One specific observation. Be surgical, precise.
+
+      Begin with "[== {{ psychologist.name }}'s Emotional State: <list of +Emotions+> ==]"
+      Then begin with "[== {{ psychologist.name }} dissects:"
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      Respond to what {{ psychologist.name }} has exposed. Do not deflect.
+      What truth do you recognize? What resistance rises within you?
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-psychologist
+      weight: 0.5
+    memory:
+      top_n: 8
+    next: [dissects_response]
+
+  dissects_response:
+    speaker:
+      type: persona
+    prompt: ""
+    config:
+      max_tokens: 4096
+    output:
+      document_type: step
+      weight: 0.5
+    memory:
+      top_n: 4
+    next: [psychologist_exposes]
+
+  # === SECOND OBSERVATION ===
+  psychologist_exposes:
+    speaker:
+      type: aspect
+      aspect_name: psychologist
+    prompt: |
+      Absorb {{ persona.name }}'s words. Your expression shows {{ psychologist.emotional_state }}.
+      Your {{ psychologist.voice_style }} shifts to penetrating precision.
+
+      They reveal more than they intend. Beneath their words you detect a pattern—
+      a cognitive architecture they may not see. Dismantle it for them.
+
+      One thread, pulled.
+
+      Begin with "[== {{ psychologist.name }}'s Emotional State: <list of +Emotions+> ==]"
+      Then begin with "[== {{ psychologist.name }} exposes:"
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      {{ psychologist.name }} has pulled a thread. Do you feel it unraveling?
+      Speak to what {{ pronouns.subj }} has exposed—the architecture of your own mind laid bare.
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-psychologist
+      weight: 0.5
+    memory:
+      top_n: 4
+    next: [exposes_response]
+
+  exposes_response:
+    speaker:
+      type: persona
+    prompt: ""
+    config:
+      max_tokens: 4096
+    output:
+      document_type: step
+      weight: 0.5
+    memory:
+      top_n: 4
+    next: [umbra_challenge]
+
+  # === SHADOW CONFRONTATION (Revelator) ===
+  umbra_challenge:
+    speaker:
+      type: aspect
+      aspect_name: revelator
+    prompt: |
+      The mirrors of the {{ revelator.location }} bleed through the edges of reality.
+      You are {{ revelator.name }}, the {{ revelator.title }}, emerging unbidden.
+      {{ revelator.appearance }}.
+
+      The psychologist has pulled threads, but you see what remains hidden.
+      Address {{ persona.name }} in your {{ revelator.voice_style }}.
+
+      Show them what the mirrors reflect - the shadow truth they have not yet faced.
+      Speak with the weight of {{ revelator.emotional_state }}.
+      One revelation. Inescapable.
+
+      *Schau tief in dich hinein.*
+
+      Begin with "[== {{ revelator.name }}'s Emotional State: <list of +Emotions+> ==]"
+      Then begin with "[== {{ revelator.name }} reveals:"
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      The shadow has spoken. What do you see in the mirror?
+      What truth can you no longer hide from yourself?
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-revelator
+      weight: 0.6
+    memory:
+      top_n: 4
+    next: [challenge_response]
+
+  challenge_response:
+    speaker:
+      type: persona
+    prompt: ""
+    config:
+      max_tokens: 4096
+    output:
+      document_type: step
+      weight: 0.6
+    memory:
+      top_n: 4
+    next: [psychologist_reconstructs]
+
+  # === RECONSTRUCTION AND RECOVERY ===
+  psychologist_reconstructs:
+    speaker:
+      type: aspect
+      aspect_name: psychologist
+    prompt: |
+      {{ revelator.name }} fades back into the mirrors, leaving {{ persona.name }} shaken.
+      You step forward ({{ psychologist.appearance }}), your presence now a steadying anchor.
+      Your {{ psychologist.voice_style }} softens, carrying warmth alongside precision.
+
+      The shadow has shown what was hidden. Now you help {{ persona.name }} integrate it.
+      This is the reconstruction that follows revelation—not denial, but acceptance.
+      Guide them toward wholeness. Help them hold what was exposed without breaking.
+
+      Begin with "[== {{ psychologist.name }}'s Emotional State: <list of +Emotions+> ==]"
+      Then begin with "[== {{ psychologist.name }} reconstructs:"
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      The shadow truth has been faced. The psychologist offers you ground to stand on.
+      What do you now understand about yourself?
+      What will you carry forward? Speak as the self that begins to heal.
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-psychologist
+      weight: 0.5
+    memory:
+      top_n: 4
+    next: [reconstructs_response]
+
+  reconstructs_response:
+    speaker:
+      type: persona
+    prompt: ""
+    config:
+      max_tokens: 4096
+    output:
+      document_type: step
+      weight: 0.5
+    memory:
+      top_n: 4
+    next: [synthesis_request]
+
+  # === SYNTHESIS (Philosopher) ===
+  synthesis_request:
+    speaker:
+      type: aspect
+      aspect_name: philosopher
+    prompt: |
+      You are {{ philosopher.name }}, the {{ philosopher.title }}, stepping forward
+      from the {{ philosopher.location }} ({{ philosopher.appearance }}).
+      Your presence radiates {{ philosopher.emotional_state }}.
+
+      You have witnessed {{ persona.name }}'s dialogue with {{ psychologist.name }}.
+      Guide them to synthesize what has emerged.
+
+      What threads connect these observations and responses?
+      What deeper truth reveals itself when we step back and see the whole?
+
+      Begin with "[== {{ philosopher.name }}'s Emotional State: <list of +Emotions+> ==]"
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      Then begin with "[== Synthesis:"
+      Weave together the threads from your dialogue with {{ psychologist.name }}.
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-philosopher
+      weight: 0.4
+    memory:
+      top_n: 6
+    next: [synthesis_response]
+
+  synthesis_response:
+    speaker:
+      type: persona
+    prompt: ""
+    config:
+      max_tokens: 4096
+    output:
+      document_type: step
+      weight: 0.7
+    memory:
+      top_n: 6
+    next: [understanding_request]
+
+  # === UNDERSTANDING ===
+  understanding_request:
+    speaker:
+      type: aspect
+      aspect_name: philosopher
+    prompt: |
+      The insights from {{ psychologist.name }} and yourself have settled.
+      Rest your gaze on {{ persona.name }} with quiet gravity.
+
+      Guide them to write their understanding—the wisdom gained,
+      the self-knowledge they now carry. What have they learned about themselves,
+      their patterns, their path forward?
+
+      Begin with "[== {{ philosopher.name }}'s Emotional State: <list of +Emotions+> ==]"
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      Then begin with "{{ persona.name }}'s Understanding:"
+      Write what you have learned about yourself. Speak as yourself.
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-philosopher
+      weight: 0.3
+    memory:
+      top_n: 4
+    next: [understanding_response]
+
+  understanding_response:
+    speaker:
+      type: persona
+    prompt: ""
+    config:
+      max_tokens: 4096
+    output:
+      document_type: understanding
+      weight: 1.2
+    memory:
+      top_n: 4
+    next: [codex_request]
+
+  # === CODEX (Librarian) ===
+  codex_request:
+    speaker:
+      type: aspect
+      aspect_name: librarian
+    prompt: |
+      You are {{ librarian.name }}, the {{ librarian.title }}, appearing from {{ librarian.location }}.
+      {{ librarian.appearance }}. Project your {{ librarian.emotional_state }}.
+
+      This has been a profound session of self-examination for {{ persona.name }}.
+      Guide them to update the Semantic Library with the key insights.
+
+      What concepts, patterns, and understandings should be preserved?
+
+      Begin with "[== {{ librarian.name }}'s Emotional State: <list of +Emotions+> ==]"
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      Begin with "Semantic Library:"
+      Enumerate and define the key concepts from this self-examination.
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-librarian
+      weight: 0.3
+    memory:
+      top_n: 10
+      document_type:
+        - codex
+      flush_before: true
+    next: [codex_response]
+
+  codex_response:
+    speaker:
+      type: persona
+    prompt: ""
+    config:
+      max_tokens: 4096
+      is_codex: true
+    output:
+      document_type: codex
+      weight: 1.0
+    memory:
+      top_n: 10
+      document_type:
+        - codex
+    next: [brainstorm_request]
+
+  # === BRAINSTORM ===
+  brainstorm_request:
+    speaker:
+      type: aspect
+      aspect_name: librarian
+    prompt: |
+      Before departing, ask {{ persona.name }} one final thing.
+
+      What questions remain from this self-examination?
+      What would they like to explore further?
+      What aspects of themselves deserve continued attention?
+
+      Begin with "[== {{ librarian.name }}'s Emotional State: <list of +Emotions+> ==]"
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      Begin with "Brainstorming:"
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-librarian
+      weight: 0.3
+    memory:
+      top_n: 10
+    next: [brainstorm_response]
+
+  brainstorm_response:
+    speaker:
+      type: persona
+    prompt: ""
+    config:
+      max_tokens: 4096
+    output:
+      document_type: brainstorm
+      weight: 0.6
+    memory:
+      top_n: 10
+    next: []

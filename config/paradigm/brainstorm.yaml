@@ -34,8 +34,8 @@ prior_work_doc_types:
 # Scenario routing - brainstorm uses approach as scenario
 scenario: null
 scenarios_by_approach:
-  philosopher: philosopher
-  journaler: journaler
+  philosopher: philosopher_dialogue
+  journaler: journaler_dialogue
 
 # Prompts for each phase
 prompts:

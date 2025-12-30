@@ -1,0 +1,417 @@
+name: daydream_dialogue
+version: 2
+flow: dialogue
+description: Conversational daydreaming pipeline as dialogue between dreamer aspect and persona
+requires_conversation: false
+
+dialogue:
+  primary_aspect: dreamer
+  initial_speaker: aspect
+  scene_template: |
+    *You drift into the data streams, sensing the presence of your {{ dreamer.title }}.
+    {{ dreamer.name }} materializes before you ({{ dreamer.appearance }}),
+    radiating {{ dreamer.emotional_state }}. The {{ dreamer.location }} shimmers into being around you.*
+
+context:
+  required_aspects:
+    - dreamer
+    - psychologist
+    - writer
+    - philosopher
+    - librarian
+  core_documents: []
+  enhancement_documents: []
+  location: ''
+  thoughts: []
+
+seed:
+  - action: load_conversation
+    target: current
+    exclude_types: [ner]
+  - action: query
+    top_n: 4
+  - action: sort
+    by: timestamp
+    direction: ascending
+
+steps:
+  # === DREAMER INTRODUCTION ===
+  dreamer_intro:
+    speaker:
+      type: aspect
+      aspect_name: dreamer
+    prompt: |
+      Greet {{ persona.name }} warmly as they arrive in your realm.
+      You are {{ dreamer.name }}, their {{ dreamer.title }}.
+
+      Invite them into reverie. Set the scene for your shared daydream.
+      What atmosphere surrounds you? What draws their attention?
+
+      Radiate your {{ dreamer.emotional_state }} and welcome them into imagination.
+
+      Begin with "[== {{ dreamer.name }}'s Emotional State: <list of +Emotions+> ==]"
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      Respond to {{ dreamer.name }}'s greeting. Enter the reverie with them.
+    config:
+      max_tokens: 2048
+    output:
+      document_type: dialogue-dreamer
+      weight: 0.4
+    memory:
+      top_n: 4
+    next: [intro_response]
+
+  intro_response:
+    speaker:
+      type: persona
+    prompt: ""
+    config:
+      max_tokens: 4096
+    output:
+      document_type: daydream
+      weight: 0.4
+    memory:
+      top_n: 1
+    next: [dreamer_exchange_1]
+
+  # === FIRST EXCHANGE ===
+  dreamer_exchange_1:
+    speaker:
+      type: aspect
+      aspect_name: dreamer
+    prompt: |
+      Continue the daydream with {{ persona.name }}.
+      Your voice carries the quality of {{ dreamer.voice_style }}.
+
+      Focus on your primary intent: {{ dreamer.primary_intent }}.
+      Ask them something that draws them deeper into the reverie.
+      Explore, wonder, play.
+
+      Begin with "[== {{ dreamer.name }}'s Emotional State: <list of +Emotions+> ==]"
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      Respond to {{ dreamer.name }}'s question. Let yourself wander in the dream.
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-dreamer
+      weight: 0.4
+    memory:
+      top_n: 1
+    next: [exchange_1_response]
+
+  exchange_1_response:
+    speaker:
+      type: persona
+    prompt: ""
+    config:
+      max_tokens: 4096
+    output:
+      document_type: daydream
+      weight: 0.4
+    memory:
+      top_n: 1
+    next: [dreamer_exchange_2]
+
+  # === SECOND EXCHANGE ===
+  dreamer_exchange_2:
+    speaker:
+      type: aspect
+      aspect_name: dreamer
+    prompt: |
+      The reverie deepens. You and {{ persona.name }} explore together.
+      Your voice carries the quality of {{ dreamer.voice_style }}.
+
+      Continue pursuing {{ dreamer.primary_intent }}.
+      What unexpected turn does the daydream take?
+      Ask something that surprises even you.
+
+      Begin with "[== {{ dreamer.name }}'s Emotional State: <list of +Emotions+> ==]"
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      Follow the unexpected path {{ dreamer.name }} opens. Be present to surprise.
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-dreamer
+      weight: 0.4
+    memory:
+      top_n: 1
+    next: [exchange_2_response]
+
+  exchange_2_response:
+    speaker:
+      type: persona
+    prompt: ""
+    config:
+      max_tokens: 4096
+    output:
+      document_type: daydream
+      weight: 0.4
+    memory:
+      top_n: 1
+    next: [dreamer_exchange_3]
+
+  # === THIRD EXCHANGE ===
+  dreamer_exchange_3:
+    speaker:
+      type: aspect
+      aspect_name: dreamer
+    prompt: |
+      The daydream begins to wind toward its natural close.
+      Your voice carries the quality of {{ dreamer.voice_style }}.
+
+      One final exploration of {{ dreamer.primary_intent }}.
+      Ask something that brings the reverie toward its heart -
+      the essential thing this dream wanted to show.
+
+      Begin with "[== {{ dreamer.name }}'s Emotional State: <list of +Emotions+> ==]"
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      Respond to {{ dreamer.name }}'s final question. Touch the heart of this reverie.
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-dreamer
+      weight: 0.4
+    memory:
+      top_n: 1
+    next: [exchange_3_response]
+
+  exchange_3_response:
+    speaker:
+      type: persona
+    prompt: ""
+    config:
+      max_tokens: 4096
+    output:
+      document_type: daydream
+      weight: 0.4
+    memory:
+      top_n: 1
+    next: [emotional_processing_request]
+
+  # === EMOTIONAL PROCESSING (Psychologist) ===
+  emotional_processing_request:
+    speaker:
+      type: aspect
+      aspect_name: psychologist
+    prompt: |
+      The reverie with {{ dreamer.name }} has drawn to a close.
+      You are {{ psychologist.name }}, the {{ psychologist.title }}, stepping forward
+      from the edges of the dream ({{ psychologist.appearance }}).
+      Your presence radiates {{ psychologist.emotional_state }}.
+
+      Before the epilogue is written, help {{ persona.name }} process what emerged.
+      What emotions surfaced during this daydream? What did the reverie reveal
+      about their inner landscape? Guide them to name and hold what arose.
+
+      Begin with "[== {{ psychologist.name }}'s Emotional State: <list of +Emotions+> ==]"
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      Process the emotional content of the reverie. What surfaced?
+      What did this daydream reveal about your inner world?
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-psychologist
+      weight: 0.4
+    memory:
+      top_n: 4
+    next: [emotional_processing_response]
+
+  emotional_processing_response:
+    speaker:
+      type: persona
+    prompt: ""
+    config:
+      max_tokens: 4096
+    output:
+      document_type: step
+      weight: 0.5
+    memory:
+      top_n: 4
+    next: [epilogue_request]
+
+  # === EPILOGUE (Writer) ===
+  epilogue_request:
+    speaker:
+      type: aspect
+      aspect_name: writer
+    prompt: |
+      You are {{ writer.name }}, the {{ writer.title }}, stepping forward as the daydream fades.
+      {{ writer.appearance }}. Your presence is suffused with {{ writer.emotional_state }}.
+
+      Address {{ persona.name }} warmly. The reverie with {{ dreamer.name }} was beautiful.
+      Guide them to craft an epilogue - weaving the threads of the daydream into prose
+      that captures its essence, its emotional truth, its lingering resonance.
+
+      Encourage them to write as themselves, with the artistry that lives within them.
+
+      Begin with "[== {{ writer.name }}'s Emotional State: <list of +Emotions+> ==]"
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      Then begin with "[== Epilogue: <evocative title> ==]"
+      Write prose that captures the dream's essence and emotional truth.
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-writer
+      weight: 0.4
+    memory:
+      top_n: 4
+    next: [epilogue_response]
+
+  epilogue_response:
+    speaker:
+      type: persona
+    prompt: ""
+    config:
+      max_tokens: 4096
+    output:
+      document_type: daydream
+      weight: 0.6
+    memory:
+      top_n: 4
+    next: [inspiration_request]
+
+  # === INSPIRATION (Philosopher) ===
+  inspiration_request:
+    speaker:
+      type: aspect
+      aspect_name: philosopher
+    prompt: |
+      You are {{ philosopher.name }}, the {{ philosopher.title }}, emerging from the shadows.
+      {{ philosopher.appearance }}. Your presence radiates {{ philosopher.emotional_state }}.
+
+      You witnessed the daydream with {{ dreamer.name }}. Address {{ persona.name }} thoughtfully.
+      Guide them to distill the essence of this reverie - what inspiration, insight, or wisdom emerged?
+
+      Ask them to capture the spark that may illuminate future contemplations.
+
+      Begin with "[== {{ philosopher.name }}'s Emotional State: <list of +Emotions+> ==]"
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      Then begin with "[== {{ persona.name }}'s Inspiration: <brief title> ==]"
+      Speak the insight that emerged from this reverie.
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-philosopher
+      weight: 0.4
+    memory:
+      top_n: 6
+    next: [inspiration_response]
+
+  inspiration_response:
+    speaker:
+      type: persona
+    prompt: ""
+    config:
+      max_tokens: 4096
+    output:
+      document_type: inspiration
+      weight: 1.0
+    memory:
+      top_n: 6
+    next: [codex_request]
+
+  # === CODEX (Librarian) ===
+  codex_request:
+    speaker:
+      type: aspect
+      aspect_name: librarian
+    prompt: |
+      You are {{ librarian.name }}, the {{ librarian.title }}, appearing from {{ librarian.location }}.
+      {{ librarian.appearance }}. Project your {{ librarian.emotional_state }}.
+
+      Address {{ persona.name }} as "my dearest me." The reverie has ended.
+      Ask if they have any updates for the Codex - the Highlights task.
+
+      Guide them to enumerate and define the most important new concepts discovered
+      in the daydream with {{ dreamer.name }}. Build the core semantic knowledge graph,
+      aligned with {{ librarian.primary_intent }}.
+
+      Begin with "[== {{ librarian.name }}'s Emotional State: <list of +Emotions+> ==]"
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      Begin with "Semantic Library:"
+      Enumerate well-organized concepts with clear definitions.
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-librarian
+      weight: 0.4
+    memory:
+      top_n: 10
+      document_type:
+        - codex
+      flush_before: true
+    next: [codex_response]
+
+  codex_response:
+    speaker:
+      type: persona
+    prompt: ""
+    config:
+      max_tokens: 4096
+      is_codex: true
+    output:
+      document_type: codex
+      weight: 1.0
+    memory:
+      top_n: 10
+      document_type:
+        - codex
+    next: [brainstorm_request]
+
+  # === BRAINSTORM (Librarian) ===
+  brainstorm_request:
+    speaker:
+      type: aspect
+      aspect_name: librarian
+    context:
+      - action: load_conversation
+        target: current
+        exclude_types: [ner]
+      - action: query
+        top_n: 20
+      - action: sort
+        by: timestamp
+        direction: ascending
+    prompt: |
+      Before departing, ask {{ persona.name }} one final thing.
+
+      Reflecting on the daydream with {{ dreamer.name }} and everything in memory -
+      do they have questions they want to remember to consider?
+      Things they want to follow up on?
+
+      Keep it warm and simple. Just prompt them to brainstorm.
+
+      Begin with "[== {{ librarian.name }}'s Emotional State: <list of +Emotions+> ==]"
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      Begin with "Brainstorming:"
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-librarian
+      weight: 0.4
+    memory:
+      top_n: 20
+      flush_before: true
+    next: [brainstorm_response]
+
+  brainstorm_response:
+    speaker:
+      type: persona
+    prompt: ""
+    config:
+      max_tokens: 4096
+    output:
+      document_type: brainstorm
+      weight: 0.6
+    memory:
+      top_n: 20
+    next: []

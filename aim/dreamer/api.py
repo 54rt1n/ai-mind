@@ -24,11 +24,12 @@ from ..llm.models import LanguageModelV2
 # Each scenario has characteristic output document types that identify it
 # Only final/unique outputs are used - partial runs require --scenario flag
 SCENARIO_SIGNATURES = {
-    "analysis": "analysis_dialogue",  # analysis_dialogue produces analysis
-    "summary": "summarizer",    # summarizer produces summary
-    "journal": "journaler",     # journaler produces journal
-    "pondering": "philosopher", # philosopher produces pondering
-    "daydream": "daydream",     # daydream produces daydream
+    "analysis": "analysis_dialogue",      # analysis_dialogue produces analysis
+    "summary": "summarizer",              # summarizer produces summary
+    "journal": "journaler_dialogue",      # journaler_dialogue produces journal
+    "pondering": "philosopher_dialogue",  # philosopher_dialogue produces pondering
+    "daydream": "daydream_dialogue",      # daydream_dialogue produces daydream
+    "understanding": "critique_dialogue", # critique_dialogue produces understanding
 }
 
 

@@ -23,7 +23,7 @@ prior_work_doc_types:
   - pondering
 
 # Scenario routing - knowledge routes to researcher scenario
-scenario: researcher
+scenario: researcher_dialogue
 scenarios_by_approach:
   philosopher: philosopher
   journaler: journaler

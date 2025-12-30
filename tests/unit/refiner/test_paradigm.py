@@ -102,16 +102,16 @@ class TestParadigmScenarioRouting:
         from aim.refiner.paradigm import Paradigm
 
         paradigm = Paradigm.load("brainstorm")
-        assert paradigm.get_scenario("philosopher") == "philosopher"
-        assert paradigm.get_scenario("journaler") == "journaler"
+        assert paradigm.get_scenario("philosopher") == "philosopher_dialogue"
+        assert paradigm.get_scenario("journaler") == "journaler_dialogue"
 
     def test_daydream_always_routes_to_daydream(self):
-        """Daydream should always route to daydream scenario."""
+        """Daydream should always route to daydream_dialogue scenario."""
         from aim.refiner.paradigm import Paradigm
 
         paradigm = Paradigm.load("daydream")
-        assert paradigm.get_scenario("daydream") == "daydream"
-        assert paradigm.get_scenario(None) == "daydream"
+        assert paradigm.get_scenario("daydream") == "daydream_dialogue"
+        assert paradigm.get_scenario(None) == "daydream_dialogue"
 
     def test_knowledge_routes_to_researcher_or_approach(self):
         """Knowledge should route based on approach or default to researcher."""
@@ -123,11 +123,11 @@ class TestParadigmScenarioRouting:
         assert paradigm.get_scenario("journaler") == "journaler"
 
     def test_critique_routes_to_critique(self):
-        """Critique should route to critique scenario."""
+        """Critique should route to critique_dialogue scenario."""
         from aim.refiner.paradigm import Paradigm
 
         paradigm = Paradigm.load("critique")
-        assert paradigm.get_scenario("critique") == "critique"
+        assert paradigm.get_scenario("critique") == "critique_dialogue"
 
 
 class TestParadigmDocTypes:

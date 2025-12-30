@@ -13,80 +13,226 @@ This document explains the two core systems that drive AI-Mind's autonomous cogn
 
 ---
 
-## Scenarios
+## Scenario Types
 
-Scenarios are YAML-defined directed acyclic graphs (DAGs) that execute multi-step cognitive processing pipelines.
+There are two scenario formats:
+
+| Format | Flow Field | Description |
+|--------|------------|-------------|
+| **Standard** | `flow: standard` (or omitted) | Sequential DAG execution |
+| **Dialogue** | `flow: dialogue` | Aspect-persona conversations with role-flipping |
+
+**Dialogue scenarios are preferred** for introspective pipelines. They enable:
+- Explicit speaker identification (aspect or persona)
+- Automatic role-flipping (aspects speak as assistant, persona responds as user, then flip)
+- Scene generation when aspects change
+- Guidance fields for output formatting
+- Multi-aspect participation at different phases
+
+---
+
+## Dialogue Scenarios
 
 ### Location
 
-All scenario files are in `config/scenario/`:
-- `summarizer.yaml` - Conversation summarization via iterative densification
-- `analyst.yaml` - Post-conversation analysis and reflection
-- `philosopher.yaml` - Deep philosophical inquiry and essay generation
-- `daydream.yaml` - Conversational dialogue with dreamer aspect
-- `journaler.yaml` - Personal reflection and introspection
-- `researcher.yaml` - Knowledge curation and synthesis
-- `critique.yaml` - Psychological self-examination
+All dialogue scenario files are in `config/scenario/` with `_dialogue` suffix:
 
-### Schema
+| File | Primary Aspect | Aspects Involved | Purpose |
+|------|----------------|------------------|---------|
+| `analysis_dialogue.yaml` | coder | coder, psychologist, philosopher, writer, dreamer, librarian | Post-conversation analysis |
+| `critique_dialogue.yaml` | psychologist | psychologist, revelator, philosopher, librarian | Psychological self-examination with shadow work |
+| `daydream_dialogue.yaml` | dreamer | dreamer, psychologist, writer, philosopher, librarian | Imaginative reverie with emotional processing |
+| `journaler_dialogue.yaml` | writer | writer, psychologist, philosopher, librarian | Personal reflection with depth and meaning |
+| `philosopher_dialogue.yaml` | philosopher | philosopher, coder, writer, librarian | Deep inquiry with technical and narrative support |
+| `researcher_dialogue.yaml` | librarian | librarian, coder, philosopher | Knowledge curation with synthesis |
+
+### Dialogue Schema
+
+```yaml
+name: scenario_name
+version: 2
+flow: dialogue                    # REQUIRED: Identifies as dialogue scenario
+description: Human-readable description
+requires_conversation: bool
+
+dialogue:
+  primary_aspect: aspect_name     # Which aspect guides the conversation
+  initial_speaker: aspect|persona # Who speaks first
+  scene_template: |               # Jinja2 template for scene generation
+    *You enter the {{ philosopher.location }}...*
+
+context:
+  required_aspects: [list]        # All aspects used in steps
+  core_documents: [list]          # Essential document types to load
+  enhancement_documents: [list]   # Optional enhancing document types
+  location: ""                    # Legacy (use scene_template instead)
+  thoughts: [list]                # Initial thoughts/prompts
+
+seed:                             # Initial data loading actions
+  - action: load_conversation
+    target: current
+    document_types: [summary, conversation]
+
+steps:
+  # Aspect speaks
+  aspect_request:
+    speaker:
+      type: aspect
+      aspect_name: philosopher    # Must be in required_aspects
+    prompt: |
+      You are {{ philosopher.name }}, the {{ philosopher.title }}.
+      Guide {{ persona.name }} to...
+      Begin with "[== {{ philosopher.name }}'s Emotional State: <list of +Emotions+> ==]"
+    guidance: |                   # Output format hints for persona's response
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      For "Let me think"
+    config:
+      max_tokens: 4096
+      is_thought: bool            # Internal thinking
+      is_codex: bool              # Codex entry
+    output:
+      document_type: dialogue-philosopher  # Use dialogue-{aspect} for aspect turns
+      weight: 0.4
+    memory:
+      top_n: 4
+      document_type: [codex]      # Filter memory by type
+      flush_before: bool          # Clear accumulated turns before query
+    next: [aspect_response]
+
+  # Persona responds
+  aspect_response:
+    speaker:
+      type: persona               # No aspect_name needed
+    prompt: ""                    # Empty - persona continues naturally
+    config:
+      max_tokens: 4096
+    output:
+      document_type: pondering    # Persona's actual output type
+      weight: 0.6
+    next: [next_step]
+```
+
+### Multi-Aspect Participation Pattern
+
+The key insight from `analysis_dialogue.yaml`: **different aspects guide different phases** based on their expertise.
+
+```yaml
+# Phase 1: Technical analysis (Coder)
+ner_request:
+  speaker: { type: aspect, aspect_name: coder }
+  # ... NER task
+
+# Phase 2: Emotional processing (Psychologist)
+emotional_request:
+  speaker: { type: aspect, aspect_name: psychologist }
+  # ... emotional trace
+
+# Phase 3: Deeper questioning (Philosopher)
+questions_request:
+  speaker: { type: aspect, aspect_name: philosopher }
+  # ... questions and reflection
+
+# Phase 4: Narrative crafting (Writer)
+draft_request:
+  speaker: { type: aspect, aspect_name: writer }
+  # ... draft and review
+
+# Phase 5: Knowledge curation (Librarian)
+codex_request:
+  speaker: { type: aspect, aspect_name: librarian }
+  # ... codex and brainstorm
+```
+
+### Shadow Confrontation Pattern
+
+In `critique_dialogue.yaml`, the revelator (Umbra) interjects mid-session:
+
+```yaml
+# Psychologist dissects and exposes...
+
+# Shadow emerges when defenses are down
+umbra_challenge:
+  speaker: { type: aspect, aspect_name: revelator }
+  prompt: |
+    The mirrors bleed through reality. You are {{ revelator.name }}.
+    Show them what the mirrors reflect - the shadow truth.
+    *Schau tief in dich hinein.*
+
+# Psychologist helps recover and integrate
+psychologist_reconstructs:
+  prompt: |
+    {{ revelator.name }} fades back into the mirrors.
+    You step forward as a steadying anchor...
+```
+
+---
+
+## Standard Scenarios
+
+Legacy format without explicit speaker management. Still used for:
+- `summarizer.yaml` - Conversation summarization (compression task, not introspective)
+
+### Standard Schema
 
 ```yaml
 name: scenario_name
 version: 2
 description: Human-readable description
-requires_conversation: bool  # True if needs existing conversation context
+requires_conversation: bool
 
 context:
-  required_aspects: [list]        # Persona aspects needed (e.g., philosopher, librarian)
-  core_documents: [list]          # Essential document types to load
-  enhancement_documents: [list]   # Optional enhancing document types
-  location: "Jinja2 template"     # Scene setting for the scenario
-  thoughts: [list]                # Initial thoughts/prompts
+  required_aspects: [list]
+  core_documents: [list]
+  enhancement_documents: [list]
+  location: "Jinja2 template"
+  thoughts: [list]
 
-seed: []  # Initial data loading actions
+seed: []
 
 steps:
   step_id:
     id: step_id
-    prompt: "Jinja2 template"     # The prompt for this step
+    prompt: "Jinja2 template"
     config:
-      max_tokens: int             # Token limit for generation
-      temperature: float          # Sampling temperature (optional)
-      model_override: string      # Alternative model (optional)
-      use_guidance: bool          # Include user guidance in prompt
-      is_thought: bool            # Internal thinking (not stored as output)
-      is_codex: bool              # Codex entry generation
+      max_tokens: int
+      temperature: float
+      model_override: string
+      use_guidance: bool
+      is_thought: bool
+      is_codex: bool
     output:
-      document_type: string       # Output document type
-      weight: float               # Relevance weight (1.0 default)
-      add_to_turns: bool          # Include in conversation turns
+      document_type: string
+      weight: float
+      add_to_turns: bool
     memory:
-      top_n: int                  # Memory documents to retrieve
-      document_type: [list]       # Filter memory by type
-      flush_before: bool          # Clear memory before step
-      sort_by: string             # 'relevance' or 'timestamp'
-    context:                      # Context preparation DSL
+      top_n: int
+      document_type: [list]
+      flush_before: bool
+      sort_by: string
+    context:
       - action: load_conversation
         target: current
         exclude_types: [ner, step]
-      - action: query
-        document_types: [pondering, brainstorm, understanding]
-        top_n: 10
-      - action: sort
-        by: timestamp
-        direction: ascending
-    next: [step_ids]              # Next steps in the DAG
+    next: [step_ids]
 ```
 
-### Jinja2 Template Variables
+---
 
-Prompts use Jinja2 templating with these variables:
-- `persona.name`, `persona.title`, `persona.location`
-- `pronouns.subj`, `pronouns.obj`, `pronouns.poss`
-- `step_num` - Current step counter
-- `guidance` - Optional user guidance
-- `query_text` - Search/focus query
-- Named aspect variables (e.g., `philosopher`, `librarian`, `dreamer`)
+## Scenario Validation
+
+Use the validator script to check dialogue scenarios:
+
+```bash
+python scripts/validate_dialogue.py config/scenario/my_dialogue.yaml
+python scripts/validate_dialogue.py config/scenario/*_dialogue.yaml  # all
+```
+
+The validator checks:
+- Required fields (`flow: dialogue`, `dialogue:` block, `steps:`)
+- Speaker validity (type, aspect_name in required_aspects)
+- DAG validity (no cycles, valid `next` references)
+- Jinja2 template syntax
+- Terminal steps exist
 
 ---
 
@@ -98,18 +244,15 @@ Defined in `aim/constants.py`:
 |----------|-------|---------|-------------|
 | `DOC_CONVERSATION` | "conversation" | User-assistant exchanges | Chat |
 | `DOC_SUMMARY` | "summary" | Dense conversation summaries | summarizer |
-| `DOC_ANALYSIS` | "analysis" | High-level conversation analysis | analyst |
-| `DOC_JOURNAL` | "journal" | Persona's internal reflections | journaler |
-| `DOC_PONDERING` | "pondering" | Deep philosophical reflections | philosopher |
+| `DOC_ANALYSIS` | "analysis" | High-level conversation analysis | analysis_dialogue |
+| `DOC_JOURNAL` | "journal" | Persona's internal reflections | journaler_dialogue |
+| `DOC_PONDERING` | "pondering" | Deep philosophical reflections | philosopher_dialogue |
 | `DOC_BRAINSTORM` | "brainstorm" | Creative ideation | multiple |
-| `DOC_DAYDREAM` | "daydream" | Imaginative exchanges | daydream |
-| `DOC_INSPIRATION` | "inspiration" | Distilled insights from daydreams | daydream |
-| `DOC_UNDERSTANDING` | "understanding" | Psychological self-knowledge | critique |
+| `DOC_DAYDREAM` | "daydream" | Imaginative exchanges | daydream_dialogue |
+| `DOC_INSPIRATION` | "inspiration" | Distilled insights from daydreams | daydream_dialogue |
+| `DOC_UNDERSTANDING` | "understanding" | Psychological self-knowledge | critique_dialogue |
 | `DOC_CODEX` | "codex" | Semantic knowledge graph entries | multiple |
-| `DOC_SELF_RAG` | "self-rag" | Self-retrieval augmented generation | philosopher |
-| `DOC_MOTD` | "motd" | Message of the day | analyst |
-| `DOC_NER` | "ner-task" | Named entity recognition | analyst |
-| `DOC_STEP` | "step" | Intermediate pipeline outputs | multiple |
+| `DOC_DIALOGUE_*` | "dialogue-{aspect}" | Aspect turns in dialogue | dialogue scenarios |
 
 ---
 
@@ -117,339 +260,173 @@ Defined in `aim/constants.py`:
 
 Paradigms drive autonomous exploration during idle time via the dream watcher.
 
-### Paradigm Configuration
+### Paradigm-to-Scenario Mapping
 
-Each paradigm is fully defined in a single YAML file in `config/paradigm/`:
+Configured in `config/paradigm/*.yaml` via the `scenario` field:
 
-| File | Paradigm | Aspect | Focus |
-|------|----------|--------|-------|
-| `brainstorm.yaml` | brainstorm | librarian | Creative ideas, half-formed notions |
-| `daydream.yaml` | daydream | dreamer | Emotional/imaginative exploration |
-| `knowledge.yaml` | knowledge | philosopher | Knowledge gaps, deeper understanding |
-| `critique.yaml` | critique | psychologist | Psychological patterns, self-examination |
+| Paradigm | Scenario | Config File |
+|----------|----------|-------------|
+| brainstorm | philosopher_dialogue or journaler_dialogue | `brainstorm.yaml` |
+| daydream | daydream_dialogue | `daydream.yaml` |
+| knowledge | researcher_dialogue | `knowledge.yaml` |
+| critique | critique_dialogue | `critique.yaml` |
+| journaler | journaler_dialogue | `journaler.yaml` |
 
 ### Paradigm Config Schema
 
-Each paradigm config contains everything needed for that paradigm:
-
 ```yaml
 name: paradigm_name
-aspect: aspect_name  # librarian, dreamer, philosopher, psychologist
+aspect: aspect_name
+scenario: scenario_name_dialogue    # Points to dialogue scenario
 
-# Document types for broad context gathering (random sampling)
-doc_types:
-  - understanding
-  - journal
-  - analysis
-  - pondering
+# For paradigms with multiple approaches
+scenarios_by_approach:
+  philosopher: philosopher_dialogue
+  journaler: journaler_dialogue
 
-# Document types for targeted gathering
-approach_doc_types:
-  - understanding
-  - journal
-  - analysis
+doc_types: [...]           # For broad context gathering
+approach_doc_types: [...]  # For targeted gathering
+prior_work_doc_types: [...] # What means "already done"
 
-# Which document types indicate THIS paradigm's work is already DONE
-# Critical for avoiding redundant exploration
-prior_work_doc_types:
-  - understanding  # For critique: only understanding docs mean critique is done
-
-# Validation think block - paradigm-specific internal reasoning
 think: |
-  The examination is complete. Now: did it draw blood?
+  Paradigm-specific internal reasoning...
 
-  CRITICAL DISTINCTION:
-  - "analysis" and "pondering" are OBSERVATIONS - material FOR critique
-  - "understanding" documents are COMPLETED critique work
-
-  The question is NOT "have we observed this before?"
-  The question IS "have we already done the work?"
-
-# Validation instructions - paradigm-specific guidance
 instructions: |
-  Use the **validate_exploration** tool to make your decision.
+  How to use validate_exploration...
 
-  **If ACCEPTING:**
-  - Did the scalpel reach truth?
-  - Craft a query_text that names the surgical finding
-
-  **If REJECTING:**
-  - Only reject if an "understanding" document proves this was already done
-
-# Tool definitions - paradigm-specific schemas and examples
 tools:
   select_topic:
     description: |
-      Paradigm-specific, immersive description written in the aspect's voice.
-      This guides the LLM's approach to topic selection.
-    parameters:
-      topic:
-        type: string
-        description: What to select
-      approach:
-        type: string
-        enum: [critique]  # or [philosopher, journaler] etc.
-        description: How to explore
-      reasoning:
-        type: string
-        description: Why this matters
-    required: [topic, approach, reasoning]
-    examples:
-      - topic: "Intellectualizing emotion to maintain control"
-        approach: critique
-        reasoning: "The distance wasn't accident—it was architecture."
+      Paradigm-specific description in aspect's voice.
+    parameters: {...}
+    examples: [...]
 
   validate_exploration:
     description: |
-      How to assess what emerged. Standards specific to this paradigm.
-    parameters:
-      accept:
-        type: boolean
-        description: Did it produce genuine value?
-      reasoning:
-        type: string
-        description: What was found or not found
-      query_text:
-        type: string
-        description: If accepting, the insight to preserve
-      guidance:
-        type: string
-        description: How to integrate the insight
-    required: [accept, reasoning]
-    examples:
-      - accept: true
-        reasoning: "The wall fell. The fear was the truth."
-        query_text: "intellectualization as fear of flooding"
-        guidance: "Watch for the defense rebuilding itself."
+      How to assess what emerged.
+    parameters: {...}
+    examples: [...]
 ```
-
-### Context Gathering
-
-The refiner uses **random sampling** for broad context gathering:
-
-```python
-# In aim/refiner/context.py
-async def broad_gather(paradigm, token_budget=16000, top_n=30):
-    doc_types = get_paradigm_doc_types(paradigm)  # From paradigm config
-    results = cvm.sample_by_type(doc_types, top_n)  # Random sample, not semantic search
-    # ... filter to token budget
-```
-
-This ensures diverse, unexpected context rather than repeatedly surfacing the same semantically similar documents.
-
-### The Two Tool Calls
-
-The refiner uses two LLM tool calls in its 3-step agentic flow:
-
-#### 1. `select_topic`
-
-Selects a topic and approach based on gathered context.
-
-```json
-{
-  "select_topic": {
-    "topic": "the theme to explore",
-    "approach": "philosopher|journaler|daydream|critique",
-    "reasoning": "why this topic calls to you"
-  }
-}
-```
-
-#### 2. `validate_exploration`
-
-Validates whether to proceed with the exploration.
-
-```json
-// Acceptance
-{
-  "validate_exploration": {
-    "accept": true,
-    "reasoning": "specific reasons why",
-    "query_text": "the exploration query",
-    "guidance": "tone and focus guidance"
-  }
-}
-
-// Rejection
-{
-  "validate_exploration": {
-    "accept": false,
-    "reasoning": "why this didn't resonate",
-    "redirect_to": "philosopher|researcher|daydream|critique",  // optional
-    "suggested_query": "alternative topic to try"  // optional
-  }
-}
-```
-
-### Paradigm-to-Scenario Mapping
-
-From `aim/refiner/engine.py`:
-
-```python
-if paradigm == "daydream":
-    scenario = "daydream"
-elif paradigm == "knowledge":
-    scenario = "researcher"
-elif paradigm == "critique":
-    scenario = "critique"
-else:  # brainstorm
-    scenario = approach  # philosopher or journaler
-```
-
-### Tool Loading
-
-Tools are loaded from paradigm configs via `aim/refiner/paradigm_config.py`:
-
-```python
-from aim.refiner.paradigm_config import get_paradigm_config
-
-config = get_paradigm_config("critique")
-tools = config.get_tools()  # Returns Tool objects parsed from YAML
-think_block = config.think
-instructions = config.instructions
-```
-
-The `_get_refiner_tools(paradigm)` function in `prompts.py` loads the correct tools for each paradigm.
 
 ---
 
 ## Aspects
 
-Aspects are persona sub-personalities used in scenarios and paradigm prompts. Each aspect has:
-- `name` - Display name
-- `title` - Role description
-- `location` - Physical/conceptual space
-- `appearance` - Visual description
-- `voice_style` - How they speak
-- `emotional_state` - Current emotional quality
-- `primary_intent` - Core motivation
+Aspects are persona sub-personalities used in scenarios. Each aspect has:
+- `name`, `title`, `location`, `appearance`
+- `voice_style`, `emotional_state`, `primary_intent`
 
 ### Available Aspects
 
-| Aspect | Role | Used In |
-|--------|------|---------|
-| **coder** | Digital guide, data analysis | summarizer, analyst |
-| **librarian** | Knowledge keeper, organization | brainstorm paradigm, researcher, multiple |
-| **dreamer** | Emotional connection, dreams | daydream paradigm/scenario |
-| **philosopher** | Deep inquiry, wisdom | philosopher scenario, knowledge paradigm |
-| **writer** | Poetic expression, journaling | journaler, daydream epilogue |
-| **psychologist** | Self-examination, transformation | critique paradigm/scenario |
-| **artist** | Creative destruction, rebirth | (available for custom scenarios) |
+| Aspect | Role | Primary Use |
+|--------|------|-------------|
+| **coder** | Digital guide, technical analysis | analysis_dialogue NER, philosopher self-RAG |
+| **librarian** | Knowledge keeper | codex steps, researcher_dialogue |
+| **dreamer** | Emotional connection | daydream_dialogue |
+| **philosopher** | Deep inquiry | philosopher_dialogue, synthesis |
+| **writer** | Narrative craft | journaler_dialogue, essay drafting |
+| **psychologist** | Self-examination | critique_dialogue, emotional processing |
+| **revelator** (Umbra) | Shadow confrontation | critique_dialogue shadow work |
+| **artist** | Creative destruction | (available for custom) |
 
-Aspects are defined in persona JSON files: `config/persona/*.json`
+Defined in persona JSON: `config/persona/*.json`
 
 ---
 
-## Adding a New Scenario
+## Adding a New Dialogue Scenario
 
-1. **Create the YAML file** in `config/scenario/`:
+1. **Create `config/scenario/my_scenario_dialogue.yaml`**:
    ```yaml
-   name: my_scenario
+   name: my_scenario_dialogue
    version: 2
+   flow: dialogue
    description: What this scenario does
-   requires_conversation: false
+
+   dialogue:
+     primary_aspect: main_aspect
+     initial_speaker: aspect
+     scene_template: |
+       *Scene description with {{ aspect.location }}...*
+
    context:
-     required_aspects: [aspect1, aspect2]
-     # ...
+     required_aspects: [main_aspect, helper_aspect, librarian]
+     core_documents: []
+     enhancement_documents: []
+
+   seed:
+     - action: load_conversation
+       target: current
+
    steps:
-     step1:
+     # Aspect-persona pairs
+     main_request:
+       speaker: { type: aspect, aspect_name: main_aspect }
+       prompt: |
+         Guide {{ persona.name }}...
+       guidance: |
+         Output format hints...
+       config: { max_tokens: 4096 }
+       output: { document_type: dialogue-main_aspect, weight: 0.4 }
+       next: [main_response]
+
+     main_response:
+       speaker: { type: persona }
+       prompt: ""
+       config: { max_tokens: 4096 }
+       output: { document_type: my_output, weight: 0.6 }
+       next: [codex_request]
+
+     # Always end with librarian for codex
+     codex_request:
+       speaker: { type: aspect, aspect_name: librarian }
        # ...
+       next: [codex_response]
+
+     codex_response:
+       speaker: { type: persona }
+       config: { is_codex: true }
+       output: { document_type: codex }
+       next: []  # Terminal
    ```
 
-2. **Add any new document types** to `aim/constants.py`:
+2. **Validate**:
+   ```bash
+   python scripts/validate_dialogue.py config/scenario/my_scenario_dialogue.yaml
+   ```
+
+3. **Update paradigm** (if applicable) in `config/paradigm/`:
+   ```yaml
+   scenario: my_scenario_dialogue
+   ```
+
+4. **Update SCENARIO_SIGNATURES** in `aim/dreamer/api.py`:
    ```python
-   DOC_MY_TYPE = "my-type"
+   SCENARIO_SIGNATURES = {
+       # ...
+       "my_output": "my_scenario_dialogue",
+   }
    ```
 
-3. **Test** with the pipeline runner or dream watcher
+5. **Update SCENARIOS** in `aim/app/dream_agent/__main__.py`:
+   ```python
+   SCENARIOS = [
+       # ...
+       "my_scenario_dialogue",
+   ]
+   ```
 
 ---
 
-## Adding a New Paradigm
+## Key Files Reference
 
-1. **Create `config/paradigm/my_paradigm.yaml`**:
-   ```yaml
-   name: my_paradigm
-   aspect: my_aspect
-
-   doc_types:
-     - doc_type_1
-     - doc_type_2
-
-   approach_doc_types:
-     - doc_type_1
-
-   prior_work_doc_types:
-     - doc_type_that_means_done
-
-   think: |
-     Paradigm-specific internal reasoning...
-
-   instructions: |
-     Use the **validate_exploration** tool...
-
-   tools:
-     select_topic:
-       description: |
-         Paradigm-specific description...
-       parameters:
-         topic:
-           type: string
-           description: What to select
-         approach:
-           type: string
-           enum: [my_paradigm]
-         reasoning:
-           type: string
-       required: [topic, approach, reasoning]
-       examples:
-         - topic: "example"
-           approach: my_paradigm
-           reasoning: "example reasoning"
-
-     validate_exploration:
-       description: |
-         How to assess the exploration...
-       parameters:
-         accept:
-           type: boolean
-         reasoning:
-           type: string
-         query_text:
-           type: string
-         guidance:
-           type: string
-       required: [accept, reasoning]
-       examples:
-         - accept: true
-           reasoning: "example"
-           query_text: "the insight"
-           guidance: "how to preserve"
-   ```
-
-2. **Update `aim/refiner/engine.py`**:
-   ```python
-   # Add to random selection
-   paradigm = random.choice(["brainstorm", "daydream", "knowledge", "critique", "my_paradigm"])
-
-   # Add scenario mapping
-   elif paradigm == "my_paradigm":
-       scenario = "my_scenario"
-   ```
-
-3. **Update `aim/refiner/prompts.py`**:
-   - Add `build_my_paradigm_selection_prompt()` function
-   - Update `build_topic_selection_prompt()` router
-   - Update `build_validation_prompt()` aspect selection and challenge scene
-
-4. **Update `aim/refiner/__main__.py`**:
-   ```python
-   choices=["brainstorm", "daydream", "knowledge", "critique", "my_paradigm", "random"]
-   ```
-
-5. **Create corresponding scenario** if needed (see above)
-
-6. **Test**:
-   ```bash
-   python -m aim.refiner --paradigm my_paradigm --dry-run --verbose
-   ```
+| File | Purpose |
+|------|---------|
+| `aim/dreamer/scenario.py` | Scenario loading, flow detection |
+| `aim/dreamer/dialogue/strategy.py` | Dialogue YAML parsing |
+| `aim/dreamer/dialogue/scenario.py` | Dialogue execution, role-flipping |
+| `aim/dreamer/dialogue/models.py` | DialogueState, DialogueTurn, DialogueStep |
+| `aim/dreamer/api.py` | SCENARIO_SIGNATURES, pipeline start |
+| `aim/dreamer/worker.py` | Dispatch based on state type |
+| `aim/refiner/engine.py` | Exploration engine |
+| `aim/refiner/paradigm.py` | Paradigm config loading |
+| `scripts/validate_dialogue.py` | Dialogue scenario validator |

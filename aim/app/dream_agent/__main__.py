@@ -78,7 +78,15 @@ logger = logging.getLogger(__name__)
 
 
 # Available scenarios (discovered from config/scenario/)
-SCENARIOS = ["analysis_dialogue", "journaler", "philosopher", "daydream", "summarizer"]
+SCENARIOS = [
+    "analysis_dialogue",
+    "journaler_dialogue",
+    "philosopher_dialogue",
+    "daydream_dialogue",
+    "critique_dialogue",
+    "researcher_dialogue",
+    "summarizer",
+]
 
 
 def parse_args():

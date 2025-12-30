@@ -27,7 +27,7 @@ prior_work_doc_types:
   - journal
 
 # Scenario routing - journaler routes to journaler scenario
-scenario: journaler
+scenario: journaler_dialogue
 scenarios_by_approach: {}
 
 # Prompts for each phase

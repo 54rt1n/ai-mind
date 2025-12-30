@@ -27,7 +27,7 @@ prior_work_doc_types:
   - daydream
 
 # Scenario routing - daydream always routes to daydream scenario
-scenario: daydream
+scenario: daydream_dialogue
 scenarios_by_approach: {}
 
 # Prompts for each phase

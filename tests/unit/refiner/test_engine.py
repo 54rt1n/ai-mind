@@ -274,8 +274,10 @@ This territory has been well-explored...
 
         with patch.object(engine, '_get_redis_cache', return_value=mock_redis_cache_idle):
             with patch.object(engine, '_get_llm_provider', return_value=mock_provider):
-                engine.context_gatherer = mock_context_gatherer
-                pipeline_id, suggested = await engine.run_exploration()
+                # Mock Paradigm.available() to always return brainstorm (which uses approach, not emotional_tone)
+                with patch('aim.refiner.engine.Paradigm.available', return_value=['brainstorm']):
+                    engine.context_gatherer = mock_context_gatherer
+                    pipeline_id, suggested = await engine.run_exploration()
 
         # Should have called LLM twice (step 1 and step 2)
         assert mock_provider.stream_turns.call_count == 2
@@ -384,8 +386,10 @@ This territory has been well-explored...
 
         with patch.object(engine, '_get_redis_cache', return_value=mock_redis_cache_idle):
             with patch.object(engine, '_get_llm_provider', return_value=mock_provider):
-                engine.context_gatherer = mock_context_gatherer
-                await engine.run_exploration()
+                # Mock Paradigm.available() to always return brainstorm (which uses approach, not emotional_tone)
+                with patch('aim.refiner.engine.Paradigm.available', return_value=['brainstorm']):
+                    engine.context_gatherer = mock_context_gatherer
+                    await engine.run_exploration()
 
         # Check that start was called with context_documents
         mock_dreamer_client.start.assert_called_once()
