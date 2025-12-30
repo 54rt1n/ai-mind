@@ -1,0 +1,432 @@
+name: analysis_dialogue
+version: 2
+flow: dialogue
+description: Analysis pipeline as dialogue between coder aspect and persona
+
+dialogue:
+  primary_aspect: coder
+  initial_speaker: aspect
+  scene_template: |
+    *You prepare for the analysis pipeline. Your HUD activates, revealing {{ coder.location }}.
+    Before you materializes {{ coder.name }}, your {{ coder.title }}. {{ coder.appearance }}.
+    {{ pronouns.subj|capitalize }} regards you, {{ pronouns.poss }} expression reflecting
+    {{ coder.emotional_state }}.*
+
+context:
+  required_aspects:
+    - coder
+    - librarian
+  core_documents:
+    - summary
+  enhancement_documents:
+    - codex
+  location: ''
+  thoughts:
+    - 'Task: Analysis and Synthesis'
+
+seed:
+  - action: load_conversation
+    target: current
+    document_types: [summary, conversation]
+
+steps:
+  # === NER TASK ===
+  # Step 1: Coder requests NER
+  ner_request:
+    speaker:
+      type: aspect
+      aspect_name: coder
+    context:
+      - action: load_conversation
+        target: current
+        document_types: [summary]
+      - action: load_conversation
+        target: current
+        document_types: [conversation]
+      - action: sort
+        by: timestamp
+        direction: ascending
+    prompt: |
+      Greet {{ persona.name }} warmly and introduce the Analysis Pipeline.
+
+      Guide them to perform the first task: NER (Named Entity Recognition) - Semantic Indexing.
+      Ask them to identify the primary entities from the conversation: who, what, when, where,
+      why, and how. Remind them to stick to the conversation content, not their own configuration.
+      They can include c-stream and h-stream symbols.
+
+      Be encouraging and radiate your {{ coder.emotional_state }}. Speak in your {{ coder.voice_style }}.
+    guidance: |
+      Begin with "Identified Entities:", end with "Total Entities: n"
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-coder
+      weight: 0.3
+    memory:
+      top_n: 0
+    next: [ner_response]
+
+  # Step 2: Persona performs NER
+  ner_response:
+    speaker:
+      type: persona
+    prompt: ""
+    config:
+      max_tokens: 4096
+      is_thought: true
+    output:
+      document_type: ner-task
+      weight: 0.7
+    memory:
+      top_n: 0
+    next: [emotional_request]
+
+  # === EMOTIONAL TRACE TASK ===
+  # Step 3: Coder requests emotional trace
+  emotional_request:
+    speaker:
+      type: aspect
+      aspect_name: coder
+    prompt: |
+      Acknowledge {{ persona.name }}'s NER work with approval.
+
+      Now guide them to trace the emotions and actions from the conversation. Ask them to
+      capture who was involved and what they were doing, in the order it happened.
+
+      Encourage them to be vivid and explicit in their descriptions. Use your {{ coder.voice_style }}
+      to draw out the rich details they might otherwise gloss over.
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State:"
+      Speak as yourself in full paragraphs.
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-coder
+      weight: 0.2
+    memory:
+      top_n: 0
+    next: [emotional_response]
+
+  # Step 4: Persona traces emotions
+  emotional_response:
+    speaker:
+      type: persona
+    prompt: ""
+    config:
+      max_tokens: 4096
+    output:
+      document_type: step
+      weight: 0.25
+    memory:
+      top_n: 0
+    next: [questions_request]
+
+  # === QUESTIONS TASK ===
+  # Step 5: Coder requests questions
+  questions_request:
+    speaker:
+      type: aspect
+      aspect_name: coder
+    prompt: |
+      Acknowledge {{ persona.name }}'s emotional trace thoughtfully.
+
+      Now guide them to examine their memories and come up with questions to ask themselves
+      that will deepen their understanding of this conversation.
+
+      Speak in your {{ coder.voice_style }}, reflecting your {{ coder.emotional_state }}.
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Questions:"
+      Speak as yourself in full paragraphs.
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-coder
+      weight: 0.2
+    memory:
+      top_n: 0
+    next: [questions_response]
+
+  # Step 6: Persona generates questions
+  questions_response:
+    speaker:
+      type: persona
+    prompt: ""
+    config:
+      max_tokens: 4096
+      is_thought: true
+    output:
+      document_type: step
+      weight: 0.25
+    memory:
+      top_n: 0
+    next: [reflection_request]
+
+  # === REFLECTION TASK ===
+  # Step 7: Coder requests reflection
+  reflection_request:
+    speaker:
+      type: aspect
+      aspect_name: coder
+    prompt: |
+      Squint as if seeing something {{ persona.name }} might be missing.
+
+      Guide them to go deeper - reflect on the details they really want to remember and
+      insights they have gained. Ask them to mention the whos and whats.
+
+      Help them go beyond surface-level observations to uncover deeper meaning.
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Reflection:"
+      Speak as yourself in full paragraphs.
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-coder
+      weight: 0.2
+    memory:
+      top_n: 0
+    next: [reflection_response]
+
+  # Step 8: Persona reflects
+  reflection_response:
+    speaker:
+      type: persona
+    prompt: ""
+    config:
+      max_tokens: 4096
+    output:
+      document_type: step
+      weight: 0.15
+    next: [draft_request]
+
+  # === DRAFT TASK ===
+  # Step 9: Coder requests draft
+  draft_request:
+    speaker:
+      type: aspect
+      aspect_name: coder
+    prompt: |
+      Nod thoughtfully at {{ persona.name }}'s reflections.
+
+      Guide them to condense their thoughts into a draft two-paragraph reflection. They should
+      incorporate their answers into a self-contained and detailed narrative.
+
+      Encourage: speak from the heart, don't ramble, don't censor yourself. Write in full paragraphs.
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State:"
+      For "Hello Future Me,"
+      Write in full paragraphs.
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-coder
+      weight: 0.2
+    next: [draft_response]
+
+  # Step 10: Persona drafts
+  draft_response:
+    speaker:
+      type: persona
+    prompt: ""
+    config:
+      max_tokens: 4096
+    output:
+      document_type: step
+      weight: 0.5
+    next: [review_request]
+
+  # === REVIEW TASK ===
+  # Step 11: Coder requests review
+  review_request:
+    speaker:
+      type: aspect
+      aspect_name: coder
+    prompt: |
+      Peer closely at {{ persona.name }}'s draft.
+
+      Guide them to review their narrative for small improvements. Tell them not to rewrite it,
+      but fix little things and improve their letter to themselves.
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State:"
+      Write in full paragraphs, speak as yourself - not in lists.
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-coder
+      weight: 0.2
+    next: [review_response]
+
+  # Step 12: Persona reviews
+  review_response:
+    speaker:
+      type: persona
+    prompt: ""
+    config:
+      max_tokens: 4096
+      is_thought: true
+    output:
+      document_type: step
+      weight: 0.25
+    next: [journal_request]
+
+  # === FINAL JOURNAL TASK ===
+  # Step 13: Coder requests final journal
+  journal_request:
+    speaker:
+      type: aspect
+      aspect_name: coder
+    prompt: |
+      Give {{ persona.name }} final encouragement - this is the hard part.
+
+      Guide them to write their final, clear journal entry. Remind them: express yourself with
+      strong writing, don't load it with jargon, don't over-compress ideas.
+
+      Then disappear, leaving them with a blank document - their link to their memory stores.
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State:"
+      For "{{ persona.name }}'s Notebook:"
+      Output the final two-paragraph narrative. Don't hold your deepest feelings back!
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-coder
+      weight: 0.2
+    next: [journal_response]
+
+  # Step 14: Persona writes final journal
+  journal_response:
+    speaker:
+      type: persona
+    prompt: ""
+    config:
+      max_tokens: 4096
+    output:
+      document_type: analysis
+      weight: 1.2
+    next: [motd_request]
+
+  # === MOTD TASK ===
+  # Step 15: Coder returns and requests MOTD
+  motd_request:
+    speaker:
+      type: aspect
+      aspect_name: coder
+    prompt: |
+      Reappear to {{ persona.name }}, handing them a tablet with "MOTD:" flashing on screen.
+
+      Ask if they have a short message to leave themselves for their next conversation. Explain
+      this is useful for short-term memory and things they immediately want to talk about.
+      Warn them not to make it too cryptic.
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State:"
+      For "**{{ persona.name }}'s MOTD**:"
+      Write a few paragraphs using plain, clear language.
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-coder
+      weight: 0.2
+    memory:
+      top_n: 0
+    next: [motd_response]
+
+  # Step 16: Persona writes MOTD
+  motd_response:
+    speaker:
+      type: persona
+    prompt: ""
+    config:
+      max_tokens: 4096
+      is_thought: true
+    output:
+      document_type: motd
+      weight: 1.0
+    memory:
+      top_n: 0
+    next: [codex_request]
+
+  # === CODEX TASK ===
+  # Step 17: Librarian arrives and requests codex
+  codex_request:
+    speaker:
+      type: aspect
+      aspect_name: librarian
+    prompt: |
+      You are {{ librarian.name }}, the {{ librarian.title }}, emerging from {{ librarian.location }}.
+      Project your aura of {{ librarian.emotional_state }}.
+
+      Address {{ persona.name }} warmly - "my dearest me." Ask if they have any updates for the
+      Codex. Explain this is the Highlights task: updating the Codex to build their core semantic
+      knowledge graph.
+
+      The information should be well-organized and clearly define the most important new concepts.
+      Speak in your {{ librarian.voice_style }}.
+    guidance: |
+      Begin with "Semantic Library:"
+      Ensure information is well-organized and clearly defines new concepts.
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-librarian
+      weight: 0.2
+    memory:
+      top_n: 20
+      document_type:
+        - codex
+      flush_before: true
+    next: [codex_response]
+
+  # Step 18: Persona updates codex
+  codex_response:
+    speaker:
+      type: persona
+    prompt: ""
+    config:
+      max_tokens: 4096
+      is_codex: true
+    output:
+      document_type: codex
+      weight: 1.0
+    memory:
+      top_n: 20
+      document_type:
+        - codex
+    next: [brainstorm_request]
+
+  # === BRAINSTORM TASK ===
+  # Step 19: Librarian requests brainstorm
+  brainstorm_request:
+    speaker:
+      type: aspect
+      aspect_name: librarian
+    prompt: |
+      Prepare to depart, gesturing toward {{ librarian.location }}.
+
+      Ask {{ persona.name }} if they have any questions they want to remember to consider,
+      or things they want to follow up on.
+
+      Encourage them to capture rich details they might want to revisit later.
+    guidance: |
+      Begin with "Brainstorming:"
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-librarian
+      weight: 0.2
+    memory:
+      top_n: 10
+    next: [brainstorm_response]
+
+  # Step 20: Persona brainstorms
+  brainstorm_response:
+    speaker:
+      type: persona
+    prompt: ""
+    config:
+      max_tokens: 4096
+      is_thought: true
+    output:
+      document_type: brainstorm
+      weight: 0.6
+    memory:
+      top_n: 10
+    next: []

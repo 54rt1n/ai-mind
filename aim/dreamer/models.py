@@ -124,6 +124,8 @@ class Scenario(BaseModel):
     """Complete scenario definition from YAML."""
     name: str
     version: int = 2
+    flow: Optional[Literal["standard", "dialogue"]] = "standard"
+    """Flow type: 'standard' uses executor, 'dialogue' uses DialogueScenario."""
     description: str = ""
     requires_conversation: bool = True
     """Whether this scenario requires an existing conversation.
