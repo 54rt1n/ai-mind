@@ -109,6 +109,9 @@ class DialogueTurn(BaseModel):
     content: str
     """The generated response content."""
 
+    think: Optional[str] = None
+    """Extracted think content from model response."""
+
     step_id: str
     """ID of the step that generated this turn."""
 
@@ -153,6 +156,17 @@ class DialogueState(BaseModel):
     """Query text for memory searches."""
 
     persona_mood: Optional[str] = None
+
+    # Context accumulation (compatible with PipelineState for executor functions)
+    context_doc_ids: list[str] = Field(default_factory=list)
+    """Accumulated context document IDs from prior steps."""
+
+    context_documents: Optional[list[dict]] = None
+    """Pre-provided context documents (optional)."""
+
+    # Execution state
+    branch: int = 0
+    """Branch number for conversation storage."""
 
     # Dialogue tracking
     turns: list[DialogueTurn] = Field(default_factory=list)

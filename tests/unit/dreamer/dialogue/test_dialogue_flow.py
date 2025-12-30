@@ -315,13 +315,25 @@ class TestDialogueScenarioTurnBuilding:
         template_context = scenario._build_template_context(step)
         speaker_id = step.speaker.get_speaker_id(persona.persona_id)
 
-        turns = scenario._build_turns(step, template_context, [], speaker_id)
+        prompt = strategy.render_prompt(step, template_context)
+        turns, _ = scenario.build_dialogue_turns(
+            step=step,
+            template_context=template_context,
+            prompt=prompt,
+            memories=[],
+            context_docs=[],
+            speaker_id=speaker_id,
+            max_context_tokens=128000,
+            max_output_tokens=4096,
+        )
 
-        # Should have only the final user turn (scene + prompt, but NO guidance for aspect steps)
+        # Should have only the final user turn with prompt (NO scene for aspect steps)
+        # Scene is ONLY for persona steps
         assert len(turns) == 1
         assert turns[0]["role"] == "user"
-        assert "Holographic Interface" in turns[0]["content"]  # Scene
         assert "Hello Andi" in turns[0]["content"]  # Prompt
+        # Aspect steps do NOT get scene (only persona steps do)
+        assert "observe" not in turns[0]["content"].lower()
         # Aspect steps do NOT get guidance in their final turn
         # Guidance shapes the NEXT response (persona's), not this one
         assert "Output Guidance" not in turns[0]["content"]
@@ -353,14 +365,24 @@ class TestDialogueScenarioTurnBuilding:
         template_context = scenario._build_template_context(step2)
         speaker_id = step2.speaker.get_speaker_id(persona.persona_id)  # persona:andi
 
-        turns = scenario._build_turns(step2, template_context, [], speaker_id)
+        prompt = strategy.render_prompt(step2, template_context)
+        turns, _ = scenario.build_dialogue_turns(
+            step=step2,
+            template_context=template_context,
+            prompt=prompt,
+            memories=[],
+            context_docs=[],
+            speaker_id=speaker_id,
+            max_context_tokens=128000,
+            max_output_tokens=4096,
+        )
 
         # Persona steps with prior turns: only 1 turn (the prior aspect turn with guidance appended)
         # No additional prompt turn is added
         assert len(turns) == 1
         assert turns[0]["role"] == "user"
-        # Scene is prepended to the first prior turn
-        assert "Holographic Interface" in turns[0]["content"]
+        # Scene is dynamically generated - shows Persona from Aspect's perspective
+        assert "observe Andi" in turns[0]["content"]  # Dynamic scene
         assert "Hello from coder!" in turns[0]["content"]
         # Guidance from step1 is appended to the prior turn (shapes persona's response)
         assert "Output Guidance" in turns[0]["content"]
@@ -403,29 +425,34 @@ class TestDialogueScenarioTurnBuilding:
         template_context = scenario._build_template_context(step3)
         speaker_id = step3.speaker.get_speaker_id(persona.persona_id)  # aspect:coder
 
-        turns = scenario._build_turns(step3, template_context, [], speaker_id)
+        prompt = strategy.render_prompt(step3, template_context)
+        turns, _ = scenario.build_dialogue_turns(
+            step=step3,
+            template_context=template_context,
+            prompt=prompt,
+            memories=[],
+            context_docs=[],
+            speaker_id=speaker_id,
+            max_context_tokens=128000,
+            max_output_tokens=4096,
+        )
 
-        # Aspect's prior turn (step1) -> 'assistant' (my prior words)
-        # Persona's turn (step2) -> 'user' (their words to me)
-        # + final prompt turn for aspect
-        assert len(turns) == 3
+        # Aspect's prior turn (step1) -> 'assistant' (same speaker type = aspects)
+        # Persona's turn (step2) -> 'user' (persona = user for aspect speakers)
+        # Prompt is appended to last user turn, so only 2 turns total
+        assert len(turns) == 2
 
-        # First turn: aspect's prior (assistant because same speaker)
-        # Scene is prepended to the first prior turn
+        # First turn: aspect's prior (assistant because all aspects = assistant for aspect speaker)
         assert turns[0]["role"] == "assistant"
-        assert "Holographic Interface" in turns[0]["content"]
         assert "Hello from coder!" in turns[0]["content"]
 
-        # Second turn: persona's turn (user because different speaker)
-        # Guidance from step2 is appended (it's the last 'user' turn in prior turns)
+        # Second turn: persona's turn + prompt (user because persona = user for aspect speaker)
+        # Prompt is appended to last user turn (no separate prompt turn)
+        # No guidance here - guidance is for persona steps, not aspect steps
         assert turns[1]["role"] == "user"
         assert "Hello back from Andi!" in turns[1]["content"]
-        assert "Output Guidance" in turns[1]["content"]
-        assert "Begin with 'Response:'" in turns[1]["content"]
-
-        # Third turn: final prompt (no guidance for aspect steps)
-        assert turns[2]["role"] == "user"
-        assert "Output Guidance" not in turns[2]["content"]
+        assert "continue to the next task" in turns[1]["content"]  # Prompt appended
+        assert "Output Guidance" not in turns[1]["content"]  # No guidance for aspect steps
 
     def test_full_alternation_pattern(self, temp_strategy_file, persona, chat_config):
         """Test the full alternation pattern over 4 steps."""
@@ -520,19 +547,20 @@ class TestDialogueScenarioExecution:
         scenario = DialogueScenario(strategy, persona, chat_config, cvm=None)
         scenario.start(user_id="test_user")
 
-        # Mock the LLM infrastructure
+        # Mock only external services (LLM provider, Redis)
         mock_model = Mock()
+        mock_model.max_tokens = 128000  # Context window
         mock_model.max_output_tokens = 4096
         mock_model.llm_factory = Mock(return_value=mock_llm_provider)
 
-        with patch.object(
-            scenario, '_select_model', return_value='gpt-4'
-        ), patch(
+        # Use the model name set in scenario.start() - let _select_model run naturally
+        model_name = scenario.state.model
+
+        with patch(
             'aim.dreamer.dialogue.scenario.LanguageModelV2.index_models',
-            return_value={'gpt-4': mock_model}
+            return_value={model_name: mock_model}
         ), patch(
-            'aim.dreamer.dialogue.scenario.ConversationMessage.next_doc_id',
-            return_value='test-doc-id'
+            'aim.utils.redis_cache.RedisCache'
         ):
             turn = await scenario.execute_step("step1")
 
@@ -568,17 +596,18 @@ class TestDialogueScenarioExecution:
         mock_provider.stream_turns = Mock(side_effect=mock_stream_turns)
 
         mock_model = Mock()
+        mock_model.max_tokens = 128000  # Context window
         mock_model.max_output_tokens = 4096
         mock_model.llm_factory = Mock(return_value=mock_provider)
 
-        with patch.object(
-            scenario, '_select_model', return_value='gpt-4'
-        ), patch(
+        # Use the model name set in scenario.start() - let _select_model run naturally
+        model_name = scenario.state.model
+
+        with patch(
             'aim.dreamer.dialogue.scenario.LanguageModelV2.index_models',
-            return_value={'gpt-4': mock_model}
+            return_value={model_name: mock_model}
         ), patch(
-            'aim.dreamer.dialogue.scenario.ConversationMessage.next_doc_id',
-            side_effect=[f'doc-{i}' for i in range(1, 5)]
+            'aim.utils.redis_cache.RedisCache'
         ):
             # Execute all steps in order
             turn1 = await scenario.execute_step("step1")
@@ -620,17 +649,18 @@ class TestDialogueScenarioExecution:
         mock_provider.stream_turns = Mock(side_effect=mock_stream_turns)
 
         mock_model = Mock()
+        mock_model.max_tokens = 128000  # Context window
         mock_model.max_output_tokens = 4096
         mock_model.llm_factory = Mock(return_value=mock_provider)
 
-        with patch.object(
-            scenario, '_select_model', return_value='gpt-4'
-        ), patch(
+        # Use the model name set in scenario.start() - let _select_model run naturally
+        model_name = scenario.state.model
+
+        with patch(
             'aim.dreamer.dialogue.scenario.LanguageModelV2.index_models',
-            return_value={'gpt-4': mock_model}
+            return_value={model_name: mock_model}
         ), patch(
-            'aim.dreamer.dialogue.scenario.ConversationMessage.next_doc_id',
-            side_effect=[f'doc-{i}' for i in range(1, 5)]
+            'aim.utils.redis_cache.RedisCache'
         ):
             turns = await scenario.run()
 
@@ -680,15 +710,25 @@ class TestSceneAndGuidanceHandling:
         template_context = scenario._build_template_context(step2)
         speaker_id = step2.speaker.get_speaker_id(persona.persona_id)
 
-        turns = scenario._build_turns(step2, template_context, [], speaker_id)
+        prompt = strategy.render_prompt(step2, template_context)
+        turns, _ = scenario.build_dialogue_turns(
+            step=step2,
+            template_context=template_context,
+            prompt=prompt,
+            memories=[],
+            context_docs=[],
+            speaker_id=speaker_id,
+            max_context_tokens=128000,
+            max_output_tokens=4096,
+        )
 
         # Persona steps with prior turns: only 1 turn
         assert len(turns) == 1
 
         # Scene should be in the prior turn (which is also the first and only turn)
+        # Scene is dynamically generated from aspect data
         first_turn = turns[0]
-        assert "Holographic Interface" in first_turn["content"]
-        assert "Andi Informa" in first_turn["content"]
+        assert "observe Andi" in first_turn["content"]  # Dynamic scene
         assert "Prior content" in first_turn["content"]
 
     def test_guidance_from_prior_step_appended_to_prior_turn(self, temp_strategy_file, persona, chat_config):
@@ -717,7 +757,17 @@ class TestSceneAndGuidanceHandling:
         template_context = scenario._build_template_context(step2)
         speaker_id = step2.speaker.get_speaker_id(persona.persona_id)
 
-        turns = scenario._build_turns(step2, template_context, [], speaker_id)
+        prompt = strategy.render_prompt(step2, template_context)
+        turns, _ = scenario.build_dialogue_turns(
+            step=step2,
+            template_context=template_context,
+            prompt=prompt,
+            memories=[],
+            context_docs=[],
+            speaker_id=speaker_id,
+            max_context_tokens=128000,
+            max_output_tokens=4096,
+        )
 
         # The prior turn should have step1's guidance appended
         assert len(turns) == 1
@@ -740,7 +790,17 @@ class TestSceneAndGuidanceHandling:
         template_context = scenario._build_template_context(step1)
         speaker_id = step1.speaker.get_speaker_id(persona.persona_id)
 
-        turns = scenario._build_turns(step1, template_context, [], speaker_id)
+        prompt = strategy.render_prompt(step1, template_context)
+        turns, _ = scenario.build_dialogue_turns(
+            step=step1,
+            template_context=template_context,
+            prompt=prompt,
+            memories=[],
+            context_docs=[],
+            speaker_id=speaker_id,
+            max_context_tokens=128000,
+            max_output_tokens=4096,
+        )
 
         # Aspect steps: only 1 turn (scene + prompt, no guidance)
         assert len(turns) == 1

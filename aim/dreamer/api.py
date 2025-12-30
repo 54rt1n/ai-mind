@@ -12,6 +12,8 @@ from .models import PipelineState, Scenario, StepStatus
 from .scenario import load_scenario
 from .scheduler import Scheduler
 from .state import StateStore
+from .dialogue.models import DialogueState
+from .dialogue.strategy import DialogueStrategy
 from ..config import ChatConfig
 from ..conversation.model import ConversationModel
 from ..agents.roster import Roster
@@ -22,7 +24,7 @@ from ..llm.models import LanguageModelV2
 # Each scenario has characteristic output document types that identify it
 # Only final/unique outputs are used - partial runs require --scenario flag
 SCENARIO_SIGNATURES = {
-    "analysis": "analyst",      # analyst produces analysis
+    "analysis": "analysis_dialogue",  # analysis_dialogue produces analysis
     "summary": "summarizer",    # summarizer produces summary
     "journal": "journaler",     # journaler produces journal
     "pondering": "philosopher", # philosopher produces pondering
@@ -244,8 +246,45 @@ async def start_pipeline(
     if model_name not in models:
         raise ValueError(f"Model {model_name} not found in available models")
 
-    # 6. Initialize state
+    # 6. Initialize state - branch based on flow type
     pipeline_id = generate_pipeline_id()
+
+    if scenario.flow == "dialogue":
+        # Dialogue flow - use DialogueState and DialogueStrategy
+        strategy = DialogueStrategy.load(scenario_name)
+
+        # Get branch from conversation (same as standard flow)
+        branch = cvm.get_next_branch(conversation_id) if conversation_id else 0
+
+        dialogue_state = DialogueState(
+            pipeline_id=pipeline_id,
+            strategy_name=scenario_name,
+            conversation_id=conversation_id,
+            persona_id=resolved_persona_id,
+            user_id=resolved_user_id,
+            model=model_name,
+            thought_model=config.thought_model,
+            codex_model=config.codex_model,
+            guidance=guidance or config.guidance,
+            query_text=query_text,
+            persona_mood=mood or config.persona_mood,
+            branch=branch,
+        )
+
+        # Persist dialogue state
+        await state_store.save_dialogue_state(dialogue_state)
+
+        # Initialize DAG using scenario (same step structure)
+        await state_store.init_dag(pipeline_id, scenario)
+
+        # Enqueue first step from execution order
+        execution_order = strategy.get_execution_order()
+        if execution_order:
+            await scheduler.enqueue_step(pipeline_id, execution_order[0])
+
+        return pipeline_id
+
+    # Standard flow - use PipelineState
     # Get branch from conversation if available, else start at 0
     branch = cvm.get_next_branch(conversation_id) if conversation_id else 0
     state = PipelineState(
@@ -266,16 +305,16 @@ async def start_pipeline(
         updated_at=datetime.now(timezone.utc),
     )
 
-    # 6. Run seed actions (load initial context)
+    # Run seed actions (load initial context)
     state = await run_seed_actions(scenario, state, cvm)
 
-    # 7. Persist state to Redis
+    # Persist state to Redis
     await state_store.save_state(state)
 
-    # 8. Initialize DAG (all steps pending)
+    # Initialize DAG (all steps pending)
     await state_store.init_dag(pipeline_id, scenario)
 
-    # 9. Enqueue root steps
+    # Enqueue root steps
     for step_id in scenario.get_root_steps():
         await scheduler.enqueue_step(pipeline_id, step_id)
 
@@ -298,11 +337,26 @@ async def get_status(
     Returns:
         PipelineStatus if pipeline exists, None otherwise
     """
-    # Load state from Redis
-    state = await state_store.load_state(pipeline_id)
+    # Load state from Redis - handle both PipelineState and DialogueState
+    state_type = await state_store.get_state_type(pipeline_id)
 
-    if state is None:
+    if state_type is None:
         return None
+
+    if state_type == 'dialogue':
+        dialogue_state = await state_store.load_dialogue_state(pipeline_id)
+        if dialogue_state is None:
+            return None
+        scenario_name = dialogue_state.strategy_name
+        created_at = dialogue_state.created_at
+        updated_at = dialogue_state.updated_at
+    else:
+        state = await state_store.load_state(pipeline_id)
+        if state is None:
+            return None
+        scenario_name = state.scenario_name
+        created_at = state.created_at
+        updated_at = state.updated_at
 
     # Get step statuses from DAG
     completed_steps = []
@@ -344,15 +398,15 @@ async def get_status(
 
     return PipelineStatus(
         pipeline_id=pipeline_id,
-        scenario_name=state.scenario_name,
+        scenario_name=scenario_name,
         status=overall_status,
         current_step=current_step,
         completed_steps=completed_steps,
         failed_steps=failed_steps,
         step_errors=step_errors,
         progress_percent=progress_percent,
-        created_at=state.created_at,
-        updated_at=state.updated_at,
+        created_at=created_at,
+        updated_at=updated_at,
     )
 
 
@@ -372,14 +426,25 @@ async def cancel_pipeline(
     Returns:
         True if pipeline was cancelled, False if not found
     """
-    # Load state from Redis
-    state = await state_store.load_state(pipeline_id)
+    # Check state type and load appropriately
+    state_type = await state_store.get_state_type(pipeline_id)
 
-    if state is None:
+    if state_type is None:
         return False
 
+    if state_type == 'dialogue':
+        dialogue_state = await state_store.load_dialogue_state(pipeline_id)
+        if dialogue_state is None:
+            return False
+        scenario_name = dialogue_state.strategy_name
+    else:
+        state = await state_store.load_state(pipeline_id)
+        if state is None:
+            return False
+        scenario_name = state.scenario_name
+
     # Load scenario to get all steps
-    scenario = load_scenario(state.scenario_name)
+    scenario = load_scenario(scenario_name)
 
     # Mark all pending/running steps as failed
     for step_id in scenario.steps.keys():
@@ -389,8 +454,12 @@ async def cancel_pipeline(
             await state_store.set_step_status(pipeline_id, step_id, StepStatus.FAILED)
 
     # Update state timestamp
-    state.updated_at = datetime.now(timezone.utc)
-    await state_store.save_state(state)
+    if state_type == 'dialogue':
+        dialogue_state.updated_at = datetime.now(timezone.utc)
+        await state_store.save_dialogue_state(dialogue_state)
+    else:
+        state.updated_at = datetime.now(timezone.utc)
+        await state_store.save_state(state)
 
     return True
 
@@ -411,13 +480,13 @@ async def delete_pipeline(
     Returns:
         True if pipeline was deleted, False if not found
     """
-    # Load state to verify it exists
-    state = await state_store.load_state(pipeline_id)
+    # Check if state exists (works for both pipeline and dialogue states)
+    state_type = await state_store.get_state_type(pipeline_id)
 
-    if state is None:
+    if state_type is None:
         return False
 
-    # Delete all state (state, DAG, errors)
+    # Delete all state (state, DAG, errors) - works for both types since same key pattern
     await state_store.delete_state(pipeline_id)
 
     return True
@@ -462,6 +531,14 @@ async def resume_pipeline(
     Returns:
         ResumeResult with details of what was done
     """
+    # Check state type - dialogue flows not yet supported for resume
+    state_type = await state_store.get_state_type(pipeline_id)
+    if state_type is None:
+        return ResumeResult(found=False, steps_enqueued=[], steps_reset=[], orphaned_steps_cleaned=[])
+    if state_type == 'dialogue':
+        # TODO: Implement resume for dialogue flows
+        return ResumeResult(found=True, steps_enqueued=[], steps_reset=[], orphaned_steps_cleaned=[])
+
     # Load state from Redis
     state = await state_store.load_state(pipeline_id)
 
@@ -602,6 +679,14 @@ async def refresh_pipeline(
     Returns:
         ResumeResult with details of what was done
     """
+    # Check state type - dialogue flows not yet supported for refresh
+    state_type = await state_store.get_state_type(pipeline_id)
+    if state_type is None:
+        return ResumeResult(found=False, steps_enqueued=[], steps_reset=[], orphaned_steps_cleaned=[])
+    if state_type == 'dialogue':
+        # TODO: Implement refresh for dialogue flows
+        return ResumeResult(found=True, steps_enqueued=[], steps_reset=[], orphaned_steps_cleaned=[])
+
     state = await state_store.load_state(pipeline_id)
     if state is None:
         return ResumeResult(found=False, steps_enqueued=[], steps_reset=[], orphaned_steps_cleaned=[])
@@ -727,15 +812,28 @@ async def list_pipelines(
         if len(parts) >= 3:
             pipeline_id = parts[2]
 
-            # Load state
-            state = await state_store.load_state(pipeline_id)
+            # Check state type and load appropriately
+            state_type = await state_store.get_state_type(pipeline_id)
 
-            if state is None:
+            if state_type is None:
                 continue
+
+            if state_type == 'dialogue':
+                # Load dialogue state
+                dialogue_state = await state_store.load_dialogue_state(pipeline_id)
+                if dialogue_state is None:
+                    continue
+                scenario_name = dialogue_state.strategy_name
+            else:
+                # Load pipeline state
+                state = await state_store.load_state(pipeline_id)
+                if state is None:
+                    continue
+                scenario_name = state.scenario_name
 
             # Load scenario
             try:
-                scenario = load_scenario(state.scenario_name)
+                scenario = load_scenario(scenario_name)
             except FileNotFoundError:
                 continue
 

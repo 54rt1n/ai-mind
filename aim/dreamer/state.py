@@ -6,6 +6,7 @@ from typing import Optional
 import redis.asyncio as redis
 
 from .models import PipelineState, StepStatus, Scenario
+from .dialogue.models import DialogueState
 
 
 class StateStore:
@@ -50,6 +51,25 @@ class StateStore:
         # Deserialize from JSON using Pydantic's model_validate_json
         return PipelineState.model_validate_json(state_json)
 
+    async def get_state_type(self, pipeline_id: str) -> Optional[str]:
+        """Check what type of state is stored for a pipeline.
+
+        Returns:
+            'dialogue' if DialogueState, 'pipeline' if PipelineState, None if not found
+        """
+        import json
+        key = self._state_key(pipeline_id)
+        state_json = await self.redis.get(key)
+
+        if state_json is None:
+            return None
+
+        # Parse just enough to check the type
+        data = json.loads(state_json)
+        if 'strategy_name' in data:
+            return 'dialogue'
+        return 'pipeline'
+
     async def delete_state(self, pipeline_id: str) -> None:
         """Delete pipeline state from Redis."""
         state_key = self._state_key(pipeline_id)
@@ -57,6 +77,36 @@ class StateStore:
         errors_key = self._errors_key(pipeline_id)
 
         # Delete state, DAG, and errors
+        await self.redis.delete(state_key, dag_key, errors_key)
+
+    # === Dialogue State Methods ===
+
+    def _dialogue_state_key(self, pipeline_id: str) -> str:
+        """Generate Redis key for dialogue state (same as pipeline state)."""
+        # Use same key pattern as pipeline state - they're mutually exclusive
+        return f"{self.key_prefix}:pipeline:{pipeline_id}:state"
+
+    async def save_dialogue_state(self, state: DialogueState) -> None:
+        """Persist dialogue state to Redis."""
+        key = self._dialogue_state_key(state.pipeline_id)
+        await self.redis.set(key, state.model_dump_json())
+
+    async def load_dialogue_state(self, pipeline_id: str) -> Optional[DialogueState]:
+        """Load dialogue state from Redis."""
+        key = self._dialogue_state_key(pipeline_id)
+        state_json = await self.redis.get(key)
+
+        if state_json is None:
+            return None
+
+        return DialogueState.model_validate_json(state_json)
+
+    async def delete_dialogue_state(self, pipeline_id: str) -> None:
+        """Delete dialogue state from Redis."""
+        state_key = self._dialogue_state_key(pipeline_id)
+        dag_key = self._dag_key(pipeline_id)
+        errors_key = self._errors_key(pipeline_id)
+
         await self.redis.delete(state_key, dag_key, errors_key)
 
     async def init_dag(self, pipeline_id: str, scenario: Scenario) -> None:

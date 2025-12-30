@@ -50,12 +50,12 @@ class DreamerClient:
 
     Usage (direct mode):
         async with DreamerClient.direct(config) as client:
-            result = await client.start("analyst", "conv-123", "claude-3-5-sonnet")
+            result = await client.start("analysis_dialogue", "conv-123", "claude-3-5-sonnet")
             status = await client.watch(result.pipeline_id)
 
     Usage (HTTP mode):
         async with DreamerClient.http("http://localhost:8000", "api-key") as client:
-            result = await client.start("analyst", "conv-123", "claude-3-5-sonnet")
+            result = await client.start("analysis_dialogue", "conv-123", "claude-3-5-sonnet")
             status = await client.watch(result.pipeline_id)
     """
 

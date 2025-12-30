@@ -333,7 +333,7 @@ class AnalysisWithSummaryRule(Rule):
                 )
             else:
                 # Under threshold OR already has summary -> analyze
-                scenario = "analyst"
+                scenario = "analysis_dialogue"
                 guidance = None
 
             matches.append(RuleMatch(
@@ -404,7 +404,7 @@ class PostSummaryAnalysisRule(Rule):
         for conversation_id in needs_analysis:
             matches.append(RuleMatch(
                 conversation_id=conversation_id,
-                scenario="analyst",
+                scenario="analysis_dialogue",
                 persona_id=self.persona_id,
                 model=self.model,
             ))

@@ -12,6 +12,8 @@ from .models import StepJob, StepStatus
 from .scenario import load_scenario
 from .scheduler import Scheduler
 from .state import StateStore
+from .dialogue.strategy import DialogueStrategy
+from .dialogue.scenario import DialogueScenario
 from ..config import ChatConfig
 from ..conversation.model import ConversationModel
 from ..agents.roster import Roster
@@ -132,14 +134,29 @@ class DreamerWorker:
                 job.pipeline_id, job.step_id, StepStatus.RUNNING
             )
 
-            # 2. Load state and scenario
-            state = await self.state_store.load_state(job.pipeline_id)
+            # 2. Check state type and route accordingly
+            state_type = await self.state_store.get_state_type(job.pipeline_id)
 
-            if state is None:
-                # Pipeline state not found - log and skip
+            if state_type is None:
                 print(f"Pipeline state not found: {job.pipeline_id}")
                 return
 
+            if state_type == 'dialogue':
+                # Dialogue flow - load DialogueState and route to dialogue handler
+                dialogue_state = await self.state_store.load_dialogue_state(job.pipeline_id)
+                scenario = load_scenario(dialogue_state.strategy_name)
+                persona = self.roster.personas.get(dialogue_state.persona_id)
+                if persona is None:
+                    await self.scheduler.mark_failed(
+                        job.pipeline_id, job.step_id,
+                        f"Persona {dialogue_state.persona_id} not found"
+                    )
+                    return
+                await self._process_dialogue_step(job, scenario, persona)
+                return
+
+            # Standard flow - load PipelineState
+            state = await self.state_store.load_state(job.pipeline_id)
             scenario = load_scenario(state.scenario_name)
             scenario.compute_dependencies()
             step_def = scenario.steps.get(job.step_id)
@@ -167,7 +184,7 @@ class DreamerWorker:
                 )
                 return
 
-            # 4. Execute step
+            # 4. Execute step (standard flow)
             result, context_doc_ids, is_initial_context = await execute_step(
                 state=state,
                 scenario=scenario,
@@ -237,6 +254,68 @@ class DreamerWorker:
         finally:
             # Always release lock
             await self.state_store.release_lock(job.pipeline_id, job.step_id)
+
+    async def _process_dialogue_step(
+        self,
+        job: StepJob,
+        scenario: 'Scenario',
+        persona: 'Persona',
+    ) -> None:
+        """
+        Process a dialogue flow step using DialogueScenario.
+
+        Dialogue flows use a different execution model:
+        - DialogueState instead of PipelineState
+        - DialogueStrategy provides step definitions
+        - DialogueScenario handles role flipping and turn building
+
+        Args:
+            job: StepJob to process
+            scenario: Loaded Scenario with flow="dialogue"
+            persona: Persona for the dialogue
+        """
+        # Load dialogue state
+        dialogue_state = await self.state_store.load_dialogue_state(job.pipeline_id)
+
+        if dialogue_state is None:
+            print(f"Dialogue state not found: {job.pipeline_id}")
+            await self.scheduler.mark_failed(
+                job.pipeline_id,
+                job.step_id,
+                "Dialogue state not found"
+            )
+            return
+
+        # Create DialogueStrategy and DialogueScenario
+        strategy = DialogueStrategy.load(scenario.name)
+        dialogue_scenario = DialogueScenario(
+            strategy=strategy,
+            persona=persona,
+            config=self.config,
+            cvm=self.cvm,
+        )
+
+        # Set the state (already initialized)
+        dialogue_scenario.state = dialogue_state
+
+        # Execute the step
+        turn = await dialogue_scenario.execute_step(job.step_id)
+
+        # Save updated state
+        await self.state_store.save_dialogue_state(dialogue_scenario.state)
+
+        # Mark complete
+        await self.scheduler.mark_complete(job.pipeline_id, job.step_id)
+
+        # Enqueue downstream steps
+        step = strategy.get_step(job.step_id)
+        for next_step_id in step.next:
+            await self.scheduler.enqueue_step(job.pipeline_id, next_step_id)
+
+        # Check if pipeline complete (no more steps)
+        if not step.next:
+            # Use scenario for completion check (same DAG structure)
+            await self.scheduler.check_pipeline_complete(job.pipeline_id, scenario)
 
     def setup_signal_handlers(self) -> None:
         """Setup handlers for graceful shutdown.

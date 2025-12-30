@@ -16,11 +16,19 @@ from .models import (
     SpeakerType,
 )
 from .strategy import DialogueStrategy
-from ..executor import format_memories_xml, extract_think_tags
+from ..executor import load_prior_outputs, format_memories_xml, extract_think_tags, format_thought_stream
 from ...agents.persona import Persona
 from ...agents.aspects import get_aspect_or_default
 from ...config import ChatConfig
-from ...constants import DOC_DIALOGUE_CODER, DOC_DIALOGUE_LIBRARIAN
+from ...constants import (
+    DOC_DIALOGUE_ARTIST,
+    DOC_DIALOGUE_CODER,
+    DOC_DIALOGUE_DREAMER,
+    DOC_DIALOGUE_LIBRARIAN,
+    DOC_DIALOGUE_PHILOSOPHER,
+    DOC_DIALOGUE_PSYCHOLOGIST,
+    DOC_DIALOGUE_WRITER,
+)
 from ...conversation.model import ConversationModel
 from ...conversation.message import ConversationMessage
 from ...llm.models import LanguageModelV2
@@ -74,6 +82,7 @@ class DialogueScenario:
         query_text: Optional[str] = None,
         user_id: str = "user",
         model: Optional[str] = None,
+        branch: Optional[int] = None,
     ) -> DialogueState:
         """
         Initialize dialogue state for execution.
@@ -84,12 +93,18 @@ class DialogueScenario:
             query_text: Optional query text for memory searches
             user_id: User identifier
             model: Model name to use (defaults to config.default_model)
+            branch: Branch number for conversation storage (defaults to 0)
 
         Returns:
             Initialized DialogueState
         """
         # Use provided model, or fall back to config.default_model
         model_name = model or getattr(self.config, 'default_model', None) or 'gpt-4'
+
+        # Get branch from cvm if available, else use provided or default to 0
+        if branch is None and self.cvm is not None and conversation_id:
+            branch = self.cvm.get_next_branch(conversation_id)
+        branch = branch or 0
 
         self.state = DialogueState(
             pipeline_id=str(uuid.uuid4()),
@@ -102,6 +117,7 @@ class DialogueScenario:
             codex_model=getattr(self.config, 'codex_model', None),
             guidance=guidance,
             query_text=query_text,
+            branch=branch,
         )
         return self.state
 
@@ -109,12 +125,17 @@ class DialogueScenario:
         """
         Execute a single dialogue step.
 
-        Process:
-        1. Get step from strategy
-        2. Determine current speaker and build system prompt
-        3. Build turns with role flipping based on perspective
-        4. Call LLM with appropriate system prompt
-        5. Store result and update state
+        Mirrors executor.execute_step flow:
+        1. Build template context
+        2. Render prompt
+        3. Load context (from DSL or accumulated)
+        4. Query memories
+        5. Select model
+        6. Build turns with role flipping
+        7. Build config
+        8. Stream LLM response
+        9. Extract think tags
+        10. Return DialogueTurn
 
         Args:
             step_id: ID of the step to execute
@@ -138,23 +159,37 @@ class DialogueScenario:
         # Get speaker ID for this step
         speaker_id = step.speaker.get_speaker_id(self.persona.persona_id)
 
+        # Log step start
+        step_flags = []
+        if step.config.is_codex:
+            step_flags.append("codex")
+        if step.config.is_thought:
+            step_flags.append("thought")
+        flags_str = f" [{', '.join(step_flags)}]" if step_flags else ""
+
         logger.info(
-            f"Executing step '{step_id}' | speaker={speaker_id} | "
+            f"Step '{step_id}' starting{flags_str} | speaker={speaker_id} | "
             f"prior_turns={len(self.state.turns)}"
         )
 
-        # Build system prompt based on speaker type
-        system_message = self._build_system_prompt(step.speaker)
+        # 1. Render prompt for this step
+        prompt = self.strategy.render_prompt(step, template_context)
 
-        # Query memories if configured
+        # 2. Load context using existing executor function
+        prior_outputs, context_doc_ids, is_initial_context = load_prior_outputs(
+            self.state, step, self.cvm
+        )
+
+        # Update state with context doc IDs if this is initial context
+        if is_initial_context:
+            self.state.context_doc_ids = context_doc_ids
+
+        # 3. Query memories if configured (use context content for query, not prompt)
         memories = []
         if step.memory.top_n > 0 and self.cvm is not None:
-            memories = self._query_memories(step)
+            memories = self._query_memories(step, prior_outputs)
 
-        # Build turns with role flipping
-        turns = self._build_turns(step, template_context, memories, speaker_id)
-
-        # Select and configure model
+        # 4. Select and configure model
         model_name = self._select_model(step)
         models = LanguageModelV2.index_models(self.config)
         model = models.get(model_name)
@@ -164,7 +199,25 @@ class DialogueScenario:
         provider = model.llm_factory(self.config)
         max_output_tokens = min(step.config.max_tokens, model.max_output_tokens)
 
-        # Build config for this step
+        logger.info(
+            f"Step '{step_id}' using model={model_name} | "
+            f"memories={len(memories)} context_docs={len(prior_outputs)} "
+            f"max_tokens={max_output_tokens}"
+        )
+
+        # 5. Build turns with dialogue-specific role flipping
+        turns, system_message = self.build_dialogue_turns(
+            step=step,
+            template_context=template_context,
+            prompt=prompt,
+            memories=memories,
+            context_docs=prior_outputs,
+            speaker_id=speaker_id,
+            max_context_tokens=model.max_tokens,
+            max_output_tokens=max_output_tokens,
+        )
+
+        # 6. Build config for this step
         step_config = replace(
             self.config,
             max_tokens=max_output_tokens,
@@ -173,46 +226,82 @@ class DialogueScenario:
         )
 
         logger.info(
-            f"Step '{step_id}' calling LLM | model={model_name} | "
+            f"Step '{step_id}' calling LLM | "
             f"turns={len(turns)} | max_tokens={max_output_tokens}"
         )
 
-        # Generate response (streaming)
+        # 7. Generate response (streaming) with activity updates
+        from ...utils.redis_cache import RedisCache
+        cache = RedisCache(self.config)
+        cache.update_api_activity()
+
         chunks = []
+        chunk_count = 0
         for chunk in provider.stream_turns(turns, step_config):
             if chunk:
                 chunks.append(chunk)
+                chunk_count += 1
+                if chunk_count % 50 == 0:
+                    cache.update_api_activity()
 
+        cache.update_api_activity()
         response = ''.join(chunks)
 
-        # Extract think tags if present
+        # 8. Extract think tags if present
         response, think = extract_think_tags(response)
 
+        # 9. Validate response
         if not response.strip():
             raise ValueError(f"Empty response from model for step '{step_id}'")
 
         # Determine document type based on speaker
         if step.speaker.type == SpeakerType.ASPECT:
-            # Aspect turns use aspect-specific dialogue document type
             aspect_name = step.speaker.aspect_name or self.strategy.dialogue.primary_aspect
             aspect_doc_types = {
+                'artist': DOC_DIALOGUE_ARTIST,
                 'coder': DOC_DIALOGUE_CODER,
+                'dreamer': DOC_DIALOGUE_DREAMER,
                 'librarian': DOC_DIALOGUE_LIBRARIAN,
+                'philosopher': DOC_DIALOGUE_PHILOSOPHER,
+                'psychologist': DOC_DIALOGUE_PSYCHOLOGIST,
+                'writer': DOC_DIALOGUE_WRITER,
             }
             document_type = aspect_doc_types.get(aspect_name, DOC_DIALOGUE_CODER)
         else:
-            # Persona turns use the step's output document type
             document_type = step.output.document_type
 
-        # Create turn
+        # 10. Create turn
         doc_id = ConversationMessage.next_doc_id()
         turn = DialogueTurn(
             speaker_id=speaker_id,
             content=response,
+            think=think,
             step_id=step_id,
             doc_id=doc_id,
             document_type=document_type,
         )
+
+        # 11. Save to CVM (using state.branch like standard executor)
+        if self.cvm is not None:
+            message = ConversationMessage.create(
+                doc_id=doc_id,
+                conversation_id=self.state.conversation_id,
+                user_id=self.state.user_id,
+                persona_id=self.state.persona_id,
+                sequence_no=self.state.step_counter,  # Sequential turns in dialogue
+                branch=self.state.branch,
+                role='assistant',
+                content=response,
+                think=think,
+                document_type=document_type,
+                weight=step.output.weight,
+                speaker_id=speaker_id,
+                inference_model=model_name,
+                scenario_name=self.strategy.name,
+                step_name=step_id,
+            )
+            self.cvm.insert(message)
+            logger.info(f"Saved turn to CVM: doc_id={doc_id} type={document_type}")
 
         # Update state
         self.state.add_turn(turn)
@@ -244,6 +333,215 @@ class DialogueScenario:
             await self.execute_step(step_id)
 
         return self.state.turns
+
+    def build_dialogue_turns(
+        self,
+        step: DialogueStep,
+        template_context: dict,
+        prompt: str,
+        memories: list[dict],
+        context_docs: list[dict],
+        speaker_id: str,
+        max_context_tokens: int,
+        max_output_tokens: int,
+    ) -> tuple[list[dict], str]:
+        """
+        Build turns with proper role assignment and token budgeting.
+
+        Role assignment rules:
+        - For ASPECT speakers: all aspects = 'assistant', persona = 'user'
+        - For PERSONA speakers: all aspects = 'user', persona = 'assistant'
+
+        This ensures proper user/assistant alternation since dialogue naturally
+        alternates between aspect and persona.
+
+        Additional rules:
+        - Wakeup: only include if first dialogue turn is 'user'
+        - Scene: prepend at aspect changes (persona steps only)
+        - Prompt/Guidance: append to last 'user' turn
+
+        Args:
+            step: Current step definition
+            template_context: Jinja2 template context
+            prompt: Rendered prompt for current step
+            memories: Memory records from CVM query
+            context_docs: Context documents (conversation to analyze)
+            speaker_id: Current speaker's identifier
+            max_context_tokens: Model's max context window
+            max_output_tokens: Max tokens to generate
+
+        Returns:
+            Tuple of (turns list, system_message string)
+        """
+        turns = []
+        is_persona_speaker = step.speaker.type == SpeakerType.PERSONA
+
+        # Build system message based on speaker type
+        system_message = self._build_system_prompt(step.speaker)
+
+        # Calculate available tokens (mirroring executor.build_turns)
+        safety_margin = 1024
+        available_tokens = max_context_tokens - max_output_tokens - safety_margin
+
+        wakeup = self.persona.get_wakeup()
+        fixed_tokens = (
+            count_tokens(system_message) +
+            count_tokens(prompt) +
+            count_tokens(wakeup)
+        )
+
+        remaining_budget = available_tokens - fixed_tokens
+
+        # Calculate tokens for context docs and dialogue turns
+        context_tokens = sum(count_tokens(d.get('content', '')) for d in context_docs)
+        dialogue_tokens = sum(count_tokens(t.content) for t in self.state.turns)
+
+        # Eviction priority: context docs first, then memories
+        # (No thought stream in dialogue - each turn stands alone)
+
+        # 1. Evict oldest context docs if over budget
+        trimmed_context = list(context_docs)
+        while trimmed_context and context_tokens + dialogue_tokens > remaining_budget:
+            removed = trimmed_context.pop(0)
+            context_tokens -= count_tokens(removed.get('content', ''))
+            logger.info(f"Evicting context doc to fit budget")
+
+        # 2. Budget remaining for memories
+        memory_budget = remaining_budget - context_tokens - dialogue_tokens
+        trimmed_memories = []
+        memory_tokens = 0
+        for mem in reversed(memories):
+            content = mem.get('content', '')
+            mem_tokens = count_tokens(content)
+            if memory_tokens + mem_tokens <= memory_budget:
+                trimmed_memories.insert(0, mem)
+                memory_tokens += mem_tokens
+            else:
+                break
+
+        if len(trimmed_memories) < len(memories):
+            logger.info(f"Trimmed memories: {len(memories)} -> {len(trimmed_memories)}")
+
+        # Helper to determine role for a dialogue turn
+        def get_role_for_turn(turn: DialogueTurn) -> str:
+            """
+            Determine role based on speaker type relationship.
+            - For persona speaker: aspects = 'user', persona = 'assistant'
+            - For aspect speaker: aspects = 'assistant', persona = 'user'
+            """
+            turn_is_persona = turn.speaker_id.startswith("persona:")
+            if is_persona_speaker:
+                return 'assistant' if turn_is_persona else 'user'
+            else:
+                return 'user' if turn_is_persona else 'assistant'
+
+        # Determine if first dialogue turn is 'user' (for wakeup decision)
+        first_dialogue_role = None
+        if self.state.turns:
+            first_dialogue_role = get_role_for_turn(self.state.turns[0])
+
+        # Build turns list
+
+        # 1. Add memories as context (user turn)
+        context_parts = []
+        if trimmed_context:
+            context_parts.append(self._format_context_docs(trimmed_context))
+        if trimmed_memories:
+            context_parts.append(format_memories_xml(trimmed_memories))
+
+        if context_parts:
+            turns.append({'role': 'user', 'content': '\n\n'.join(context_parts)})
+            # Only add wakeup if first dialogue turn is 'user' or no dialogue turns
+            # (need assistant between two user turns)
+            if first_dialogue_role == 'user' or first_dialogue_role is None:
+                turns.append({'role': 'assistant', 'content': wakeup})
+            # If first dialogue turn is 'assistant', skip wakeup to avoid consecutive assistants
+
+        # 2. Build dialogue turns with proper roles
+        dialogue_turn_contents = []  # Collect (role, content) pairs
+        last_aspect_name = None
+
+        for i, turn in enumerate(self.state.turns):
+            role = get_role_for_turn(turn)
+            content = turn.content
+
+            # Scene handling: prepend at aspect changes, but ONLY for persona speakers
+            if is_persona_speaker and turn.speaker_id.startswith("aspect:"):
+                current_aspect = turn.speaker_id.split(":", 1)[1]
+                if current_aspect != last_aspect_name:
+                    # New aspect appearing - generate scene
+                    prior_step = self.strategy.get_step(turn.step_id)
+                    if prior_step:
+                        scene = self._generate_scene(prior_step, template_context)
+                        if scene:
+                            content = f"{scene}\n\n{content}"
+                    last_aspect_name = current_aspect
+
+            dialogue_turn_contents.append((role, content))
+
+        # 3. Add prompt or guidance to last user turn
+        # Find the last user turn and append prompt (for aspects) or guidance (for persona)
+        if dialogue_turn_contents:
+            # Find last user turn index
+            last_user_idx = None
+            for i in range(len(dialogue_turn_contents) - 1, -1, -1):
+                if dialogue_turn_contents[i][0] == 'user':
+                    last_user_idx = i
+                    break
+
+            if last_user_idx is not None:
+                role, content = dialogue_turn_contents[last_user_idx]
+
+                if is_persona_speaker:
+                    # Append guidance from the step that generated this turn
+                    prior_turn = self.state.turns[last_user_idx]
+                    prior_step = self.strategy.get_step(prior_turn.step_id)
+                    if prior_step:
+                        prior_guidance = self.strategy.render_guidance(prior_step, template_context)
+                        if prior_guidance:
+                            content = f"{content}\n\n[~~ Output Guidance ~~]\n{prior_guidance}"
+                else:
+                    # Aspect speaker: append prompt to last user turn (persona's response)
+                    content = f"{content}\n\n{prompt}"
+
+                dialogue_turn_contents[last_user_idx] = (role, content)
+
+        # 4. Add dialogue turns to the turns list
+        for role, content in dialogue_turn_contents:
+            turns.append({'role': role, 'content': content})
+
+        # 5. Handle cases where we need a final user turn
+        if not dialogue_turn_contents:
+            # No prior dialogue - add prompt as user turn
+            final_content = []
+            if is_persona_speaker:
+                # First persona step with no prior turns - add scene
+                scene = self._generate_scene(step, template_context)
+                if scene:
+                    final_content.append(scene)
+            if prompt:
+                final_content.append(prompt)
+            if final_content:
+                turns.append({'role': 'user', 'content': '\n\n'.join(final_content)})
+        elif is_persona_speaker:
+            # Persona with prior turns - last aspect turn (user) is the prompt
+            # Already handled above with guidance appended
+            pass
+        else:
+            # Aspect speaker - prompt was appended to last user turn above
+            # But if last turn was assistant (another aspect), we need a user turn
+            if dialogue_turn_contents and dialogue_turn_contents[-1][0] == 'assistant':
+                # Last dialogue turn was assistant, need to add prompt as user
+                turns.append({'role': 'user', 'content': prompt})
+
+        # Final safety check - must end with user
+        if turns and turns[-1]['role'] != 'user':
+            if prompt:
+                turns.append({'role': 'user', 'content': prompt})
+            else:
+                turns.append({'role': 'user', 'content': '[Continue]'})
+
+        return turns, system_message
 
     def _build_template_context(self, step: DialogueStep) -> dict:
         """
@@ -344,108 +642,95 @@ class DialogueScenario:
 
         return "\n".join(parts)
 
-    def _build_turns(
-        self,
-        step: DialogueStep,
-        template_context: dict,
-        memories: list[dict],
-        current_speaker_id: str,
-    ) -> list[dict]:
+    def _generate_scene(self, step: DialogueStep, template_context: dict) -> str:
         """
-        Build turns with perspective-based role assignment.
+        Generate scene dynamically based on speaker type.
 
-        The key insight: roles flip based on whose perspective we're in.
-        - If prior turn's speaker == current speaker → role = 'assistant' (my prior words)
-        - If prior turn's speaker != current speaker → role = 'user' (their words to me)
+        For Persona speaking: Scene shows the Aspect they're facing
+        For Aspect speaking: Scene shows the Persona they're guiding
 
         Args:
             step: Current step definition
-            template_context: Jinja2 template context
-            memories: Memory records to include
-            current_speaker_id: Current step's speaker identifier
+            template_context: Jinja2 template context with persona/aspect data
 
         Returns:
-            List of turn dictionaries with 'role' and 'content'
+            Generated scene string
         """
-        turns = []
+        if step.speaker.type == SpeakerType.PERSONA:
+            # Persona is speaking - show the Aspect they're facing
+            aspect_name = self.strategy.dialogue.primary_aspect
+            if step.speaker.aspect_name:
+                # If step specifies which aspect, use that
+                aspect_name = step.speaker.aspect_name
 
-        # Render scene once
-        scene = self.strategy.render_scene(template_context)
+            aspect = template_context.get(aspect_name) or template_context.get('aspect')
+            if not aspect:
+                return ""
 
-        # 1. Add memory context if present
-        if memories:
-            memory_xml = format_memories_xml(memories)
-            turns.append({'role': 'user', 'content': memory_xml})
-            wakeup = self.persona.get_wakeup()
-            turns.append({'role': 'assistant', 'content': wakeup})
+            location = getattr(aspect, 'location', 'a thoughtful space')
+            appearance = getattr(aspect, 'appearance', 'a familiar presence')
+            emotional_state = getattr(aspect, 'emotional_state', 'calm focus')
+            name = getattr(aspect, 'name', aspect_name)
+            title = getattr(aspect, 'title', 'Guide')
 
-        # 2. Add prior dialogue turns with role flipping
-        # Scene is prepended to the FIRST prior turn to establish context
-        first_prior = True
-        for i, turn in enumerate(self.state.turns):
-            if turn.speaker_id == current_speaker_id:
-                role = 'assistant'  # My prior words
-            else:
-                role = 'user'  # Their words to me
+            return (
+                f"*Your awareness shifts to {location}. "
+                f"Before you stands {name}, your {title}. {appearance}. "
+                f"Their presence radiates {emotional_state}.*"
+            )
 
-            content = turn.content
+        else:
+            # Aspect is speaking - show the Persona they're guiding
+            persona = self.persona
+            location = getattr(persona, 'location', None) or 'a reflective space'
+            appearance = getattr(persona, 'appearance', None) or 'a thoughtful presence'
+            emotional_state = self.state.persona_mood or 'quiet contemplation'
 
-            # Prepend scene to first prior turn
-            if first_prior and scene:
-                content = f"{scene}\n\n{content}"
-                first_prior = False
+            return (
+                f"*You observe {persona.name} in {location}. "
+                f"{appearance}. "
+                f"You sense {emotional_state} within them.*"
+            )
 
-            # For the LAST prior turn, append its step's guidance
-            # This shapes the current speaker's response
-            is_last_turn = (i == len(self.state.turns) - 1)
-            if is_last_turn and role == 'user':
-                # Get guidance from the prior step
-                prior_step = self.strategy.get_step(turn.step_id)
-                prior_guidance = self.strategy.render_guidance(prior_step, template_context)
-                if prior_guidance:
-                    content = f"{content}\n\n[~~ Output Guidance ~~]\n{prior_guidance}"
-
-            turns.append({'role': role, 'content': content})
-
-        # 3. Build final user turn for aspect steps (prompt + guidance for aspect's style)
-        # For persona steps responding to aspect, no additional prompt needed
-        prompt = self.strategy.render_prompt(step, template_context)
-
-        if step.speaker.type == SpeakerType.ASPECT:
-            # Aspect step: needs a prompt
-            final_content = []
-
-            if not self.state.turns and scene:
-                # First step - include scene to establish context
-                final_content.append(scene)
-
-            final_content.append(prompt)
-
-            # Guidance for aspect steps shapes the NEXT response, not this one
-            # So we don't append it here - it gets appended when the persona responds
-
-            turns.append({'role': 'user', 'content': '\n\n'.join(final_content)})
-
-        elif not self.state.turns:
-            # First step but persona speaking? Include scene + prompt
-            final_content = []
-            if scene:
-                final_content.append(scene)
-            if prompt:
-                final_content.append(prompt)
-            turns.append({'role': 'user', 'content': '\n\n'.join(final_content)})
-
-        # For persona steps with prior turns, no additional user turn needed
-        # The prior aspect response (with guidance) IS the user turn
-
-        return turns
-
-    def _query_memories(self, step: DialogueStep) -> list[dict]:
+    def _format_context_docs(self, context_docs: list[dict]) -> str:
         """
-        Query memories from CVM.
+        Format context documents as XML for context injection.
+
+        Args:
+            context_docs: List of document dictionaries with 'content' field
+
+        Returns:
+            XML string with context wrapped in <context> tags
+        """
+        if not context_docs:
+            return "<context>\n</context>"
+
+        lines = ["<context>"]
+        for doc in context_docs:
+            content = doc.get('content', '')
+            lines.append(f"  <document>{content}</document>")
+        lines.append("</context>")
+
+        return "\n".join(lines)
+
+    def _query_memories(
+        self,
+        step: DialogueStep,
+        context_docs: list[dict],
+    ) -> list[dict]:
+        """
+        Query memories from CVM using dialogue turn content.
+
+        The accumulated dialogue turns (NER, emotional trace, etc.) contain
+        extracted entities that serve as the semantic query for retrieving
+        relevant memories.
+
+        If flush_before=True, clears accumulated context except core_documents
+        and queries fresh (used for codex steps that need a clean slate).
 
         Args:
             step: Current step with memory configuration
+            context_docs: Loaded context documents to use for query
 
         Returns:
             List of memory dictionaries
@@ -454,14 +739,55 @@ class DialogueScenario:
             return []
 
         from ...constants import CHUNK_LEVEL_768
+        from ...conversation.index import clean_query_text, boost_query_terms
 
-        query_text = self.state.query_text or step.prompt[:500]
+        # Build query texts from dialogue outputs
+        query_texts = []
+
+        if step.memory.flush_before:
+            # flush_before: Flush accumulated turns, use context_docs for query
+            for doc in context_docs:
+                content = doc.get('content', '')
+                if content:
+                    cleaned = clean_query_text(content)
+                    boosted = boost_query_terms(cleaned, base_boost=1.0, keyword_boost=2.0, max_terms=64)
+                    if boosted:
+                        query_texts.append(boosted)
+        else:
+            # Normal: Use ALL prior dialogue turn content as queries
+            for turn in self.state.turns:
+                cleaned = clean_query_text(turn.content)
+                boosted = boost_query_terms(cleaned, base_boost=1.0, keyword_boost=2.0, max_terms=64)
+                if boosted:
+                    query_texts.append(boosted)
+
+        # Add state query_text if provided
+        if self.state.query_text:
+            cleaned = clean_query_text(self.state.query_text)
+            boosted = boost_query_terms(cleaned, base_boost=1.0, keyword_boost=2.0, max_terms=64)
+            if boosted:
+                query_texts.append(boosted)
+
+        # Fallback to context docs if no queries yet
+        if not query_texts and context_docs:
+            for doc in context_docs:
+                content = doc.get('content', '')
+                if content:
+                    cleaned = clean_query_text(content)
+                    boosted = boost_query_terms(cleaned, base_boost=1.0, keyword_boost=2.0, max_terms=64)
+                    if boosted:
+                        query_texts.append(boosted)
+
+        if not query_texts:
+            return []  # No meaningful queries available
+
         memories_df = self.cvm.query(
-            query_texts=[query_text],
+            query_texts=query_texts,
             top_n=step.memory.top_n,
             query_document_type=step.memory.document_type,
             sort_by=step.memory.sort_by,
             chunk_level=CHUNK_LEVEL_768,
+            filter_metadocs=True,  # Exclude NER, step, MOTD
         )
         return memories_df.to_dict('records') if not memories_df.empty else []
 
@@ -485,3 +811,4 @@ class DialogueScenario:
             return self.state.thought_model
 
         return self.state.model
+

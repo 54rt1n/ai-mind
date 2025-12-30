@@ -23,14 +23,14 @@ Environment Variables:
     REDIS_HOST, REDIS_PORT, REDIS_DB - Redis connection settings
 
 Examples:
-    # Start an analyst pipeline with explicit model
-    python -m aim.app.dream_agent start analyst conv-123 --model claude-3-5-sonnet
+    # Start an analysis_dialogue pipeline with explicit model
+    python -m aim.app.dream_agent start analysis_dialogue conv-123 --model claude-3-5-sonnet
 
     # Start using DEFAULT_MODEL from .env
-    python -m aim.app.dream_agent start analyst conv-123
+    python -m aim.app.dream_agent start analysis_dialogue conv-123
 
     # Start with specific persona and user
-    python -m aim.app.dream_agent start analyst conv-123 --persona Andi --user martin
+    python -m aim.app.dream_agent start analysis_dialogue conv-123 --persona Andi --user martin
 
     # Start a journaler with query text
     python -m aim.app.dream_agent start journaler conv-123 \\
@@ -53,11 +53,11 @@ Examples:
 
     # Restart with explicit scenario
     python -m aim.app.dream_agent restart conv-123 0 final_journal \\
-        --scenario analyst --model claude-3-5-sonnet
+        --scenario analysis_dialogue --model claude-3-5-sonnet
 
     # Use HTTP mode (connect to server instead of Redis directly)
     python -m aim.app.dream_agent --http --base-url http://server:8000 \\
-        start analyst conv-123
+        start analysis_dialogue conv-123
 """
 
 import argparse
@@ -78,7 +78,7 @@ logger = logging.getLogger(__name__)
 
 
 # Available scenarios (discovered from config/scenario/)
-SCENARIOS = ["analyst", "journaler", "philosopher", "daydream", "summarizer"]
+SCENARIOS = ["analysis_dialogue", "journaler", "philosopher", "daydream", "summarizer"]
 
 
 def parse_args():

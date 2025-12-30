@@ -7,12 +7,16 @@ from typing import Optional
 import yaml
 from jinja2 import Environment, BaseLoader, StrictUndefined
 
-from .models import Scenario, PipelineState
+from .models import Scenario, ScenarioContext, StepDefinition, StepOutput, PipelineState
 
 
 def load_scenario(name: str, scenarios_dir: Optional[Path] = None) -> Scenario:
     """
     Load and validate a scenario from YAML file.
+
+    For dialogue flows (flow: dialogue), creates a minimal Scenario with just
+    enough structure for DAG operations. Full dialogue validation happens in
+    DialogueStrategy.
 
     Args:
         name: Name of the scenario (without .yaml extension)
@@ -37,10 +41,74 @@ def load_scenario(name: str, scenarios_dir: Optional[Path] = None) -> Scenario:
     with open(scenario_path, 'r') as f:
         data = yaml.safe_load(f)
 
-    # Validate against Pydantic model
+    # Check if this is a dialogue flow
+    if data.get('flow') == 'dialogue':
+        # For dialogue flows, create a minimal Scenario for DAG operations
+        # Full validation happens in DialogueStrategy
+        return _load_dialogue_scenario(data)
+
+    # Standard flow - full validation
     scenario = Scenario(**data)
 
     return scenario
+
+
+def _load_dialogue_scenario(data: dict) -> Scenario:
+    """
+    Create a minimal Scenario from dialogue YAML for DAG operations.
+
+    Dialogue flows have a different structure (speaker, guidance, etc.)
+    that doesn't match the standard Scenario model. This creates a
+    compatible Scenario with just the fields needed for:
+    - init_dag (step IDs)
+    - compute_dependencies (next fields)
+    - topological_order
+
+    Args:
+        data: Raw YAML data
+
+    Returns:
+        Minimal Scenario suitable for DAG operations
+    """
+    # Extract step definitions with just what we need for DAG
+    steps = {}
+    raw_steps = data.get('steps', {})
+
+    for step_id, step_data in raw_steps.items():
+        # Get output document type (needed for some operations)
+        output_data = step_data.get('output', {})
+        output = StepOutput(
+            document_type=output_data.get('document_type', 'step'),
+            weight=output_data.get('weight', 1.0),
+        )
+
+        steps[step_id] = StepDefinition(
+            id=step_id,
+            prompt=step_data.get('prompt', ''),
+            output=output,
+            next=step_data.get('next', []),
+        )
+
+    # Extract context (required_aspects needed for template rendering)
+    context_data = data.get('context', {})
+    context = ScenarioContext(
+        required_aspects=context_data.get('required_aspects', []),
+        core_documents=context_data.get('core_documents', []),
+        enhancement_documents=context_data.get('enhancement_documents', []),
+        location=context_data.get('location', ''),
+        thoughts=context_data.get('thoughts', []),
+    )
+
+    return Scenario(
+        name=data.get('name', ''),
+        version=data.get('version', 2),
+        flow='dialogue',
+        description=data.get('description', ''),
+        requires_conversation=data.get('requires_conversation', True),
+        context=context,
+        seed=[],  # Dialogue flows don't use standard seed
+        steps=steps,
+    )
 
 
 def get_jinja_environment() -> Environment:

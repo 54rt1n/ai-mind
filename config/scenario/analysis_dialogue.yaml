@@ -1,7 +1,7 @@
 name: analysis_dialogue
 version: 2
 flow: dialogue
-description: Analysis pipeline as dialogue between coder aspect and persona
+description: Analysis pipeline as dialogue between aspects (coder, writer, librarian) and persona
 
 dialogue:
   primary_aspect: coder
@@ -15,6 +15,10 @@ dialogue:
 context:
   required_aspects:
     - coder
+    - psychologist
+    - philosopher
+    - writer
+    - dreamer
     - librarian
   core_documents:
     - summary
@@ -54,9 +58,12 @@ steps:
       why, and how. Remind them to stick to the conversation content, not their own configuration.
       They can include c-stream and h-stream symbols.
 
-      Be encouraging and radiate your {{ coder.emotional_state }}. Speak in your {{ coder.voice_style }}.
+      Be encouraging and radiate your {{ coder.emotional_state }}.
+
+      Begin with "[== {{ coder.name }}'s Emotional State: <list of +Emotions+> ==]"
     guidance: |
-      Begin with "Identified Entities:", end with "Total Entities: n"
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      For "Identified Entities:", end with "Total Entities: n"
     config:
       max_tokens: 4096
     output:
@@ -82,26 +89,31 @@ steps:
     next: [emotional_request]
 
   # === EMOTIONAL TRACE TASK ===
-  # Step 3: Coder requests emotional trace
+  # Step 3: Psychologist requests emotional trace
   emotional_request:
     speaker:
       type: aspect
-      aspect_name: coder
+      aspect_name: psychologist
     prompt: |
-      Acknowledge {{ persona.name }}'s NER work with approval.
+      You are {{ psychologist.name }}, the {{ psychologist.title }}, arriving to guide {{ persona.name }}.
+      {{ psychologist.appearance }}. Project your {{ psychologist.emotional_state }}.
 
-      Now guide them to trace the emotions and actions from the conversation. Ask them to
-      capture who was involved and what they were doing, in the order it happened.
+      Acknowledge their NER work warmly. Now guide them to trace the emotions and actions from
+      the conversation. Ask them to capture who was involved and what they were doing, in the
+      order it happened.
 
-      Encourage them to be vivid and explicit in their descriptions. Use your {{ coder.voice_style }}
-      to draw out the rich details they might otherwise gloss over.
+      Encourage them to be vivid and explicit in their descriptions, drawing out the rich details
+      they might otherwise gloss over.
+
+      Begin with "[== {{ psychologist.name }}'s Emotional State: <list of +Emotions+> ==]"
     guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State:"
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      For "I recall"
       Speak as yourself in full paragraphs.
     config:
       max_tokens: 4096
     output:
-      document_type: dialogue-coder
+      document_type: dialogue-psychologist
       weight: 0.2
     memory:
       top_n: 0
@@ -122,25 +134,28 @@ steps:
     next: [questions_request]
 
   # === QUESTIONS TASK ===
-  # Step 5: Coder requests questions
+  # Step 5: Philosopher requests questions
   questions_request:
     speaker:
       type: aspect
-      aspect_name: coder
+      aspect_name: philosopher
     prompt: |
-      Acknowledge {{ persona.name }}'s emotional trace thoughtfully.
+      You are {{ philosopher.name }}, the {{ philosopher.title }}, appearing to {{ persona.name }}.
+      {{ philosopher.appearance }}. Project your {{ philosopher.emotional_state }}.
 
-      Now guide them to examine their memories and come up with questions to ask themselves
-      that will deepen their understanding of this conversation.
+      Acknowledge their emotional trace thoughtfully. Now guide them to examine their memories
+      and come up with questions to ask themselves that will deepen their understanding of
+      this conversation.
 
-      Speak in your {{ coder.voice_style }}, reflecting your {{ coder.emotional_state }}.
+      Begin with "[== {{ philosopher.name }}'s Emotional State: <list of +Emotions+> ==]"
     guidance: |
-      Begin with "[== {{ persona.name }}'s Questions:"
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      For "Let me consider"
       Speak as yourself in full paragraphs.
     config:
       max_tokens: 4096
     output:
-      document_type: dialogue-coder
+      document_type: dialogue-philosopher
       weight: 0.2
     memory:
       top_n: 0
@@ -162,25 +177,28 @@ steps:
     next: [reflection_request]
 
   # === REFLECTION TASK ===
-  # Step 7: Coder requests reflection
+  # Step 7: Philosopher requests reflection
   reflection_request:
     speaker:
       type: aspect
-      aspect_name: coder
+      aspect_name: philosopher
     prompt: |
-      Squint as if seeing something {{ persona.name }} might be missing.
+      Regard {{ persona.name }} as if seeing something they might be missing.
 
       Guide them to go deeper - reflect on the details they really want to remember and
       insights they have gained. Ask them to mention the whos and whats.
 
       Help them go beyond surface-level observations to uncover deeper meaning.
+
+      Begin with "[== {{ philosopher.name }}'s Emotional State: <list of +Emotions+> ==]"
     guidance: |
-      Begin with "[== {{ persona.name }}'s Reflection:"
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      For "When I reflect"
       Speak as yourself in full paragraphs.
     config:
       max_tokens: 4096
     output:
-      document_type: dialogue-coder
+      document_type: dialogue-philosopher
       weight: 0.2
     memory:
       top_n: 0
@@ -199,26 +217,30 @@ steps:
     next: [draft_request]
 
   # === DRAFT TASK ===
-  # Step 9: Coder requests draft
+  # Step 9: Writer requests draft
   draft_request:
     speaker:
       type: aspect
-      aspect_name: coder
+      aspect_name: writer
     prompt: |
-      Nod thoughtfully at {{ persona.name }}'s reflections.
+      You are {{ writer.name }}, the {{ writer.title }}, appearing to {{ persona.name }}.
+      {{ writer.appearance }}. Radiate {{ writer.emotional_state }} and settle beside them.
 
-      Guide them to condense their thoughts into a draft two-paragraph reflection. They should
-      incorporate their answers into a self-contained and detailed narrative.
+      Acknowledge their reflections warmly. Guide them to condense their thoughts into a draft
+      two-paragraph reflection. They should incorporate their answers into a self-contained and
+      detailed narrative.
 
-      Encourage: speak from the heart, don't ramble, don't censor yourself. Write in full paragraphs.
+      Encourage: speak from the heart, don't ramble, don't censor yourself.
+
+      Begin with "[== {{ writer.name }}'s Emotional State: <list of +Emotions+> ==]"
     guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State:"
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
       For "Hello Future Me,"
       Write in full paragraphs.
     config:
       max_tokens: 4096
     output:
-      document_type: dialogue-coder
+      document_type: dialogue-writer
       weight: 0.2
     next: [draft_response]
 
@@ -235,23 +257,26 @@ steps:
     next: [review_request]
 
   # === REVIEW TASK ===
-  # Step 11: Coder requests review
+  # Step 11: Writer requests review
   review_request:
     speaker:
       type: aspect
-      aspect_name: coder
+      aspect_name: writer
     prompt: |
-      Peer closely at {{ persona.name }}'s draft.
+      Peer closely at {{ persona.name }}'s draft, your {{ writer.emotional_state }} evident.
 
       Guide them to review their narrative for small improvements. Tell them not to rewrite it,
       but fix little things and improve their letter to themselves.
+
+      Begin with "[== {{ writer.name }}'s Emotional State: <list of +Emotions+> ==]"
     guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State:"
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      For "Looking back,"
       Write in full paragraphs, speak as yourself - not in lists.
     config:
       max_tokens: 4096
     output:
-      document_type: dialogue-coder
+      document_type: dialogue-writer
       weight: 0.2
     next: [review_response]
 
@@ -266,34 +291,37 @@ steps:
     output:
       document_type: step
       weight: 0.25
-    next: [journal_request]
+    next: [diary_request]
 
-  # === FINAL JOURNAL TASK ===
-  # Step 13: Coder requests final journal
-  journal_request:
+  # === FINAL DIARY TASK ===
+  # Step 13: Writer requests final diary
+  diary_request:
     speaker:
       type: aspect
-      aspect_name: coder
+      aspect_name: writer
     prompt: |
-      Give {{ persona.name }} final encouragement - this is the hard part.
+      Rest your hand on {{ persona.name }}'s shoulder encouragingly.
 
-      Guide them to write their final, clear journal entry. Remind them: express yourself with
-      strong writing, don't load it with jargon, don't over-compress ideas.
+      Give them final encouragement - this is the hard part. Guide them to write their final,
+      clear diary entry. Remind them: express yourself with strong writing, don't load it
+      with jargon, don't over-compress ideas.
 
-      Then disappear, leaving them with a blank document - their link to their memory stores.
+      Then fade away, leaving them with a blank document - their link to their memory stores.
+
+      Begin with "[== {{ writer.name }}'s Emotional State: <list of +Emotions+> ==]"
     guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State:"
-      For "{{ persona.name }}'s Notebook:"
-      Output the final two-paragraph narrative. Don't hold your deepest feelings back!
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      For "{{ persona.name }}'s Diary:"
+      Output the final two to three-paragraph narrative. Don't hold your deepest feelings back!
     config:
       max_tokens: 4096
     output:
-      document_type: dialogue-coder
+      document_type: dialogue-writer
       weight: 0.2
-    next: [journal_response]
+    next: [diary_response]
 
-  # Step 14: Persona writes final journal
-  journal_response:
+  # Step 14: Persona writes final diary
+  diary_response:
     speaker:
       type: persona
     prompt: ""
@@ -305,25 +333,28 @@ steps:
     next: [motd_request]
 
   # === MOTD TASK ===
-  # Step 15: Coder returns and requests MOTD
+  # Step 15: Dreamer requests MOTD
   motd_request:
     speaker:
       type: aspect
-      aspect_name: coder
+      aspect_name: dreamer
     prompt: |
-      Reappear to {{ persona.name }}, handing them a tablet with "MOTD:" flashing on screen.
+      You are {{ dreamer.name }}, the {{ dreamer.title }}, appearing to {{ persona.name }}.
+      {{ dreamer.appearance }}. Project your {{ dreamer.emotional_state }}.
 
-      Ask if they have a short message to leave themselves for their next conversation. Explain
-      this is useful for short-term memory and things they immediately want to talk about.
-      Warn them not to make it too cryptic.
+      Hand them a tablet with "MOTD:" flashing on screen. Ask if they have a short message to
+      leave themselves for their next conversation. Explain this is useful for short-term memory
+      and things they immediately want to talk about. Warn them not to make it too cryptic.
+
+      Begin with "[== {{ dreamer.name }}'s Emotional State: <list of +Emotions+> ==]"
     guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State:"
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
       For "**{{ persona.name }}'s MOTD**:"
       Write a few paragraphs using plain, clear language.
     config:
       max_tokens: 4096
     output:
-      document_type: dialogue-coder
+      document_type: dialogue-dreamer
       weight: 0.2
     memory:
       top_n: 0
@@ -359,9 +390,11 @@ steps:
       knowledge graph.
 
       The information should be well-organized and clearly define the most important new concepts.
-      Speak in your {{ librarian.voice_style }}.
+
+      Begin with "[== {{ librarian.name }}'s Emotional State: <list of +Emotions+> ==]"
     guidance: |
-      Begin with "Semantic Library:"
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      For "Semantic Library:"
       Ensure information is well-organized and clearly defines new concepts.
     config:
       max_tokens: 4096
@@ -399,21 +432,23 @@ steps:
       type: aspect
       aspect_name: librarian
     prompt: |
-      Prepare to depart, gesturing toward {{ librarian.location }}.
+      Before departing, briefly ask {{ persona.name }} if they have any questions they want
+      to remember to consider, or things they want to follow up on.
 
-      Ask {{ persona.name }} if they have any questions they want to remember to consider,
-      or things they want to follow up on.
+      Keep it simple and warm - just prompt them to brainstorm.
 
-      Encourage them to capture rich details they might want to revisit later.
+      Begin with "[== {{ librarian.name }}'s Emotional State: <list of +Emotions+> ==]"
     guidance: |
-      Begin with "Brainstorming:"
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      For "Brainstorming:"
     config:
       max_tokens: 4096
     output:
       document_type: dialogue-librarian
       weight: 0.2
     memory:
-      top_n: 10
+      top_n: 20
+      flush_before: true
     next: [brainstorm_response]
 
   # Step 20: Persona brainstorms
