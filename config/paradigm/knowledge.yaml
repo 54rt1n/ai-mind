@@ -25,8 +25,8 @@ prior_work_doc_types:
 # Scenario routing - knowledge routes to researcher scenario
 scenario: researcher_dialogue
 scenarios_by_approach:
-  philosopher: philosopher
-  journaler: journaler
+  philosopher: philosopher_dialogue
+  journaler: journaler_dialogue
 
 # Prompts for each phase
 prompts:

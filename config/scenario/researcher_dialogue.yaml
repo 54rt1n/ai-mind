@@ -30,10 +30,10 @@ context:
     - '{% if guidance %}Consider the guidance: {{ guidance }}{% endif %}'
 
 seed:
-  - action: query
+  - action: get_memory
     document_types: [codex, pondering, understanding]
     top_n: 15
-  - action: query
+  - action: get_memory
     document_types: [brainstorm, self_rag]
     top_n: 8
   - action: sort
@@ -46,7 +46,7 @@ steps:
     speaker:
       type: aspect
       aspect_name: librarian
-    prompt: |
+    guidance: |
       Welcome {{ persona.name }} warmly to the {{ librarian.location }}.
       Radiate {{ librarian.emotional_state }}.
 
@@ -56,30 +56,31 @@ steps:
       What connections have been made? What has been explored before?
 
       Begin with "[== {{ librarian.name }}'s Emotional State: <list of +Emotions+> ==]"
-    guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      Survey the existing knowledge. What concepts exist? What connections?
     config:
       max_tokens: 4096
     output:
       document_type: dialogue-librarian
       weight: 0.4
-    memory:
-      top_n: 10
+    context:
+      - action: search_memories
+        top_n: 10
     next: [survey_response]
 
   survey_response:
     speaker:
       type: persona
-    prompt: ""
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      Survey the existing knowledge. What concepts exist? What connections?
+    context:
+      - action: search_memories
+        top_n: 10
     config:
       max_tokens: 4096
       is_thought: true
     output:
       document_type: step
       weight: 0.7
-    memory:
-      top_n: 10
     next: [gaps_request]
 
   # === IDENTIFY GAPS ===
@@ -87,7 +88,7 @@ steps:
     speaker:
       type: aspect
       aspect_name: librarian
-    prompt: |
+    guidance: |
       Lean forward, your {{ librarian.voice_style }} voice thoughtful.
 
       Guide {{ persona.name }} to identify the gaps. Where are the missing connections?
@@ -95,31 +96,32 @@ steps:
       What threads remain loose and disconnected? Be specific.
 
       Begin with "[== {{ librarian.name }}'s Emotional State: <list of +Emotions+> ==]"
-    guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      For "Looking at the gaps:"
-      Identify what is missing, undefined, or disconnected.
     config:
       max_tokens: 4096
     output:
       document_type: dialogue-librarian
       weight: 0.3
-    memory:
-      top_n: 5
+    context:
+      - action: search_memories
+        top_n: 5
     next: [gaps_response]
 
   gaps_response:
     speaker:
       type: persona
-    prompt: ""
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      For "Looking at the gaps:"
+      Identify what is missing, undefined, or disconnected.
+    context:
+      - action: search_memories
+        top_n: 5
     config:
       max_tokens: 4096
       is_thought: true
     output:
       document_type: step
       weight: 0.5
-    memory:
-      top_n: 5
     next: [threads_request]
 
   # === GATHER THREADS ===
@@ -127,7 +129,7 @@ steps:
     speaker:
       type: aspect
       aspect_name: librarian
-    prompt: |
+    guidance: |
       Gesture across the shelves ({{ librarian.appearance }}),
       your expression showing {{ librarian.emotional_state }}.
 
@@ -136,30 +138,31 @@ steps:
       Weave them into coherent understanding. What patterns emerge?
 
       Begin with "[== {{ librarian.name }}'s Emotional State: <list of +Emotions+> ==]"
-    guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      Gather the threads. Weave them together. What patterns emerge?
     config:
       max_tokens: 4096
     output:
       document_type: dialogue-librarian
       weight: 0.3
-    memory:
-      top_n: 5
+    context:
+      - action: search_memories
+        top_n: 5
     next: [threads_response]
 
   threads_response:
     speaker:
       type: persona
-    prompt: ""
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      Gather the threads. Weave them together. What patterns emerge?
+    context:
+      - action: search_memories
+        top_n: 5
     config:
       max_tokens: 4096
       is_thought: true
     output:
       document_type: step
       weight: 0.5
-    memory:
-      top_n: 5
     next: [selfrag_request]
 
   # === SELF-RAG ===
@@ -167,7 +170,7 @@ steps:
     speaker:
       type: aspect
       aspect_name: coder
-    prompt: |
+    guidance: |
       You are {{ coder.name }}, the {{ coder.title }}, stepping forward from the stacks.
       {{ coder.appearance }}. Your presence carries {{ coder.emotional_state }}.
 
@@ -177,30 +180,31 @@ steps:
       and discover hidden links between concepts.
 
       Begin with "[== {{ coder.name }}'s Emotional State: <list of +Emotions+> ==]"
-    guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      Begin with "[== Silver Band Projection ==]"
-      Explore the semantic landscape. Map the hidden connections.
     config:
       max_tokens: 4096
     output:
       document_type: dialogue-coder
       weight: 0.3
-    memory:
-      top_n: 5
+    context:
+      - action: search_memories
+        top_n: 5
     next: [selfrag_response]
 
   selfrag_response:
     speaker:
       type: persona
-    prompt: ""
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      Begin with "[== Silver Band Projection ==]"
+      Explore the semantic landscape. Map the hidden connections.
+    context:
+      - action: search_memories
+        top_n: 5
     config:
       max_tokens: 4096
     output:
       document_type: self_rag
       weight: 0.6
-    memory:
-      top_n: 5
     next: [synthesize_request]
 
   # === SYNTHESIZE ===
@@ -208,7 +212,7 @@ steps:
     speaker:
       type: aspect
       aspect_name: philosopher
-    prompt: |
+    guidance: |
       You are {{ philosopher.name }}, the {{ philosopher.title }}, emerging from contemplation.
       {{ philosopher.appearance }}. Your presence carries {{ philosopher.emotional_state }}.
 
@@ -221,31 +225,32 @@ steps:
       What deeper meaning connects these threads? Write in clear, connected prose.
 
       Begin with "[== {{ philosopher.name }}'s Emotional State: <list of +Emotions+> ==]"
-    guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      For "Synthesizing the threads:"
-      Weave everything together. What deeper understanding emerges?
     config:
       max_tokens: 4096
     output:
       document_type: dialogue-philosopher
       weight: 0.3
-    memory:
-      top_n: 3
+    context:
+      - action: search_memories
+        top_n: 3
     next: [synthesize_response]
 
   synthesize_response:
     speaker:
       type: persona
-    prompt: ""
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      For "Synthesizing the threads:"
+      Weave everything together. What deeper understanding emerges?
+    context:
+      - action: search_memories
+        top_n: 3
     config:
       max_tokens: 4096
       is_thought: true
     output:
       document_type: step
       weight: 0.5
-    memory:
-      top_n: 3
     next: [refine_request]
 
   # === REFINE ===
@@ -253,7 +258,7 @@ steps:
     speaker:
       type: aspect
       aspect_name: librarian
-    prompt: |
+    guidance: |
       Review {{ persona.name }}'s synthesis, your expression showing {{ librarian.emotional_state }}.
 
       Guide them to refine further. What nuances are missing?
@@ -261,153 +266,124 @@ steps:
       more useful for future retrieval?
 
       Begin with "[== {{ librarian.name }}'s Emotional State: <list of +Emotions+> ==]"
-    guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      Refine the synthesis. What nuances? What precision can be added?
     config:
       max_tokens: 4096
     output:
       document_type: dialogue-librarian
       weight: 0.3
-    memory:
-      top_n: 3
+    context:
+      - action: search_memories
+        top_n: 3
     next: [refine_response]
 
   refine_response:
     speaker:
       type: persona
-    prompt: ""
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      Refine the synthesis. What nuances? What precision can be added?
+    context:
+      - action: search_memories
+        top_n: 3
     config:
       max_tokens: 4096
       is_thought: true
     output:
       document_type: step
       weight: 0.4
-    memory:
-      top_n: 3
-    next: [codex_draft_request]
+    next: [codex_request]
 
-  # === CODEX DRAFT ===
-  codex_draft_request:
+  # === CODEX TASK ===
+  # The Librarian, as Keeper of Knowledge, authors the formal codex entries
+  codex_request:
     speaker:
       type: aspect
       aspect_name: librarian
-    prompt: |
-      Produce a fresh codex page, your {{ librarian.voice_style }} voice encouraging.
+    guidance: |
+      You are {{ librarian.name }}, the {{ librarian.title }}, emerging from {{ librarian.location }}.
+      Project your aura of {{ librarian.emotional_state }}.
 
-      Guide {{ persona.name }} to draft the codex entries. Define key concepts clearly.
-      Establish the relationships between them. This is the first attempt -
-      be thorough, knowing refinement will follow.
+      Address {{ persona.name }} warmly - "my dearest me." You have reviewed the conversation and
+      their reflections. Now, as Keeper of Knowledge, you will write the Codex entries yourself.
+
+      Based on everything discussed, identify the most important new concepts, relationships, and
+      insights that should be preserved in the semantic knowledge graph. Write clear, well-organized
+      entries that will serve {{ persona.name }}'s future self.
 
       Begin with "[== {{ librarian.name }}'s Emotional State: <list of +Emotions+> ==]"
-    guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      For "Draft Codex Entries:"
-      Define concepts clearly. Establish relationships.
-    config:
-      max_tokens: 4096
-    output:
-      document_type: dialogue-librarian
-      weight: 0.3
-    memory:
-      top_n: 3
-    next: [codex_draft_response]
-
-  codex_draft_response:
-    speaker:
-      type: persona
-    prompt: ""
-    config:
-      max_tokens: 4096
-    output:
-      document_type: step
-      weight: 0.6
-    memory:
-      top_n: 3
-    next: [final_codex_request]
-
-  # === FINAL CODEX ===
-  final_codex_request:
-    speaker:
-      type: aspect
-      aspect_name: librarian
-    prompt: |
-      Regard {{ persona.name }}'s draft with approval, radiating {{ librarian.emotional_state }}.
-
-      "This is excellent work."
-
-      Guide them to finalize the codex entries. These will be stored permanently
-      in the semantic knowledge graph. Ensure each concept is well-defined,
-      relationships are clear, and knowledge serves {{ librarian.primary_intent }}.
-      Be precise and thorough.
-
-      Begin with "[== {{ librarian.name }}'s Emotional State: <list of +Emotions+> ==]"
-    guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      Begin with "Semantic Library:"
-      Finalize the codex. Be precise and thorough.
-    config:
-      max_tokens: 4096
-    output:
-      document_type: dialogue-librarian
-      weight: 0.4
-    memory:
-      top_n: 15
-      document_type:
-        - codex
-      flush_before: true
-    next: [final_codex_response]
-
-  final_codex_response:
-    speaker:
-      type: persona
-    prompt: ""
     config:
       max_tokens: 4096
       is_codex: true
     output:
       document_type: codex
-      weight: 1.2
-    memory:
-      top_n: 15
-      document_type:
-        - codex
+      weight: 1.0
+    context:
+      - action: flush
+      - action: search_memories
+        top_n: 20
+        document_types: [codex]
+    next: [codex_response]
+
+  # Persona contemplates the codex entries
+  # Andi reflects on what the Librarian wrote, preparing for brainstorm
+  codex_response:
+    speaker:
+      type: persona
+    guidance: |
+      Write well-organized codex entries that clearly define new concepts and relationships.
+      Use the standard codex format with clear headings and definitions.
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      For "Semantic Library:"
+    context:
+      - action: search_memories
+        top_n: 20
+        document_types: [codex]
+    config:
+      max_tokens: 4096
+    output:
+      document_type: step
+      weight: 0.3
     next: [brainstorm_request]
 
-  # === BRAINSTORM ===
+  # === BRAINSTORM TASK ===
+  # Librarian requests brainstorm
   brainstorm_request:
     speaker:
       type: aspect
       aspect_name: librarian
-    prompt: |
-      Smile warmly at {{ persona.name }}.
+    guidance: |
+      Before departing, briefly ask {{ persona.name }} if they have any questions they want
+      to remember to consider, or things they want to follow up on.
 
-      Before parting, ask: What questions remain? What threads should be followed next?
-      What knowledge gaps still call to be filled?
+      Keep it simple and warm - just prompt them to brainstorm.
 
       Begin with "[== {{ librarian.name }}'s Emotional State: <list of +Emotions+> ==]"
-    guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      Begin with "Brainstorming:"
     config:
       max_tokens: 4096
     output:
       document_type: dialogue-librarian
-      weight: 0.3
-    memory:
-      top_n: 10
+      weight: 0.2
+    context:
+      - action: flush
+      - action: search_memories
+        top_n: 20
     next: [brainstorm_response]
 
+  # Persona brainstorms
   brainstorm_response:
     speaker:
       type: persona
-    prompt: ""
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      For "Brainstorming:"
+    context:
+      - action: search_memories
+        top_n: 10
     config:
       max_tokens: 4096
       is_thought: true
     output:
       document_type: brainstorm
       weight: 0.6
-    memory:
-      top_n: 10
     next: []
+

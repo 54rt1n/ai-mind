@@ -26,7 +26,7 @@ from aim.dreamer.models import (
     StepDefinition,
     StepOutput,
     StepStatus,
-    SeedAction,
+    MemoryAction,
 )
 from aim.dreamer.state import StateStore
 from aim.dreamer.scheduler import Scheduler
@@ -174,7 +174,7 @@ async def test_run_seed_actions_no_actions():
     result = await run_seed_actions(scenario, state, cvm)
 
     assert result == state
-    assert len(result.seed_doc_ids) == 0
+    assert len(result.context_doc_ids) == 0
 
 
 @pytest.mark.asyncio
@@ -185,10 +185,9 @@ async def test_run_seed_actions_load_conversation():
         context=ScenarioContext(required_aspects=[]),
         steps={},
         seed=[
-            SeedAction(
+            MemoryAction(
                 action="load_conversation",
-                accumulate_to="step1",
-                params={"document_type": ["summary"]},
+                document_types=["summary"],
             )
         ],
     )
@@ -225,29 +224,24 @@ async def test_run_seed_actions_load_conversation():
 
     result = await run_seed_actions(scenario, state, cvm)
 
-    # Check that doc_ids were stored for the target step
-    assert "step1" in result.seed_doc_ids
-    assert len(result.seed_doc_ids["step1"]) == 2
-    assert result.seed_doc_ids["step1"][0] == 'doc1'
-    assert result.seed_doc_ids["step1"][1] == 'doc2'
+    # Check that doc_ids were stored in context_doc_ids
+    assert len(result.context_doc_ids) == 2
+    assert result.context_doc_ids[0] == 'doc1'
+    assert result.context_doc_ids[1] == 'doc2'
 
 
 @pytest.mark.asyncio
-async def test_run_seed_actions_query_memories():
-    """Test run_seed_actions with query_memories action."""
+async def test_run_seed_actions_search_memories():
+    """Test run_seed_actions with search_memories action."""
     scenario = Scenario(
         name="test",
         context=ScenarioContext(required_aspects=[]),
         steps={},
         seed=[
-            SeedAction(
-                action="query_memories",
-                accumulate_to="step1",
-                params={
-                    "document_type": ["journal"],
-                    "top_n": 5,
-                    "sort_by": "relevance",
-                },
+            MemoryAction(
+                action="search_memories",
+                document_types=["journal"],
+                top_n=5,
             )
         ],
     )
@@ -284,19 +278,10 @@ async def test_run_seed_actions_query_memories():
 
     result = await run_seed_actions(scenario, state, cvm)
 
-    # Check that query was called correctly
-    cvm.query.assert_called_once()
-    call_kwargs = cvm.query.call_args.kwargs
-    assert call_kwargs['query_texts'] == ["What happened yesterday?"]
-    assert call_kwargs['top_n'] == 5
-    assert call_kwargs['query_document_type'] == ["journal"]
-    assert call_kwargs['sort_by'] == "relevance"
-
-    # Check that doc_ids were stored for the target step
-    assert "step1" in result.seed_doc_ids
-    assert len(result.seed_doc_ids["step1"]) == 2
-    assert result.seed_doc_ids["step1"][0] == 'mem1'
-    assert result.seed_doc_ids["step1"][1] == 'mem2'
+    # Check that doc_ids were stored in context_doc_ids
+    assert len(result.context_doc_ids) == 2
+    assert result.context_doc_ids[0] == 'mem1'
+    assert result.context_doc_ids[1] == 'mem2'
 
 
 # Tests for start_pipeline

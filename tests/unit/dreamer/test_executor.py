@@ -20,10 +20,10 @@ from aim.dreamer.models import (
     StepDefinition,
     StepConfig,
     StepOutput,
-    StepMemory,
     StepResult,
     Scenario,
     ScenarioContext,
+    MemoryAction,
 )
 
 
@@ -559,7 +559,6 @@ class TestExecuteStep:
             prompt="Test prompt: {{ step_num }}",
             config=StepConfig(max_tokens=100),
             output=StepOutput(document_type="test", weight=1.0),
-            memory=StepMemory(top_n=0),
         )
 
         # Mock the LLM provider
@@ -634,7 +633,6 @@ class TestExecuteStep:
             prompt="Test prompt",
             config=StepConfig(max_tokens=100),
             output=StepOutput(document_type="test", weight=1.0),
-            memory=StepMemory(top_n=0),
         )
 
         with patch("aim.dreamer.executor.LanguageModelV2") as mock_model_v2:
@@ -673,10 +671,15 @@ class TestExecuteStep:
 
         mock_cvm = Mock()
         mock_memories_df = pd.DataFrame([
-            {"content": "Previous memory 1", "timestamp": 123456},
-            {"content": "Previous memory 2", "timestamp": 123457},
+            {"doc_id": "doc1", "content": "Previous memory 1", "timestamp": 123456},
+            {"doc_id": "doc2", "content": "Previous memory 2", "timestamp": 123457},
         ])
         mock_cvm.query.return_value = mock_memories_df
+        # Mock get_by_doc_id for context loading
+        mock_cvm.get_by_doc_id.side_effect = lambda doc_id: {
+            "doc1": {"content": "Previous memory 1", "timestamp": 123456},
+            "doc2": {"content": "Previous memory 2", "timestamp": 123457},
+        }.get(doc_id)
 
         mock_persona = Mock()
         mock_persona.system_prompt.return_value = "You are an AI."
@@ -711,7 +714,14 @@ class TestExecuteStep:
             prompt="Analyze memories",
             config=StepConfig(max_tokens=100),
             output=StepOutput(document_type="analysis", weight=1.0),
-            memory=StepMemory(top_n=5, document_type=["conversation"], sort_by="relevance"),
+            context=[
+                MemoryAction(
+                    action="search_memories",
+                    query_text="test search query",
+                    top_n=5,
+                    document_types=["conversation"],
+                ),
+            ],
         )
 
         with patch("aim.dreamer.executor.LanguageModelV2") as mock_model_v2:

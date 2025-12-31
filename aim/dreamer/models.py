@@ -26,14 +26,6 @@ class StepConfig(BaseModel):
     model_override: Optional[str] = None
 
 
-class StepMemory(BaseModel):
-    """Memory query configuration for a step."""
-    top_n: int = 0
-    document_type: Optional[list[str]] = None
-    flush_before: bool = False
-    sort_by: str = "relevance"
-
-
 class StepOutput(BaseModel):
     """Output configuration for a step."""
     document_type: str
@@ -41,49 +33,87 @@ class StepOutput(BaseModel):
     add_to_turns: bool = True
 
 
-class ContextAction(BaseModel):
-    """Single action in context preparation DSL.
+class MemoryAction(BaseModel):
+    """Unified memory operation for the Memory DSL.
 
-    Actions are executed sequentially to build up the step's input context.
-    Supported actions:
-    - load_conversation: Load documents from current conversation
-    - query: Query documents across conversations
-    - sort: Sort accumulated documents
-    - filter: Filter accumulated documents (future)
+    Used in both seed-level and step-level context building.
+    Actions execute sequentially, accumulating doc_ids.
+
+    Action Categories:
+    - Retrieval: load_conversation, get_memory, search_memories
+    - Transform: sort, filter, truncate, drop
+    - Meta: flush, clear
     """
-    action: Literal["load_conversation", "query", "sort", "filter"]
+    action: Literal[
+        # Retrieval
+        "load_conversation",  # Bulk load from conversation
+        "get_memory",         # Direct retrieval by criteria (no semantic search)
+        "search_memories",    # Semantic vector search
+        # Transform
+        "sort",               # Reorder accumulated docs
+        "filter",             # Keep matching docs
+        "truncate",           # Limit to N docs
+        "drop",               # Remove docs/types
+        # Meta
+        "flush",              # Clear accumulated context
+        "clear",              # Alias for flush
+    ]
 
-    # load_conversation params
+    # === Common params ===
     target: Optional[str] = "current"
     """Target conversation: 'current' uses state.conversation_id"""
 
-    # Shared document type params
     document_types: Optional[list[str]] = None
     """Document types to include (None = all)"""
 
     exclude_types: Optional[list[str]] = None
     """Document types to exclude"""
 
-    # query params
     top_n: Optional[int] = None
-    """Maximum documents to return from query"""
-
-    min_memories: Optional[int] = None
-    """Minimum memories threshold: only execute query if accumulated docs < this value"""
+    """Maximum documents to return"""
 
     conversation_id: Optional[str] = None
     """Conversation to query: 'current', 'all', or specific ID"""
 
-    # sort params
+    # === search_memories params ===
+    query_text: Optional[str] = None
+    """Explicit query text for semantic search"""
+
+    use_context: bool = False
+    """If True, use accumulated content as query for search_memories"""
+
+    temporal_decay: Optional[float] = None
+    """Temporal decay factor 0.0-1.0 (default 0.5)"""
+
+    diversity: Optional[float] = None
+    """MMR diversity factor 0.0-1.0"""
+
+    chunk_level: Optional[str] = None
+    """Chunk level: 'chunk_256', 'chunk_768', 'full'"""
+
+    # === sort params ===
     by: Optional[str] = None
     """Sort field: 'timestamp' or 'relevance'"""
 
     direction: Optional[str] = None
     """Sort direction: 'ascending' (oldest first) or 'descending' (newest first)"""
 
-    # filter params (future)
+    # === truncate params ===
+    limit: Optional[int] = None
+    """Maximum documents to keep after truncate"""
+
+    # === filter/drop params ===
     match: Optional[str] = None
-    """Filter pattern"""
+    """Filter pattern for filter action"""
+
+    doc_ids: Optional[list[str]] = None
+    """Specific document IDs to drop"""
+
+    # === min_memories threshold ===
+    min_memories: Optional[int] = None
+    """Minimum memories threshold: only execute if accumulated docs < this value"""
+
+
 
 
 class StepDefinition(BaseModel):
@@ -92,14 +122,13 @@ class StepDefinition(BaseModel):
     prompt: str
     config: StepConfig = Field(default_factory=StepConfig)
     output: StepOutput
-    memory: StepMemory = Field(default_factory=StepMemory)
     next: list[str] = Field(default_factory=list)
     depends_on: list[str] = Field(default_factory=list)
     input_refs: list[str] = Field(default_factory=list)
     """Step IDs whose outputs should be loaded from CVM as context.
     If empty, defaults to depends_on steps."""
 
-    context: Optional[list[ContextAction]] = None
+    context: Optional[list[MemoryAction]] = None
     """Context preparation DSL - sequential actions to build step input.
     If provided, replaces seed_doc_ids for this step."""
 
@@ -113,11 +142,6 @@ class ScenarioContext(BaseModel):
     thoughts: list[str] = Field(default_factory=list)
 
 
-class SeedAction(BaseModel):
-    """Initial data loading action."""
-    action: Literal["load_conversation", "query_memories"]
-    accumulate_to: str
-    params: dict = Field(default_factory=dict)
 
 
 class Scenario(BaseModel):
@@ -131,7 +155,7 @@ class Scenario(BaseModel):
     """Whether this scenario requires an existing conversation.
     True for analyst/summarizer, False for journaler/dreamer/philosopher."""
     context: ScenarioContext
-    seed: list[SeedAction] = Field(default_factory=list)
+    seed: list[MemoryAction] = Field(default_factory=list)
     steps: dict[str, StepDefinition]
 
     def get_root_steps(self) -> list[str]:

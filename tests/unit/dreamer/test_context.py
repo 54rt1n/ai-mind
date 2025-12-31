@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 
 from aim.dreamer.models import (
-    ContextAction,
+    MemoryAction,
     StepDefinition,
     StepConfig,
     StepOutput,
@@ -23,12 +23,12 @@ from aim.dreamer.context import (
 )
 
 
-class TestContextAction:
-    """Tests for ContextAction model."""
+class TestMemoryAction:
+    """Tests for MemoryAction model."""
 
     def test_load_conversation_action(self):
-        """Test ContextAction for load_conversation."""
-        action = ContextAction(
+        """Test MemoryAction for load_conversation."""
+        action = MemoryAction(
             action="load_conversation",
             target="current",
             document_types=["conversation"],
@@ -37,20 +37,20 @@ class TestContextAction:
         assert action.target == "current"
         assert action.document_types == ["conversation"]
 
-    def test_query_action(self):
-        """Test ContextAction for query."""
-        action = ContextAction(
-            action="query",
+    def test_get_memory_action(self):
+        """Test MemoryAction for get_memory."""
+        action = MemoryAction(
+            action="get_memory",
             document_types=["reflection", "pondering"],
             top_n=10,
         )
-        assert action.action == "query"
+        assert action.action == "get_memory"
         assert action.document_types == ["reflection", "pondering"]
         assert action.top_n == 10
 
     def test_sort_action(self):
-        """Test ContextAction for sort."""
-        action = ContextAction(
+        """Test MemoryAction for sort."""
+        action = MemoryAction(
             action="sort",
             by="timestamp",
             direction="ascending",
@@ -60,8 +60,8 @@ class TestContextAction:
         assert action.direction == "ascending"
 
     def test_filter_action(self):
-        """Test ContextAction for filter."""
-        action = ContextAction(
+        """Test MemoryAction for filter."""
+        action = MemoryAction(
             action="filter",
             match="*",
         )
@@ -79,8 +79,8 @@ class TestStepDefinitionWithContext:
             prompt="Test prompt",
             output=StepOutput(document_type="test"),
             context=[
-                ContextAction(action="load_conversation", document_types=["conversation"]),
-                ContextAction(action="sort", by="timestamp", direction="ascending"),
+                MemoryAction(action="load_conversation", document_types=["conversation"]),
+                MemoryAction(action="sort", by="timestamp", direction="ascending"),
             ],
         )
         assert step.context is not None
@@ -211,7 +211,7 @@ class TestPrepareStepContext:
             prompt="Test prompt",
             output=StepOutput(document_type="test"),
             context=[
-                ContextAction(action="load_conversation", document_types=["conversation"]),
+                MemoryAction(action="load_conversation", document_types=["conversation"]),
             ],
         )
         state = PipelineState(
@@ -245,8 +245,8 @@ class TestPrepareStepContext:
             prompt="Test prompt",
             output=StepOutput(document_type="test"),
             context=[
-                ContextAction(action="load_conversation", document_types=["conversation"]),
-                ContextAction(action="load_conversation", document_types=["summary"]),
+                MemoryAction(action="load_conversation", document_types=["conversation"]),
+                MemoryAction(action="load_conversation", document_types=["summary"]),
             ],
         )
         state = PipelineState(
@@ -279,7 +279,7 @@ class TestLoadConversation:
 
     def test_load_conversation_current_target(self):
         """Test load_conversation with target='current'."""
-        action = ContextAction(
+        action = MemoryAction(
             action="load_conversation",
             target="current",
             document_types=["conversation"],
@@ -311,7 +311,7 @@ class TestLoadConversation:
 
     def test_load_conversation_exclude_types(self):
         """Test load_conversation with exclude_types."""
-        action = ContextAction(
+        action = MemoryAction(
             action="load_conversation",
             exclude_types=["ner", "step"],
         )
@@ -341,7 +341,7 @@ class TestLoadConversation:
 
     def test_load_conversation_empty_result(self):
         """Test load_conversation with empty result."""
-        action = ContextAction(action="load_conversation")
+        action = MemoryAction(action="load_conversation")
         state = PipelineState(
             pipeline_id="test",
             scenario_name="test",
@@ -366,7 +366,7 @@ class TestSortDocIds:
 
     def test_sort_by_timestamp_ascending(self):
         """Test sorting by timestamp ascending (oldest first)."""
-        action = ContextAction(
+        action = MemoryAction(
             action="sort",
             by="timestamp",
             direction="ascending",
@@ -386,7 +386,7 @@ class TestSortDocIds:
 
     def test_sort_by_timestamp_descending(self):
         """Test sorting by timestamp descending (newest first)."""
-        action = ContextAction(
+        action = MemoryAction(
             action="sort",
             by="timestamp",
             direction="descending",
@@ -406,7 +406,7 @@ class TestSortDocIds:
 
     def test_sort_empty_list(self):
         """Test sorting empty list."""
-        action = ContextAction(action="sort", by="timestamp", direction="ascending")
+        action = MemoryAction(action="sort", by="timestamp", direction="ascending")
         cvm = MagicMock()
 
         sorted_ids = _sort_doc_ids(action, [], cvm)

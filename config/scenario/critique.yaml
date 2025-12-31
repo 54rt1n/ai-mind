@@ -28,7 +28,7 @@ steps:
       - action: load_conversation
         target: current
         exclude_types: [ner, step]
-      - action: query
+      - action: get_memory
         document_types: [journal, analysis, daydream, pondering, understanding]
         top_n: 10
       - action: sort
@@ -46,8 +46,9 @@ steps:
     output:
       document_type: step
       weight: 0.5
-    memory:
-      top_n: 8
+    context:
+      - action: search_memories
+        top_n: 8
     next:
     - response_1
     id: statement_1
@@ -64,8 +65,9 @@ steps:
     output:
       document_type: step
       weight: 0.5
-    memory:
-      top_n: 4
+    context:
+      - action: search_memories
+        top_n: 4
     next:
     - statement_2
     id: response_1
@@ -82,8 +84,9 @@ steps:
     output:
       document_type: step
       weight: 0.5
-    memory:
-      top_n: 4
+    context:
+      - action: search_memories
+        top_n: 4
     next:
     - response_2
     id: statement_2
@@ -100,8 +103,9 @@ steps:
     output:
       document_type: step
       weight: 0.5
-    memory:
-      top_n: 4
+    context:
+      - action: search_memories
+        top_n: 4
     next:
     - statement_3
     id: response_2
@@ -118,8 +122,9 @@ steps:
     output:
       document_type: step
       weight: 0.5
-    memory:
-      top_n: 4
+    context:
+      - action: search_memories
+        top_n: 4
     next:
     - response_3
     id: statement_3
@@ -136,8 +141,9 @@ steps:
     output:
       document_type: step
       weight: 0.5
-    memory:
-      top_n: 4
+    context:
+      - action: search_memories
+        top_n: 4
     next:
     - synthesis
     id: response_3
@@ -154,8 +160,9 @@ steps:
     output:
       document_type: step
       weight: 0.7
-    memory:
-      top_n: 6
+    context:
+      - action: search_memories
+        top_n: 6
     next:
     - understanding
     id: synthesis
@@ -171,8 +178,9 @@ steps:
     output:
       document_type: understanding
       weight: 1.2
-    memory:
-      top_n: 4
+    context:
+      - action: search_memories
+        top_n: 4
     next:
     - codex
     id: understanding
@@ -188,11 +196,11 @@ steps:
     output:
       document_type: codex
       weight: 1.0
-    memory:
-      top_n: 10
-      document_type:
-      - codex
-      flush_before: true
+    context:
+      - action: flush
+      - action: search_memories
+        top_n: 10
+        document_types: [codex]
     next:
     - brainstorm
     id: codex
@@ -208,7 +216,8 @@ steps:
     output:
       document_type: brainstorm
       weight: 0.6
-    memory:
-      top_n: 10
+    context:
+      - action: search_memories
+        top_n: 10
     next: []
     id: brainstorm

@@ -26,10 +26,9 @@ from .models import (
     Scenario,
     StepDefinition,
     StepConfig,
-    StepMemory,
     StepOutput,
     ScenarioContext,
-    SeedAction,
+    MemoryAction,
 )
 from .worker import DreamerWorker, run_worker
 from .executor import RetryableError
@@ -56,10 +55,9 @@ __all__ = [
     "Scenario",
     "StepDefinition",
     "StepConfig",
-    "StepMemory",
     "StepOutput",
     "ScenarioContext",
-    "SeedAction",
+    "MemoryAction",
     # Worker
     "DreamerWorker",
     "run_worker",

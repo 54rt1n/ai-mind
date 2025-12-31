@@ -4,6 +4,8 @@
 
 This module implements the step-level context DSL that allows declarative
 specification of how each step's input context is assembled.
+
+Uses the unified Memory DSL executor from memory_dsl.py.
 """
 
 from __future__ import annotations
@@ -13,7 +15,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from aim.conversation.model import ConversationModel
-    from aim.dreamer.models import ContextAction, StepDefinition, PipelineState
+    from aim.dreamer.models import MemoryAction, StepDefinition, PipelineState
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +30,8 @@ def prepare_step_context(
     Context accumulates through the pipeline:
     - First step with context DSL: executes DSL to build initial context
     - Subsequent steps: receive accumulated context (initial + all prior outputs)
+
+    Uses the unified Memory DSL executor for action processing.
 
     Args:
         step_def: Step definition with optional context DSL
@@ -44,191 +48,70 @@ def prepare_step_context(
         # This includes initial context + all prior step outputs
         return list(state.context_doc_ids), False
 
-    accumulated_doc_ids: list[str] = []
+    from .memory_dsl import execute_memory_actions
 
-    for action in step_def.context:
-        if action.action == "load_conversation":
-            doc_ids = _load_conversation(action, state, cvm)
-            accumulated_doc_ids.extend(doc_ids)
+    # Execute context DSL using unified executor
+    doc_ids = execute_memory_actions(
+        actions=step_def.context,
+        state=state,
+        cvm=cvm,
+        query_text=state.query_text,
+    )
 
-        elif action.action == "query":
-            # Check min_memories threshold - skip query if we already have enough
-            if action.min_memories and len(accumulated_doc_ids) >= action.min_memories:
-                logger.debug(
-                    f"query: Skipping - already have {len(accumulated_doc_ids)} docs "
-                    f"(min_memories={action.min_memories})"
-                )
-            else:
-                doc_ids = _query_documents(action, state, cvm)
-                accumulated_doc_ids.extend(doc_ids)
+    logger.debug(f"Context DSL produced {len(doc_ids)} doc_ids for step {step_def.id}")
+    return doc_ids, True  # True = this is initial context from DSL
 
-        elif action.action == "sort":
-            accumulated_doc_ids = _sort_doc_ids(action, accumulated_doc_ids, cvm)
 
-        elif action.action == "filter":
-            accumulated_doc_ids = _filter_doc_ids(action, accumulated_doc_ids, cvm)
-
-    # Deduplicate while preserving order
-    seen = set()
-    unique_doc_ids = []
-    for doc_id in accumulated_doc_ids:
-        if doc_id not in seen:
-            seen.add(doc_id)
-            unique_doc_ids.append(doc_id)
-
-    logger.debug(f"Context DSL produced {len(unique_doc_ids)} doc_ids for step {step_def.id}")
-    return unique_doc_ids, True  # True = this is initial context from DSL
-
+# Legacy functions kept for backward compatibility with tests
+# These delegate to memory_dsl functions internally
 
 def _load_conversation(
-    action: "ContextAction",
+    action: "MemoryAction",
     state: "PipelineState",
     cvm: "ConversationModel",
 ) -> list[str]:
     """Load documents from a conversation.
 
-    Args:
-        action: ContextAction with load_conversation params
-        state: Pipeline state for conversation_id
-        cvm: ConversationModel
-
-    Returns:
-        List of doc_ids from the conversation
+    Delegates to memory_dsl._load_conversation.
     """
-    # Resolve conversation ID
-    conv_id = state.conversation_id
-    if action.target and action.target != "current":
-        conv_id = action.target
-
-    # Build query params
-    query_doc_type = action.document_types
-    filter_doc_type = action.exclude_types
-
-    # Get conversation history
-    history_df = cvm.get_conversation_history(
-        conv_id,
-        query_document_type=query_doc_type,
-        filter_document_type=filter_doc_type,
-    )
-
-    if history_df.empty:
-        logger.debug(f"load_conversation: No documents found for {conv_id}")
-        return []
-
-    doc_ids = history_df['doc_id'].tolist()
-    logger.debug(f"load_conversation: Loaded {len(doc_ids)} docs from {conv_id}")
-    return doc_ids
+    from .memory_dsl import _load_conversation as dsl_load_conversation
+    return dsl_load_conversation(action, state, cvm)
 
 
 def _query_documents(
-    action: "ContextAction",
+    action: "MemoryAction",
     state: "PipelineState",
     cvm: "ConversationModel",
 ) -> list[str]:
     """Query documents from the index.
 
-    Unlike load_conversation which loads from a specific conversation,
-    query searches across all conversations (or a specific one if specified).
-
-    Args:
-        action: ContextAction with query params
-        state: Pipeline state
-        cvm: ConversationModel
-
-    Returns:
-        List of doc_ids from the query
+    Maps to memory_dsl._get_memory (renamed from query).
     """
-    # Resolve conversation filter
-    query_conv_id = None
-    if action.conversation_id == "current":
-        query_conv_id = state.conversation_id
-    elif action.conversation_id and action.conversation_id != "all":
-        query_conv_id = action.conversation_id
-    # If conversation_id is None or "all", search across all conversations
-
-    top_n = action.top_n or 100
-
-    # Use index.search for direct document retrieval (no semantic search)
-    results = cvm.index.search(
-        query_document_type=action.document_types,
-        filter_document_type=action.exclude_types,
-        query_conversation_id=query_conv_id,
-        query_limit=top_n,
-    )
-
-    if results.empty:
-        logger.debug(f"query: No documents found")
-        return []
-
-    doc_ids = results['doc_id'].tolist()
-    logger.debug(f"query: Found {len(doc_ids)} docs")
-    return doc_ids
+    from .memory_dsl import _get_memory
+    return _get_memory(action, state, cvm)
 
 
 def _sort_doc_ids(
-    action: "ContextAction",
+    action: "MemoryAction",
     doc_ids: list[str],
     cvm: "ConversationModel",
 ) -> list[str]:
     """Sort accumulated doc_ids by timestamp or other criteria.
 
-    Args:
-        action: ContextAction with sort params
-        doc_ids: Current accumulated doc_ids
-        cvm: ConversationModel for looking up timestamps
-
-    Returns:
-        Sorted list of doc_ids
+    Delegates to memory_dsl._sort_docs.
     """
-    if not doc_ids:
-        return doc_ids
-
-    sort_by = action.by or "timestamp"
-    ascending = (action.direction == "ascending")
-
-    if sort_by == "timestamp":
-        # Look up timestamps for each doc_id
-        docs_with_ts = []
-        for doc_id in doc_ids:
-            doc = cvm.get_by_doc_id(doc_id)
-            if doc:
-                ts = doc.get('timestamp', 0)
-                docs_with_ts.append((doc_id, ts))
-            else:
-                # Keep docs without timestamp at the end
-                docs_with_ts.append((doc_id, float('inf') if ascending else 0))
-
-        docs_with_ts.sort(key=lambda x: x[1], reverse=not ascending)
-        sorted_ids = [doc_id for doc_id, _ in docs_with_ts]
-        logger.debug(f"sort: Sorted {len(sorted_ids)} docs by timestamp ({'asc' if ascending else 'desc'})")
-        return sorted_ids
-
-    elif sort_by == "relevance":
-        # For relevance sorting, we'd need scores from a query
-        # This is a no-op if docs weren't loaded via query with scoring
-        logger.debug(f"sort: Relevance sort requested but no scores available, keeping original order")
-        return doc_ids
-
-    else:
-        logger.warning(f"sort: Unknown sort_by value '{sort_by}', keeping original order")
-        return doc_ids
+    from .memory_dsl import _sort_docs
+    return _sort_docs(action, doc_ids, cvm)
 
 
 def _filter_doc_ids(
-    action: "ContextAction",
+    action: "MemoryAction",
     doc_ids: list[str],
     cvm: "ConversationModel",
 ) -> list[str]:
-    """Filter accumulated doc_ids (future implementation).
+    """Filter accumulated doc_ids.
 
-    Args:
-        action: ContextAction with filter params
-        doc_ids: Current accumulated doc_ids
-        cvm: ConversationModel
-
-    Returns:
-        Filtered list of doc_ids
+    Delegates to memory_dsl._filter_docs.
     """
-    # Future implementation - for now just pass through
-    logger.debug(f"filter: Filter action not yet implemented, passing through {len(doc_ids)} docs")
-    return doc_ids
+    from .memory_dsl import _filter_docs
+    return _filter_docs(action, doc_ids, cvm)

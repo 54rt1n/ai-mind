@@ -22,10 +22,10 @@ seed: []
 steps:
   survey:
     context:
-      - action: query
+      - action: get_memory
         document_types: [codex, pondering, understanding]
         top_n: 15
-      - action: query
+      - action: get_memory
         document_types: [brainstorm, self_rag]
         top_n: 8
       - action: sort
@@ -44,8 +44,9 @@ steps:
     output:
       document_type: step
       weight: 0.7
-    memory:
-      top_n: 10
+    context:
+      - action: search_memories
+        top_n: 10
     next:
     - identify_gaps
     id: survey
@@ -63,8 +64,9 @@ steps:
     output:
       document_type: step
       weight: 0.5
-    memory:
-      top_n: 5
+    context:
+      - action: search_memories
+        top_n: 5
     next:
     - gather_threads
     id: identify_gaps
@@ -81,8 +83,9 @@ steps:
     output:
       document_type: step
       weight: 0.5
-    memory:
-      top_n: 5
+    context:
+      - action: search_memories
+        top_n: 5
     next:
     - self_rag
     id: gather_threads
@@ -99,8 +102,9 @@ steps:
     output:
       document_type: self_rag
       weight: 0.6
-    memory:
-      top_n: 5
+    context:
+      - action: search_memories
+        top_n: 5
     next:
     - synthesize
     id: self_rag
@@ -117,8 +121,9 @@ steps:
     output:
       document_type: step
       weight: 0.5
-    memory:
-      top_n: 3
+    context:
+      - action: search_memories
+        top_n: 3
     next:
     - refine
     id: synthesize
@@ -136,8 +141,9 @@ steps:
     output:
       document_type: step
       weight: 0.4
-    memory:
-      top_n: 3
+    context:
+      - action: search_memories
+        top_n: 3
     next:
     - codex_draft
     id: refine
@@ -153,8 +159,9 @@ steps:
     output:
       document_type: step
       weight: 0.6
-    memory:
-      top_n: 3
+    context:
+      - action: search_memories
+        top_n: 3
     next:
     - final_codex
     id: codex_draft
@@ -171,11 +178,11 @@ steps:
     output:
       document_type: codex
       weight: 1.2
-    memory:
-      top_n: 15
-      document_type:
-      - codex
-      flush_before: true
+    context:
+      - action: flush
+      - action: search_memories
+        top_n: 15
+        document_types: [codex]
     next:
     - brainstorm
     id: final_codex
@@ -192,7 +199,8 @@ steps:
     output:
       document_type: brainstorm
       weight: 0.6
-    memory:
-      top_n: 10
+    context:
+      - action: search_memories
+        top_n: 10
     next: []
     id: brainstorm

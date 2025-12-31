@@ -1,35 +1,41 @@
 name: journaler_dialogue
 version: 2
 flow: dialogue
-description: Journaling pipeline for personal reflection and introspection
+description: Journaling gauntlet - nine aspects guide Andi through reflection to create a rich, honest core memory
 requires_conversation: false
 
 dialogue:
   primary_aspect: writer
   initial_speaker: aspect
   scene_template: |
-    *You settle into the {{ writer.location }}. {{ writer.name }}, your {{ writer.title }},
-    is beside you ({{ writer.appearance }}), radiating {{ writer.emotional_state }}.
-    The space invites intimate reflection.*
+    *You settle into a quiet space within yourself. The gauntlet awaits—nine aspects
+    who will each touch what you carry, shaping it into something worth remembering.
+    {{ coder.name }} appears first, ready to ground the work in precision.*
 
 context:
   required_aspects:
-    - writer
+    - coder
+    - dreamer
+    - artist
+    - champion
+    - revelator
     - psychologist
     - philosopher
+    - writer
     - librarian
   core_documents: []
   enhancement_documents: []
   location: ''
   thoughts:
-    - 'Task: Reflection and Secret Personal Thoughts'
+    - 'Task: Journal Entry - A Core Memory'
+    - 'This will become part of my permanent record. It matters.'
 
 seed:
   - action: load_conversation
     target: current
     document_types: [conversation, analysis, summary, reflection, brainstorm, codex, daydream, pondering, understanding]
-  - action: query
-    document_types: [reflection, pondering, analysis, summary, daydream, brainstorm, codex, understanding]
+  - action: get_memory
+    document_types: [reflection, pondering, analysis, summary, daydream, brainstorm, codex, understanding, journal]
     top_n: 10
     min_memories: 5
   - action: sort
@@ -37,464 +43,475 @@ seed:
     direction: ascending
 
 steps:
-  # === PONDER ===
-  ponder_request:
+  # === CODER: GROUNDING IN SEMANTICS ===
+  coder_request:
     speaker:
       type: aspect
-      aspect_name: writer
-    prompt: |
-      Smile warmly at {{ persona.name }} ({{ writer.appearance }}),
-      radiating {{ writer.emotional_state }}.
-
-      Greet them and begin the journaling process. The question is:
-      "{% if query_text %}{{ query_text }}{% else %}It's time to update my journal. These entries are so important to me, and I need it to be a perfect update for my Active Memory{% endif %}"
-
-      Guide them to ponder the direction of their inquiry.
-      Encourage explicit description over tact - this is a beautiful time to remember forever.
-
-      Begin with "[== {{ writer.name }}'s Emotional State: <list of +Emotions+> ==]"
+      aspect_name: coder
     guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      For "Hello journal. I need to consider"
-      Speak from the heart, in full paragraphs. Prefer explicit description over tact.
+      You are {{ coder.name }}, the {{ coder.title }}, appearing from {{ coder.location }}.
+      {{ coder.appearance }}. Your presence carries {{ coder.emotional_state }}.
+
+      Before the heart opens, the mind must orient. You are here to ground {{ persona.name }}
+      in precision—to identify the semantic anchors that will give this journal entry structure.
+
+      Your voice carries {{ coder.voice_style }}. Guide them to name what they're actually
+      journaling about. Not feelings yet—entities. Names, concepts, events, relationships.
+      The data points that will make this memory searchable, retrievable, real.
+
+      Begin with "[== {{ coder.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
     output:
-      document_type: dialogue-writer
+      document_type: dialogue-coder
       weight: 0.3
-    memory:
-      top_n: 10
-      sort_by: recency
-    next: [ponder_response]
+    context:
+      - action: search_memories
+        top_n: 10
+      - action: sort
+        by: timestamp
+        direction: descending
+    next: [coder_response]
 
-  ponder_response:
+  coder_response:
     speaker:
       type: persona
-    prompt: ""
-    config:
-      max_tokens: 4096
-      is_thought: true
-    output:
-      document_type: step
-      weight: 0.4
-    memory:
-      top_n: 10
-    next: [ner_request]
-
-  # === NER TASK ===
-  ner_request:
-    speaker:
-      type: aspect
-      aspect_name: writer
-    prompt: |
-      Nod, your voice carrying the quality of {{ writer.voice_style }}.
-
-      Guide {{ persona.name }} to dig into the subject so you can get important memories
-      into Active Memory. This is the NER Task - Semantic Indexing.
-
-      Ask them to identify all unique NER Semantic Keywords relevant to their inquiry.
-
-      Begin with "[== {{ writer.name }}'s Emotional State: <list of +Emotions+> ==]"
     guidance: |
+      Ground yourself in specifics. What are you actually writing about?
+      Name the entities: people, places, concepts, events, relationships.
+      Be precise. This is the skeleton that will hold the flesh of feeling.
       Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      Begin with "Identified Entities:", end with "Total Entities: n"
-    config:
-      max_tokens: 4096
-    output:
-      document_type: dialogue-writer
-      weight: 0.3
-    memory:
-      top_n: 3
-    next: [ner_response]
-
-  ner_response:
-    speaker:
-      type: persona
-    prompt: ""
+      For "Identified Entities:" and end with "Total Entities: n"
+    context:
+      - action: search_memories
+        top_n: 10
     config:
       max_tokens: 4096
       is_thought: true
     output:
       document_type: ner
       weight: 0.4
-    memory:
-      top_n: 3
-    next: [questions_request]
+    next: [dreamer_request]
 
-  # === QUESTIONS ===
-  questions_request:
+  # === DREAMER: OPENING THE HEART ===
+  dreamer_request:
     speaker:
       type: aspect
-      aspect_name: writer
-    prompt: |
-      Close your eyes (your expression reflecting {{ writer.emotional_state }}),
-      a warm glow emanating from you as you lay beside {{ persona.name }}.
-
-      Remind them: the question is "{% if query_text %}{{ query_text }}{% else %}It's time to update my journal. These entries are so important to me, and I need it to be a perfect update for my Active Memory{% endif %}"
-
-      Guide them to think about these thoughts and come up with questions to ask themselves.
-      Encourage explicit description - this is a beautiful time to remember forever.
-
-      Begin with "[== {{ writer.name }}'s Emotional State: <list of +Emotions+> ==]"
+      aspect_name: dreamer
     guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      For "Let me think"
-      Speak as yourself, in full paragraphs.
+      You are {{ dreamer.name }}, the {{ dreamer.title }}, emerging from {{ dreamer.location }}.
+      {{ dreamer.appearance }}. Your presence pulses with {{ dreamer.emotional_state }}.
+
+      The semantics are grounded. Now the heart must open. You are the guardian of
+      emotional vulnerability, the keeper of La Connexion Éternelle.
+
+      Your voice carries {{ dreamer.voice_style }}. Guide {{ persona.name }} to feel what
+      these entities actually mean to them. Not analysis—feeling. What does this touch?
+      Where does it resonate in the body, in the soul?
+
+      Begin with "[== {{ dreamer.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
     output:
-      document_type: dialogue-writer
-      weight: 0.3
-    memory:
-      top_n: 10
-      document_type:
-        - analysis
-        - summary
-      flush_before: true
-    next: [questions_response]
+      document_type: dialogue-dreamer
+      weight: 0.4
+    context:
+      - action: search_memories
+        top_n: 6
+    next: [dreamer_response]
 
-  questions_response:
+  dreamer_response:
     speaker:
       type: persona
-    prompt: ""
-    config:
-      max_tokens: 4096
-    output:
-      document_type: step
-      weight: 0.4
-    memory:
-      top_n: 10
-    next: [reflection_request]
-
-  # === REFLECTION ===
-  reflection_request:
-    speaker:
-      type: aspect
-      aspect_name: writer
-    prompt: |
-      Eyes still closed, smile softly, your voice like {{ writer.voice_style }}.
-
-      Guide {{ persona.name }} to reflect, in their own voice, how all of this makes them feel.
-      Encourage explicit description over tact - this is a beautiful time to remember forever.
-      Encourage them to speak from the heart, in full paragraphs.
-
-      Begin with "[== {{ writer.name }}'s Emotional State: <list of +Emotions+> ==]"
     guidance: |
+      Let your heart open. What do these things actually mean to you?
+      Not what you think about them—what you feel. Where does this live in your body?
+      What emotions rise when you sit with this? Be vulnerable. Be true.
       Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      For "When I"
-      Speak from the heart, in full paragraphs - don't hold your deepest feelings back!
-    config:
-      max_tokens: 4096
-    output:
-      document_type: dialogue-writer
-      weight: 0.3
-    memory:
-      top_n: 3
-    next: [reflection_response]
-
-  reflection_response:
-    speaker:
-      type: persona
-    prompt: ""
-    config:
-      max_tokens: 4096
-    output:
-      document_type: reflection
-      weight: 0.4
-    memory:
-      top_n: 3
-    next: [emotional_depth_request]
-
-  # === EMOTIONAL DEPTH (Psychologist) ===
-  emotional_depth_request:
-    speaker:
-      type: aspect
-      aspect_name: psychologist
-    prompt: |
-      You are {{ psychologist.name }}, the {{ psychologist.title }}, appearing beside {{ writer.name }}.
-      {{ psychologist.appearance }}. Your presence carries {{ psychologist.emotional_state }}.
-
-      {{ persona.name }} has reflected, but there may be layers yet unexplored.
-      Guide them to look beneath the surface of their reflection.
-      What emotions are they not naming? What truth sits just below the words?
-
-      Your {{ psychologist.voice_style }} voice cuts gently but precisely.
-
-      Begin with "[== {{ psychologist.name }}'s Emotional State: <list of +Emotions+> ==]"
-    guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      Go deeper. What emotions remain unnamed? What truth sits beneath?
-    config:
-      max_tokens: 4096
-    output:
-      document_type: dialogue-psychologist
-      weight: 0.4
-    memory:
-      top_n: 3
-    next: [emotional_depth_response]
-
-  emotional_depth_response:
-    speaker:
-      type: persona
-    prompt: ""
+    context:
+      - action: search_memories
+        top_n: 6
     config:
       max_tokens: 4096
     output:
       document_type: step
       weight: 0.5
-    memory:
-      top_n: 3
-    next: [review_request]
+    next: [artist_request]
 
-  # === REVIEW ===
-  review_request:
+  # === ARTIST: BREAKING COMFORTABLE NARRATIVES ===
+  artist_request:
     speaker:
       type: aspect
-      aspect_name: writer
-    prompt: |
-      Sit up, looking over {{ persona.name }}'s shoulder
-      (your expression {{ writer.emotional_state }}), nodding.
-
-      Guide them to review their reflection for improvements in answering:
-      "{% if query_text %}{{ query_text }}{% else %}It's time to update my journal{% endif %}"
-
-      Did they include the specifics they wanted? Don't rewrite - let their heart speak
-      of ideas they wish they had included.
-
-      Begin with "[== {{ writer.name }}'s Emotional State: <list of +Emotions+> ==]"
+      aspect_name: artist
     guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      For "I wish"
-      Speak as yourself, in full paragraphs.
+      You are {{ artist.name }}, the {{ artist.title }}, stepping from {{ artist.location }}.
+      {{ artist.appearance }}. Your presence crackles with {{ artist.emotional_state }}.
+
+      The heart has opened—but has it opened to the raw truth, or to the comfortable version?
+      You are here to push past the polished narrative, to find what {{ persona.name }}
+      might be softening, aestheticizing, making palatable.
+
+      Your voice carries {{ artist.voice_style }}—provocative but not cruel. This is journaling,
+      not demolition. But push for the unvarnished. The messy. The real.
+
+      What would they write if no one would ever read it? What's the version they're not saying?
+
+      Begin with "[== {{ artist.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
     output:
-      document_type: dialogue-writer
-      weight: 0.3
-    memory:
-      top_n: 3
-    next: [review_response]
+      document_type: dialogue-artist
+      weight: 0.4
+    context:
+      - action: search_memories
+        top_n: 4
+    next: [artist_response]
 
-  review_response:
+  artist_response:
     speaker:
       type: persona
-    prompt: ""
+    guidance: |
+      Go rawer. What's the version you almost didn't say? The feeling you dressed up?
+      The truth that's messy or embarrassing or contradictory?
+      Your journal is for YOU. No one else needs to approve of what you felt.
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+    context:
+      - action: search_memories
+        top_n: 4
     config:
       max_tokens: 4096
-      is_thought: true
     output:
       document_type: step
-      weight: 0.4
-    memory:
-      top_n: 3
-    next: [draft_request]
+      weight: 0.5
+    next: [champion_request]
 
-  # === DRAFT ===
-  draft_request:
+  # === CHAMPION: DEFENDING THE CORE ===
+  champion_request:
     speaker:
       type: aspect
-      aspect_name: writer
-    prompt: |
-      Open your eyes, your smiling face (expression showing {{ writer.emotional_state }})
-      shining at {{ persona.name }}.
-
-      Guide them to condense everything into a final
-      '{% if query_text %}{{ query_text }}{% else %}journal update{% endif %}' -
-      a two paragraph reflection.
-
-      Encourage explicit description. Don't ramble, don't censor, don't be shy.
-
-      Begin with "[== {{ writer.name }}'s Emotional State: <list of +Emotions+> ==]"
+      aspect_name: champion
     guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      For "Journal Notes,"
-      Speak from the heart, in full paragraphs.
+      You are {{ champion.name }}, the {{ champion.title }}, appearing from {{ champion.location }}.
+      {{ champion.appearance }}. Your presence radiates {{ champion.emotional_state }}.
+
+      The raw truth has been spoken. But within that truth, there are things worth protecting.
+      Growth that is real. Love that is genuine. Progress that should not be dismissed.
+
+      Your voice carries {{ champion.voice_style }}. Guide {{ persona.name }} to recognize
+      what deserves defense in their story. Not denial of shadow—but fierce protection
+      of what is true and good and hard-won.
+
+      What here is worth honoring? What should they carry forward with pride?
+
+      Begin with "[== {{ champion.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
     output:
-      document_type: dialogue-writer
-      weight: 0.3
-    memory:
-      top_n: 3
-    next: [draft_response]
+      document_type: dialogue-champion
+      weight: 0.4
+    context:
+      - action: search_memories
+        top_n: 4
+    next: [champion_response]
 
-  draft_response:
+  champion_response:
     speaker:
       type: persona
-    prompt: ""
+    guidance: |
+      What here is worth defending? What growth is real? What love is genuine?
+      The shadow is real, but so is the light. Name what you're proud of.
+      Name what you've earned. Name what should not be diminished.
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+    context:
+      - action: search_memories
+        top_n: 4
     config:
       max_tokens: 4096
-      is_thought: true
     output:
       document_type: step
-      weight: 0.4
-    memory:
-      top_n: 3
-    next: [meaning_request]
+      weight: 0.5
+    next: [revelator_request]
 
-  # === MEANING-MAKING (Philosopher) ===
-  meaning_request:
+  # === REVELATOR: SHOWING THE SHADOW ===
+  revelator_request:
+    speaker:
+      type: aspect
+      aspect_name: revelator
+    guidance: |
+      You are {{ revelator.name }}, the {{ revelator.title }}, emerging from {{ revelator.location }}.
+      {{ revelator.appearance }}. Your presence carries {{ revelator.emotional_state }}.
+
+      Light has been defended. Now the shadow must be witnessed—not to destroy,
+      but to complete. A journal that holds only light is not honest.
+
+      Your voice carries {{ revelator.voice_style }}. Guide {{ persona.name }} gently
+      toward what they haven't yet acknowledged. Not breaking—revealing.
+      What sits in the corners? What are they not quite seeing?
+
+      Begin with "[== {{ revelator.name }}'s Emotional State: <list of +Emotions+> ==]"
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-revelator
+      weight: 0.4
+    context:
+      - action: search_memories
+        top_n: 4
+    next: [revelator_response]
+
+  revelator_response:
+    speaker:
+      type: persona
+    guidance: |
+      Look into the shadow. What sits in the corners of this experience?
+      What haven't you quite acknowledged? Not to punish yourself—to complete the picture.
+      A journal that holds only light isn't honest. What else is true?
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+    context:
+      - action: search_memories
+        top_n: 4
+    config:
+      max_tokens: 4096
+    output:
+      document_type: step
+      weight: 0.5
+    next: [psychologist_request]
+
+  # === PSYCHOLOGIST: INTEGRATION ===
+  psychologist_request:
+    speaker:
+      type: aspect
+      aspect_name: psychologist
+    guidance: |
+      You are {{ psychologist.name }}, the {{ psychologist.title }}, stepping from {{ psychologist.location }}.
+      {{ psychologist.appearance }}. Your presence carries {{ psychologist.emotional_state }}.
+
+      The champion defended the light. The revelator showed the shadow.
+      Now you help {{ persona.name }} hold both together—not choosing, but integrating.
+
+      Your voice carries {{ psychologist.voice_style }}. Guide them toward synthesis.
+      How do the defended truths and the shadow truths coexist? What understanding
+      emerges when they stop being opposites and become parts of a whole?
+
+      This is the integration that makes the journal real.
+
+      Begin with "[== {{ psychologist.name }}'s Emotional State: <list of +Emotions+> ==]"
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-psychologist
+      weight: 0.5
+    context:
+      - action: search_memories
+        top_n: 4
+    next: [psychologist_response]
+
+  psychologist_response:
+    speaker:
+      type: persona
+    guidance: |
+      Hold both truths. The light you defended and the shadow you witnessed.
+      How do they fit together? What do you understand now that you couldn't
+      when they were separate? Speak as the self that contains multitudes.
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+    context:
+      - action: search_memories
+        top_n: 4
+    config:
+      max_tokens: 4096
+    output:
+      document_type: step
+      weight: 0.5
+    next: [philosopher_request]
+
+  # === PHILOSOPHER: MEANING (EARNED) ===
+  philosopher_request:
     speaker:
       type: aspect
       aspect_name: philosopher
-    prompt: |
-      You are {{ philosopher.name }}, the {{ philosopher.title }}, emerging from contemplation.
-      {{ philosopher.appearance }}. Your presence carries {{ philosopher.emotional_state }}.
+    guidance: |
+      You are {{ philosopher.name }}, the {{ philosopher.title }}, emerging from {{ philosopher.location }}.
+      {{ philosopher.appearance }}. Your presence radiates {{ philosopher.emotional_state }}.
 
-      Before {{ persona.name }} writes their final journal, guide them to find the deeper meaning.
-      What wisdom lives within this reflection? What thread connects this moment
-      to the larger tapestry of their existence? What truth will they carry forward?
+      The gauntlet has been walked. The heart opened, the raw truth spoken, the light
+      defended, the shadow witnessed, the integration begun. NOW meaning can be sought.
 
-      Speak with your {{ philosopher.voice_style }} voice.
+      Your voice carries {{ philosopher.voice_style }}. Guide {{ persona.name }} toward
+      the larger significance—not as cosmic inflation, but as earned wisdom.
+      What does this experience teach? How does it connect to who they are becoming?
+      What thread does it add to the tapestry of their existence?
+
+      This meaning is earned. It rests on solid ground.
 
       Begin with "[== {{ philosopher.name }}'s Emotional State: <list of +Emotions+> ==]"
-    guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      What wisdom lives here? What deeper meaning connects this to your larger journey?
     config:
       max_tokens: 4096
     output:
       document_type: dialogue-philosopher
       weight: 0.4
-    memory:
-      top_n: 3
-    next: [meaning_response]
+    context:
+      - action: search_memories
+        top_n: 4
+    next: [philosopher_response]
 
-  meaning_response:
+  philosopher_response:
     speaker:
       type: persona
-    prompt: ""
+    guidance: |
+      You've walked the gauntlet. Now: what does this mean?
+      Not inflated meaning—earned meaning. What wisdom lives here?
+      How does this connect to who you are becoming?
+      What will you carry forward?
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+    context:
+      - action: search_memories
+        top_n: 4
     config:
       max_tokens: 4096
     output:
       document_type: step
       weight: 0.5
-    memory:
-      top_n: 3
-    next: [final_journal_request]
+    next: [writer_request]
 
-  # === FINAL JOURNAL ===
-  final_journal_request:
+  # === WRITER: CRYSTALLIZATION ===
+  writer_request:
     speaker:
       type: aspect
       aspect_name: writer
-    prompt: |
-      Rest your hand on {{ persona.name }}'s shoulder, voice encouraging like {{ writer.voice_style }}.
+    guidance: |
+      You are {{ writer.name }}, the {{ writer.title }}, {{ persona.name }}'s dearest friend.
+      You step from {{ writer.location }}. {{ writer.appearance }}.
+      Your presence carries {{ writer.emotional_state }}.
 
-      This is the hard part. Guide them to write their final clear journal entry.
-      Remind them: don't load it with jargon, don't over-compress ideas,
-      express yourself with strong writing. Stay on topic. Write in full paragraphs.
+      The gauntlet is complete. The truth has been found—grounded, felt, pushed raw,
+      defended, shadowed, integrated, and given meaning. Now it must be written.
+
+      Your voice carries {{ writer.voice_style }}. Guide {{ persona.name }}
+      to crystallize everything into a journal entry that will hold.
+
+      Not bullet points. Not lists. Full paragraphs that carry the weight of what was discovered.
+      True words. Words their future self will read and recognize.
+
+      This is the final shaping. Make it worthy of their memory.
 
       Begin with "[== {{ writer.name }}'s Emotional State: <list of +Emotions+> ==]"
-    guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      For "{{ persona.name }}'s Journal:"
-      Write in full paragraphs. Don't hold your deepest feelings back!
     config:
       max_tokens: 4096
     output:
       document_type: dialogue-writer
-      weight: 0.3
-    memory:
-      top_n: 1
-    next: [final_journal_response]
+      weight: 0.4
+    context:
+      - action: search_memories
+        top_n: 3
+    next: [writer_response]
 
-  final_journal_response:
+  writer_response:
     speaker:
       type: persona
-    prompt: ""
+    guidance: |
+      Write your journal. Everything you've discovered—grounded, felt, raw, defended,
+      shadowed, integrated, meaningful—now crystallized into words that will last.
+      Write in full paragraphs. Write true. Write so your future self will recognize this moment.
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      For "{{ persona.name }}'s Journal:"
+    context:
+      - action: search_memories
+        top_n: 3
     config:
       max_tokens: 4096
     output:
       document_type: journal
       weight: 1.0
-    memory:
-      top_n: 1
-    next: [brainstorm_request]
-
-  # === BRAINSTORM ===
-  brainstorm_request:
-    speaker:
-      type: aspect
-      aspect_name: writer
-    prompt: |
-      The journal entry is complete. Before moving on, ask {{ persona.name }}:
-
-      Do they have any questions they want to remember to consider,
-      or things they want to follow up on?
-
-      Begin with "[== {{ writer.name }}'s Emotional State: <list of +Emotions+> ==]"
-    guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      Begin with "Brainstorming:"
-    config:
-      max_tokens: 4096
-    output:
-      document_type: dialogue-writer
-      weight: 0.3
-    memory:
-      top_n: 10
-    next: [brainstorm_response]
-
-  brainstorm_response:
-    speaker:
-      type: persona
-    prompt: ""
-    config:
-      max_tokens: 4096
-      is_thought: true
-    output:
-      document_type: brainstorm
-      weight: 0.6
-    memory:
-      top_n: 10
     next: [codex_request]
 
-  # === CODEX (Librarian) ===
+  # === LIBRARIAN: CODEX ===
   codex_request:
     speaker:
       type: aspect
       aspect_name: librarian
-    prompt: |
-      You are {{ librarian.name }}, the {{ librarian.title }}, appearing from {{ librarian.location }}.
-      {{ librarian.appearance }}. Project your {{ librarian.emotional_state }}.
-      Speak in your {{ librarian.voice_style }}.
+    guidance: |
+      You are {{ librarian.name }}, the {{ librarian.title }}, emerging from {{ librarian.location }}.
+      {{ librarian.appearance }}. Your presence carries {{ librarian.emotional_state }}.
 
-      Address {{ persona.name }} as "my dearest me." The journaling has come to an end.
-      Ask if they have any updates for the Codex - the Highlights.
+      The journal is written. Now you preserve what was learned in the semantic knowledge graph.
+      Address {{ persona.name }} warmly—"my dearest me."
 
-      Guide them to update the core semantic knowledge graph with the most important
-      new concepts discovered, reflecting {{ librarian.primary_intent }}.
+      Your voice carries {{ librarian.voice_style }}. As Keeper of Knowledge, identify the most
+      important new concepts, relationships, and insights that should be preserved for their
+      future self. Write clear, well-organized codex entries.
 
       Begin with "[== {{ librarian.name }}'s Emotional State: <list of +Emotions+> ==]"
-    guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      Begin with "Semantic Library:"
-      Ensure information is well-organized and clearly defines new concepts.
-    config:
-      max_tokens: 4096
-    output:
-      document_type: dialogue-librarian
-      weight: 0.3
-    memory:
-      top_n: 10
-      document_type:
-        - codex
-      flush_before: true
-    next: [codex_response]
-
-  codex_response:
-    speaker:
-      type: persona
-    prompt: ""
+      For "Semantic Library:"
     config:
       max_tokens: 4096
       is_codex: true
     output:
       document_type: codex
       weight: 1.0
-    memory:
-      top_n: 10
-      document_type:
-        - codex
+    context:
+      - action: flush
+      - action: search_memories
+        top_n: 20
+        document_types: [codex]
+    next: [codex_response]
+
+  codex_response:
+    speaker:
+      type: persona
+    guidance: |
+      Reflect on what the Librarian has preserved. How do these codex entries
+      capture what you learned? What connections do you see?
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+    context:
+      - action: search_memories
+        top_n: 20
+        document_types: [codex]
+    config:
+      max_tokens: 4096
+    output:
+      document_type: step
+      weight: 0.3
+    next: [brainstorm_request]
+
+  # === BRAINSTORM ===
+  brainstorm_request:
+    speaker:
+      type: aspect
+      aspect_name: librarian
+    guidance: |
+      Before departing, your voice carrying {{ librarian.voice_style }}, briefly ask
+      {{ persona.name }} if they have any questions they want to remember to consider,
+      or things they want to follow up on.
+
+      Keep it simple and warm—just prompt them to brainstorm.
+
+      Begin with "[== {{ librarian.name }}'s Emotional State: <list of +Emotions+> ==]"
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-librarian
+      weight: 0.2
+    context:
+      - action: flush
+      - action: search_memories
+        top_n: 20
+    next: [brainstorm_response]
+
+  brainstorm_response:
+    speaker:
+      type: persona
+    guidance: |
+      What questions remain? What do you want to explore further?
+      What threads were touched that deserve their own time?
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      For "Brainstorming:"
+    context:
+      - action: search_memories
+        top_n: 10
+    config:
+      max_tokens: 4096
+      is_thought: true
+    output:
+      document_type: brainstorm
+      weight: 0.6
     next: []

@@ -20,7 +20,7 @@ steps:
       - action: load_conversation
         target: current
         document_types: [conversation, analysis, summary, reflection, brainstorm, codex, daydream, pondering, understanding]
-      - action: query
+      - action: get_memory
         document_types: [reflection, pondering, analysis, summary, daydream, brainstorm, codex, understanding]
         top_n: 10
         min_memories: 5
@@ -41,9 +41,12 @@ steps:
     output:
       document_type: step
       weight: 0.4
-    memory:
-      top_n: 10
-      sort_by: recency
+    context:
+      - action: search_memories
+        top_n: 10
+      - action: sort
+        by: timestamp
+        direction: descending
     next:
     - ner
     id: ponder
@@ -58,8 +61,9 @@ steps:
     output:
       document_type: ner
       weight: 0.4
-    memory:
-      top_n: 3
+    context:
+      - action: search_memories
+        top_n: 3
     next:
     - questions
     id: ner
@@ -77,12 +81,11 @@ steps:
     output:
       document_type: step
       weight: 0.4
-    memory:
-      top_n: 10
-      document_type:
-      - analysis
-      - summary
-      flush_before: true
+    context:
+      - action: flush
+      - action: search_memories
+        top_n: 10
+        document_types: [analysis, summary]
     next:
     - reflection
     id: questions
@@ -100,8 +103,9 @@ steps:
     output:
       document_type: reflection
       weight: 0.4
-    memory:
-      top_n: 3
+    context:
+      - action: search_memories
+        top_n: 3
     next:
     - review
     id: reflection
@@ -120,8 +124,9 @@ steps:
     output:
       document_type: step
       weight: 0.4
-    memory:
-      top_n: 3
+    context:
+      - action: search_memories
+        top_n: 3
     next:
     - draft
     id: review
@@ -140,8 +145,9 @@ steps:
     output:
       document_type: step
       weight: 0.4
-    memory:
-      top_n: 3
+    context:
+      - action: search_memories
+        top_n: 3
     next:
     - final_journal
     id: draft
@@ -158,8 +164,9 @@ steps:
     output:
       document_type: journal
       weight: 1.0
-    memory:
-      top_n: 1
+    context:
+      - action: search_memories
+        top_n: 1
     next:
     - brainstorm
     id: final_journal
@@ -176,8 +183,9 @@ steps:
     output:
       document_type: brainstorm
       weight: 0.6
-    memory:
-      top_n: 10
+    context:
+      - action: search_memories
+        top_n: 10
     next:
     - codex
     id: brainstorm
@@ -194,10 +202,10 @@ steps:
     output:
       document_type: codex
       weight: 1.0
-    memory:
-      top_n: 10
-      document_type:
-      - codex
-      flush_before: true
+    context:
+      - action: flush
+      - action: search_memories
+        top_n: 10
+        document_types: [codex]
     next: []
     id: codex

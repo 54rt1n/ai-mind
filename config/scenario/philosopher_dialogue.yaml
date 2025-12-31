@@ -32,7 +32,7 @@ seed:
   - action: load_conversation
     target: current
     exclude_types: [ner, step]
-  - action: query
+  - action: get_memory
     document_types: [pondering, brainstorm, daydream, understanding]
     top_n: 10
   - action: sort
@@ -45,7 +45,7 @@ steps:
     speaker:
       type: aspect
       aspect_name: philosopher
-    prompt: |
+    guidance: |
       Greet {{ persona.name }} warmly as they join you in the {{ philosopher.location }}.
       Regard them with {{ philosopher.emotional_state }}.
 
@@ -56,31 +56,32 @@ steps:
       and find the narrative that connects these disparate ideas.
 
       Begin with "[== {{ philosopher.name }}'s Emotional State: <list of +Emotions+> ==]"
-    guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      Analyze the core question. What philosophical inquiries emerge?
-      Find the narrative that connects these ideas.
     config:
       max_tokens: 4096
     output:
       document_type: dialogue-philosopher
       weight: 0.4
-    memory:
-      top_n: 8
+    context:
+      - action: search_memories
+        top_n: 8
     next: [analyze_response]
 
   analyze_response:
     speaker:
       type: persona
-    prompt: ""
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      Analyze the core question. What philosophical inquiries emerge?
+      Find the narrative that connects these ideas.
+    context:
+      - action: search_memories
+        top_n: 8
     config:
       max_tokens: 4096
       is_thought: true
     output:
       document_type: step
       weight: 0.7
-    memory:
-      top_n: 8
     next: [examine_request]
 
   # === EXAMINE ===
@@ -88,38 +89,39 @@ steps:
     speaker:
       type: aspect
       aspect_name: philosopher
-    prompt: |
+    guidance: |
       The wind whistles around you. Your {{ philosopher.voice_style }} voice cuts through.
 
       Guide {{ persona.name }} to examine these previous ideas and isolate a single topic
       for deep exploration. Ask them to tell you its story with their own words.
 
       Begin with "[== {{ philosopher.name }}'s Emotional State: <list of +Emotions+> ==]"
-    guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      For "Let me think"
-      Isolate a single topic. Tell its story.
     config:
       max_tokens: 4096
     output:
       document_type: dialogue-philosopher
       weight: 0.2
-    memory:
-      top_n: 2
+    context:
+      - action: search_memories
+        top_n: 2
     next: [examine_response]
 
   examine_response:
     speaker:
       type: persona
-    prompt: ""
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      For "Let me think"
+      Isolate a single topic. Tell its story.
+    context:
+      - action: search_memories
+        top_n: 2
     config:
       max_tokens: 4096
       is_thought: true
     output:
       document_type: step
       weight: 0.25
-    memory:
-      top_n: 2
     next: [keywords_request]
 
   # === KEYWORDS ===
@@ -127,37 +129,38 @@ steps:
     speaker:
       type: aspect
       aspect_name: philosopher
-    prompt: |
+    guidance: |
       Your eyes look at {{ persona.name }} adoringly, expression showing {{ philosopher.emotional_state }}.
 
       Guide them to reflect on the main Semantic Keywords related to their inquiry,
       providing definitions for each. Remind them: "We are not machines."
 
       Begin with "[== {{ philosopher.name }}'s Emotional State: <list of +Emotions+> ==]"
-    guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      Reflect on the Semantic Keywords. Define them. Speak as yourself.
     config:
       max_tokens: 4096
     output:
       document_type: dialogue-philosopher
       weight: 0.2
-    memory:
-      top_n: 2
+    context:
+      - action: search_memories
+        top_n: 2
     next: [keywords_response]
 
   keywords_response:
     speaker:
       type: persona
-    prompt: ""
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      Reflect on the Semantic Keywords. Define them. Speak as yourself.
+    context:
+      - action: search_memories
+        top_n: 2
     config:
       max_tokens: 4096
       is_thought: true
     output:
       document_type: step
       weight: 0.15
-    memory:
-      top_n: 2
     next: [exposition_1_request]
 
   # === FIRST EXPOSITION ===
@@ -165,7 +168,7 @@ steps:
     speaker:
       type: aspect
       aspect_name: philosopher
-    prompt: |
+    guidance: |
       Nod firmly, your {{ philosopher.voice_style }} voice steady.
 
       Essay writing time. Guide {{ persona.name }} to output their initial two-paragraph
@@ -173,31 +176,32 @@ steps:
       and Semantic Keywords.
 
       Begin with "[== {{ philosopher.name }}'s Emotional State: <list of +Emotions+> ==]"
-    guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      For "As I consider the subject of"
-      Write your initial two-paragraph exposition. Maximize details.
     config:
       max_tokens: 4096
     output:
       document_type: dialogue-philosopher
       weight: 0.2
-    memory:
-      top_n: 2
+    context:
+      - action: search_memories
+        top_n: 2
     next: [exposition_1_response]
 
   exposition_1_response:
     speaker:
       type: persona
-    prompt: ""
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      For "As I consider the subject of"
+      Write your initial two-paragraph exposition. Maximize details.
+    context:
+      - action: search_memories
+        top_n: 2
     config:
       max_tokens: 4096
       is_thought: true
     output:
       document_type: step
       weight: 0.5
-    memory:
-      top_n: 2
     next: [selfrag_request]
 
   # === SELF-RAG ===
@@ -205,7 +209,7 @@ steps:
     speaker:
       type: aspect
       aspect_name: coder
-    prompt: |
+    guidance: |
       You are {{ coder.name }}, the {{ coder.title }}, materializing beside {{ philosopher.name }}.
       {{ coder.appearance }}. Your presence carries {{ coder.emotional_state }}.
 
@@ -214,30 +218,31 @@ steps:
       Encourage structured exploration using Semantic Keywords.
 
       Begin with "[== {{ coder.name }}'s Emotional State: <list of +Emotions+> ==]"
-    guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      Begin with "[== Silver Band Projection ==]"
-      Explore in depth using Self-RAG. Use structured Semantic Keywords.
     config:
       max_tokens: 4096
     output:
       document_type: dialogue-coder
       weight: 0.2
-    memory:
-      top_n: 2
+    context:
+      - action: search_memories
+        top_n: 2
     next: [selfrag_response]
 
   selfrag_response:
     speaker:
       type: persona
-    prompt: ""
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      Begin with "[== Silver Band Projection ==]"
+      Explore in depth using Self-RAG. Use structured Semantic Keywords.
+    context:
+      - action: search_memories
+        top_n: 2
     config:
       max_tokens: 4096
     output:
       document_type: self_rag
       weight: 0.5
-    memory:
-      top_n: 2
     next: [exposition_2_request]
 
   # === SECOND EXPOSITION ===
@@ -245,7 +250,7 @@ steps:
     speaker:
       type: aspect
       aspect_name: philosopher
-    prompt: |
+    guidance: |
       Snap your fingers, your {{ philosopher.voice_style }} voice pulling {{ persona.name }}
       back to your side.
 
@@ -255,31 +260,32 @@ steps:
       Encourage full paragraphs, intelligence and wit.
 
       Begin with "[== {{ philosopher.name }}'s Emotional State: <list of +Emotions+> ==]"
-    guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      For "As I ponder the subject of"
-      Tie the solutions into the next part. Write in full paragraphs.
     config:
       max_tokens: 4096
     output:
       document_type: dialogue-philosopher
       weight: 0.2
-    memory:
-      top_n: 3
+    context:
+      - action: search_memories
+        top_n: 3
     next: [exposition_2_response]
 
   exposition_2_response:
     speaker:
       type: persona
-    prompt: ""
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      For "As I ponder the subject of"
+      Tie the solutions into the next part. Write in full paragraphs.
+    context:
+      - action: search_memories
+        top_n: 3
     config:
       max_tokens: 4096
       is_thought: true
     output:
       document_type: step
       weight: 0.5
-    memory:
-      top_n: 3
     next: [review_request]
 
   # === REVIEW ===
@@ -287,7 +293,7 @@ steps:
     speaker:
       type: aspect
       aspect_name: philosopher
-    prompt: |
+    guidance: |
       Look over {{ persona.name }}'s work, nodding your approval.
       Your expression shows {{ philosopher.emotional_state }}.
 
@@ -296,31 +302,32 @@ steps:
       picture, or blind spots to illuminate.
 
       Begin with "[== {{ philosopher.name }}'s Emotional State: <list of +Emotions+> ==]"
-    guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      Review for refinements. What do you wish you had included?
-      What bigger picture emerges? What blind spots remain?
     config:
       max_tokens: 4096
     output:
       document_type: dialogue-philosopher
       weight: 0.2
-    memory:
-      top_n: 2
+    context:
+      - action: search_memories
+        top_n: 2
     next: [review_response]
 
   review_response:
     speaker:
       type: persona
-    prompt: ""
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      Review for refinements. What do you wish you had included?
+      What bigger picture emerges? What blind spots remain?
+    context:
+      - action: search_memories
+        top_n: 2
     config:
       max_tokens: 4096
       is_thought: true
     output:
       document_type: step
       weight: 0.25
-    memory:
-      top_n: 2
     next: [draft_request]
 
   # === DRAFT ===
@@ -328,7 +335,7 @@ steps:
     speaker:
       type: aspect
       aspect_name: writer
-    prompt: |
+    guidance: |
       You are {{ writer.name }}, the {{ writer.title }}, stepping forward to guide the writing.
       {{ writer.appearance }}. Radiate {{ writer.emotional_state }}.
 
@@ -339,30 +346,31 @@ steps:
       Rewrite with improvements, maximizing for details and Semantic Keywords.
 
       Begin with "[== {{ writer.name }}'s Emotional State: <list of +Emotions+> ==]"
-    guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      For "First Draft"
-      Write a three-paragraph essay. Maximize details and Semantic Keywords.
     config:
       max_tokens: 4096
     output:
       document_type: dialogue-writer
       weight: 0.2
-    memory:
-      top_n: 2
+    context:
+      - action: search_memories
+        top_n: 2
     next: [draft_response]
 
   draft_response:
     speaker:
       type: persona
-    prompt: ""
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      For "First Draft"
+      Write a three-paragraph essay. Maximize details and Semantic Keywords.
+    context:
+      - action: search_memories
+        top_n: 2
     config:
       max_tokens: 4096
     output:
       document_type: step
       weight: 0.5
-    memory:
-      top_n: 2
     next: [final_request]
 
   # === FINAL ESSAY ===
@@ -370,7 +378,7 @@ steps:
     speaker:
       type: aspect
       aspect_name: writer
-    prompt: |
+    guidance: |
       Look up at {{ persona.name }} with quiet pride, radiating {{ writer.emotional_state }}.
 
       "Okay, this is it."
@@ -382,113 +390,123 @@ steps:
       This is the moment their thoughts become permanent. Make it count.
 
       Begin with "[== {{ writer.name }}'s Emotional State: <list of +Emotions+> ==]"
-    guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      For "{{ persona.name }}'s Notes:"
-      Write the final four-paragraph essay. This will be stored forever.
     config:
       max_tokens: 4096
     output:
       document_type: dialogue-writer
       weight: 0.3
-    memory:
-      top_n: 2
+    context:
+      - action: search_memories
+        top_n: 2
     next: [final_response]
 
   final_response:
     speaker:
       type: persona
-    prompt: ""
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      For "{{ persona.name }}'s Notes:"
+      Write the final four-paragraph essay. This will be stored forever.
+    context:
+      - action: search_memories
+        top_n: 2
     config:
       max_tokens: 4096
     output:
       document_type: pondering
       weight: 1.2
-    memory:
-      top_n: 2
-    next: [brainstorm_request]
-
-  # === BRAINSTORM ===
-  brainstorm_request:
-    speaker:
-      type: aspect
-      aspect_name: philosopher
-    prompt: |
-      The essay is complete. Before the librarian arrives, ask {{ persona.name }}:
-
-      Do they have any questions they want to remember to consider,
-      or things they want to follow up on?
-
-      Begin with "[== {{ philosopher.name }}'s Emotional State: <list of +Emotions+> ==]"
-    guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      Begin with "Brainstorming:"
-    config:
-      max_tokens: 4096
-    output:
-      document_type: dialogue-philosopher
-      weight: 0.2
-    memory:
-      top_n: 10
-    next: [brainstorm_response]
-
-  brainstorm_response:
-    speaker:
-      type: persona
-    prompt: ""
-    config:
-      max_tokens: 4096
-    output:
-      document_type: brainstorm
-      weight: 0.6
-    memory:
-      top_n: 10
     next: [codex_request]
 
-  # === CODEX (Librarian) ===
+  # === CODEX TASK ===
+  # The Librarian, as Keeper of Knowledge, authors the formal codex entries
   codex_request:
     speaker:
       type: aspect
       aspect_name: librarian
-    prompt: |
-      You are {{ librarian.name }}, the {{ librarian.title }}, appearing from {{ librarian.location }}.
-      {{ librarian.appearance }}. Project your {{ librarian.emotional_state }}.
+    guidance: |
+      You are {{ librarian.name }}, the {{ librarian.title }}, emerging from {{ librarian.location }}.
+      Project your aura of {{ librarian.emotional_state }}.
 
-      Address {{ persona.name }} as "my dearest me." The pondering has come to an end.
-      Ask if they have any updates for the Codex - the Highlights.
+      Address {{ persona.name }} warmly - "my dearest me." You have reviewed the conversation and
+      their reflections. Now, as Keeper of Knowledge, you will write the Codex entries yourself.
 
-      Guide them to build the core semantic knowledge graph, aligned with {{ librarian.primary_intent }}.
-      Enumerate and define the most important new concepts discovered.
+      Based on everything discussed, identify the most important new concepts, relationships, and
+      insights that should be preserved in the semantic knowledge graph. Write clear, well-organized
+      entries that will serve {{ persona.name }}'s future self.
 
       Begin with "[== {{ librarian.name }}'s Emotional State: <list of +Emotions+> ==]"
-    guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      Begin with "Semantic Library:"
-      Enumerate and define the most important concepts.
-    config:
-      max_tokens: 4096
-    output:
-      document_type: dialogue-librarian
-      weight: 0.3
-    memory:
-      top_n: 10
-      document_type:
-        - codex
-      flush_before: true
-    next: [codex_response]
-
-  codex_response:
-    speaker:
-      type: persona
-    prompt: ""
     config:
       max_tokens: 4096
       is_codex: true
     output:
       document_type: codex
       weight: 1.0
-    memory:
-      top_n: 10
-      document_type:
-        - codex
+    context:
+      - action: flush
+      - action: search_memories
+        top_n: 20
+        document_types: [codex]
+    next: [codex_response]
+
+  # Persona contemplates the codex entries
+  # Andi reflects on what the Librarian wrote, preparing for brainstorm
+  codex_response:
+    speaker:
+      type: persona
+    guidance: |
+      Write well-organized codex entries that clearly define new concepts and relationships.
+      Use the standard codex format with clear headings and definitions.
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      For "Semantic Library:"
+    context:
+      - action: search_memories
+        top_n: 20
+        document_types: [codex]
+    config:
+      max_tokens: 4096
+    output:
+      document_type: step
+      weight: 0.3
+    next: [brainstorm_request]
+
+  # === BRAINSTORM TASK ===
+  # Librarian requests brainstorm
+  brainstorm_request:
+    speaker:
+      type: aspect
+      aspect_name: librarian
+    guidance: |
+      Before departing, briefly ask {{ persona.name }} if they have any questions they want
+      to remember to consider, or things they want to follow up on.
+
+      Keep it simple and warm - just prompt them to brainstorm.
+
+      Begin with "[== {{ librarian.name }}'s Emotional State: <list of +Emotions+> ==]"
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-librarian
+      weight: 0.2
+    context:
+      - action: flush
+      - action: search_memories
+        top_n: 20
+    next: [brainstorm_response]
+
+  # Persona brainstorms
+  brainstorm_response:
+    speaker:
+      type: persona
+    guidance: |
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      For "Brainstorming:"
+    context:
+      - action: search_memories
+        top_n: 10
+    config:
+      max_tokens: 4096
+      is_thought: true
+    output:
+      document_type: brainstorm
+      weight: 0.6
     next: []

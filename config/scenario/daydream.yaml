@@ -21,7 +21,7 @@ steps:
       - action: load_conversation
         target: current
         exclude_types: [ner]
-      - action: query
+      - action: get_memory
         top_n: 4
       - action: sort
         by: timestamp
@@ -46,8 +46,9 @@ steps:
     output:
       document_type: daydream
       weight: 0.4
-    memory:
-      top_n: 4
+    context:
+      - action: search_memories
+        top_n: 4
     next:
     - agent_1
     id: intro
@@ -64,8 +65,9 @@ steps:
     output:
       document_type: daydream
       weight: 0.4
-    memory:
-      top_n: 1
+    context:
+      - action: search_memories
+        top_n: 1
     next:
     - partner_1
     id: agent_1
@@ -82,8 +84,9 @@ steps:
     output:
       document_type: daydream
       weight: 0.4
-    memory:
-      top_n: 1
+    context:
+      - action: search_memories
+        top_n: 1
     next:
     - agent_2
     id: partner_1
@@ -100,8 +103,9 @@ steps:
     output:
       document_type: daydream
       weight: 0.4
-    memory:
-      top_n: 1
+    context:
+      - action: search_memories
+        top_n: 1
     next:
     - partner_2
     id: agent_2
@@ -118,8 +122,9 @@ steps:
     output:
       document_type: daydream
       weight: 0.4
-    memory:
-      top_n: 1
+    context:
+      - action: search_memories
+        top_n: 1
     next:
     - agent_3
     id: partner_2
@@ -136,8 +141,9 @@ steps:
     output:
       document_type: daydream
       weight: 0.4
-    memory:
-      top_n: 1
+    context:
+      - action: search_memories
+        top_n: 1
     next:
     - partner_3
     id: agent_3
@@ -154,8 +160,9 @@ steps:
     output:
       document_type: daydream
       weight: 0.4
-    memory:
-      top_n: 1
+    context:
+      - action: search_memories
+        top_n: 1
     next:
     - epilogue
     id: partner_3
@@ -174,8 +181,9 @@ steps:
     output:
       document_type: daydream
       weight: 0.6
-    memory:
-      top_n: 4
+    context:
+      - action: search_memories
+        top_n: 4
     next:
     - inspiration
     id: epilogue
@@ -192,8 +200,9 @@ steps:
     output:
       document_type: inspiration
       weight: 1.0
-    memory:
-      top_n: 6
+    context:
+      - action: search_memories
+        top_n: 6
     next:
     - codex
     id: inspiration
@@ -209,11 +218,11 @@ steps:
     output:
       document_type: codex
       weight: 1.0
-    memory:
-      top_n: 10
-      document_type:
-      - codex
-      flush_before: true
+    context:
+      - action: flush
+      - action: search_memories
+        top_n: 10
+        document_types: [codex]
     next:
     - brainstorm
     id: codex
@@ -222,7 +231,7 @@ steps:
       - action: load_conversation
         target: current
         exclude_types: [ner]
-      - action: query
+      - action: get_memory
         top_n: 20
       - action: sort
         by: timestamp
@@ -238,8 +247,9 @@ steps:
     output:
       document_type: brainstorm
       weight: 0.6
-    memory:
-      top_n: 20
-      flush_before: true
+    context:
+      - action: flush
+      - action: search_memories
+        top_n: 20
     next: []
     id: brainstorm

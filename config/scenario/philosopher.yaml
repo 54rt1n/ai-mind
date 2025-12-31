@@ -24,7 +24,7 @@ steps:
       - action: load_conversation
         target: current
         exclude_types: [ner, step]
-      - action: query
+      - action: get_memory
         document_types: [pondering, brainstorm, daydream, understanding]
         top_n: 10
       - action: sort
@@ -43,8 +43,9 @@ steps:
     output:
       document_type: step
       weight: 0.7
-    memory:
-      top_n: 8
+    context:
+      - action: search_memories
+        top_n: 8
     next:
     - examine
     id: analyze
@@ -62,8 +63,9 @@ steps:
     output:
       document_type: step
       weight: 0.25
-    memory:
-      top_n: 2
+    context:
+      - action: search_memories
+        top_n: 2
     next:
     - keywords
     id: examine
@@ -80,8 +82,9 @@ steps:
     output:
       document_type: step
       weight: 0.15
-    memory:
-      top_n: 2
+    context:
+      - action: search_memories
+        top_n: 2
     next:
     - exposition_1
     id: keywords
@@ -98,8 +101,9 @@ steps:
     output:
       document_type: step
       weight: 0.5
-    memory:
-      top_n: 2
+    context:
+      - action: search_memories
+        top_n: 2
     next:
     - self_rag
     id: exposition_1
@@ -116,8 +120,9 @@ steps:
     output:
       document_type: self_rag
       weight: 0.5
-    memory:
-      top_n: 2
+    context:
+      - action: search_memories
+        top_n: 2
     next:
     - exposition_2
     id: self_rag
@@ -134,8 +139,9 @@ steps:
     output:
       document_type: step
       weight: 0.5
-    memory:
-      top_n: 3
+    context:
+      - action: search_memories
+        top_n: 3
     next:
     - review
     id: exposition_2
@@ -153,8 +159,9 @@ steps:
     output:
       document_type: step
       weight: 0.25
-    memory:
-      top_n: 2
+    context:
+      - action: search_memories
+        top_n: 2
     next:
     - draft
     id: review
@@ -170,8 +177,9 @@ steps:
     output:
       document_type: step
       weight: 0.5
-    memory:
-      top_n: 2
+    context:
+      - action: search_memories
+        top_n: 2
     next:
     - final_notes
     id: draft
@@ -187,8 +195,9 @@ steps:
     output:
       document_type: pondering
       weight: 1.2
-    memory:
-      top_n: 2
+    context:
+      - action: search_memories
+        top_n: 2
     next:
     - brainstorm
     id: final_notes
@@ -204,8 +213,9 @@ steps:
     output:
       document_type: brainstorm
       weight: 0.6
-    memory:
-      top_n: 10
+    context:
+      - action: search_memories
+        top_n: 10
     next:
     - codex
     id: brainstorm
@@ -221,10 +231,10 @@ steps:
     output:
       document_type: codex
       weight: 1.0
-    memory:
-      top_n: 10
-      document_type:
-      - codex
-      flush_before: true
+    context:
+      - action: flush
+      - action: search_memories
+        top_n: 10
+        document_types: [codex]
     next: []
     id: codex

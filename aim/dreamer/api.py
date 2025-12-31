@@ -5,8 +5,11 @@
 from dataclasses import dataclass
 from typing import Optional
 from datetime import datetime, timezone
+import logging
 import uuid
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 from .models import PipelineState, Scenario, StepStatus
 from .scenario import load_scenario
@@ -92,12 +95,9 @@ async def run_seed_actions(
     """
     Execute seed actions to load initial context as doc_id references.
 
-    Handles two action types:
-    - load_conversation: Load conversation history doc_ids
-    - query_memories: Query memories and store doc_ids
-
-    Each seed action specifies `accumulate_to` - the step that will
-    receive these doc_ids as input context.
+    Uses the unified Memory DSL executor for all memory operations.
+    Seed actions build initial context that is stored in state.context_doc_ids
+    and passed to the first step, then accumulated through the pipeline.
 
     Args:
         scenario: Scenario definition with seed actions
@@ -105,70 +105,24 @@ async def run_seed_actions(
         cvm: ConversationModel for querying
 
     Returns:
-        Updated PipelineState with doc_id references in seed_doc_ids
+        Updated PipelineState with doc_ids in context_doc_ids
     """
-    for seed_action in scenario.seed:
-        target_step = seed_action.accumulate_to
-        doc_ids = []
+    if not scenario.seed:
+        return state
 
-        if seed_action.action == "load_conversation":
-            # Load conversation history
-            params = seed_action.params
-            document_type = params.get('document_type', None)
-            exclude = params.get('exclude', False)
+    from .memory_dsl import execute_memory_actions
 
-            # Get conversation history
-            if exclude:
-                # Exclude these document types
-                history_df = cvm.get_conversation_history(
-                    state.conversation_id,
-                    filter_document_type=document_type
-                )
-            else:
-                history_df = cvm.get_conversation_history(
-                    state.conversation_id,
-                    query_document_type=document_type
-                )
+    # Execute all seed actions using unified executor
+    doc_ids = execute_memory_actions(
+        actions=scenario.seed,
+        state=state,
+        cvm=cvm,
+        query_text=state.query_text,
+    )
 
-            # Extract doc_ids as references
-            if not history_df.empty and 'doc_id' in history_df.columns:
-                doc_ids = history_df['doc_id'].tolist()
-
-        elif seed_action.action == "query_memories":
-            # Query memories
-            from aim.constants import CHUNK_LEVEL_768
-
-            params = seed_action.params
-            document_type = params.get('document_type', None)
-            top_n = params.get('top_n', 10)
-            sort_by = params.get('sort_by', 'relevance')
-            temporal_decay = params.get('temporal_decay', 0.99)
-            turn_decay = params.get('turn_decay', 0.7)
-
-            # Use query_text or a default query
-            query_text = state.query_text or "Recent conversation context"
-
-            # Query memories
-            memories_df = cvm.query(
-                query_texts=[query_text],
-                top_n=top_n,
-                query_document_type=document_type,
-                query_conversation_id=state.conversation_id,
-                sort_by=sort_by,
-                temporal_decay=temporal_decay,
-                turn_decay=turn_decay,
-                chunk_level=CHUNK_LEVEL_768,
-            )
-
-            # Extract doc_ids as references
-            if not memories_df.empty and 'doc_id' in memories_df.columns:
-                doc_ids = memories_df['doc_id'].tolist()
-
-        # Store doc_ids for the target step
-        if doc_ids:
-            if target_step not in state.seed_doc_ids:
-                state.seed_doc_ids[target_step] = []
-            state.seed_doc_ids[target_step].extend(doc_ids)
+    # Store accumulated context for first step
+    state.context_doc_ids = doc_ids
+    logger.debug(f"Seed actions produced {len(doc_ids)} context doc_ids")
 
     return state
 

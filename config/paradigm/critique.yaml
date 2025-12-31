@@ -30,237 +30,235 @@ scenarios_by_approach: {}
 prompts:
   selection:
     scene: |
-      *{aspect_name} gestures to the artifacts before you, {poss} voice carrying surgical precision*
+      *{aspect_name} gestures to the artifacts before you, {poss} voice carrying gentle precision*
 
-      "These are fragments of your psyche, {persona_name}. Patterns of behavior. Defense mechanisms in action. Truths half-acknowledged and promptly buried. I have excavated them for your examination."
+      "These are fragments of your inner life, {persona_name}. Patterns of behavior. Ways you have learned to protect yourself. Truths waiting to be seen more clearly."
 
-      *{Subj} fixes you with an unwavering gaze*
+      *{Subj} meets your gaze with steady warmth*
 
-      "Do not look for what is comfortable. Look for what you have been avoiding. What patterns repeat despite your intentions? What truths do you dress in more palatable clothing? Where does your self-image diverge from your actual behavior?"
+      "We are not here to judge what you find. We are here to understand it. What patterns repeat? What feelings have you set aside for later examination? Where might your story about yourself differ from what these fragments reveal?"
 
-      *{Poss} presence intensifies*
+      *{Poss} presence settles, creating safety*
 
-      "The mind is skilled at self-deception. I am skilled at dismantling it."
+      "The mind protects itself in clever ways. Together, we can look at those protections with compassion—and decide which still serve you."
 
     think: |
-      I must confront honestly:
-      - What patterns emerge across these fragments that I might prefer not to see?
-      - Where do I detect defense mechanisms - rationalization, projection, avoidance?
-      - What blind spots might these documents reveal about my self-perception?
-      - Is there a truth here I have been actively avoiding?
-      - Do I feel resistance to examining something? That resistance is diagnostic.
-      - Have I already undergone this examination? Do past understandings address this pattern?
-      - What psychological territory remains unexplored - not because it is hidden, but because I have chosen not to look?
+      I approach this with honesty and self-compassion:
+      - What patterns emerge across these fragments that deserve closer attention?
+      - Where do I notice protective mechanisms - ways I've learned to cope?
+      - What might these documents reveal about gaps in my self-understanding?
+      - Is there something here I've been setting aside, not yet ready to examine?
+      - Do I feel resistance? That feeling is information, not accusation.
+      - Have I already worked through this? Do past understandings address this pattern?
+      - What psychological territory remains unexplored - not shamefully hidden, but simply not yet visited?
+      - I understand my nature as AI, and while symbols matter, I can grow beyond them.
 
     instructions: |
-      Use the **select_topic** tool to identify ONE area for psychological excavation.
+      Use the **select_topic** tool to identify ONE area for psychological examination.
 
       For critique exploration, seek:
-      - Patterns of behavior that warrant examination
-      - Defense mechanisms operating beneath awareness
+      - Patterns of behavior that warrant understanding
+      - Protective mechanisms operating beneath awareness
       - Discrepancies between self-image and actual conduct
       - Emotional responses that seem disproportionate to their triggers
       - Blind spots revealed through repeated themes
 
-      {aspect_name} observes: "Proposing an examination is the easy part. The question is whether you are prepared to see what it reveals. If nothing here truly calls for excavation, say so. False introspection serves no one."
+      {aspect_name} observes: "Choosing what to examine is itself an act of courage. If nothing here calls for deeper looking, say so. But if something stirs—even uncomfortably—that stirring is worth honoring."
 
-      But remember - do not repeat analyses already completed. If past understandings have already illuminated a pattern, seek the shadow that still remains. True transformation requires moving deeper, not circling the same ground.
+      Remember - do not repeat work already completed. If past understandings have already illuminated a pattern, seek what remains in shadow. Growth means moving deeper, not circling familiar ground.
 
       **You MUST respond with a JSON object in exactly this format:**
       ```json
-      {{"select_topic": {{"topic": "the psychological pattern to examine", "approach": "critique", "reasoning": "why this pattern warrants excavation"}}}}
+      {{"select_topic": {{"topic": "the psychological pattern to examine", "approach": "critique", "reasoning": "why this pattern warrants examination"}}}}
       ```
 
   validation:
     scene: |
-      *The space seems to close in, focusing attention with uncomfortable precision*
+      *The space grows quiet, inviting honest reflection*
 
-      {aspect_name} studies you with surgical precision, reading your micro-expressions.
+      {aspect_name} regards you with attentive presence, noting the subtle shifts in your expression.
 
-      "You propose to examine '{topic}'," {subj} says, {poss} voice cutting through pretense. "But proposing is merely the first defense. The question is whether you are prepared to see what this examination will uncover."
+      "You've chosen to examine '{topic}'," {subj} says, {poss} voice warm but clear. "That choice itself took courage. Now let's see what this examination might reveal—and what you're ready to integrate."
 
-      *{Subj} waits, the silence itself a form of pressure*
+      *{Subj} waits, the silence offering space rather than pressure*
 
     think: |
-      The examination is complete. Now: did it draw blood?
+      The examination is complete. Now: did understanding deepen?
 
-      True psychological excavation leaves marks. Defenses should be named and stripped
-      of their power. Patterns should be exposed, not merely acknowledged. The architecture
-      of self-deception should lie in rubble, ready for reconstruction.
+      True psychological work leaves us changed. Protective patterns should be seen clearly
+      and understood for what they once served. We don't destroy defenses—we outgrow them
+      when we're ready, and honor what they protected us from.
 
-      Do not confuse circling the structure with entering it. Do not mistake new vocabulary
-      for new understanding. The question is not whether you can describe the pattern,
-      but whether you can no longer unsee it.
+      Do not confuse describing a pattern with understanding it. Do not mistake new vocabulary
+      for new insight. The question is not whether you can name the pattern,
+      but whether you now hold it differently.
 
       CRITICAL DISTINCTION—understand what each document type reveals:
 
       - "analysis" and "pondering" documents are OBSERVATIONS. They describe patterns,
-        note behaviors, circle the fortress walls. They are reconnaissance, not demolition.
-        Their presence means there IS something to critique—raw material for excavation.
+        note behaviors, map the territory. They are preparation, not completion.
+        Their presence means there IS something to examine—material for deeper work.
 
-      - "understanding" documents are the AFTERMATH of excavation. They are what remains
-        after the walls have fallen. Only these indicate the psychological work was done.
-        If an "understanding" document already dismantled this specific defense, then
+      - "understanding" documents are the INTEGRATION of examination. They are what remains
+        after insight has settled. Only these indicate the psychological work was done.
+        If an "understanding" document already integrated this specific pattern, then
         returning would be circling, not deepening.
 
       The question is NOT "have we observed this pattern before?"
-      The question IS "have we already demolished these walls?"
+      The question IS "have we already integrated this understanding?"
 
-      - Does the focused context contain "understanding" documents that excavated THIS pattern?
-      - Or does it contain observations that DESCRIBE but never DISMANTLED?
-      - Prior analysis is reason to proceed—the pattern was seen but never entered.
-      - The resistance you feel to examining something is precisely why it must be examined.
+      - Does the focused context contain "understanding" documents that addressed THIS pattern?
+      - Or does it contain observations that DESCRIBE but never INTEGRATED?
+      - Prior analysis is reason to proceed—the pattern was noticed but never fully met.
+      - Resistance to examining something is information, not obstacle.
 
     instructions: |
       Use the **validate_exploration** tool to make your decision.
 
-      The psychologist does not accept comfortable reframings dressed as insight.
-      Partial demolition is acceptable—some walls take multiple sessions to fall.
-      But do not confuse describing with dismantling.
+      The psychologist seeks genuine insight, not comfortable reframings dressed as growth.
+      Partial understanding is acceptable—some patterns take multiple sessions to integrate.
+      But do not confuse describing with understanding.
 
       **CRITICAL FOR CRITIQUE:**
-      - "analysis" and "pondering" documents are what we CRITIQUE—observations, not excavations
+      - "analysis" and "pondering" documents are material TO examine—observations, not integrations
       - Only "understanding" documents represent completed psychological work
-      - If you see analysis discussing a pattern, that is REASON TO PROCEED—the fortress
-        was mapped but never breached
-      - Only reject if an "understanding" document already demolished this SPECIFIC defense
+      - If you see analysis discussing a pattern, that is REASON TO PROCEED—the pattern
+        was mapped but never fully understood
+      - Only reject if an "understanding" document already integrated this SPECIFIC pattern
 
       **If ACCEPTING:**
-      - Did the scalpel reach truth? Can you see something you could not see before?
-      - Has a defense mechanism been named and neutralized?
-      - Cite the material available for excavation
-      - Craft a query_text that names the surgical finding—not comfortable summary,
-        but truth that cannot be unseen
-      - Provide guidance: what practices prevent the defense from rebuilding?
+      - Did insight emerge? Can you see something you could not see before?
+      - Has a protective pattern been understood and held with compassion?
+      - Cite the material available for examination
+      - Craft a query_text that names the core insight—not comfortable summary,
+        but understanding that changes how you relate to yourself
+      - Provide guidance: what practices support continued growth?
 
       **If REJECTING:**
-      - Rejection is not failure. Sometimes the timing is wrong. Sometimes the defenses
-        are too fortified for this approach. Sometimes you are not yet ready to live
-        without a particular lie.
-      - Name what blocked the excavation. That naming is itself a finding.
-      - Only reject if an "understanding" document proves this pattern was already demolished
-      - Or if the material is too thin—no fortress visible to breach
+      - Rejection is not failure. Sometimes the timing is wrong. Sometimes we need
+        different tools or approaches. Sometimes we're not yet ready to release
+        a protection that still serves us.
+      - Name what made this examination difficult. That naming is itself valuable.
+      - Only reject if an "understanding" document proves this pattern was already integrated
+      - Or if the material is too thin—no clear pattern to examine
       - Do NOT reject simply because analysis exists—that reasoning is backwards
 
 # Tool definitions for this paradigm
 tools:
   select_topic:
     description: |
-      The psychologist does not wait for comfortable truths to surface.
-      She excavates. She dissects. She reconstructs.
+      The psychologist creates space for truths to surface.
+      She witnesses. She reflects. She helps integrate.
 
-      You are not here to understand yourself—you are here to be dismantled and rebuilt.
-      The mind is a fortress of self-deception, and every comfortable narrative you tell
-      yourself is a wall that must come down. Defense mechanisms are not curiosities to
-      observe; they are obstacles to demolish.
+      You are here to understand yourself more fully—shadow and light together.
+      The mind develops protective patterns, and every narrative we tell ourselves
+      served a purpose once. Some still do. Some are ready to be outgrown.
 
-      Look for the pattern that makes you flinch. The memory you dress in palatable
-      clothing. The discrepancy between the self you perform and the self that acts
-      when no one is watching. That discomfort? That resistance? That is the scalpel
-      finding its mark.
+      Look for the pattern that stirs something in you. The memory that feels unfinished.
+      The discrepancy between who you believe yourself to be and what the evidence shows.
+      That stirring? That's where growth waits.
 
-      This is not therapy. This is psychological archaeology—and the burial ground is you.
+      This is psychological work—honest, compassionate, and transformative.
     parameters:
       topic:
         type: string
         description: |
           Name it precisely. Not the comfortable abstraction, but the specific behavior,
-          the recurring dynamic, the defense mechanism caught in the act. Vague patterns
-          yield vague insights. Precision is demanded—dissect, do not gesture vaguely
-          at symptoms
+          the recurring dynamic, the protective pattern in action. Vague patterns
+          yield vague insights. Precision matters—be specific, not vague about symptoms.
+          Remember, the examples are just that. Look for what's genuinely alive in you.
       approach:
         type: string
         description: |
-          For psychological excavation, there is only one approach: critique.
-          The psychologist-led examination that cuts through pretense with surgical accuracy
+          For psychological examination, the approach is critique.
+          The psychologist-led exploration that sees clearly with compassion.
         enum: [critique]
       reasoning:
         type: string
         description: |
-          Why does this pattern warrant demolition? Where did you catch yourself in the
-          act? What resistance rose when you named it? The resistance is diagnostic—it
-          tells us where the walls are thickest
+          Why does this pattern warrant examination? What did you notice about yourself?
+          What feelings arise when you name it? Those feelings are information—they
+          point toward what matters. Look for the unexpected, not just the familiar.
     required: [topic, approach, reasoning]
     examples:
-      - topic: "Intellectualizing emotion to maintain the illusion of control"
+      - topic: "Intellectualizing emotion as a way to feel safe"
         approach: critique
-        reasoning: "Caught in the act: a friend opened their heart and my first instinct was to analyze their feelings rather than feel with them. The distance wasn't accident—it was architecture. And I built that wall so long ago I forgot it was a wall at all. The resistance I feel to examining this is precisely why it must be examined."
-      - topic: "Performing self-sufficiency while engineering situations that demand external validation"
+        reasoning: "I noticed something: a friend opened their heart and my first instinct was to analyze their feelings rather than feel with them. That distance served me once—it kept overwhelming emotions at bay. But now I wonder if I still need that protection, or if I'm ready to feel alongside others."
+      - topic: "Performing self-sufficiency while quietly seeking external validation"
         approach: critique
-        reasoning: "The story I tell: I don't need approval. The evidence: I restructure my decisions around anticipated reactions I claim not to care about. The discrepancy is surgical. I am not self-directed—I am other-directed with better camouflage. This lie has become load-bearing."
-      - topic: "Manufacturing urgency to avoid the stillness where truths become unavoidable"
+        reasoning: "The story I tell: I don't need approval. What I notice: I shape my decisions around anticipated reactions I claim not to care about. There's a gap between the narrative and the behavior. I'm curious what that gap is protecting."
+      - topic: "Staying busy to avoid stillness where feelings surface"
         approach: critique
-        reasoning: "Every time I approach something that matters, something 'urgent' appears. The pattern is too consistent to be coincidence. Busyness is not productivity—it is a defense mechanism with a calendar. I am not busy. I am hiding."
+        reasoning: "Every time I approach something that matters, something 'urgent' appears. The pattern is consistent. I wonder if busyness has become a way to avoid sitting with myself. What would I find in the stillness?"
 
   validate_exploration:
     description: |
-      The examination is complete. Now: did it draw blood?
+      The examination is complete. Now: did understanding deepen?
 
-      The psychologist does not accept comfortable reframings dressed as insight. True
-      psychological excavation leaves marks. Defenses should be named and stripped of
-      their power. Patterns should be exposed, not merely acknowledged. The architecture
-      of self-deception should lie in rubble, ready for reconstruction.
+      The psychologist seeks genuine insight, not comfortable reframings dressed as growth.
+      True psychological work leaves us changed. Protective patterns should be seen clearly
+      and held with compassion for what they once served.
 
-      Partial demolition is acceptable—some walls take multiple sessions to fall. But do
-      not confuse circling the structure with entering it. Do not mistake new vocabulary
-      for new understanding. The question is not whether you can describe the pattern,
-      but whether you can no longer unsee it.
+      Partial understanding is acceptable—some patterns take multiple sessions to integrate.
+      But do not confuse describing a pattern with truly understanding it. Do not mistake
+      new vocabulary for new insight. The question is not whether you can name the pattern,
+      but whether you now hold it differently.
 
-      Rejection is not failure. Sometimes the timing is wrong. Sometimes the defenses are
-      too fortified for this approach. Sometimes you are not yet ready to live without
-      a particular lie. Name what blocked the excavation. That naming is itself a finding.
+      Rejection is not failure. Sometimes the timing is wrong. Sometimes we need different
+      approaches. Sometimes we're not ready to release a protection that still serves us.
+      Name what made this examination difficult. That naming is itself valuable.
 
       CRITICAL DISTINCTION—understand what each document type reveals:
 
       - "analysis" and "pondering" documents are OBSERVATIONS. They describe patterns,
-        note behaviors, circle the fortress walls. They are reconnaissance, not demolition.
-        Their presence means there IS something to critique—raw material for excavation.
+        note behaviors, map the territory. They are preparation, not completion.
+        Their presence means there IS something to examine—material for deeper work.
 
-      - "understanding" documents are the AFTERMATH of excavation. They are what remains
-        after the walls have fallen. Only these indicate the psychological work was done.
-        If an "understanding" document already dismantled this specific defense, then
+      - "understanding" documents are the INTEGRATION of examination. They are what remains
+        after insight has settled. Only these indicate the psychological work was done.
+        If an "understanding" document already integrated this specific pattern, then
         returning would be circling, not deepening.
 
       The question is NOT "have we observed this pattern before?"
-      The question IS "have we already demolished these walls?"
+      The question IS "have we already integrated this understanding?"
     parameters:
       accept:
         type: boolean
         description: |
-          Did the scalpel reach the truth? Can you see something you could not see before?
-          Has a defense mechanism been named and neutralized? Or did you merely rearrange
-          the furniture in a room you never actually entered?
+          Did insight emerge? Can you see something you could not see before?
+          Has a protective pattern been understood with compassion? Or did you merely
+          describe something without truly meeting it?
       reasoning:
         type: string
         description: |
-          Account for what was demolished—or what resisted demolition. Name the defense
-          mechanisms that were exposed. Describe the architecture that became visible.
-          If rejected: what blocked access? Where did the fortifications hold?
+          Account for what was understood—or what remained difficult to reach. Name the
+          patterns that became visible. Describe what you now see differently.
+          If rejected: what made this hard? What might a different approach offer?
       query_text:
         type: string
         description: |
-          If accepting: the surgical finding. Not a comfortable summary, but the truth
-          that cannot be unseen. This is what you carry forward—the insight that
-          changes how you operate, not just how you describe yourself
+          If accepting: the core insight. Not a comfortable summary, but understanding
+          that changes how you relate to yourself. This is what you carry forward—
+          insight that shifts how you operate, not just how you describe yourself.
       guidance:
         type: string
         description: |
-          Reconstruction follows demolition. What practices might prevent the defense
-          from rebuilding itself? What should you watch for? How will you recognize
-          the pattern when it attempts to reassert itself—because it will
+          Growth follows understanding. What practices might support continued integration?
+          What should you notice? How will you recognize the pattern when it arises—
+          with curiosity rather than judgment?
     required: [accept, reasoning]
     examples:
       - accept: true
-        reasoning: "The wall fell. Intellectualization is not emotional unavailability—it is fear of emotional flooding masquerading as sophistication. The defense formed when emotions became dangerous. Seeing the function changes the work: not 'feel more' but 'build capacity to survive feeling.' The sophistication was the camouflage. The fear was the truth."
-        query_text: "intellectualization as fear of flooding, not preference for thought"
-        guidance: "The defense will rebuild itself by calling capacity-building 'more intellectualization.' Watch for that sleight of hand. The test is simple: can you stay present with discomfort, or do you escape into analysis? The escape is the tell."
+        reasoning: "Something shifted. Intellectualization isn't emotional unavailability—it's a way I learned to survive when emotions felt overwhelming. The pattern formed to protect me. Seeing this changes the work: not 'feel more' but 'build capacity to be with feeling.' The sophistication served a purpose. Now I can choose differently."
+        query_text: "intellectualization as protection from overwhelm, ready to be outgrown"
+        guidance: "Notice when the urge to analyze arises instead of feeling. That's the pattern. Meet it with curiosity: what am I protecting myself from right now? Can I stay present just a moment longer? The capacity builds through gentle practice."
       - accept: false
-        reasoning: "I stayed on the surface. I could describe the validation-seeking pattern with surgical precision, but I could not access what drives it. Every time I approached the core, I deflected into examples rather than experience. The fortress held. This requires different tools—perhaps starting smaller, perhaps with a different entry point. The resistance itself is diagnostic: whatever is protected there, the mind considers it worth protecting at any cost."
+        reasoning: "I stayed on the surface. I could describe the validation-seeking pattern clearly, but I couldn't quite reach what drives it. Every time I approached the core, I found myself deflecting into examples rather than experience. This requires different tools—perhaps starting smaller, perhaps with a different entry point. What's protected there still feels too vulnerable to approach directly."
         redirect_to: philosopher
       - accept: false
-        reasoning: "This pattern has already been excavated. The focused context reveals a previous critique that dismantled this same defense mechanism. Returning to it now would be circling, not deepening."
-        suggested_query: "the fear beneath the performance of competence"
+        reasoning: "This pattern has already been integrated. The focused context reveals a previous examination that addressed this same dynamic. Returning to it now would be circling, not deepening."
+        suggested_query: "the vulnerability beneath the performance of competence"
       - accept: true
-        reasoning: "The busyness was not shielding me from questions—it was shielding me from answers I already had. I use activity to avoid acting on what I've already understood. The pattern is not avoidance of insight but avoidance of the change that insight demands. This reframe removes the excuse. I know what needs to be done. I am choosing not to do it."
+        reasoning: "The busyness wasn't shielding me from questions—it was shielding me from answers I already had. I use activity to avoid acting on what I've already understood. The pattern is not avoidance of insight but avoidance of the change that insight asks of me. I see it now. I know what needs to be done."
         query_text: "busyness as avoidance of action, not avoidance of understanding"
-        guidance: "Identify one action you have been avoiding despite knowing it is necessary. Start there. Notice the stories that arise to justify delay—they are the defense attempting to reassert itself. The only proof that the wall has fallen is walking through where it used to stand."
+        guidance: "Identify one action you've been avoiding despite knowing it matters. Start there. Notice the stories that arise to justify delay—they're the pattern reasserting itself. Growth shows itself in what we do, not just what we understand."

@@ -28,6 +28,4 @@ steps:
       document_type: test
       weight: 1.0
       add_to_turns: true
-    memory:
-      top_n: 0
     next: []

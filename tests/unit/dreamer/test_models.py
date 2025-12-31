@@ -9,11 +9,10 @@ from pydantic import ValidationError
 from aim.dreamer.models import (
     StepStatus,
     StepConfig,
-    StepMemory,
     StepOutput,
     StepDefinition,
     ScenarioContext,
-    SeedAction,
+    MemoryAction,
     Scenario,
     StepResult,
     StepJob,
@@ -61,31 +60,6 @@ class TestStepConfig:
         assert config.model_override == "custom-model"
 
 
-class TestStepMemory:
-    """Tests for StepMemory model."""
-
-    def test_step_memory_defaults(self):
-        """Test default values for StepMemory."""
-        memory = StepMemory()
-        assert memory.top_n == 0
-        assert memory.document_type is None
-        assert memory.flush_before is False
-        assert memory.sort_by == "relevance"
-
-    def test_step_memory_custom_values(self):
-        """Test StepMemory with custom values."""
-        memory = StepMemory(
-            top_n=10,
-            document_type=["conversation", "journal"],
-            flush_before=True,
-            sort_by="recency"
-        )
-        assert memory.top_n == 10
-        assert memory.document_type == ["conversation", "journal"]
-        assert memory.flush_before is True
-        assert memory.sort_by == "recency"
-
-
 class TestStepOutput:
     """Tests for StepOutput model."""
 
@@ -128,7 +102,7 @@ class TestStepDefinition:
         assert step.prompt == "Test prompt"
         assert step.output.document_type == "test"
         assert isinstance(step.config, StepConfig)
-        assert isinstance(step.memory, StepMemory)
+        assert step.context is None
         assert step.next == []
         assert step.depends_on == []
 
@@ -139,14 +113,18 @@ class TestStepDefinition:
             prompt="Full prompt",
             config=StepConfig(max_tokens=2048, is_thought=True),
             output=StepOutput(document_type="analysis", weight=0.8),
-            memory=StepMemory(top_n=5, document_type=["conversation"]),
+            context=[
+                MemoryAction(action="search_memories", top_n=5, document_types=["conversation"]),
+            ],
             next=["step3", "step4"],
             depends_on=["step1"]
         )
         assert step.id == "step2"
         assert step.config.max_tokens == 2048
         assert step.config.is_thought is True
-        assert step.memory.top_n == 5
+        assert step.context is not None
+        assert len(step.context) == 1
+        assert step.context[0].top_n == 5
         assert step.next == ["step3", "step4"]
         assert step.depends_on == ["step1"]
 
@@ -179,37 +157,65 @@ class TestScenarioContext:
         assert context.thoughts == ["Focus on details"]
 
 
-class TestSeedAction:
-    """Tests for SeedAction model."""
+class TestMemoryAction:
+    """Tests for MemoryAction model."""
 
-    def test_seed_action_load_conversation(self):
-        """Test SeedAction with load_conversation action."""
-        action = SeedAction(
+    def test_memory_action_load_conversation(self):
+        """Test MemoryAction with load_conversation action."""
+        action = MemoryAction(
             action="load_conversation",
-            accumulate_to="step1",
-            params={"document_type": ["summary"]}
+            document_types=["summary"],
+            target="current"
         )
         assert action.action == "load_conversation"
-        assert action.accumulate_to == "step1"
-        assert action.params == {"document_type": ["summary"]}
+        assert action.document_types == ["summary"]
+        assert action.target == "current"
 
-    def test_seed_action_query_memories(self):
-        """Test SeedAction with query_memories action."""
-        action = SeedAction(
-            action="query_memories",
-            accumulate_to="step2",
-            params={"top_n": 100, "sort_by": "recency"}
+    def test_memory_action_get_memory(self):
+        """Test MemoryAction with get_memory action."""
+        action = MemoryAction(
+            action="get_memory",
+            document_types=["journal", "analysis"],
+            top_n=10
         )
-        assert action.action == "query_memories"
-        assert action.accumulate_to == "step2"
-        assert action.params == {"top_n": 100, "sort_by": "recency"}
+        assert action.action == "get_memory"
+        assert action.document_types == ["journal", "analysis"]
+        assert action.top_n == 10
 
-    def test_seed_action_invalid_action(self):
+    def test_memory_action_search_memories(self):
+        """Test MemoryAction with search_memories action."""
+        action = MemoryAction(
+            action="search_memories",
+            query_text="recent events",
+            top_n=100,
+            temporal_decay=0.9
+        )
+        assert action.action == "search_memories"
+        assert action.query_text == "recent events"
+        assert action.top_n == 100
+        assert action.temporal_decay == 0.9
+
+    def test_memory_action_sort(self):
+        """Test MemoryAction with sort action."""
+        action = MemoryAction(
+            action="sort",
+            by="timestamp",
+            direction="ascending"
+        )
+        assert action.action == "sort"
+        assert action.by == "timestamp"
+        assert action.direction == "ascending"
+
+    def test_memory_action_flush(self):
+        """Test MemoryAction with flush action."""
+        action = MemoryAction(action="flush")
+        assert action.action == "flush"
+
+    def test_memory_action_invalid_action(self):
         """Test that invalid action type raises error."""
         with pytest.raises(ValidationError) as exc_info:
-            SeedAction(
+            MemoryAction(
                 action="invalid_action",  # type: ignore
-                accumulate_to="step1"
             )
         assert "action" in str(exc_info.value).lower()
 
@@ -238,10 +244,9 @@ class TestScenario:
             description="Analysis pipeline",
             context=ScenarioContext(required_aspects=["coder"]),
             seed=[
-                SeedAction(
+                MemoryAction(
                     action="load_conversation",
-                    accumulate_to="step1",
-                    params={}
+                    document_types=["conversation"]
                 )
             ],
             steps={

@@ -4,10 +4,10 @@
 
 from datetime import datetime
 from enum import Enum
-from typing import Optional, Literal, Any
+from typing import Optional, Any
 from pydantic import BaseModel, Field, field_serializer
 
-from ..models import StepConfig, StepOutput, StepMemory, ContextAction
+from ..models import StepConfig, StepOutput, MemoryAction
 
 
 class SpeakerType(str, Enum):
@@ -43,21 +43,18 @@ class DialogueSpeaker(BaseModel):
 class DialogueStep(BaseModel):
     """Definition of a single step in a dialogue strategy.
 
-    Each step defines who speaks (speaker), what prompt template to use,
-    optional guidance for output formatting, and standard step configuration.
+    Each step defines who speaks (speaker) and guidance for how to format
+    their output.
     """
     id: str
     speaker: DialogueSpeaker
-    prompt: str
-    """Jinja2 template for the step prompt."""
 
-    guidance: Optional[str] = None
-    """Optional output guidance. Falls off after one turn (not accumulated)."""
+    guidance: str = ""
+    """Jinja2 template with instructions for this step's speaker output."""
 
     config: StepConfig = Field(default_factory=StepConfig)
     output: StepOutput
-    memory: StepMemory = Field(default_factory=StepMemory)
-    context: Optional[list[ContextAction]] = None
+    context: Optional[list[MemoryAction]] = None
     """Context DSL actions for this step (same as standard scenarios)."""
 
     next: list[str] = Field(default_factory=list)
@@ -87,15 +84,6 @@ class ScenarioContext(BaseModel):
     enhancement_documents: list[str] = Field(default_factory=list)
     location: str = ""
     thoughts: list[str] = Field(default_factory=list)
-
-
-class SeedAction(BaseModel):
-    """Initial data loading action."""
-    action: Literal["load_conversation", "query_memories"]
-    target: Optional[str] = "current"
-    document_types: Optional[list[str]] = None
-    exclude_types: Optional[list[str]] = None
-    top_n: Optional[int] = None
 
 
 class DialogueTurn(BaseModel):

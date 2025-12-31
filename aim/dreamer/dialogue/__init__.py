@@ -24,8 +24,8 @@ from .models import (
     DialogueConfig,
     SpeakerType,
     ScenarioContext,
-    SeedAction,
 )
+# MemoryAction is now the unified class, exported from aim.dreamer.models
 from .strategy import DialogueStrategy
 from .scenario import DialogueScenario
 
@@ -44,5 +44,4 @@ __all__ = [
     'DialogueConfig',
     'SpeakerType',
     'ScenarioContext',
-    'SeedAction',
 ]

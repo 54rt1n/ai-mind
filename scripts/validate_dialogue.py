@@ -17,6 +17,19 @@ from typing import Any
 import yaml
 from jinja2 import Environment, TemplateSyntaxError, meta
 
+# Valid memory DSL action types
+VALID_MEMORY_ACTIONS = {
+    "load_conversation",
+    "get_memory",
+    "search_memories",
+    "sort",
+    "filter",
+    "truncate",
+    "drop",
+    "flush",
+    "clear",
+}
+
 
 class ValidationResult:
     """Collects validation errors and warnings."""
@@ -266,19 +279,12 @@ def validate_templates(data: dict[str, Any], result: ValidationResult) -> None:
         if not isinstance(step, dict):
             continue
 
-        # Check prompt template
-        prompt = step.get("prompt", "")
-        if prompt:
-            try:
-                ast = env.parse(prompt)
-                undefined = meta.find_undeclared_variables(ast)
-                unknown = undefined - known_vars
-                if unknown:
-                    result.warn(
-                        f"Step '{step_id}' prompt: unknown template variables: {unknown}"
-                    )
-            except TemplateSyntaxError as e:
-                result.error(f"Step '{step_id}' prompt: invalid Jinja2 syntax: {e}")
+        # Check for deprecated prompt field
+        if "prompt" in step:
+            result.warn(
+                f"Step '{step_id}': deprecated 'prompt' field. "
+                f"Use 'guidance' instead (prompt+guidance consolidated into guidance)"
+            )
 
         # Check guidance template
         guidance = step.get("guidance", "")
@@ -309,6 +315,91 @@ def validate_templates(data: dict[str, Any], result: ValidationResult) -> None:
             result.error(f"scene_template: invalid Jinja2 syntax: {e}")
 
 
+def validate_memory_dsl(data: dict[str, Any], result: ValidationResult) -> None:
+    """Validate memory DSL usage in steps.
+
+    Checks:
+    - Warns on deprecated `memory:` config (should use context DSL)
+    - Validates context actions have valid action types
+    - Validates search_memories has required params
+    - Validates flush placement for flush_before patterns
+    """
+    steps = data.get("steps", {})
+
+    for step_id, step in steps.items():
+        if not isinstance(step, dict):
+            continue
+
+        # Check for deprecated memory: config
+        memory_config = step.get("memory")
+        if memory_config and isinstance(memory_config, dict):
+            top_n = memory_config.get("top_n", 0)
+            if top_n > 0:
+                result.error(
+                    f"Step '{step_id}': deprecated 'memory:' config with top_n={top_n}. "
+                    f"Migrate to context DSL: add 'search_memories' action to context"
+                )
+            flush_before = memory_config.get("flush_before", False)
+            if flush_before:
+                result.error(
+                    f"Step '{step_id}': deprecated 'memory.flush_before'. "
+                    f"Migrate to context DSL: add 'flush' action before 'search_memories'"
+                )
+
+        # Validate context DSL actions
+        context = step.get("context")
+        if context and isinstance(context, list):
+            has_flush = False
+            has_search_after_flush = False
+
+            for i, action in enumerate(context):
+                if not isinstance(action, dict):
+                    result.error(
+                        f"Step '{step_id}': context[{i}] must be a mapping, "
+                        f"got {type(action).__name__}"
+                    )
+                    continue
+
+                action_type = action.get("action")
+                if not action_type:
+                    result.error(
+                        f"Step '{step_id}': context[{i}] missing 'action' field"
+                    )
+                    continue
+
+                if action_type not in VALID_MEMORY_ACTIONS:
+                    result.error(
+                        f"Step '{step_id}': context[{i}] has invalid action '{action_type}'. "
+                        f"Valid actions: {sorted(VALID_MEMORY_ACTIONS)}"
+                    )
+                    continue
+
+                # Track flush/search ordering
+                if action_type in ("flush", "clear"):
+                    has_flush = True
+
+                if action_type == "search_memories":
+                    if has_flush:
+                        has_search_after_flush = True
+
+                    # Validate search_memories has top_n
+                    top_n = action.get("top_n")
+                    if not top_n or top_n <= 0:
+                        result.warn(
+                            f"Step '{step_id}': search_memories without top_n "
+                            f"(will not retrieve any memories)"
+                        )
+
+                # Validate sort action
+                if action_type == "sort":
+                    sort_by = action.get("by")
+                    if sort_by not in ("timestamp", "relevance"):
+                        result.warn(
+                            f"Step '{step_id}': sort action with by='{sort_by}'. "
+                            f"Expected 'timestamp' or 'relevance'"
+                        )
+
+
 def validate_file(filepath: Path) -> ValidationResult:
     """Validate a single dialogue scenario file."""
     result = ValidationResult(str(filepath))
@@ -327,12 +418,15 @@ def validate_file(filepath: Path) -> ValidationResult:
         result.error("File must contain a YAML mapping at top level")
         return result
 
-    # Skip non-dialogue scenarios
+    # Always validate memory DSL (applies to all scenarios)
+    validate_memory_dsl(data, result)
+
+    # Skip additional dialogue validations for non-dialogue scenarios
     if data.get("flow") != "dialogue":
-        result.warn("Not a dialogue scenario (flow != 'dialogue'), skipping")
+        result.warn("Not a dialogue scenario (flow != 'dialogue'), skipping dialogue-specific checks")
         return result
 
-    # Run all validations
+    # Run dialogue-specific validations
     if validate_structure(data, result):
         validate_steps(data, result)
         validate_templates(data, result)

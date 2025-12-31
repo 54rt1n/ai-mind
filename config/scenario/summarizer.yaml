@@ -33,8 +33,6 @@ steps:
     output:
       document_type: step
       weight: 0.7
-    memory:
-      top_n: 0
     next:
     - summary
     id: timeline
@@ -51,8 +49,6 @@ steps:
     output:
       document_type: step
       weight: 0.7
-    memory:
-      top_n: 0
     next:
     - improve_1
     id: summary
@@ -70,8 +66,6 @@ steps:
     output:
       document_type: step
       weight: 0.25
-    memory:
-      top_n: 0
     next:
     - resummarize_1
     id: improve_1
@@ -85,8 +79,6 @@ steps:
     output:
       document_type: step
       weight: 0.7
-    memory:
-      top_n: 0
     next:
     - improve_2
     id: resummarize_1
@@ -104,8 +96,6 @@ steps:
     output:
       document_type: step
       weight: 0.25
-    memory:
-      top_n: 0
     next:
     - resummarize_2
     id: improve_2
@@ -119,7 +109,5 @@ steps:
     output:
       document_type: summary
       weight: 1.3
-    memory:
-      top_n: 0
     next: []
     id: resummarize_2

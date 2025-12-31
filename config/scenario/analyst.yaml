@@ -38,8 +38,6 @@ steps:
     output:
       document_type: ner
       weight: 0.7
-    memory:
-      top_n: 0
     next:
     - emotional_trace
     id: ner
@@ -56,8 +54,6 @@ steps:
     output:
       document_type: step
       weight: 0.25
-    memory:
-      top_n: 0
     next:
     - questions
     id: emotional_trace
@@ -75,8 +71,6 @@ steps:
     output:
       document_type: step
       weight: 0.25
-    memory:
-      top_n: 0
     next:
     - reflection
     id: questions
@@ -160,8 +154,9 @@ steps:
     output:
       document_type: brainstorm
       weight: 0.6
-    memory:
-      top_n: 10
+    context:
+      - action: search_memories
+        top_n: 10
     next: []
     id: brainstorm
   motd:
@@ -176,8 +171,6 @@ steps:
     output:
       document_type: motd
       weight: 1.0
-    memory:
-      top_n: 0
     next:
     - codex
     id: motd
@@ -194,11 +187,11 @@ steps:
     output:
       document_type: codex
       weight: 1.0
-    memory:
-      top_n: 20
-      document_type:
-      - codex
-      flush_before: true
+    context:
+      - action: flush
+      - action: search_memories
+        top_n: 20
+        document_types: [codex]
     next:
     - brainstorm
     id: codex

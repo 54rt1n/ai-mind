@@ -12,10 +12,9 @@ from .models import (
     DialogueConfig,
     DialogueState,
     ScenarioContext,
-    SeedAction,
     SpeakerType,
 )
-from ..models import StepConfig, StepOutput, StepMemory, ContextAction
+from ..models import MemoryAction, StepConfig, StepOutput
 from ..scenario import get_jinja_environment
 
 
@@ -45,7 +44,7 @@ class DialogueStrategy:
         description: str,
         dialogue: DialogueConfig,
         context: ScenarioContext,
-        seed: list[SeedAction],
+        seed: list[MemoryAction],
         steps: dict[str, DialogueStep],
     ):
         self.name = name
@@ -102,15 +101,20 @@ class DialogueStrategy:
             thoughts=context_data.get('thoughts', []),
         )
 
-        # Build seed actions
+        # Build seed actions using unified MemoryAction
         seed = []
         for seed_data in data.get('seed', []):
-            seed.append(SeedAction(
+            seed.append(MemoryAction(
                 action=seed_data.get('action', 'load_conversation'),
                 target=seed_data.get('target', 'current'),
                 document_types=seed_data.get('document_types'),
                 exclude_types=seed_data.get('exclude_types'),
                 top_n=seed_data.get('top_n'),
+                min_memories=seed_data.get('min_memories'),
+                conversation_id=seed_data.get('conversation_id'),
+                by=seed_data.get('by'),
+                direction=seed_data.get('direction'),
+                match=seed_data.get('match'),
             ))
 
         # Build step definitions
@@ -146,31 +150,21 @@ class DialogueStrategy:
                 add_to_turns=output_data.get('add_to_turns', True),
             )
 
-            # Parse memory
-            memory_data = step_data.get('memory', {})
-            memory = StepMemory(
-                top_n=memory_data.get('top_n', 0),
-                document_type=memory_data.get('document_type'),
-                flush_before=memory_data.get('flush_before', False),
-                sort_by=memory_data.get('sort_by', 'relevance'),
-            )
-
-            # Parse context DSL
+            # Parse context DSL using unified MemoryAction
+            # (memory: config is deprecated - use context: with search_memories action)
             context_actions = None
             if 'context' in step_data:
                 context_actions = [
-                    ContextAction(**action_data)
+                    MemoryAction(**action_data)
                     for action_data in step_data['context']
                 ]
 
             steps[step_id] = DialogueStep(
                 id=step_id,
                 speaker=speaker,
-                prompt=step_data.get('prompt', ''),
-                guidance=step_data.get('guidance'),
+                guidance=step_data.get('guidance', ''),
                 config=config,
                 output=output,
-                memory=memory,
                 context=context_actions,
                 next=step_data.get('next', []),
             )
@@ -277,20 +271,7 @@ class DialogueStrategy:
         template = self._jinja_env.from_string(self.dialogue.scene_template)
         return template.render(**context)
 
-    def render_prompt(self, step: DialogueStep, context: dict) -> str:
-        """Render step prompt with Jinja2 context.
-
-        Args:
-            step: The step definition
-            context: Dictionary of template variables
-
-        Returns:
-            Rendered prompt string
-        """
-        template = self._jinja_env.from_string(step.prompt)
-        return template.render(**context)
-
-    def render_guidance(self, step: DialogueStep, context: dict) -> Optional[str]:
+    def render_guidance(self, step: DialogueStep, context: dict) -> str:
         """Render step guidance with Jinja2 context.
 
         Args:
@@ -298,9 +279,9 @@ class DialogueStrategy:
             context: Dictionary of template variables
 
         Returns:
-            Rendered guidance string, or None if no guidance
+            Rendered guidance string
         """
         if not step.guidance:
-            return None
+            return ""
         template = self._jinja_env.from_string(step.guidance)
         return template.render(**context)

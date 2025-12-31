@@ -446,24 +446,10 @@ async def execute_step(
         prompt = f"{prompt}\n\n[Guidance: {state.guidance}]"
 
     # 4. Load context (from DSL or accumulated from prior steps)
+    # Memory retrieval is now handled by search_memories action in context DSL
     prior_outputs, context_doc_ids, is_initial_context = load_prior_outputs(state, step_def, cvm)
 
-    # 5. Handle memory operations (query for additional context)
-    memories = []
-    if step_def.memory.top_n > 0:
-        from aim.constants import CHUNK_LEVEL_768
-
-        query_text = state.query_text or prompt[:500]
-        memories_df = cvm.query(
-            query_texts=[query_text],
-            top_n=step_def.memory.top_n,
-            query_document_type=step_def.memory.document_type,
-            sort_by=step_def.memory.sort_by,
-            chunk_level=CHUNK_LEVEL_768,
-        )
-        memories = memories_df.to_dict('records') if not memories_df.empty else []
-
-    # 6. Select model
+    # 5. Select model
     model_name = select_model_name(state, step_def.config)
     models = LanguageModelV2.index_models(config)
     model = models.get(model_name)
@@ -473,14 +459,15 @@ async def execute_step(
 
     logger.info(
         f"Step '{step_def.id}' using model={model_name} | "
-        f"memories={len(memories)} prior_outputs={len(prior_outputs)} "
+        f"prior_outputs={len(prior_outputs)} "
         f"max_tokens={step_def.config.max_tokens}"
     )
 
-    # 7. Build turns for LLM (system message returned separately for config)
+    # 6. Build turns for LLM (system message returned separately for config)
+    # Note: memories param is empty - memory retrieval now flows through context DSL
     max_output_tokens = min(step_def.config.max_tokens, model.max_output_tokens)
     turns, system_message = build_turns(
-        state, prompt, memories, prior_outputs, persona,
+        state, prompt, [], prior_outputs, persona,
         max_context_tokens=model.max_tokens,
         max_output_tokens=max_output_tokens,
     )

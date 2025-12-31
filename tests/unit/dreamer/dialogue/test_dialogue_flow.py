@@ -18,7 +18,7 @@ from aim.dreamer.dialogue import (
     DialogueConfig,
     SpeakerType,
 )
-from aim.dreamer.models import StepConfig, StepOutput, StepMemory
+from aim.dreamer.models import StepConfig, StepOutput
 from aim.config import ChatConfig
 from aim.constants import DOC_DIALOGUE_CODER, DOC_STEP
 from aim.agents.persona import Persona, Aspect
@@ -129,32 +129,28 @@ def simple_dialogue_strategy_yaml():
         "steps": {
             "step1": {
                 "speaker": {"type": "aspect", "aspect_name": "coder"},
-                "prompt": "Hello {{ persona.name }}, let's begin step {{ step_num }}.",
-                "guidance": "Begin with 'Greetings:'",
+                "guidance": "Hello {{ persona.name }}, let's begin step {{ step_num }}. Begin with 'Greetings:'",
                 "config": {"max_tokens": 1024},
                 "output": {"document_type": "step", "weight": 1.0},
                 "next": ["step2"],
             },
             "step2": {
                 "speaker": {"type": "persona"},
-                "prompt": "Please respond to the greeting.",
-                "guidance": "Begin with 'Response:'",
+                "guidance": "Please respond to the greeting. Begin with 'Response:'",
                 "config": {"max_tokens": 1024},
                 "output": {"document_type": "step", "weight": 1.0},
                 "next": ["step3"],
             },
             "step3": {
                 "speaker": {"type": "aspect", "aspect_name": "coder"},
-                "prompt": "Now let's continue to the next task.",
-                "guidance": "Begin with 'Continuing:'",
+                "guidance": "Now let's continue to the next task. Begin with 'Continuing:'",
                 "config": {"max_tokens": 1024},
                 "output": {"document_type": "step", "weight": 1.0},
                 "next": ["step4"],
             },
             "step4": {
                 "speaker": {"type": "persona"},
-                "prompt": "Please complete the task.",
-                "guidance": "Begin with 'Completed:'",
+                "guidance": "Please complete the task. Begin with 'Completed:'",
                 "config": {"max_tokens": 1024},
                 "output": {"document_type": "final", "weight": 1.5},
                 "next": [],
@@ -251,8 +247,8 @@ class TestDialogueStrategy:
         assert "the Holographic Interface" in scene
         assert "Andi Informa" in scene
 
-    def test_strategy_render_prompt(self, temp_strategy_file, persona):
-        """Test step prompt rendering."""
+    def test_strategy_render_guidance(self, temp_strategy_file, persona):
+        """Test step guidance rendering with template context."""
         strategy = DialogueStrategy.from_yaml(temp_strategy_file)
         step = strategy.get_step("step1")
 
@@ -261,18 +257,10 @@ class TestDialogueStrategy:
             "step_num": 1,
         }
 
-        prompt = strategy.render_prompt(step, context)
+        guidance = strategy.render_guidance(step, context)
 
-        assert "Hello Andi" in prompt
-        assert "step 1" in prompt
-
-    def test_strategy_render_guidance(self, temp_strategy_file):
-        """Test step guidance rendering."""
-        strategy = DialogueStrategy.from_yaml(temp_strategy_file)
-        step = strategy.get_step("step1")
-
-        guidance = strategy.render_guidance(step, {})
-
+        assert "Hello Andi" in guidance
+        assert "step 1" in guidance
         assert "Begin with 'Greetings:'" in guidance
 
     def test_invalid_flow_type_raises_error(self, tmp_path):
@@ -315,11 +303,11 @@ class TestDialogueScenarioTurnBuilding:
         template_context = scenario._build_template_context(step)
         speaker_id = step.speaker.get_speaker_id(persona.persona_id)
 
-        prompt = strategy.render_prompt(step, template_context)
+        guidance = strategy.render_guidance(step, template_context)
         turns, _ = scenario.build_dialogue_turns(
             step=step,
             template_context=template_context,
-            prompt=prompt,
+            guidance=guidance,
             memories=[],
             context_docs=[],
             speaker_id=speaker_id,
@@ -327,16 +315,15 @@ class TestDialogueScenarioTurnBuilding:
             max_output_tokens=4096,
         )
 
-        # Should have only the final user turn with prompt (NO scene for aspect steps)
+        # Should have only the final user turn with guidance (NO scene for aspect steps)
         # Scene is ONLY for persona steps
         assert len(turns) == 1
         assert turns[0]["role"] == "user"
-        assert "Hello Andi" in turns[0]["content"]  # Prompt
+        assert "Hello Andi" in turns[0]["content"]  # Guidance content
         # Aspect steps do NOT get scene (only persona steps do)
         assert "observe" not in turns[0]["content"].lower()
-        # Aspect steps do NOT get guidance in their final turn
-        # Guidance shapes the NEXT response (persona's), not this one
-        assert "Output Guidance" not in turns[0]["content"]
+        # Guidance is included in Output Guidance section
+        assert "Output Guidance" in turns[0]["content"]
 
     def test_role_flipping_aspect_to_persona(self, temp_strategy_file, persona, chat_config):
         """Test that aspect turn becomes 'user' when persona is speaking.
@@ -344,7 +331,7 @@ class TestDialogueScenarioTurnBuilding:
         For persona steps with prior turns:
         - No additional user turn is added (persona responds to the prior turn)
         - Scene is prepended to the first prior turn
-        - Guidance from the prior step (step1's guidance) is appended to that prior turn
+        - Current step's guidance is appended to guide the persona's response
         """
         strategy = DialogueStrategy.from_yaml(temp_strategy_file)
         scenario = DialogueScenario(strategy, persona, chat_config, cvm=None)
@@ -365,11 +352,11 @@ class TestDialogueScenarioTurnBuilding:
         template_context = scenario._build_template_context(step2)
         speaker_id = step2.speaker.get_speaker_id(persona.persona_id)  # persona:andi
 
-        prompt = strategy.render_prompt(step2, template_context)
+        guidance = strategy.render_guidance(step2, template_context)
         turns, _ = scenario.build_dialogue_turns(
             step=step2,
             template_context=template_context,
-            prompt=prompt,
+            guidance=guidance,
             memories=[],
             context_docs=[],
             speaker_id=speaker_id,
@@ -378,15 +365,15 @@ class TestDialogueScenarioTurnBuilding:
         )
 
         # Persona steps with prior turns: only 1 turn (the prior aspect turn with guidance appended)
-        # No additional prompt turn is added
+        # No additional guidance turn is added
         assert len(turns) == 1
         assert turns[0]["role"] == "user"
         # Scene is dynamically generated - shows Persona from Aspect's perspective
         assert "observe Andi" in turns[0]["content"]  # Dynamic scene
         assert "Hello from coder!" in turns[0]["content"]
-        # Guidance from step1 is appended to the prior turn (shapes persona's response)
+        # Current step's guidance is appended to guide the persona's response
         assert "Output Guidance" in turns[0]["content"]
-        assert "Begin with 'Greetings:'" in turns[0]["content"]
+        assert "Begin with 'Response:'" in turns[0]["content"]
 
     def test_role_flipping_persona_to_aspect(self, temp_strategy_file, persona, chat_config):
         """Test that persona turn becomes 'user' when aspect is speaking.
@@ -425,11 +412,11 @@ class TestDialogueScenarioTurnBuilding:
         template_context = scenario._build_template_context(step3)
         speaker_id = step3.speaker.get_speaker_id(persona.persona_id)  # aspect:coder
 
-        prompt = strategy.render_prompt(step3, template_context)
+        guidance = strategy.render_guidance(step3, template_context)
         turns, _ = scenario.build_dialogue_turns(
             step=step3,
             template_context=template_context,
-            prompt=prompt,
+            guidance=guidance,
             memories=[],
             context_docs=[],
             speaker_id=speaker_id,
@@ -439,20 +426,19 @@ class TestDialogueScenarioTurnBuilding:
 
         # Aspect's prior turn (step1) -> 'assistant' (same speaker type = aspects)
         # Persona's turn (step2) -> 'user' (persona = user for aspect speakers)
-        # Prompt is appended to last user turn, so only 2 turns total
+        # Guidance is appended to last user turn, so only 2 turns total
         assert len(turns) == 2
 
         # First turn: aspect's prior (assistant because all aspects = assistant for aspect speaker)
         assert turns[0]["role"] == "assistant"
         assert "Hello from coder!" in turns[0]["content"]
 
-        # Second turn: persona's turn + prompt (user because persona = user for aspect speaker)
-        # Prompt is appended to last user turn (no separate prompt turn)
-        # No guidance here - guidance is for persona steps, not aspect steps
+        # Second turn: persona's turn + guidance (user because persona = user for aspect speaker)
+        # Guidance is appended to last user turn with Output Guidance section
         assert turns[1]["role"] == "user"
         assert "Hello back from Andi!" in turns[1]["content"]
-        assert "continue to the next task" in turns[1]["content"]  # Prompt appended
-        assert "Output Guidance" not in turns[1]["content"]  # No guidance for aspect steps
+        assert "continue to the next task" in turns[1]["content"]  # Guidance content appended
+        assert "Output Guidance" in turns[1]["content"]  # Guidance section present
 
     def test_full_alternation_pattern(self, temp_strategy_file, persona, chat_config):
         """Test the full alternation pattern over 4 steps."""
@@ -689,7 +675,7 @@ class TestSceneAndGuidanceHandling:
 
         For persona steps with prior turns:
         - Scene is prepended to the first prior turn
-        - No additional prompt turn is added
+        - No additional guidance turn is added
         - Guidance from prior step is appended to the prior turn
         """
         strategy = DialogueStrategy.from_yaml(temp_strategy_file)
@@ -710,11 +696,11 @@ class TestSceneAndGuidanceHandling:
         template_context = scenario._build_template_context(step2)
         speaker_id = step2.speaker.get_speaker_id(persona.persona_id)
 
-        prompt = strategy.render_prompt(step2, template_context)
+        guidance = strategy.render_guidance(step2, template_context)
         turns, _ = scenario.build_dialogue_turns(
             step=step2,
             template_context=template_context,
-            prompt=prompt,
+            guidance=guidance,
             memories=[],
             context_docs=[],
             speaker_id=speaker_id,
@@ -731,13 +717,12 @@ class TestSceneAndGuidanceHandling:
         assert "observe Andi" in first_turn["content"]  # Dynamic scene
         assert "Prior content" in first_turn["content"]
 
-    def test_guidance_from_prior_step_appended_to_prior_turn(self, temp_strategy_file, persona, chat_config):
-        """Test that guidance from the prior step is appended to the prior turn.
+    def test_guidance_from_current_step_appended_to_prior_turn(self, temp_strategy_file, persona, chat_config):
+        """Test that guidance from the current step is appended to the prior turn.
 
         The new behavior:
-        - Guidance from the prior step (aspect's request) is appended to that prior turn
+        - Current step's guidance is appended to the last user turn
         - This shapes the current speaker's (persona's) response
-        - Aspect steps themselves do NOT have guidance in their final turn
         """
         strategy = DialogueStrategy.from_yaml(temp_strategy_file)
         scenario = DialogueScenario(strategy, persona, chat_config, cvm=None)
@@ -757,11 +742,11 @@ class TestSceneAndGuidanceHandling:
         template_context = scenario._build_template_context(step2)
         speaker_id = step2.speaker.get_speaker_id(persona.persona_id)
 
-        prompt = strategy.render_prompt(step2, template_context)
+        guidance = strategy.render_guidance(step2, template_context)
         turns, _ = scenario.build_dialogue_turns(
             step=step2,
             template_context=template_context,
-            prompt=prompt,
+            guidance=guidance,
             memories=[],
             context_docs=[],
             speaker_id=speaker_id,
@@ -769,17 +754,17 @@ class TestSceneAndGuidanceHandling:
             max_output_tokens=4096,
         )
 
-        # The prior turn should have step1's guidance appended
+        # The current step's guidance is appended to the prior turn
         assert len(turns) == 1
         assert "[~~ Output Guidance ~~]" in turns[0]["content"]
-        assert "Begin with 'Greetings:'" in turns[0]["content"]  # step1's guidance
+        assert "Begin with 'Response:'" in turns[0]["content"]  # step2's guidance
 
-    def test_aspect_steps_no_guidance_in_final_turn(self, temp_strategy_file, persona, chat_config):
-        """Test that aspect steps do NOT have guidance in their own final turn.
+    def test_aspect_steps_guidance_in_final_turn(self, temp_strategy_file, persona, chat_config):
+        """Test that aspect steps include guidance in their final turn.
 
-        The new behavior:
-        - Aspect steps get a prompt but no guidance
-        - Guidance from aspect steps shapes the NEXT persona's response
+        With prompt/guidance consolidation:
+        - All steps (aspect and persona) receive guidance in the Output Guidance section
+        - The guidance shapes the current step's response
         """
         strategy = DialogueStrategy.from_yaml(temp_strategy_file)
         scenario = DialogueScenario(strategy, persona, chat_config, cvm=None)
@@ -790,11 +775,11 @@ class TestSceneAndGuidanceHandling:
         template_context = scenario._build_template_context(step1)
         speaker_id = step1.speaker.get_speaker_id(persona.persona_id)
 
-        prompt = strategy.render_prompt(step1, template_context)
+        guidance = strategy.render_guidance(step1, template_context)
         turns, _ = scenario.build_dialogue_turns(
             step=step1,
             template_context=template_context,
-            prompt=prompt,
+            guidance=guidance,
             memories=[],
             context_docs=[],
             speaker_id=speaker_id,
@@ -802,7 +787,7 @@ class TestSceneAndGuidanceHandling:
             max_output_tokens=4096,
         )
 
-        # Aspect steps: only 1 turn (scene + prompt, no guidance)
+        # Aspect steps: 1 turn with guidance in Output Guidance section
         assert len(turns) == 1
-        assert "Hello Andi" in turns[0]["content"]  # Prompt
-        assert "[~~ Output Guidance ~~]" not in turns[0]["content"]  # No guidance for aspect
+        assert "Hello Andi" in turns[0]["content"]  # Guidance content
+        assert "[~~ Output Guidance ~~]" in turns[0]["content"]  # Output Guidance section present
