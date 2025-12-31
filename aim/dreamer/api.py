@@ -461,6 +461,279 @@ class ResumeResult:
             self.new_steps_added = []
 
 
+def _get_completed_steps_from_cvm(
+    cvm: "ConversationModel",
+    conversation_id: str,
+    scenario_name: str,
+    branch: int,
+) -> set[str]:
+    """Get set of step_names that have documents in CVM for this scenario and branch.
+
+    Args:
+        cvm: ConversationModel instance
+        conversation_id: The conversation ID to load
+        scenario_name: Filter to documents from this scenario
+        branch: Filter to documents from this branch
+
+    Returns:
+        Set of step_names that have documents in CVM
+    """
+    completed_steps = set()
+    try:
+        messages = cvm.load_conversation(conversation_id)
+        for msg in messages:
+            # Only count documents from this scenario, branch, and with a step_name
+            if (msg.scenario_name == scenario_name
+                and msg.branch == branch
+                and msg.step_name):
+                completed_steps.add(msg.step_name)
+    except FileNotFoundError:
+        # Conversation file doesn't exist yet - no completed steps
+        pass
+    return completed_steps
+
+
+async def _resume_dialogue_pipeline(
+    pipeline_id: str,
+    state_store: StateStore,
+    scheduler: Scheduler,
+    cvm: "ConversationModel",
+    force: bool = False,
+) -> ResumeResult:
+    """Resume a dialogue pipeline from where it stopped.
+
+    Args:
+        pipeline_id: Pipeline identifier
+        state_store: StateStore instance for Redis operations
+        scheduler: Scheduler instance for queue operations
+        cvm: ConversationModel for document verification
+        force: If True, also reset RUNNING steps and re-enqueue PENDING steps
+
+    Returns:
+        ResumeResult with details of what was done
+    """
+    # Load dialogue state
+    dialogue_state = await state_store.load_dialogue_state(pipeline_id)
+    if dialogue_state is None:
+        return ResumeResult(found=False, steps_enqueued=[], steps_reset=[], orphaned_steps_cleaned=[])
+
+    # Load scenario for DAG operations
+    scenario = load_scenario(dialogue_state.strategy_name)
+    scenario.compute_dependencies()
+
+    # Get steps that have documents in CVM (by step_name and branch)
+    cvm_completed_steps = _get_completed_steps_from_cvm(
+        cvm, dialogue_state.conversation_id, dialogue_state.strategy_name, dialogue_state.branch
+    )
+
+    # Track what we do
+    steps_enqueued = []
+    steps_reset = []
+    orphaned_steps_cleaned = []
+
+    # Check for scenario changes
+    scenario_step_ids = set(scenario.steps.keys())
+    state_completed_steps = set(dialogue_state.completed_steps)
+
+    # Get current DAG entries to detect stale/orphaned step statuses
+    dag_key = f"{state_store.key_prefix}:pipeline:{pipeline_id}:dag"
+    dag_entries = await state_store.redis.hgetall(dag_key)
+    dag_step_ids = set()
+    for k in dag_entries.keys():
+        step_id = k.decode('utf-8') if isinstance(k, bytes) else k
+        dag_step_ids.add(step_id)
+
+    # Clean up orphaned steps from DAG (steps in DAG but not in scenario)
+    orphaned_dag_steps = dag_step_ids - scenario_step_ids
+    if orphaned_dag_steps:
+        await state_store.redis.hdel(dag_key, *orphaned_dag_steps)
+        orphaned_steps_cleaned.extend(orphaned_dag_steps)
+
+    # Clean up orphaned completed steps from state (no longer in scenario)
+    orphaned_state_steps = state_completed_steps - scenario_step_ids
+    if orphaned_state_steps:
+        dialogue_state.completed_steps = [s for s in dialogue_state.completed_steps if s in scenario_step_ids]
+        # Remove orphaned turns
+        dialogue_state.turns = [t for t in dialogue_state.turns if t.step_id in scenario_step_ids]
+        for step in orphaned_state_steps:
+            if step not in orphaned_steps_cleaned:
+                orphaned_steps_cleaned.append(step)
+
+    # Initialize new steps in DAG (steps in scenario but not in DAG)
+    new_dag_steps = scenario_step_ids - dag_step_ids
+    new_steps_added = list(new_dag_steps) if new_dag_steps else []
+    if new_dag_steps:
+        new_mapping = {step_id: StepStatus.PENDING.value for step_id in new_dag_steps}
+        await state_store.redis.hset(dag_key, mapping=new_mapping)
+
+    # CVM is source of truth - rebuild DAG state from what documents actually exist
+    topo_order = scenario.topological_order()
+    last_valid_index = -1
+
+    # Find the last step that has a document in CVM
+    for i, step_id in enumerate(topo_order):
+        if step_id in cvm_completed_steps:
+            last_valid_index = i
+
+    # Rebuild DAG state: steps up to last valid are COMPLETE, everything after is PENDING
+    dialogue_state.completed_steps = []
+    dialogue_state.turns = [t for t in dialogue_state.turns if t.step_id in cvm_completed_steps]
+
+    for i, step_id in enumerate(topo_order):
+        if i <= last_valid_index and step_id in cvm_completed_steps:
+            await state_store.set_step_status(pipeline_id, step_id, StepStatus.COMPLETE)
+            if step_id not in dialogue_state.completed_steps:
+                dialogue_state.completed_steps.append(step_id)
+        else:
+            old_status = await state_store.get_step_status(pipeline_id, step_id)
+            if old_status != StepStatus.PENDING:
+                await state_store.set_step_status(pipeline_id, step_id, StepStatus.PENDING)
+                steps_reset.append(step_id)
+
+    # Find steps to resume
+    for step_id, step_def in scenario.steps.items():
+        status = await state_store.get_step_status(pipeline_id, step_id)
+
+        if status == StepStatus.FAILED:
+            if await scheduler.all_deps_complete(pipeline_id, step_def):
+                await state_store.set_step_status(pipeline_id, step_id, StepStatus.PENDING)
+                await scheduler.enqueue_step(pipeline_id, step_id)
+                steps_reset.append(step_id)
+                steps_enqueued.append(step_id)
+
+        elif status == StepStatus.RUNNING and force:
+            await state_store.release_lock(pipeline_id, step_id)
+            await state_store.set_step_status(pipeline_id, step_id, StepStatus.PENDING)
+            await scheduler.enqueue_step(pipeline_id, step_id)
+            steps_reset.append(step_id)
+            steps_enqueued.append(step_id)
+
+        elif status == StepStatus.PENDING and force:
+            if await scheduler.all_deps_complete(pipeline_id, step_def):
+                await scheduler.enqueue_step(pipeline_id, step_id)
+                steps_enqueued.append(step_id)
+
+        elif status == StepStatus.PENDING and step_id not in state_completed_steps:
+            if await scheduler.all_deps_complete(pipeline_id, step_def):
+                await scheduler.enqueue_step(pipeline_id, step_id)
+                steps_enqueued.append(step_id)
+
+    # Update state timestamp
+    dialogue_state.updated_at = datetime.now(timezone.utc)
+    await state_store.save_dialogue_state(dialogue_state)
+
+    return ResumeResult(
+        found=True,
+        steps_enqueued=steps_enqueued,
+        steps_reset=steps_reset,
+        orphaned_steps_cleaned=orphaned_steps_cleaned,
+        new_steps_added=new_steps_added,
+    )
+
+
+async def _refresh_dialogue_pipeline(
+    pipeline_id: str,
+    state_store: StateStore,
+    cvm: "ConversationModel",
+) -> ResumeResult:
+    """Refresh a dialogue pipeline by syncing state with current scenario.
+
+    Unlike resume, this does not enqueue steps - user must call Resume to restart.
+
+    Args:
+        pipeline_id: Pipeline identifier
+        state_store: StateStore instance for Redis operations
+        cvm: ConversationModel for document verification
+
+    Returns:
+        ResumeResult with details of what was done
+    """
+    # Load dialogue state
+    dialogue_state = await state_store.load_dialogue_state(pipeline_id)
+    if dialogue_state is None:
+        return ResumeResult(found=False, steps_enqueued=[], steps_reset=[], orphaned_steps_cleaned=[])
+
+    # Load scenario for DAG operations
+    scenario = load_scenario(dialogue_state.strategy_name)
+    scenario.compute_dependencies()
+
+    # Get steps that have documents in CVM (by step_name and branch)
+    cvm_completed_steps = _get_completed_steps_from_cvm(
+        cvm, dialogue_state.conversation_id, dialogue_state.strategy_name, dialogue_state.branch
+    )
+
+    steps_reset = []
+    orphaned_steps_cleaned = []
+    new_steps_added = []
+
+    scenario_step_ids = set(scenario.steps.keys())
+    dag_key = f"{state_store.key_prefix}:pipeline:{pipeline_id}:dag"
+
+    # Get current DAG state
+    dag_entries = await state_store.redis.hgetall(dag_key)
+    dag_step_ids = set()
+    for k in dag_entries.keys():
+        step_id = k.decode('utf-8') if isinstance(k, bytes) else k
+        dag_step_ids.add(step_id)
+
+    # 1. Remove orphaned DAG entries (steps removed from scenario)
+    orphaned_dag_steps = dag_step_ids - scenario_step_ids
+    if orphaned_dag_steps:
+        await state_store.redis.hdel(dag_key, *orphaned_dag_steps)
+        orphaned_steps_cleaned.extend(orphaned_dag_steps)
+
+    # 2. Clean orphaned state entries
+    orphaned_state_steps = set(dialogue_state.completed_steps) - scenario_step_ids
+    if orphaned_state_steps:
+        dialogue_state.completed_steps = [s for s in dialogue_state.completed_steps if s in scenario_step_ids]
+        dialogue_state.turns = [t for t in dialogue_state.turns if t.step_id in scenario_step_ids]
+
+    # 3. Add new steps to DAG as PENDING
+    new_dag_steps = scenario_step_ids - dag_step_ids
+    if new_dag_steps:
+        new_steps_added = list(new_dag_steps)
+        new_mapping = {step_id: StepStatus.PENDING.value for step_id in new_dag_steps}
+        await state_store.redis.hset(dag_key, mapping=new_mapping)
+
+    # 4. CVM is source of truth - rebuild DAG state from what documents actually exist
+    topo_order = scenario.topological_order()
+    last_valid_index = -1
+
+    # Find the last step that has a document in CVM
+    for i, step_id in enumerate(topo_order):
+        if step_id in cvm_completed_steps:
+            last_valid_index = i
+
+    # Rebuild DAG state: steps up to last valid are COMPLETE, everything after is PENDING
+    dialogue_state.completed_steps = []
+    dialogue_state.turns = [t for t in dialogue_state.turns if t.step_id in cvm_completed_steps]
+
+    for i, step_id in enumerate(topo_order):
+        if i <= last_valid_index and step_id in cvm_completed_steps:
+            await state_store.set_step_status(pipeline_id, step_id, StepStatus.COMPLETE)
+            if step_id not in dialogue_state.completed_steps:
+                dialogue_state.completed_steps.append(step_id)
+        else:
+            old_status = await state_store.get_step_status(pipeline_id, step_id)
+            if old_status != StepStatus.PENDING:
+                await state_store.set_step_status(pipeline_id, step_id, StepStatus.PENDING)
+                steps_reset.append(step_id)
+
+    # Note: We do NOT enqueue steps here. Refresh only syncs state.
+    # User must call Resume to actually restart the pipeline.
+
+    dialogue_state.updated_at = datetime.now(timezone.utc)
+    await state_store.save_dialogue_state(dialogue_state)
+
+    return ResumeResult(
+        found=True,
+        steps_enqueued=[],  # Refresh doesn't enqueue - user must Resume
+        steps_reset=steps_reset,
+        orphaned_steps_cleaned=orphaned_steps_cleaned,
+        new_steps_added=new_steps_added,
+    )
+
+
 async def resume_pipeline(
     pipeline_id: str,
     state_store: StateStore,
@@ -486,13 +759,16 @@ async def resume_pipeline(
     Returns:
         ResumeResult with details of what was done
     """
-    # Check state type - dialogue flows not yet supported for resume
+    # Check state type
     state_type = await state_store.get_state_type(pipeline_id)
     if state_type is None:
         return ResumeResult(found=False, steps_enqueued=[], steps_reset=[], orphaned_steps_cleaned=[])
+
+    # Handle dialogue flows
     if state_type == 'dialogue':
-        # TODO: Implement resume for dialogue flows
-        return ResumeResult(found=True, steps_enqueued=[], steps_reset=[], orphaned_steps_cleaned=[])
+        return await _resume_dialogue_pipeline(
+            pipeline_id, state_store, scheduler, cvm, force
+        )
 
     # Load state from Redis
     state = await state_store.load_state(pipeline_id)
@@ -634,13 +910,14 @@ async def refresh_pipeline(
     Returns:
         ResumeResult with details of what was done
     """
-    # Check state type - dialogue flows not yet supported for refresh
+    # Check state type
     state_type = await state_store.get_state_type(pipeline_id)
     if state_type is None:
         return ResumeResult(found=False, steps_enqueued=[], steps_reset=[], orphaned_steps_cleaned=[])
+
+    # Handle dialogue flows
     if state_type == 'dialogue':
-        # TODO: Implement refresh for dialogue flows
-        return ResumeResult(found=True, steps_enqueued=[], steps_reset=[], orphaned_steps_cleaned=[])
+        return await _refresh_dialogue_pipeline(pipeline_id, state_store, cvm)
 
     state = await state_store.load_state(pipeline_id)
     if state is None:

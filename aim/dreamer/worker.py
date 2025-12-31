@@ -129,7 +129,25 @@ class DreamerWorker:
                 # Already failed - needs explicit resume, skip
                 return
 
-            # 1c. Mark step as RUNNING
+            # 1c. Check dependencies are satisfied
+            # Load scenario to get step definition with depends_on
+            state_type = await self.state_store.get_state_type(job.pipeline_id)
+            if state_type == 'dialogue':
+                temp_state = await self.state_store.load_dialogue_state(job.pipeline_id)
+                temp_scenario = load_scenario(temp_state.strategy_name) if temp_state else None
+            else:
+                temp_state = await self.state_store.load_state(job.pipeline_id)
+                temp_scenario = load_scenario(temp_state.scenario_name) if temp_state else None
+
+            if temp_scenario:
+                temp_scenario.compute_dependencies()
+                step_def = temp_scenario.steps.get(job.step_id)
+                if step_def and not await self.scheduler.all_deps_complete(job.pipeline_id, step_def):
+                    # Dependencies not satisfied - skip this stale job
+                    logger.warning(f"Skipping {job.step_id}: dependencies not complete")
+                    return
+
+            # 1d. Mark step as RUNNING
             await self.state_store.set_step_status(
                 job.pipeline_id, job.step_id, StepStatus.RUNNING
             )

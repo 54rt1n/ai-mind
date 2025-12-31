@@ -1050,3 +1050,238 @@ async def test_list_pipelines_with_status_filter(mock_state_store, mock_pipeline
         # Should only get the running one
         assert len(result) == 1
         assert result[0].status == "running"
+
+
+# Tests for dialogue flow resume/refresh
+
+@pytest.fixture
+def mock_dialogue_state():
+    """Create a mock DialogueState."""
+    from aim.dreamer.dialogue.models import DialogueState, DialogueTurn
+    from datetime import datetime, timezone
+
+    return DialogueState(
+        pipeline_id="test-dialogue-123",
+        strategy_name="test_dialogue_scenario",
+        conversation_id="test-conv",
+        persona_id="test_persona",
+        user_id="test_user",
+        model="test-model",
+        branch=1,
+        turns=[
+            DialogueTurn(
+                speaker_id="aspect:coder",
+                content="Test turn 1",
+                step_id="step1",
+                doc_id="doc-step1",
+                document_type="dialogue-coder",
+                timestamp=datetime.now(timezone.utc),
+            ),
+        ],
+        completed_steps=["step1"],
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+
+
+@pytest.mark.asyncio
+async def test_resume_dialogue_pipeline_success(mock_state_store, mock_scheduler, mock_dialogue_state, simple_scenario, mock_cvm):
+    """Test successful dialogue pipeline resume."""
+    from aim.conversation.message import ConversationMessage
+
+    with patch('aim.dreamer.api.load_scenario') as mock_load_scenario:
+        # Setup mocks
+        mock_state_store.get_state_type.return_value = 'dialogue'
+        mock_state_store.load_dialogue_state.return_value = mock_dialogue_state
+        mock_load_scenario.return_value = simple_scenario
+
+        # Mock DAG entries
+        mock_state_store.redis.hgetall.return_value = {
+            b"step1": b"complete",
+            b"step2": b"failed",
+        }
+
+        step_statuses = {
+            "step1": StepStatus.COMPLETE,
+            "step2": StepStatus.FAILED,
+        }
+
+        async def mock_get_step_status(pipeline_id, step_id):
+            return step_statuses.get(step_id, StepStatus.PENDING)
+
+        mock_state_store.get_step_status.side_effect = mock_get_step_status
+        mock_scheduler.all_deps_complete.return_value = True
+
+        # Mock load_conversation to return messages with step_name and branch
+        mock_msg = MagicMock(spec=ConversationMessage)
+        mock_msg.scenario_name = "test_dialogue_scenario"
+        mock_msg.step_name = "step1"
+        mock_msg.branch = 1
+        mock_cvm.load_conversation.return_value = [mock_msg]
+
+        result = await resume_pipeline("test-dialogue", mock_state_store, mock_scheduler, mock_cvm)
+
+        assert result.found is True
+        # step2 should be enqueued since it's failed and deps are satisfied
+        assert "step2" in result.steps_enqueued
+        mock_state_store.save_dialogue_state.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_resume_dialogue_pipeline_resets_missing_docs(mock_state_store, mock_scheduler, mock_dialogue_state, simple_scenario, mock_cvm):
+    """Test dialogue pipeline resume resets steps with missing documents."""
+    with patch('aim.dreamer.api.load_scenario') as mock_load_scenario:
+        # Setup mocks
+        mock_state_store.get_state_type.return_value = 'dialogue'
+        mock_state_store.load_dialogue_state.return_value = mock_dialogue_state
+        mock_load_scenario.return_value = simple_scenario
+
+        # Mock DAG entries
+        mock_state_store.redis.hgetall.return_value = {
+            b"step1": b"complete",
+            b"step2": b"pending",
+        }
+
+        step_statuses = {
+            "step1": StepStatus.COMPLETE,
+            "step2": StepStatus.PENDING,
+        }
+
+        async def mock_get_step_status(pipeline_id, step_id):
+            return step_statuses.get(step_id, StepStatus.PENDING)
+
+        mock_state_store.get_step_status.side_effect = mock_get_step_status
+        mock_scheduler.all_deps_complete.return_value = True
+
+        # step1's document is missing - return empty list (no completed steps in CVM)
+        mock_cvm.load_conversation.return_value = []
+
+        result = await resume_pipeline("test-dialogue", mock_state_store, mock_scheduler, mock_cvm)
+
+        assert result.found is True
+        assert "step1" in result.steps_reset
+
+
+@pytest.mark.asyncio
+async def test_refresh_dialogue_pipeline_success(mock_state_store, mock_scheduler, mock_dialogue_state, simple_scenario, mock_cvm):
+    """Test successful dialogue pipeline refresh."""
+    from aim.conversation.message import ConversationMessage
+
+    with patch('aim.dreamer.api.load_scenario') as mock_load_scenario:
+        # Setup mocks
+        mock_state_store.get_state_type.return_value = 'dialogue'
+        mock_state_store.load_dialogue_state.return_value = mock_dialogue_state
+        mock_load_scenario.return_value = simple_scenario
+
+        # Mock DAG entries
+        mock_state_store.redis.hgetall.return_value = {
+            b"step1": b"complete",
+            b"step2": b"pending",
+        }
+
+        step_statuses = {
+            "step1": StepStatus.COMPLETE,
+            "step2": StepStatus.PENDING,
+        }
+
+        async def mock_get_step_status(pipeline_id, step_id):
+            return step_statuses.get(step_id, StepStatus.PENDING)
+
+        mock_state_store.get_step_status.side_effect = mock_get_step_status
+
+        # All documents exist - return message with step1 completed
+        mock_msg = MagicMock(spec=ConversationMessage)
+        mock_msg.scenario_name = "test_dialogue_scenario"
+        mock_msg.step_name = "step1"
+        mock_msg.branch = 1
+        mock_cvm.load_conversation.return_value = [mock_msg]
+
+        result = await refresh_pipeline("test-dialogue", mock_state_store, mock_scheduler, mock_cvm)
+
+        assert result.found is True
+        # Refresh should NOT enqueue any steps
+        assert result.steps_enqueued == []
+        mock_scheduler.enqueue_step.assert_not_called()
+        mock_state_store.save_dialogue_state.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_refresh_dialogue_pipeline_adds_new_steps(mock_state_store, mock_scheduler, mock_dialogue_state, mock_cvm):
+    """Test dialogue pipeline refresh detects new scenario steps."""
+    from aim.conversation.message import ConversationMessage
+
+    # Create scenario with 3 steps
+    scenario_with_new_step = Scenario(
+        name="test_dialogue_scenario",
+        version=2,
+        description="Test dialogue scenario with new step",
+        context=ScenarioContext(
+            required_aspects=["coder"],
+            core_documents=["summary"],
+            location="Test location",
+        ),
+        seed=[],
+        steps={
+            "step1": StepDefinition(
+                id="step1",
+                prompt="Step 1 prompt",
+                output=StepOutput(document_type="test", weight=1.0),
+                next=["step2"],
+            ),
+            "step2": StepDefinition(
+                id="step2",
+                prompt="Step 2 prompt",
+                output=StepOutput(document_type="test", weight=1.0),
+                depends_on=["step1"],
+                next=["step3"],
+            ),
+            "step3": StepDefinition(
+                id="step3",
+                prompt="Step 3 prompt - NEW",
+                output=StepOutput(document_type="test", weight=1.0),
+                depends_on=["step2"],
+                next=[],
+            ),
+        },
+    )
+
+    with patch('aim.dreamer.api.load_scenario') as mock_load_scenario:
+        # Setup mocks
+        mock_state_store.get_state_type.return_value = 'dialogue'
+        mock_state_store.load_dialogue_state.return_value = mock_dialogue_state
+        mock_load_scenario.return_value = scenario_with_new_step
+
+        # Only step1, step2 in DAG (step3 is new)
+        mock_state_store.redis.hgetall.return_value = {
+            b"step1": b"complete",
+            b"step2": b"complete",
+        }
+
+        step_statuses = {
+            "step1": StepStatus.COMPLETE,
+            "step2": StepStatus.COMPLETE,
+            "step3": StepStatus.PENDING,
+        }
+
+        async def mock_get_step_status(pipeline_id, step_id):
+            return step_statuses.get(step_id, StepStatus.PENDING)
+
+        mock_state_store.get_step_status.side_effect = mock_get_step_status
+
+        # Both step1 and step2 have documents in CVM
+        mock_msg1 = MagicMock(spec=ConversationMessage)
+        mock_msg1.scenario_name = "test_dialogue_scenario"
+        mock_msg1.step_name = "step1"
+        mock_msg1.branch = 1
+        mock_msg2 = MagicMock(spec=ConversationMessage)
+        mock_msg2.scenario_name = "test_dialogue_scenario"
+        mock_msg2.step_name = "step2"
+        mock_msg2.branch = 1
+        mock_cvm.load_conversation.return_value = [mock_msg1, mock_msg2]
+
+        result = await refresh_pipeline("test-dialogue", mock_state_store, mock_scheduler, mock_cvm)
+
+        assert result.found is True
+        assert "step3" in result.new_steps_added
+        # Refresh should NOT enqueue
+        assert result.steps_enqueued == []

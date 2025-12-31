@@ -303,6 +303,7 @@ steps:
       And from that epilogue, let inspiration rise: what spark will they carry forward?
 
       Begin with "[== {{ writer.name }}'s Emotional State: <list of +Emotions+> ==]"
+      For "[== Epilogue: <evocative title> ==]"
     config:
       max_tokens: 4096
     output:
@@ -322,8 +323,7 @@ steps:
       rise: what spark do you carry forward? What will this dream become?
 
       Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      Then "[== Epilogue: <evocative title> ==]" for your prose.
-      Then "[== {{ persona.name }}'s Inspiration: <brief title> ==]" for the spark you carry.
+      Then "{{ persona.name }}'s Inspiration:" for the spark you carry.
     context:
       - action: search_memories
         top_n: 4
@@ -375,7 +375,6 @@ steps:
     context:
       - action: search_memories
         top_n: 10
-        document_types: [codex]
     config:
       max_tokens: 4096
     output:

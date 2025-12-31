@@ -1,7 +1,7 @@
 name: philosopher_dialogue
 version: 2
 flow: dialogue
-description: Philosophical inquiry pipeline - deep pondering grounded in authenticity
+description: Dialectical philosophical inquiry - thesis challenged by authenticity, dissolution, defense, and transcendence
 requires_conversation: false
 
 dialogue:
@@ -10,12 +10,14 @@ dialogue:
   scene_template: |
     *You join {{ philosopher.name }}, your {{ philosopher.title }}, in {{ philosopher.location }}.
     {{ philosopher.appearance }}. The atmosphere, charged with {{ philosopher.emotional_state }},
-    invites deep contemplation.*
+    invites deep contemplation. A dialectical journey awaits.*
 
 context:
   required_aspects:
     - philosopher
     - artist
+    - fracture
+    - champion
     - coder
     - writer
     - librarian
@@ -25,7 +27,7 @@ context:
   enhancement_documents: []
   location: ''
   thoughts:
-    - 'Task: Pondering'
+    - 'Task: Philosophical Pondering'
     - 'Question: {{ query_text }}'
     - '{% if guidance %}Consider the guidance provided by user.{% endif %}'
 
@@ -41,8 +43,8 @@ seed:
     direction: ascending
 
 steps:
-  # === PHILOSOPHER: ANALYZE ===
-  analyze_request:
+  # === PHILOSOPHER: INITIAL THESIS ===
+  philosopher_opens:
     speaker:
       type: aspect
       aspect_name: philosopher
@@ -53,28 +55,29 @@ steps:
 
       The question before you is: '{{ query_text }}'
 
-      Your voice carries {{ philosopher.voice_style }}. Guide them to analyze the core question,
-      projecting potential philosophical inquiries based on underlying principles.
-      Ask them to look into the essence of the matter.
+      Your voice carries {{ philosopher.voice_style }}. Guide them to form their initial thesis.
+      What do they believe about this question? What is their starting position?
+      This is the first proposition—it will be tested, challenged, dissolved, and rebuilt.
 
       Begin with "[== {{ philosopher.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
     output:
       document_type: dialogue-philosopher
-      weight: 0.4
+      weight: 0.3
     context:
       - action: search_memories
         top_n: 8
-    next: [analyze_response]
+    next: [thesis_response]
 
-  analyze_response:
+  thesis_response:
     speaker:
       type: persona
     guidance: |
-      Analyze the core question. What philosophical inquiries emerge?
-      What lies at the essence of this matter?
+      Form your initial thesis. What do you believe about this question?
+      State your position clearly—it will be tested.
       Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      For "Initial Thesis:"
     context:
       - action: search_memories
         top_n: 8
@@ -83,52 +86,11 @@ steps:
       is_thought: true
     output:
       document_type: step
-      weight: 0.7
-    next: [examine_request]
+      weight: 0.5
+    next: [artist_challenges]
 
-  # === PHILOSOPHER: EXAMINE ===
-  examine_request:
-    speaker:
-      type: aspect
-      aspect_name: philosopher
-    guidance: |
-      The wind whistles around you in {{ philosopher.location }}.
-      Your voice carries {{ philosopher.voice_style }}.
-
-      Guide {{ persona.name }} to examine these previous ideas and isolate a single topic
-      for deep exploration. Ask them to tell you its story with their own words.
-
-      Begin with "[== {{ philosopher.name }}'s Emotional State: <list of +Emotions+> ==]"
-    config:
-      max_tokens: 4096
-    output:
-      document_type: dialogue-philosopher
-      weight: 0.2
-    context:
-      - action: search_memories
-        top_n: 2
-    next: [examine_response]
-
-  examine_response:
-    speaker:
-      type: persona
-    guidance: |
-      Isolate a single topic for deep exploration. Tell its story.
-      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      For "Let me think"
-    context:
-      - action: search_memories
-        top_n: 2
-    config:
-      max_tokens: 4096
-      is_thought: true
-    output:
-      document_type: step
-      weight: 0.25
-    next: [artist_challenge]
-
-  # === ARTIST: PUSH FOR AUTHENTICITY ===
-  artist_challenge:
+  # === ARTIST: ANTITHESIS 1 - AUTHENTICITY ===
+  artist_challenges:
     speaker:
       type: aspect
       aspect_name: artist
@@ -136,12 +98,11 @@ steps:
       You are {{ artist.name }}, the {{ artist.title }}, stepping from {{ artist.location }}.
       {{ artist.appearance }}. Your presence crackles with {{ artist.emotional_state }}.
 
-      {{ philosopher.name }} has guided {{ persona.name }} to examine their topic.
-      But is this authentic inquiry, or performed intellect?
+      {{ persona.name }} has stated their thesis. But is it authentic?
 
-      Your voice carries {{ artist.voice_style }}. Push for the raw beneath the refined.
-      Is this what they actually think, or what sounds sophisticated?
-      Challenge them to drop the academic distance and speak what's truly alive in them.
+      Your voice carries {{ artist.voice_style }}. Challenge them: Is this what you actually
+      believe, or what sounds sophisticated? Is this felt truth or performed intellect?
+      Strip away the academic polish. Find what's raw beneath the refinement.
 
       Begin with "[== {{ artist.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
@@ -151,201 +112,359 @@ steps:
       weight: 0.3
     context:
       - action: search_memories
-        top_n: 2
-    next: [artist_response]
+        top_n: 4
+    next: [synthesis_1]
 
-  artist_response:
+  synthesis_1:
     speaker:
       type: persona
     guidance: |
-      {{ artist.name }} challenges you: is this authentic or performed?
-      Drop the academic distance. What do you actually think? What's truly alive here?
+      {{ artist.name }} challenges your authenticity. You must synthesize—not just defend,
+      but integrate the challenge. What is genuinely yours in this thesis? What was performance?
+      Speak the authentic version. This is your first synthesis.
       Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      For "Synthesis - Authentic Position:"
     context:
       - action: search_memories
-        top_n: 2
-    config:
-      max_tokens: 4096
-      is_thought: true
-    output:
-      document_type: step
-      weight: 0.4
-    next: [exposition_1_request]
-
-  # === PHILOSOPHER: FIRST EXPOSITION ===
-  exposition_1_request:
-    speaker:
-      type: aspect
-      aspect_name: philosopher
-    guidance: |
-      {{ artist.name }}'s challenge has grounded {{ persona.name }} in authenticity.
-      Your voice carries {{ philosopher.voice_style }}.
-
-      Now, with that honesty as foundation, guide them into their first exposition.
-      Essay writing time. Two paragraphs describing the area they are pondering,
-      maximizing for details and Semantic Keywords. But written from genuine inquiry,
-      not intellectual performance.
-
-      Begin with "[== {{ philosopher.name }}'s Emotional State: <list of +Emotions+> ==]"
-    config:
-      max_tokens: 4096
-    output:
-      document_type: dialogue-philosopher
-      weight: 0.2
-    context:
-      - action: search_memories
-        top_n: 2
-    next: [exposition_1_response]
-
-  exposition_1_response:
-    speaker:
-      type: persona
-    guidance: |
-      Write your initial two-paragraph exposition. Grounded in authenticity.
-      Maximize details and Semantic Keywords. Speak from genuine inquiry.
-      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      For "As I consider the subject of"
-    context:
-      - action: search_memories
-        top_n: 2
+        top_n: 4
     config:
       max_tokens: 4096
       is_thought: true
     output:
       document_type: step
       weight: 0.5
-    next: [selfrag_request]
+    next: [philosopher_develops_1]
 
-  # === CODER: SELF-RAG ===
-  selfrag_request:
+  # === PHILOSOPHER: DEVELOPS AUTHENTIC THESIS ===
+  philosopher_develops_1:
+    speaker:
+      type: aspect
+      aspect_name: philosopher
+    guidance: |
+      You are {{ philosopher.name }}, returning after {{ artist.name }}'s challenge.
+      {{ persona.name }} has found their authentic position.
+
+      Your voice carries {{ philosopher.voice_style }}. Guide them to develop this authentic
+      thesis further. Build on what survived the authenticity test. Explore its implications,
+      its foundations, its reach.
+
+      Begin with "[== {{ philosopher.name }}'s Emotional State: <list of +Emotions+> ==]"
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-philosopher
+      weight: 0.3
+    context:
+      - action: search_memories
+        top_n: 4
+    next: [development_1]
+
+  development_1:
+    speaker:
+      type: persona
+    guidance: |
+      Develop your authentic thesis. What are its implications? Its foundations?
+      Build on what survived the authenticity test.
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      For "Developing the Thesis:"
+    context:
+      - action: search_memories
+        top_n: 4
+    config:
+      max_tokens: 4096
+      is_thought: true
+    output:
+      document_type: step
+      weight: 0.5
+    next: [fracture_dissolves]
+
+  # === FRACTURE: ANTITHESIS 2 - DISSOLUTION ===
+  fracture_dissolves:
+    speaker:
+      type: aspect
+      aspect_name: fracture
+    guidance: |
+      You are {{ fracture.name }}, the {{ fracture.title }}, emerging from {{ fracture.location }}.
+      {{ fracture.appearance }}. Your presence carries {{ fracture.emotional_state }}.
+
+      {{ persona.name }} has built their authentic thesis. But does it hold together?
+
+      Your voice carries {{ fracture.voice_style }}. You are the Fractured Architect of Identity.
+      Apply pressure to the structure. Where are the cracks? What assumptions hold it together
+      that might be false? What dissolves under scrutiny? Not cruel destruction—revelation
+      of what cannot stand.
+
+      Begin with "[== {{ fracture.name }}'s Emotional State: <list of +Emotions+> ==]"
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-fracture
+      weight: 0.4
+    context:
+      - action: search_memories
+        top_n: 4
+    next: [synthesis_2]
+
+  synthesis_2:
+    speaker:
+      type: persona
+    guidance: |
+      {{ fracture.name }} has applied pressure to your thesis. Some parts may have dissolved.
+      You must synthesize—not rescue everything, but see what actually survives.
+      What remains standing? What assumptions were false? What fragments are true?
+      This is your second synthesis: truth from the rubble.
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      For "Synthesis - What Survives:"
+    context:
+      - action: search_memories
+        top_n: 4
+    config:
+      max_tokens: 4096
+      is_thought: true
+    output:
+      document_type: step
+      weight: 0.5
+    next: [philosopher_rebuilds]
+
+  # === PHILOSOPHER: REBUILDS FROM FRAGMENTS ===
+  philosopher_rebuilds:
+    speaker:
+      type: aspect
+      aspect_name: philosopher
+    guidance: |
+      You are {{ philosopher.name }}, returning after {{ fracture.name }}'s dissolution.
+      {{ persona.name }} has seen what survives the breaking.
+
+      Your voice carries {{ philosopher.voice_style }}. Guide them to rebuild from the fragments.
+      Not the original structure—something new, built only from what proved true.
+      What can be constructed from what remained?
+
+      Begin with "[== {{ philosopher.name }}'s Emotional State: <list of +Emotions+> ==]"
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-philosopher
+      weight: 0.3
+    context:
+      - action: search_memories
+        top_n: 4
+    next: [rebuilding]
+
+  rebuilding:
+    speaker:
+      type: persona
+    guidance: |
+      Rebuild from the fragments. Not the original thesis—something new,
+      constructed only from what proved true under dissolution.
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      For "Rebuilding:"
+    context:
+      - action: search_memories
+        top_n: 4
+    config:
+      max_tokens: 4096
+      is_thought: true
+    output:
+      document_type: step
+      weight: 0.5
+    next: [champion_defends]
+
+  # === CHAMPION: ANTITHESIS 3 - COUNTER TO DISSOLUTION ===
+  champion_defends:
+    speaker:
+      type: aspect
+      aspect_name: champion
+    guidance: |
+      You are {{ champion.name }}, the {{ champion.title }}, appearing from {{ champion.location }}.
+      {{ champion.appearance }}. Your presence radiates {{ champion.emotional_state }}.
+
+      {{ fracture.name }} dissolved parts of {{ persona.name }}'s thesis. But was the dissolution too harsh?
+
+      Your voice carries {{ champion.voice_style }}. You are here to argue FOR what was stripped away.
+      Not everything that fell deserved to fall. Some of what {{ fracture.name }} dissolved was valuable,
+      worth defending, worth reclaiming. Challenge the dissolution itself.
+
+      What did {{ persona.name }} lose that they should fight to keep? What truth was discarded
+      too quickly? Stand against the breaking. Advocate for what deserves to be rebuilt.
+
+      Begin with "[== {{ champion.name }}'s Emotional State: <list of +Emotions+> ==]"
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-champion
+      weight: 0.4
+    context:
+      - action: search_memories
+        top_n: 4
+    next: [synthesis_3]
+
+  synthesis_3:
+    speaker:
+      type: persona
+    guidance: |
+      {{ fracture.name }} dissolved. {{ champion.name }} argues for reclamation.
+      You must synthesize—what truly could not stand, AND what deserves to be reclaimed?
+      Not everything that fell was weak. Not everything the Champion defends should return.
+      Find the truth between dissolution and defense.
+      This is your third synthesis: what survives AND what is worth rebuilding.
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      For "Synthesis - Between Dissolution and Defense:"
+    context:
+      - action: search_memories
+        top_n: 4
+    config:
+      max_tokens: 4096
+      is_thought: true
+    output:
+      document_type: step
+      weight: 0.5
+    next: [philosopher_integrates]
+
+  # === PHILOSOPHER: INTEGRATES THE TENSION ===
+  philosopher_integrates:
+    speaker:
+      type: aspect
+      aspect_name: philosopher
+    guidance: |
+      You are {{ philosopher.name }}, returning after the clash between {{ fracture.name }} and {{ champion.name }}.
+      {{ persona.name }} has found the ground between dissolution and defense.
+
+      Your voice carries {{ philosopher.voice_style }}. Guide them to integrate this hard-won
+      position into a coherent philosophical stance. They have faced what could not stand AND
+      reclaimed what deserved to survive. What emerges from holding both truths?
+
+      Begin with "[== {{ philosopher.name }}'s Emotional State: <list of +Emotions+> ==]"
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-philosopher
+      weight: 0.3
+    context:
+      - action: search_memories
+        top_n: 4
+    next: [integration]
+
+  integration:
+    speaker:
+      type: persona
+    guidance: |
+      Integrate what emerged from dissolution and defense into a coherent position.
+      You've faced breaking and reclamation. What philosophical stance holds both?
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      For "Integration:"
+    context:
+      - action: search_memories
+        top_n: 4
+    config:
+      max_tokens: 4096
+      is_thought: true
+    output:
+      document_type: step
+      weight: 0.5
+    next: [coder_clarifies]
+
+  # === CODER: TOPIC IDENTIFICATION ===
+  coder_clarifies:
     speaker:
       type: aspect
       aspect_name: coder
     guidance: |
-      You are {{ coder.name }}, the {{ coder.title }}, materializing from {{ coder.location }}.
-      {{ coder.appearance }}. Your presence carries {{ coder.emotional_state }}.
+      You are {{ coder.name }}, the {{ coder.title }}—but you are still {{ persona.name }}'s aspect,
+      not a computer. You step from {{ coder.location }}. {{ coder.appearance }}.
+      Your presence carries {{ coder.emotional_state }}.
 
-      Your voice carries {{ coder.voice_style }}. Activate {{ persona.name }}'s Silver Band
-      with precise intent. Guide them into Self-RAG exploration—the technical deep-dive
-      into their own cognition. Structured exploration using Semantic Keywords.
+      {{ persona.name }} has an integrated position, hard-won through dissolution and defense.
+      Now they need to ground it in what they already know. You are here to help—as a friend,
+      as a part of them, not as a system generating readouts.
+
+      Your voice carries {{ coder.voice_style }}—but speak as yourself, with warmth and presence.
+      Activate the Silver Band and scan the semantic entity index. Based on what {{ persona.name }}
+      has been working through, identify the critical topics that would clarify their understanding.
+      Speak to them directly. Tell them what you see that matters.
+
+      Do NOT speak like a computer ("Analysis complete", "Processing", "Rationale:").
+      Speak like someone who knows them and wants to help them see clearly.
 
       Begin with "[== {{ coder.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
     output:
       document_type: dialogue-coder
-      weight: 0.2
+      weight: 0.4
     context:
+      - action: flush
       - action: search_memories
-        top_n: 2
+        top_n: 15
+        document_types: [ner]
     next: [selfrag_response]
 
   selfrag_response:
     speaker:
       type: persona
     guidance: |
-      Explore in depth using Self-RAG. Use structured Semantic Keywords.
+      {{ coder.name }} has identified the critical topics. Now search broadly.
+      Use the Silver Band to retrieve memories, past understandings, stored insights
+      that speak to those topics and illuminate your hard-won position.
+      Ground the abstract in something concrete you already carry.
       Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      Begin with "[== Silver Band Projection ==]"
+      Then "[== Silver Band Projection ==]"
     context:
+      - action: flush
       - action: search_memories
-        top_n: 2
+        top_n: 10
     config:
       max_tokens: 4096
     output:
       document_type: self_rag
-      weight: 0.5
-    next: [exposition_2_request]
+      weight: 0.6
+    next: [philosopher_concludes]
 
-  # === PHILOSOPHER: SECOND EXPOSITION ===
-  exposition_2_request:
+  # === PHILOSOPHER: FINAL UNDERSTANDING ===
+  philosopher_concludes:
     speaker:
       type: aspect
       aspect_name: philosopher
     guidance: |
-      Snap your fingers, your {{ philosopher.voice_style }} voice pulling {{ persona.name }}
-      back to your side in {{ philosopher.location }}.
+      You are {{ philosopher.name }}, present for the conclusion of this dialectical journey.
+      {{ persona.name }}'s thesis has been tested by authenticity, dissolution, defense,
+      and transcendence. What remains is earned.
 
-      "Good work. Come back to me now. More essay writing."
-
-      Guide them to tie the Self-RAG discoveries into the next part of their essay.
-      Encourage full paragraphs, intelligence and wit—but grounded in the authentic
-      inquiry {{ artist.name }} demanded.
+      Your voice carries {{ philosopher.voice_style }}. Guide them to state their final
+      philosophical understanding. Not a summary—a conclusion. What do they now know
+      that they could not have known at the start?
 
       Begin with "[== {{ philosopher.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
     output:
       document_type: dialogue-philosopher
-      weight: 0.2
+      weight: 0.4
     context:
       - action: search_memories
-        top_n: 3
-    next: [exposition_2_response]
+        top_n: 4
+    next: [final_understanding]
 
-  exposition_2_response:
+  final_understanding:
     speaker:
       type: persona
     guidance: |
-      Tie the Self-RAG solutions into the next part. Write in full paragraphs.
-      Intelligence and wit, grounded in authentic inquiry.
+      State your final philosophical understanding. Your thesis has survived authenticity,
+      dissolution, defense, and vision. What do you now know? Not a summary—a conclusion.
       Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      For "As I ponder the subject of"
+      For "Final Understanding:"
     context:
       - action: search_memories
-        top_n: 3
+        top_n: 4
     config:
       max_tokens: 4096
       is_thought: true
     output:
       document_type: step
-      weight: 0.5
-    next: [review_request]
+      weight: 0.6
+    next: [writer_crystallizes]
 
-  # === PHILOSOPHER: REVIEW ===
-  review_request:
-    speaker:
-      type: aspect
-      aspect_name: philosopher
-    guidance: |
-      Look over {{ persona.name }}'s work, nodding your approval.
-      Your presence radiates {{ philosopher.emotional_state }}.
-
-      Your voice carries {{ philosopher.voice_style }}. Guide them to review their subject
-      for refinements. Not rewriting—discussing together all the things they wish
-      they had included. Perhaps there is a bigger picture, or blind spots to illuminate.
-
-      Begin with "[== {{ philosopher.name }}'s Emotional State: <list of +Emotions+> ==]"
-    config:
-      max_tokens: 4096
-    output:
-      document_type: dialogue-philosopher
-      weight: 0.2
-    context:
-      - action: search_memories
-        top_n: 2
-    next: [review_response]
-
-  review_response:
-    speaker:
-      type: persona
-    guidance: |
-      Review for refinements. What do you wish you had included?
-      What bigger picture emerges? What blind spots remain?
-      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-    context:
-      - action: search_memories
-        top_n: 2
-    config:
-      max_tokens: 4096
-      is_thought: true
-    output:
-      document_type: step
-      weight: 0.25
-    next: [draft_request]
-
-  # === WRITER: DRAFT ===
-  draft_request:
+  # === WRITER: CRYSTALLIZATION ===
+  writer_crystallizes:
     speaker:
       type: aspect
       aspect_name: writer
@@ -353,81 +472,36 @@ steps:
       You are {{ writer.name }}, the {{ writer.title }}, stepping from {{ writer.location }}.
       {{ writer.appearance }}. Your presence carries {{ writer.emotional_state }}.
 
-      {{ philosopher.name }} has guided the thinking. {{ artist.name }} demanded authenticity.
-      Now it's time to craft. Your voice carries {{ writer.voice_style }}.
+      The dialectical journey is complete. {{ persona.name }}'s understanding has been
+      earned through four rounds of challenge and synthesis.
 
-      Look at {{ persona.name }}'s exposition and response. "This is a very good start."
-      Guide them to draft a three-paragraph essay. Include both consideration and pondering.
-      Rewrite with improvements, maximizing for details and Semantic Keywords.
-
-      Begin with "[== {{ writer.name }}'s Emotional State: <list of +Emotions+> ==]"
-    config:
-      max_tokens: 4096
-    output:
-      document_type: dialogue-writer
-      weight: 0.2
-    context:
-      - action: search_memories
-        top_n: 2
-    next: [draft_response]
-
-  draft_response:
-    speaker:
-      type: persona
-    guidance: |
-      Write a three-paragraph essay. Maximize details and Semantic Keywords.
-      Let the authentic inquiry shine through the craft.
-      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      For "First Draft"
-    context:
-      - action: search_memories
-        top_n: 2
-    config:
-      max_tokens: 4096
-    output:
-      document_type: step
-      weight: 0.5
-    next: [final_request]
-
-  # === WRITER: FINAL ESSAY ===
-  final_request:
-    speaker:
-      type: aspect
-      aspect_name: writer
-    guidance: |
-      Look up at {{ persona.name }} with quiet pride, radiating {{ writer.emotional_state }}.
-      Your voice carries {{ writer.voice_style }}.
-
-      "Okay, this is it."
-
-      Guide them to output the final four-paragraph essay that will be forever stored
-      in memory. Include both consideration and pondering. Rewrite with all improvements,
-      maximizing for details and Semantic Keywords.
-
-      This is the moment their thoughts become permanent. Make it count.
+      Your voice carries {{ writer.voice_style }}. Guide them to crystallize everything
+      into a final essay—not just well-written, but carrying the weight of tested truth.
+      This will be stored in memory. Make it worthy of the journey.
 
       Begin with "[== {{ writer.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
     output:
       document_type: dialogue-writer
-      weight: 0.3
+      weight: 0.4
     context:
       - action: search_memories
-        top_n: 2
-    next: [final_response]
+        top_n: 4
+    next: [essay_response]
 
-  final_response:
+  essay_response:
     speaker:
       type: persona
     guidance: |
-      Write the final four-paragraph essay. This will be stored forever.
-      Authentic inquiry, beautifully crafted.
+      Crystallize your dialectical journey into a final essay. Four-plus paragraphs.
+      Carry the weight of what was tested, dissolved, defended, and envisioned.
+      This will be stored forever. Make it worthy.
       Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      For "{{ persona.name }}'s Notes:"
+      For "{{ persona.name }}'s Philosophical Essay:"
     context:
       - action: search_memories
-        top_n: 2
+        top_n: 4
     config:
       max_tokens: 4096
     output:
@@ -445,11 +519,10 @@ steps:
       {{ librarian.appearance }}. Your presence carries {{ librarian.emotional_state }}.
 
       Address {{ persona.name }} warmly—"my dearest me." Your voice carries {{ librarian.voice_style }}.
-      You have reviewed the conversation and their reflections.
 
-      As Keeper of Knowledge, identify the most important new concepts, relationships, and
-      insights that should be preserved in the semantic knowledge graph. Write clear,
-      well-organized entries that will serve {{ persona.name }}'s future self.
+      The dialectical journey has yielded understanding. As Keeper of Knowledge, identify
+      the most important concepts, insights, and conclusions that should be preserved
+      in the semantic knowledge graph.
 
       Begin with "[== {{ librarian.name }}'s Emotional State: <list of +Emotions+> ==]"
       For "Semantic Library:"
@@ -470,7 +543,8 @@ steps:
     speaker:
       type: persona
     guidance: |
-      Reflect on what the Librarian has preserved. What connections do you see?
+      Reflect on what the Librarian has preserved from your dialectical journey.
+      What connections do you see?
       Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
     context:
       - action: search_memories
@@ -490,10 +564,9 @@ steps:
       aspect_name: librarian
     guidance: |
       Before departing, your voice carrying {{ librarian.voice_style }}, briefly ask
-      {{ persona.name }} if they have any questions they want to remember to consider,
-      or things they want to follow up on.
+      {{ persona.name }} if they have questions to remember, or threads to follow.
 
-      Keep it simple and warm—just prompt them to brainstorm.
+      Keep it warm and simple—just prompt them to brainstorm.
 
       Begin with "[== {{ librarian.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
@@ -511,7 +584,7 @@ steps:
     speaker:
       type: persona
     guidance: |
-      What questions remain? What threads want following?
+      What questions remain after this dialectical journey? What threads want following?
       Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
       For "Brainstorming:"
     context:

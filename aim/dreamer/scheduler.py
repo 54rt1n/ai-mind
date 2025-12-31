@@ -137,6 +137,53 @@ class Scheduler:
 
         return len(due_jobs)
 
+    async def clear_pipeline_jobs(self, pipeline_id: str) -> int:
+        """Remove all queued jobs for a specific pipeline.
+
+        Args:
+            pipeline_id: Pipeline identifier to clear jobs for
+
+        Returns:
+            Number of jobs removed
+        """
+        removed = 0
+
+        # Get all jobs from main queue
+        all_jobs = await self.redis.lrange(self.queue_key, 0, -1)
+
+        # Find and remove jobs for this pipeline
+        for job_json in all_jobs:
+            if isinstance(job_json, bytes):
+                job_json_str = job_json.decode('utf-8')
+            else:
+                job_json_str = job_json
+
+            try:
+                job_data = json.loads(job_json_str)
+                if job_data.get('pipeline_id') == pipeline_id:
+                    await self.redis.lrem(self.queue_key, 1, job_json)
+                    removed += 1
+            except json.JSONDecodeError:
+                continue
+
+        # Also clear from delayed queue
+        delayed_jobs = await self.redis.zrange(self.delayed_key, 0, -1)
+        for job_json in delayed_jobs:
+            if isinstance(job_json, bytes):
+                job_json_str = job_json.decode('utf-8')
+            else:
+                job_json_str = job_json
+
+            try:
+                job_data = json.loads(job_json_str)
+                if job_data.get('pipeline_id') == pipeline_id:
+                    await self.redis.zrem(self.delayed_key, job_json)
+                    removed += 1
+            except json.JSONDecodeError:
+                continue
+
+        return removed
+
     async def all_deps_complete(
         self, pipeline_id: str, step: StepDefinition
     ) -> bool:
