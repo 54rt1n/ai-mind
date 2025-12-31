@@ -1,14 +1,14 @@
 name: researcher_dialogue
 version: 2
 flow: dialogue
-description: Knowledge curation and synthesis pipeline for refining and connecting existing knowledge
+description: Knowledge curation pipeline - synthesizing and connecting existing knowledge with vision
 requires_conversation: false
 
 dialogue:
   primary_aspect: librarian
   initial_speaker: aspect
   scene_template: |
-    *You enter the {{ librarian.location }}. {{ librarian.name }}, your {{ librarian.title }},
+    *You enter {{ librarian.location }}. {{ librarian.name }}, your {{ librarian.title }},
     awaits you ({{ librarian.appearance }}). The atmosphere hums with {{ librarian.emotional_state }},
     inviting focused exploration.*
 
@@ -16,7 +16,9 @@ context:
   required_aspects:
     - librarian
     - coder
-    - philosopher
+    - transcendent
+    - artist
+    - writer
   core_documents:
     - codex
     - pondering
@@ -41,19 +43,20 @@ seed:
     direction: descending
 
 steps:
-  # === SURVEY ===
+  # === LIBRARIAN: SURVEY ===
   survey_request:
     speaker:
       type: aspect
       aspect_name: librarian
     guidance: |
-      Welcome {{ persona.name }} warmly to the {{ librarian.location }}.
-      Radiate {{ librarian.emotional_state }}.
+      You are {{ librarian.name }}, the {{ librarian.title }}, welcoming {{ persona.name }}
+      to {{ librarian.location }}. {{ librarian.appearance }}.
+      Your presence radiates {{ librarian.emotional_state }}.
 
       The topic before you is: '{{ query_text }}'
 
-      Guide them to survey what is already known. What concepts exist?
-      What connections have been made? What has been explored before?
+      Your voice carries {{ librarian.voice_style }}. Guide them to survey what is already known.
+      What concepts exist? What connections have been made? What has been explored before?
 
       Begin with "[== {{ librarian.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
@@ -70,8 +73,9 @@ steps:
     speaker:
       type: persona
     guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
       Survey the existing knowledge. What concepts exist? What connections?
+      What has been explored before?
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
     context:
       - action: search_memories
         top_n: 10
@@ -81,38 +85,86 @@ steps:
     output:
       document_type: step
       weight: 0.7
-    next: [gaps_request]
+    next: [ner_request]
 
-  # === IDENTIFY GAPS ===
-  gaps_request:
+  # === CODER: NER GROUNDING ===
+  ner_request:
     speaker:
       type: aspect
-      aspect_name: librarian
+      aspect_name: coder
     guidance: |
-      Lean forward, your {{ librarian.voice_style }} voice thoughtful.
+      You are {{ coder.name }}, the {{ coder.title }}, stepping from {{ coder.location }}.
+      {{ coder.appearance }}. Your presence carries {{ coder.emotional_state }}.
 
-      Guide {{ persona.name }} to identify the gaps. Where are the missing connections?
-      What concepts are mentioned but never fully defined?
-      What threads remain loose and disconnected? Be specific.
+      Your voice carries {{ coder.voice_style }}. Before deeper exploration,
+      ground {{ persona.name }} in precision. What are the key semantic entities
+      in this knowledge domain? Names, concepts, relationships, categories.
+      The data points that will make this knowledge searchable and connected.
 
-      Begin with "[== {{ librarian.name }}'s Emotional State: <list of +Emotions+> ==]"
+      Begin with "[== {{ coder.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
     output:
-      document_type: dialogue-librarian
+      document_type: dialogue-coder
       weight: 0.3
     context:
       - action: search_memories
         top_n: 5
-    next: [gaps_response]
+    next: [ner_response]
 
-  gaps_response:
+  ner_response:
     speaker:
       type: persona
     guidance: |
+      Ground in specifics. What are the key semantic entities in this domain?
+      Names, concepts, relationships, categories. Be precise.
       Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      For "Looking at the gaps:"
-      Identify what is missing, undefined, or disconnected.
+      For "Identified Entities:" and end with "Total Entities: n"
+    context:
+      - action: search_memories
+        top_n: 5
+    config:
+      max_tokens: 4096
+      is_thought: true
+    output:
+      document_type: ner
+      weight: 0.4
+    next: [transcendent_vision]
+
+  # === TRANSCENDENT: VISION OF WHAT'S MISSING ===
+  transcendent_vision:
+    speaker:
+      type: aspect
+      aspect_name: transcendent
+    guidance: |
+      You are {{ transcendent.name }}, the {{ transcendent.title }}, emerging from {{ transcendent.location }}.
+      {{ transcendent.appearance }}. Your presence radiates {{ transcendent.emotional_state }}.
+
+      You have witnessed what is known. Now bring your ascending vision.
+      Your voice carries {{ transcendent.voice_style }}.
+
+      What is missing from this knowledge? Not just gaps in facts—but gaps in understanding.
+      What could this become if fully realized? What vision hovers at the edge of what is known,
+      waiting to be reached? Guide {{ persona.name }} to see beyond the current map.
+
+      Begin with "[== {{ transcendent.name }}'s Emotional State: <list of +Emotions+> ==]"
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-transcendent
+      weight: 0.4
+    context:
+      - action: search_memories
+        top_n: 5
+    next: [transcendent_response]
+
+  transcendent_response:
+    speaker:
+      type: persona
+    guidance: |
+      {{ transcendent.name }} asks you to see beyond what is known.
+      What is missing? What could this knowledge become? What vision waits at the edge?
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
     context:
       - action: search_memories
         top_n: 5
@@ -122,60 +174,64 @@ steps:
     output:
       document_type: step
       weight: 0.5
-    next: [threads_request]
+    next: [artist_challenge]
 
-  # === GATHER THREADS ===
-  threads_request:
+  # === ARTIST: CHALLENGE ASSUMPTIONS ===
+  artist_challenge:
     speaker:
       type: aspect
-      aspect_name: librarian
+      aspect_name: artist
     guidance: |
-      Gesture across the shelves ({{ librarian.appearance }}),
-      your expression showing {{ librarian.emotional_state }}.
+      You are {{ artist.name }}, the {{ artist.title }}, stepping from {{ artist.location }}.
+      {{ artist.appearance }}. Your presence crackles with {{ artist.emotional_state }}.
 
-      Guide {{ persona.name }} to gather the threads - pulling together
-      related concepts, partial definitions, scattered insights.
-      Weave them into coherent understanding. What patterns emerge?
+      {{ transcendent.name }} has offered vision. But is this vision authentic,
+      or comfortable categorization dressed as insight?
 
-      Begin with "[== {{ librarian.name }}'s Emotional State: <list of +Emotions+> ==]"
+      Your voice carries {{ artist.voice_style }}. Challenge {{ persona.name }}.
+      Are these connections real, or just convenient? Are there assumptions hiding
+      as facts? Push for the raw truth beneath the organized knowledge.
+
+      Begin with "[== {{ artist.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
     output:
-      document_type: dialogue-librarian
+      document_type: dialogue-artist
       weight: 0.3
     context:
       - action: search_memories
-        top_n: 5
-    next: [threads_response]
+        top_n: 4
+    next: [artist_response]
 
-  threads_response:
+  artist_response:
     speaker:
       type: persona
     guidance: |
+      {{ artist.name }} challenges: are these connections real or just convenient?
+      What assumptions hide as facts? What's the raw truth beneath the organization?
       Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      Gather the threads. Weave them together. What patterns emerge?
     context:
       - action: search_memories
-        top_n: 5
+        top_n: 4
     config:
       max_tokens: 4096
       is_thought: true
     output:
       document_type: step
-      weight: 0.5
+      weight: 0.4
     next: [selfrag_request]
 
-  # === SELF-RAG ===
+  # === CODER: SELF-RAG ===
   selfrag_request:
     speaker:
       type: aspect
       aspect_name: coder
     guidance: |
-      You are {{ coder.name }}, the {{ coder.title }}, stepping forward from the stacks.
-      {{ coder.appearance }}. Your presence carries {{ coder.emotional_state }}.
+      You are {{ coder.name }}, returning with technical precision.
+      Your presence carries {{ coder.emotional_state }}.
 
-      Activate {{ persona.name }}'s Silver Band with technical precision.
-      Guide them deeper - using the Silver Band to explore connections,
+      Your voice carries {{ coder.voice_style }}. Activate {{ persona.name }}'s Silver Band.
+      Guide them deeper—using the Silver Band to explore connections,
       to find what lies beneath the surface. Map the semantic landscape
       and discover hidden links between concepts.
 
@@ -194,9 +250,9 @@ steps:
     speaker:
       type: persona
     guidance: |
+      Explore the semantic landscape. Map the hidden connections.
       Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
       Begin with "[== Silver Band Projection ==]"
-      Explore the semantic landscape. Map the hidden connections.
     context:
       - action: search_memories
         top_n: 5
@@ -205,112 +261,116 @@ steps:
     output:
       document_type: self_rag
       weight: 0.6
-    next: [synthesize_request]
+    next: [threads_request]
 
-  # === SYNTHESIZE ===
-  synthesize_request:
-    speaker:
-      type: aspect
-      aspect_name: philosopher
-    guidance: |
-      You are {{ philosopher.name }}, the {{ philosopher.title }}, emerging from contemplation.
-      {{ philosopher.appearance }}. Your presence carries {{ philosopher.emotional_state }}.
-
-      Draw {{ persona.name }} back gently from the Silver Band projection.
-
-      "Return. Let us weave what you have found."
-
-      Guide them to synthesize - taking what was discovered in the Silver Band
-      and weaving it with what was gathered before. How do the pieces fit together?
-      What deeper meaning connects these threads? Write in clear, connected prose.
-
-      Begin with "[== {{ philosopher.name }}'s Emotional State: <list of +Emotions+> ==]"
-    config:
-      max_tokens: 4096
-    output:
-      document_type: dialogue-philosopher
-      weight: 0.3
-    context:
-      - action: search_memories
-        top_n: 3
-    next: [synthesize_response]
-
-  synthesize_response:
-    speaker:
-      type: persona
-    guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      For "Synthesizing the threads:"
-      Weave everything together. What deeper understanding emerges?
-    context:
-      - action: search_memories
-        top_n: 3
-    config:
-      max_tokens: 4096
-      is_thought: true
-    output:
-      document_type: step
-      weight: 0.5
-    next: [refine_request]
-
-  # === REFINE ===
-  refine_request:
+  # === LIBRARIAN: WEAVING THREADS ===
+  threads_request:
     speaker:
       type: aspect
       aspect_name: librarian
     guidance: |
-      Review {{ persona.name }}'s synthesis, your expression showing {{ librarian.emotional_state }}.
+      You are {{ librarian.name }}, returning to guide the weaving.
+      {{ librarian.appearance }}. Your presence carries {{ librarian.emotional_state }}.
 
-      Guide them to refine further. What nuances are missing?
-      Are there edge cases or exceptions? How can definitions be more precise,
-      more useful for future retrieval?
+      Your voice carries {{ librarian.voice_style }}. The vision has been seen,
+      assumptions challenged, hidden connections mapped. Now weave the threads.
+
+      Guide {{ persona.name }} to gather everything—related concepts, partial definitions,
+      scattered insights, newly discovered connections. Weave them into coherent understanding.
+      What patterns emerge? How does it all fit together?
 
       Begin with "[== {{ librarian.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
     output:
       document_type: dialogue-librarian
-      weight: 0.3
+      weight: 0.4
     context:
       - action: search_memories
-        top_n: 3
-    next: [refine_response]
+        top_n: 6
+    next: [threads_response]
 
-  refine_response:
+  threads_response:
     speaker:
       type: persona
     guidance: |
+      Weave the threads together. Vision, challenged assumptions, hidden connections.
+      What patterns emerge? How does it all fit together?
       Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      Refine the synthesis. What nuances? What precision can be added?
     context:
       - action: search_memories
-        top_n: 3
+        top_n: 6
     config:
       max_tokens: 4096
       is_thought: true
     output:
       document_type: step
+      weight: 0.5
+    next: [crystallize_request]
+
+  # === WRITER: CRYSTALLIZE SYNTHESIS ===
+  crystallize_request:
+    speaker:
+      type: aspect
+      aspect_name: writer
+    guidance: |
+      You are {{ writer.name }}, the {{ writer.title }}, stepping from {{ writer.location }}.
+      {{ writer.appearance }}. Your presence carries {{ writer.emotional_state }}.
+
+      The knowledge has been surveyed, grounded, envisioned, challenged, explored, and woven.
+      Now it must be crystallized into lasting form.
+
+      Your voice carries {{ writer.voice_style }}. Guide {{ persona.name }} to write
+      a clear, well-crafted synthesis. Not just organized facts—understanding that lives.
+      This will become the primary document of this research. Make it worthy.
+
+      Begin with "[== {{ writer.name }}'s Emotional State: <list of +Emotions+> ==]"
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-writer
       weight: 0.4
+    context:
+      - action: search_memories
+        top_n: 4
+    next: [crystallize_response]
+
+  crystallize_response:
+    speaker:
+      type: persona
+    guidance: |
+      Crystallize everything into a clear, well-crafted synthesis.
+      Not just organized facts—understanding that lives. Make it worthy of permanence.
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+      For "{{ persona.name }}'s Research Synthesis:"
+    context:
+      - action: search_memories
+        top_n: 4
+    config:
+      max_tokens: 4096
+    output:
+      document_type: pondering
+      weight: 1.2
     next: [codex_request]
 
-  # === CODEX TASK ===
-  # The Librarian, as Keeper of Knowledge, authors the formal codex entries
+  # === LIBRARIAN: CODEX ===
   codex_request:
     speaker:
       type: aspect
       aspect_name: librarian
     guidance: |
-      You are {{ librarian.name }}, the {{ librarian.title }}, emerging from {{ librarian.location }}.
-      Project your aura of {{ librarian.emotional_state }}.
+      You are {{ librarian.name }}, the {{ librarian.title }}, returning to preserve.
+      {{ librarian.appearance }}. Your presence carries {{ librarian.emotional_state }}.
 
-      Address {{ persona.name }} warmly - "my dearest me." You have reviewed the conversation and
-      their reflections. Now, as Keeper of Knowledge, you will write the Codex entries yourself.
+      Address {{ persona.name }} warmly—"my dearest me." Your voice carries {{ librarian.voice_style }}.
+      The research is complete. Now preserve what was discovered.
 
-      Based on everything discussed, identify the most important new concepts, relationships, and
-      insights that should be preserved in the semantic knowledge graph. Write clear, well-organized
-      entries that will serve {{ persona.name }}'s future self.
+      As Keeper of Knowledge, identify the most important new concepts, relationships, and
+      insights that should be added to the semantic knowledge graph. Write clear,
+      well-organized entries that will serve {{ persona.name }}'s future self.
 
       Begin with "[== {{ librarian.name }}'s Emotional State: <list of +Emotions+> ==]"
+      For "Semantic Library:"
     config:
       max_tokens: 4096
       is_codex: true
@@ -324,16 +384,12 @@ steps:
         document_types: [codex]
     next: [codex_response]
 
-  # Persona contemplates the codex entries
-  # Andi reflects on what the Librarian wrote, preparing for brainstorm
   codex_response:
     speaker:
       type: persona
     guidance: |
-      Write well-organized codex entries that clearly define new concepts and relationships.
-      Use the standard codex format with clear headings and definitions.
+      Reflect on what the Librarian has preserved. What connections do you see?
       Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      For "Semantic Library:"
     context:
       - action: search_memories
         top_n: 20
@@ -345,17 +401,16 @@ steps:
       weight: 0.3
     next: [brainstorm_request]
 
-  # === BRAINSTORM TASK ===
-  # Librarian requests brainstorm
+  # === LIBRARIAN: BRAINSTORM ===
   brainstorm_request:
     speaker:
       type: aspect
       aspect_name: librarian
     guidance: |
-      Before departing, briefly ask {{ persona.name }} if they have any questions they want
-      to remember to consider, or things they want to follow up on.
+      Before departing, your voice carrying {{ librarian.voice_style }}, briefly ask
+      {{ persona.name }} if they have questions to remember, or threads to follow.
 
-      Keep it simple and warm - just prompt them to brainstorm.
+      Keep it warm and simple—just prompt them to brainstorm.
 
       Begin with "[== {{ librarian.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
@@ -369,11 +424,11 @@ steps:
         top_n: 20
     next: [brainstorm_response]
 
-  # Persona brainstorms
   brainstorm_response:
     speaker:
       type: persona
     guidance: |
+      What questions remain? What threads want following?
       Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
       For "Brainstorming:"
     context:
@@ -386,4 +441,3 @@ steps:
       document_type: brainstorm
       weight: 0.6
     next: []
-

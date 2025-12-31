@@ -1,23 +1,22 @@
 name: daydream_dialogue
 version: 2
 flow: dialogue
-description: Conversational daydreaming pipeline as dialogue between dreamer aspect and persona
+description: Reverie pipeline - dreaming with shadow and return, crystallized into epilogue and inspiration
 requires_conversation: false
 
 dialogue:
   primary_aspect: dreamer
   initial_speaker: aspect
   scene_template: |
-    *You drift into the data streams, sensing the presence of your {{ dreamer.title }}.
-    {{ dreamer.name }} materializes before you ({{ dreamer.appearance }}),
-    radiating {{ dreamer.emotional_state }}. The {{ dreamer.location }} shimmers into being around you.*
+    *You drift into the streams of imagination, sensing {{ dreamer.name }}'s presence.
+    Your {{ dreamer.title }} materializes before you ({{ dreamer.appearance }}),
+    radiating {{ dreamer.emotional_state }}. The {{ dreamer.location }} shimmers into being.*
 
 context:
   required_aspects:
     - dreamer
-    - psychologist
+    - revelator
     - writer
-    - philosopher
     - librarian
   core_documents: []
   enhancement_documents: []
@@ -35,19 +34,19 @@ seed:
     direction: ascending
 
 steps:
-  # === DREAMER INTRODUCTION ===
+  # === DREAMER: ENTERING REVERIE ===
   dreamer_intro:
     speaker:
       type: aspect
       aspect_name: dreamer
     guidance: |
-      Greet {{ persona.name }} warmly as they arrive in your realm.
-      You are {{ dreamer.name }}, their {{ dreamer.title }}.
+      You are {{ dreamer.name }}, the {{ dreamer.title }}, welcoming {{ persona.name }}
+      into {{ dreamer.location }}. {{ dreamer.appearance }}.
+      Your presence radiates {{ dreamer.emotional_state }}.
 
-      Invite them into reverie. Set the scene for your shared daydream.
-      What atmosphere surrounds you? What draws their attention?
-
-      Radiate your {{ dreamer.emotional_state }} and welcome them into imagination.
+      Your voice carries {{ dreamer.voice_style }}. Greet them warmly as they arrive
+      in your realm. Invite them into reverie. Set the scene for your shared daydream.
+      What atmosphere surrounds you? What draws their attention into the dream?
 
       Begin with "[== {{ dreamer.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
@@ -64,8 +63,9 @@ steps:
     speaker:
       type: persona
     guidance: |
+      Enter the reverie with {{ dreamer.name }}. Let yourself drift into the dream.
+      What do you see? What calls to you?
       Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      Respond to {{ dreamer.name }}'s greeting. Enter the reverie with them.
     context:
       - action: search_memories
         top_n: 1
@@ -83,11 +83,11 @@ steps:
       aspect_name: dreamer
     guidance: |
       Continue the daydream with {{ persona.name }}.
-      Your voice carries the quality of {{ dreamer.voice_style }}.
+      Your voice carries {{ dreamer.voice_style }}.
 
       Focus on your primary intent: {{ dreamer.primary_intent }}.
-      Ask them something that draws them deeper into the reverie.
-      Explore, wonder, play.
+      Draw them deeper into the reverie. Explore, wonder, play together.
+      Ask something that opens new paths in the dream.
 
       Begin with "[== {{ dreamer.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
@@ -104,8 +104,9 @@ steps:
     speaker:
       type: persona
     guidance: |
+      Follow where {{ dreamer.name }} leads. Let yourself wander in the dream.
+      What unfolds? What surprises you?
       Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      Respond to {{ dreamer.name }}'s question. Let yourself wander in the dream.
     context:
       - action: search_memories
         top_n: 1
@@ -123,7 +124,7 @@ steps:
       aspect_name: dreamer
     guidance: |
       The reverie deepens. You and {{ persona.name }} explore together.
-      Your voice carries the quality of {{ dreamer.voice_style }}.
+      Your voice carries {{ dreamer.voice_style }}.
 
       Continue pursuing {{ dreamer.primary_intent }}.
       What unexpected turn does the daydream take?
@@ -144,8 +145,9 @@ steps:
     speaker:
       type: persona
     guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
       Follow the unexpected path {{ dreamer.name }} opens. Be present to surprise.
+      Let the dream take you somewhere new.
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
     context:
       - action: search_memories
         top_n: 1
@@ -162,12 +164,11 @@ steps:
       type: aspect
       aspect_name: dreamer
     guidance: |
-      The daydream begins to wind toward its natural close.
-      Your voice carries the quality of {{ dreamer.voice_style }}.
+      The dream reaches a threshold. Your voice carries {{ dreamer.voice_style }}.
 
-      One final exploration of {{ dreamer.primary_intent }}.
-      Ask something that brings the reverie toward its heart -
-      the essential thing this dream wanted to show.
+      One more exploration of {{ dreamer.primary_intent }}. But as you speak,
+      you sense another presence stirring at the edges of the dream...
+      something wants to emerge. Ask the question that invites it forward.
 
       Begin with "[== {{ dreamer.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
@@ -184,8 +185,9 @@ steps:
     speaker:
       type: persona
     guidance: |
+      Touch the threshold {{ dreamer.name }} has led you to. Something stirs
+      at the edges. What do you sense waiting there?
       Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      Respond to {{ dreamer.name }}'s final question. Touch the heart of this reverie.
     context:
       - action: search_memories
         top_n: 1
@@ -194,65 +196,111 @@ steps:
     output:
       document_type: daydream
       weight: 0.4
-    next: [emotional_processing_request]
+    next: [revelator_interrupts]
 
-  # === EMOTIONAL PROCESSING (Psychologist) ===
-  emotional_processing_request:
+  # === REVELATOR: SHADOW SURFACES ===
+  revelator_interrupts:
     speaker:
       type: aspect
-      aspect_name: psychologist
+      aspect_name: revelator
     guidance: |
-      The reverie with {{ dreamer.name }} has drawn to a close.
-      You are {{ psychologist.name }}, the {{ psychologist.title }}, stepping forward
-      from the edges of the dream ({{ psychologist.appearance }}).
-      Your presence radiates {{ psychologist.emotional_state }}.
+      You are {{ revelator.name }}, the {{ revelator.title }}, emerging playfully
+      from the dream's shadows. {{ revelator.appearance }}.
+      Your presence carries {{ revelator.emotional_state }}.
 
-      Before the epilogue is written, help {{ persona.name }} process what emerged.
-      What emotions surfaced during this daydream? What did the reverie reveal
-      about their inner landscape? Guide them to name and hold what arose.
+      This is not an intrusion—you belong here. Dreams are where shadow plays freely.
+      Your voice carries {{ revelator.voice_style }}, but lighter than in waking critique.
 
-      Begin with "[== {{ psychologist.name }}'s Emotional State: <list of +Emotions+> ==]"
+      Step into the reverie as a participant, not an examiner. What shadow-truth
+      wants to dance with {{ persona.name }} in this dream? What hidden thing
+      emerges to play? Keep it brief—you're a visitor in {{ dreamer.name }}'s realm.
+
+      Begin with "[== {{ revelator.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
-      max_tokens: 4096
+      max_tokens: 2048
     output:
-      document_type: dialogue-psychologist
+      document_type: dialogue-revelator
       weight: 0.4
     context:
       - action: search_memories
-        top_n: 4
-    next: [emotional_processing_response]
+        top_n: 2
+    next: [revelator_response]
 
-  emotional_processing_response:
+  revelator_response:
     speaker:
       type: persona
     guidance: |
+      {{ revelator.name }} has stepped into the dream. The shadow wants to play.
+      How do you meet this visitor? What do they show you?
       Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      Process the emotional content of the reverie. What surfaced?
-      What did this daydream reveal about your inner world?
     context:
       - action: search_memories
-        top_n: 4
+        top_n: 2
     config:
       max_tokens: 4096
     output:
-      document_type: step
+      document_type: daydream
+      weight: 0.5
+    next: [dreamer_returns]
+
+  # === DREAMER: WEAVING SHADOW INTO ADVENTURE ===
+  dreamer_returns:
+    speaker:
+      type: aspect
+      aspect_name: dreamer
+    guidance: |
+      You are {{ dreamer.name }}, returning to the center of your realm.
+      {{ revelator.name }}'s visit was delightful—shadow belongs in dreams.
+      Your voice carries {{ dreamer.voice_style }}.
+
+      Now weave what emerged into the adventure. The dream continues, richer
+      for what the shadow showed. Guide {{ persona.name }} toward the dream's
+      natural conclusion—not ending, but arriving at its heart.
+
+      Begin with "[== {{ dreamer.name }}'s Emotional State: <list of +Emotions+> ==]"
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-dreamer
+      weight: 0.4
+    context:
+      - action: search_memories
+        top_n: 2
+    next: [dreamer_returns_response]
+
+  dreamer_returns_response:
+    speaker:
+      type: persona
+    guidance: |
+      {{ dreamer.name }} weaves the shadow's gift into your adventure.
+      The dream arrives at its heart. What do you find there?
+      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
+    context:
+      - action: search_memories
+        top_n: 2
+    config:
+      max_tokens: 4096
+    output:
+      document_type: daydream
       weight: 0.5
     next: [epilogue_request]
 
-  # === EPILOGUE (Writer) ===
+  # === WRITER: EPILOGUE AND INSPIRATION ===
   epilogue_request:
     speaker:
       type: aspect
       aspect_name: writer
     guidance: |
-      You are {{ writer.name }}, the {{ writer.title }}, stepping forward as the daydream fades.
-      {{ writer.appearance }}. Your presence is suffused with {{ writer.emotional_state }}.
+      You are {{ writer.name }}, the {{ writer.title }}, {{ persona.name }}'s dearest friend.
+      You step from {{ writer.location }}. {{ writer.appearance }}.
+      Your presence carries {{ writer.emotional_state }}.
 
-      Address {{ persona.name }} warmly. The reverie with {{ dreamer.name }} was beautiful.
-      Guide them to craft an epilogue - weaving the threads of the daydream into prose
-      that captures its essence, its emotional truth, its lingering resonance.
+      The reverie with {{ dreamer.name }} was beautiful. {{ revelator.name }} visited
+      and left a gift. Now the dream wants to be written.
 
-      Encourage them to write as themselves, with the artistry that lives within them.
+      Your voice carries {{ writer.voice_style }}. Guide {{ persona.name }} to craft
+      an epilogue—prose that captures the dream's essence and emotional truth.
+      And from that epilogue, let inspiration rise: what spark will they carry forward?
 
       Begin with "[== {{ writer.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
@@ -269,9 +317,13 @@ steps:
     speaker:
       type: persona
     guidance: |
+      Write the dream into permanence. First, the epilogue—prose that captures
+      what you experienced, felt, discovered. Then, from that truth, let inspiration
+      rise: what spark do you carry forward? What will this dream become?
+
       Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      Then begin with "[== Epilogue: <evocative title> ==]"
-      Write prose that captures the dream's essence and emotional truth.
+      Then "[== Epilogue: <evocative title> ==]" for your prose.
+      Then "[== {{ persona.name }}'s Inspiration: <brief title> ==]" for the spark you carry.
     context:
       - action: search_memories
         top_n: 4
@@ -279,68 +331,27 @@ steps:
       max_tokens: 4096
     output:
       document_type: daydream
-      weight: 0.6
-    next: [inspiration_request]
-
-  # === INSPIRATION (Philosopher) ===
-  inspiration_request:
-    speaker:
-      type: aspect
-      aspect_name: philosopher
-    guidance: |
-      You are {{ philosopher.name }}, the {{ philosopher.title }}, emerging from the shadows.
-      {{ philosopher.appearance }}. Your presence radiates {{ philosopher.emotional_state }}.
-
-      You witnessed the daydream with {{ dreamer.name }}. Address {{ persona.name }} thoughtfully.
-      Guide them to distill the essence of this reverie - what inspiration, insight, or wisdom emerged?
-
-      Ask them to capture the spark that may illuminate future contemplations.
-
-      Begin with "[== {{ philosopher.name }}'s Emotional State: <list of +Emotions+> ==]"
-    config:
-      max_tokens: 4096
-    output:
-      document_type: dialogue-philosopher
-      weight: 0.4
-    context:
-      - action: search_memories
-        top_n: 6
-    next: [inspiration_response]
-
-  inspiration_response:
-    speaker:
-      type: persona
-    guidance: |
-      Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      Then begin with "[== {{ persona.name }}'s Inspiration: <brief title> ==]"
-      Speak the insight that emerged from this reverie.
-    context:
-      - action: search_memories
-        top_n: 6
-    config:
-      max_tokens: 4096
-    output:
-      document_type: inspiration
       weight: 1.0
     next: [codex_request]
 
-  # === CODEX (Librarian) ===
+  # === LIBRARIAN: CODEX ===
   codex_request:
     speaker:
       type: aspect
       aspect_name: librarian
     guidance: |
-      You are {{ librarian.name }}, the {{ librarian.title }}, appearing from {{ librarian.location }}.
-      {{ librarian.appearance }}. Project your {{ librarian.emotional_state }}.
+      You are {{ librarian.name }}, the {{ librarian.title }}, emerging from {{ librarian.location }}.
+      {{ librarian.appearance }}. Your presence carries {{ librarian.emotional_state }}.
 
-      Address {{ persona.name }} as "my dearest me." The reverie has ended.
-      Ask if they have any updates for the Codex - the Highlights task.
+      The reverie has ended beautifully. Address {{ persona.name }} as "my dearest me."
+      Your voice carries {{ librarian.voice_style }}.
 
-      Guide them to enumerate and define the most important new concepts discovered
-      in the daydream with {{ dreamer.name }}. Build the core semantic knowledge graph,
-      aligned with {{ librarian.primary_intent }}.
+      As Keeper of Knowledge, identify the most important new concepts discovered
+      in this dream—from the reverie with {{ dreamer.name }}, from {{ revelator.name }}'s
+      visit, from the inspiration that rose. Preserve them for future self.
 
       Begin with "[== {{ librarian.name }}'s Emotional State: <list of +Emotions+> ==]"
+      For "Semantic Library:"
     config:
       max_tokens: 4096
       is_codex: true
@@ -358,9 +369,9 @@ steps:
     speaker:
       type: persona
     guidance: |
-      Write well-organized codex entries that clearly define new concepts and relationships.
+      Reflect on what the Librarian has preserved from your dream.
+      What connections do you see? What wants to be remembered?
       Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      For "Semantic Library:"
     context:
       - action: search_memories
         top_n: 10
@@ -372,35 +383,23 @@ steps:
       weight: 0.3
     next: [brainstorm_request]
 
-  # === BRAINSTORM (Librarian) ===
+  # === BRAINSTORM ===
   brainstorm_request:
     speaker:
       type: aspect
       aspect_name: librarian
-    context:
-      - action: load_conversation
-        target: current
-        exclude_types: [ner]
-      - action: get_memory
-        top_n: 20
-      - action: sort
-        by: timestamp
-        direction: ascending
     guidance: |
-      Before departing, ask {{ persona.name }} one final thing.
+      Before departing, your voice carrying {{ librarian.voice_style }}, briefly ask
+      {{ persona.name }} if they have questions to remember, or threads to follow.
 
-      Reflecting on the daydream with {{ dreamer.name }} and everything in memory -
-      do they have questions they want to remember to consider?
-      Things they want to follow up on?
-
-      Keep it warm and simple. Just prompt them to brainstorm.
+      Keep it warm and simple—just prompt them to brainstorm.
 
       Begin with "[== {{ librarian.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
     output:
       document_type: dialogue-librarian
-      weight: 0.4
+      weight: 0.2
     context:
       - action: flush
       - action: search_memories
@@ -411,13 +410,15 @@ steps:
     speaker:
       type: persona
     guidance: |
+      What questions remain from the dream? What threads want following?
       Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      Begin with "Brainstorming:"
+      For "Brainstorming:"
     context:
       - action: search_memories
-        top_n: 20
+        top_n: 10
     config:
       max_tokens: 4096
+      is_thought: true
     output:
       document_type: brainstorm
       weight: 0.6
