@@ -130,10 +130,8 @@ class ConversationModel:
         self.user_timezone = pytz.timezone(user_timezone) if user_timezone is not None else None
 
     @classmethod
-    def init_folders(cls, memory_path: str):
-        """
-        Creates the necessary folders for the conversation model.
-        """
+    def maybe_init_folders(cls, memory_path: str):
+        """Creates the necessary folders for the conversation model if they don't exist."""
         collection_path = Path(f'./{memory_path}/conversations')
         if not collection_path.exists():
             collection_path.mkdir(parents=True)
@@ -143,11 +141,13 @@ class ConversationModel:
 
     @classmethod
     def from_config(cls, config: ChatConfig) -> 'ConversationModel':
+        """Creates a new conversation model from the given config.
+
+        Memory path is derived from persona_id: memory/{persona_id}/
         """
-        Creates a new conversation model from the given config.
-        """
-        cls.init_folders(config.memory_path)
-        return cls(memory_path=config.memory_path, embedding_model=config.embedding_model, user_timezone=config.user_timezone, embedding_device=config.embedding_device)
+        memory_path = f"memory/{config.persona_id}"
+        cls.maybe_init_folders(memory_path)
+        return cls(memory_path=memory_path, embedding_model=config.embedding_model, user_timezone=config.user_timezone, embedding_device=config.embedding_device)
 
     @property
     def collection_path(self) -> Path:

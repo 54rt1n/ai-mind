@@ -3,7 +3,7 @@
 """Unit tests for aim/dreamer/executor.py"""
 
 import pytest
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import Mock, MagicMock, patch
 
 from aim.dreamer.executor import (
@@ -58,8 +58,8 @@ class TestSelectModelName:
             model="default-model",
             codex_model="codex-model",
             branch=0,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
         )
 
         # Verify select_model_name returns the codex_model for this step
@@ -90,8 +90,8 @@ class TestSelectModelName:
             model="default-model",
             codex_model=None,  # Not set!
             branch=0,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
         )
 
         # Should fall back to default model
@@ -112,8 +112,8 @@ class TestSelectModelName:
             thought_model="thought-model",
             codex_model="codex-model",
             branch=0,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
         )
 
         step_config = StepConfig(model_override="override-model")
@@ -132,8 +132,8 @@ class TestSelectModelName:
             model="default-model",
             codex_model="codex-model",
             branch=0,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
         )
 
         step_config = StepConfig(is_codex=True)
@@ -152,8 +152,8 @@ class TestSelectModelName:
             model="default-model",
             thought_model="thought-model",
             branch=0,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
         )
 
         step_config = StepConfig(is_thought=True)
@@ -171,8 +171,8 @@ class TestSelectModelName:
             user_id="user",
             model="default-model",
             branch=0,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
         )
 
         step_config = StepConfig()
@@ -191,8 +191,8 @@ class TestSelectModelName:
             model="default-model",
             codex_model=None,
             branch=0,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
         )
 
         step_config = StepConfig(is_codex=True)
@@ -219,8 +219,8 @@ class TestBuildTurns:
             model="default-model",
             persona_mood="cheerful",
             branch=0,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
         )
 
         prompt = "Please analyze this."
@@ -262,8 +262,8 @@ class TestBuildTurns:
             user_id="user",
             model="default-model",
             branch=0,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
         )
 
         prompt = "Please analyze this."
@@ -303,8 +303,8 @@ class TestBuildTurns:
             user_id="user",
             model="default-model",
             branch=0,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
         )
 
         prompt = "Continue the analysis."
@@ -345,8 +345,8 @@ class TestBuildTurns:
             user_id="user",
             model="default-model",
             branch=0,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
         )
 
         prompt = "Analyze."
@@ -472,8 +472,8 @@ class TestCreateMessage:
             model="default-model",
             branch=0,
             step_counter=3,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
         )
 
         step_def = StepDefinition(
@@ -490,7 +490,7 @@ class TestCreateMessage:
             document_type="analysis",
             document_weight=0.8,
             tokens_used=50,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
         )
 
         message = create_message(state, step_def, result)
@@ -541,8 +541,8 @@ class TestExecuteStep:
             model="gpt-4",
             branch=0,
             step_counter=1,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
         )
 
         # Create scenario
@@ -617,8 +617,8 @@ class TestExecuteStep:
             model="gpt-4",
             branch=0,
             step_counter=1,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
         )
 
         scenario = Scenario(
@@ -698,8 +698,8 @@ class TestExecuteStep:
             model="gpt-4",
             branch=0,
             step_counter=1,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
         )
 
         scenario = Scenario(

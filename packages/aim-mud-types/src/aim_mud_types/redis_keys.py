@@ -43,6 +43,42 @@ class RedisKeys:
         return f"agent:{agent_id}:events"
 
     @staticmethod
+    def agent_profile(agent_id: str) -> str:
+        """Get the profile hash key for a specific agent.
+
+        Args:
+            agent_id: Unique identifier for the agent.
+
+        Returns:
+            Redis hash key for the agent profile (identity + activity).
+        """
+        return f"agent:{agent_id}"
+
+    @staticmethod
+    def room_profile(room_id: str) -> str:
+        """Get the profile hash key for a room.
+
+        Args:
+            room_id: Room dbref/id.
+
+        Returns:
+            Redis hash key for the room profile.
+        """
+        return f"room:{room_id}"
+
+    @staticmethod
+    def agent_turn_request(agent_id: str) -> str:
+        """Get the turn request key for a specific agent.
+
+        Args:
+            agent_id: Unique identifier for the agent.
+
+        Returns:
+            Redis key for the agent's turn request hash.
+        """
+        return f"agent:{agent_id}:turn_request"
+
+    @staticmethod
     def agent_pause(agent_id: str) -> str:
         """Get the pause flag key for a specific agent.
 
@@ -57,6 +93,25 @@ class RedisKeys:
     # Mediator keys
     MEDIATOR_PAUSE = "mud:mediator:paused"
     AGENT_ROOMS = "mediator:agent_rooms"
+    MEDIATOR_LAST_ACTION_ID = "mud:mediator:last_action_id"
+    EVENTS_PROCESSED = "mud:events:processed"
+    ACTIONS_PROCESSED = "mud:actions:processed"
+
+    @staticmethod
+    def agent_conversation(agent_id: str) -> str:
+        """Get the conversation list key for a specific agent.
+
+        The conversation list stores MUDConversationEntry objects
+        as a Redis list, serving as the single source of truth for
+        both LLM context and CVM persistence.
+
+        Args:
+            agent_id: Unique identifier for the agent.
+
+        Returns:
+            Redis list key for the agent's conversation history.
+        """
+        return f"mud:agent:{agent_id}:conversation"
 
     @staticmethod
     def format_stream_id(timestamp_ms: int, sequence: int = 0) -> str:

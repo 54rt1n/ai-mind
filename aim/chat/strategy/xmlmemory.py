@@ -21,11 +21,13 @@ from aim.utils.tokens import count_tokens as _count_tokens
 from aim.conversation.rerank import MemoryReranker, TaggedResult
 from aim.constants import (
     DOC_CONVERSATION, CHUNK_LEVEL_256, CHUNK_LEVEL_768,
-    DOC_INSPIRATION, DOC_UNDERSTANDING, DOC_PONDERING, DOC_BRAINSTORM
+    DOC_INSPIRATION, DOC_UNDERSTANDING, DOC_PONDERING, DOC_BRAINSTORM,
+    DOC_MUD_AGENT, DOC_MUD_WORLD
 )
 
 # Insight documents - rich generative content that benefits from larger chunks (768)
 INSIGHT_DOC_TYPES = [DOC_INSPIRATION, DOC_UNDERSTANDING, DOC_PONDERING, DOC_BRAINSTORM]
+LONG_CONTEXT_DOC_TYPES = [DOC_CONVERSATION, DOC_MUD_AGENT, DOC_MUD_WORLD]
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +94,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
             filter_doc_ids=seen_docs,
             top_n=top_n,
             filter_metadocs=True,
-            query_document_type=DOC_CONVERSATION,
+            query_document_type=LONG_CONTEXT_DOC_TYPES,
             chunk_level=CHUNK_LEVEL_768,
             length_boost_factor=length_boost,
         )
@@ -275,8 +277,18 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         if available_tokens_for_dynamic_queries > 50:  # Min threshold for dynamic querying
             # Define query sources
             workspace_content_for_query = self.chat.current_workspace if self.chat.current_workspace and self.chat.current_workspace.strip() else None
+            location_content_for_query = self.chat.current_location if self.chat.current_location and self.chat.current_location.strip() else None
 
             query_sources_data = []
+
+            # 0. Explicit query (highest priority - from Phase 1 act args)
+            if query and query.strip():
+                query_sources_data.append({
+                    "name": "ExplicitQuery",
+                    "queries": [query.strip()],
+                    "length_boost": 0.1,  # Boost explicit queries
+                    "memory_type_tag": "memory_query"
+                })
 
             # 1. Thought-based queries
             if self.thought_content and self.thought_content.strip():
@@ -296,7 +308,16 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                     "memory_type_tag": "memory_ws"
                 })
 
-            # 3. User history queries
+            # 3. Location-based queries
+            if location_content_for_query:
+                query_sources_data.append({
+                    "name": "Location",
+                    "queries": [location_content_for_query],
+                    "length_boost": 0.05,
+                    "memory_type_tag": "memory_loc"
+                })
+
+            # 4. User history queries
             if user_queries:
                 query_sources_data.append({
                     "name": "UserHistory",
@@ -305,7 +326,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                     "memory_type_tag": "memory_user"
                 })
 
-            # 4. Assistant history queries
+            # 5. Assistant history queries
             if assistant_queries:
                 query_sources_data.append({
                     "name": "AssistantHistory",
@@ -361,8 +382,18 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                     seen_parent_ids=seen_docs,
                 )
 
-                # Add reranked results to formatter
+                # Deduplicate by parent_doc_id/doc_id to avoid repeats across buckets
+                deduped_results = []
+                seen_ids = set(seen_docs)
                 for source_tag, row in reranked_results:
+                    doc_id = row.get('parent_doc_id', row.get('doc_id', ''))
+                    if doc_id in seen_ids:
+                        continue
+                    seen_ids.add(doc_id)
+                    deduped_results.append((source_tag, row))
+
+                # Add reranked results to formatter
+                for source_tag, row in deduped_results:
                     formatter.add_element(
                         self.hud_name, "Active Memory", source_tag,
                         date=row.get('date', ''),
@@ -376,7 +407,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                     for k in keywords: aggregated_keywords[k] += 1 if k else 0
                     seen_docs.add(row.get('parent_doc_id', row.get('doc_id', '')))
 
-                logger.info(f"Added {len(reranked_results)} reranked results from {len(all_conversation_results)} conv + {len(all_insight_results)} insight + {len(all_broad_results)} broad candidates")
+                logger.info(f"Added {len(deduped_results)} reranked results from {len(all_conversation_results)} conv + {len(all_insight_results)} insight + {len(all_broad_results)} broad candidates")
             else:
                 logger.info("No dynamic query sources had results.")
         else:
@@ -437,15 +468,17 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         memory_count = len(seen_docs)
         return final_output, memory_count
         
-    def chat_turns_for(self, persona: Persona, user_input: str, history: list[dict[str, str]] = [], content_len: Optional[int] = None, max_context_tokens: int = DEFAULT_MAX_CONTEXT, max_output_tokens: int = DEFAULT_MAX_OUTPUT) -> list[dict[str, str]]:
+    def chat_turns_for(self, persona: Persona, user_input: str, history: list[dict[str, str]] = [], content_len: Optional[int] = None, max_context_tokens: int = DEFAULT_MAX_CONTEXT, max_output_tokens: int = DEFAULT_MAX_OUTPUT, query: str = "") -> list[dict[str, str]]:
         """
         Generate a chat session, augmenting the response with information from the database.
 
-        This is what will be passed to the chat complletion API.
+        This is what will be passed to the chat completion API.
 
         Args:
             user_input (str): The user input.
             history (List[Dict[str, str]]): The chat history (may include 'think' field).
+            query (str): Optional explicit query for memory search. If provided, used
+                instead of user_input for CVM retrieval.
 
         Returns:
             List[Dict[str, str]]: The chat turns, in the alternating format [{"role": "user", "content": user_input}, {"role": "assistant", "content": assistant_turn}].
@@ -512,9 +545,11 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         # Total external tokens = history + thought + wakeup + user_input + content
         external_tokens = content_tokens + history_tokens + thought_tokens + wakeup_tokens + user_input_tokens
 
+        # Use explicit query if provided, otherwise fall back to user_input
+        memory_query = query if query else user_input
         consciousness, memory_count = self.get_conscious_memory(
                 persona=persona,
-                query=user_input,
+                query=memory_query,
                 user_queries=user_turn_history,
                 assistant_queries=assistant_turn_history,
                 content_len=external_tokens,
@@ -542,7 +577,9 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         else:
             turns = [consciousness_turn, wakeup_turn]
 
-        turns.append({"role": "user", "content": user_input + "\n\n"})
+        # Only add user turn if there's actual content (avoids empty user turns)
+        if user_input and user_input.strip():
+            turns.append({"role": "user", "content": user_input + "\n\n"})
 
         if self.thought_content:
             # Insert current thought content above the fold

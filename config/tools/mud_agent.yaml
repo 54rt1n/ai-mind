@@ -1,0 +1,94 @@
+type: mud_agent
+description: Guided agent actions for @agent command
+
+instructions: >
+  Return ONLY a JSON object with an "action" field and its parameters.
+  Do not include any extra text outside the JSON object.
+
+actions:
+  - name: speak
+    description: Speak or respond in the room with free text.
+    parameters:
+      type: object
+      properties:
+        text:
+          type: string
+          description: The full response text to emit (paragraphs encouraged).
+      required:
+        - text
+      examples:
+        - {action: "speak", text: "Hello! It's good to see you here."}
+
+  - name: move
+    description: Move to an adjacent room through an exit.
+    parameters:
+      type: object
+      properties:
+        location:
+          type: string
+          description: Exit or destination name (must match an available exit).
+      required:
+        - location
+      examples:
+        - {action: "move", location: "north"}
+
+  - name: take
+    description: Pick up an object from the current room.
+    parameters:
+      type: object
+      properties:
+        object:
+          type: string
+          description: The name of the object to take.
+      required:
+        - object
+      examples:
+        - {action: "take", object: "lantern"}
+
+  - name: drop
+    description: Drop an object from your inventory into the room.
+    parameters:
+      type: object
+      properties:
+        object:
+          type: string
+          description: The name of the object to drop.
+      required:
+        - object
+      examples:
+        - {action: "drop", object: "lantern"}
+
+  - name: give
+    description: Give an object from your inventory to someone or put it in/on something.
+    parameters:
+      type: object
+      properties:
+        object:
+          type: string
+          description: The name of the object to give or place.
+        target:
+          type: string
+          description: The name of the person or container to give/put it to.
+      required:
+        - object
+        - target
+      examples:
+        - {action: "give", object: "flower", target: "Prax"}
+        - {action: "give", object: "cup", target: "shelf"}
+
+  - name: describe
+    description: Update a room/object description via @set <id>/desc = <description>.
+    parameters:
+      type: object
+      properties:
+        target:
+          type: string
+          description: The object or room id (dbref) to update (e.g., "#2").
+        description:
+          type: string
+          description: Paragraph-length description infused with your personality.
+      required:
+        - target
+        - description
+      examples:
+        - {action: "describe", target: "#2", description: "A warm, lived-in space..." }

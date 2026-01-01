@@ -2,7 +2,7 @@
 # AI-Mind © 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
 """Pydantic models for dialogue flow execution."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional, Any
 from pydantic import BaseModel, Field, field_serializer
@@ -110,7 +110,7 @@ class DialogueTurn(BaseModel):
     """Document type for storage. Aspect turns use 'dialogue:{aspect_name}',
     persona turns use the step's output.document_type."""
 
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @field_serializer('timestamp')
     def serialize_timestamp(self, dt: datetime, _info: Any) -> str:
@@ -170,8 +170,8 @@ class DialogueState(BaseModel):
     """IDs of completed steps."""
 
     # Timestamps
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @field_serializer('created_at', 'updated_at')
     def serialize_datetime(self, dt: datetime, _info: Any) -> str:
@@ -185,4 +185,4 @@ class DialogueState(BaseModel):
     def add_turn(self, turn: DialogueTurn) -> None:
         """Add a turn to the dialogue history."""
         self.turns.append(turn)
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc)

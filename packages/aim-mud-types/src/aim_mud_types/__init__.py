@@ -15,6 +15,7 @@ All events and actions flow through Redis streams using these shared types.
 
 from .enums import EventType, ActorType
 from .state import RoomState, EntityState
+from .world_state import WorldState, InventoryItem, WhoEntry
 from .events import MUDEvent
 from .actions import MUDAction
 from .redis_keys import RedisKeys
@@ -26,6 +27,9 @@ __all__ = [
     # State
     "RoomState",
     "EntityState",
+    "WorldState",
+    "InventoryItem",
+    "WhoEntry",
     # Events and Actions
     "MUDEvent",
     "MUDAction",

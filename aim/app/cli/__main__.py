@@ -280,102 +280,159 @@ def _show_chunk_stats(index, click):
 
 
 @cli.command()
-@click.option('--conversations-dir', default="memory/conversations", help='Directory containing conversation JSONL files')
-@click.option('--index-dir', default="memory/indices", help='Directory for storing indices')
+@click.option('--agent-id', default=None, help='Agent ID to rebuild index for (uses memory/{agent_id}/ paths)')
+@click.option('--all-agents', is_flag=True, help='Discover and rebuild indexes for all agents')
+@click.option('--conversations-dir', default=None, help='Directory containing conversation JSONL files (overrides --agent-id)')
+@click.option('--index-dir', default=None, help='Directory for storing indices (overrides --agent-id)')
 @click.option('--debug', is_flag=True, help='Enable debug output')
 @click.option('--device', default="cpu", help='Device to use for indexing')
 @click.option('--batch-size', default=64, help='Batch size for indexing')
 @click.option('--full', is_flag=True, help='Force full rebuild instead of incremental update')
 @click.pass_obj
-def rebuild_index(co: ContextObject, conversations_dir: str, index_dir: str, device: str, debug: bool, batch_size: int, full: bool):
-    """Rebuild or incrementally update search indices from conversation JSONL files"""
+def rebuild_index(co: ContextObject, agent_id: Optional[str], all_agents: bool, conversations_dir: Optional[str], index_dir: Optional[str], device: str, debug: bool, batch_size: int, full: bool):
+    """Rebuild or incrementally update search indices from conversation JSONL files.
+
+    Examples:
+        # Rebuild index for a specific agent
+        python -m aim.app.cli rebuild-index --agent-id andi
+
+        # Rebuild indexes for all discovered agents
+        python -m aim.app.cli rebuild-index --all-agents
+
+        # Legacy: rebuild global index
+        python -m aim.app.cli rebuild-index --conversations-dir memory/conversations --index-dir memory/indices
+    """
     from ...conversation.loader import ConversationLoader
     from ...conversation.index import SearchIndex
     from pathlib import Path
 
-    try:
-        # Initialize loader and index
-        loader = ConversationLoader(conversations_dir)
-        index_path = Path(index_dir)
-        
+    def _discover_agents() -> list[str]:
+        """Discover all agent directories under memory/"""
+        memory_base = Path("memory")
+        if not memory_base.exists():
+            return []
+        agents = []
+        for d in memory_base.iterdir():
+            if d.is_dir() and (d / "conversations").exists():
+                # Skip the legacy global directories
+                if d.name not in ("conversations", "indices"):
+                    agents.append(d.name)
+        return sorted(agents)
+
+    def _rebuild_for_paths(conv_dir: str, idx_dir: str, label: str) -> None:
+        """Rebuild index for given paths"""
+        loader = ConversationLoader(conv_dir)
+        index_path = Path(idx_dir)
+
         # Check if index exists
-        index_exists = index_path.exists() and any(index_path.iterdir())
-        
+        index_exists = index_path.exists() and any(index_path.iterdir()) if index_path.exists() else False
+
         if full or not index_exists:
-            click.echo("Performing full index rebuild...")
+            click.echo(f"[{label}] Performing full index rebuild...")
             index = SearchIndex(index_path=index_path, embedding_model=co.config.embedding_model, device=device)
-            
+
             # Load all conversations
-            click.echo("Loading conversations...")
+            click.echo(f"[{label}] Loading conversations...")
             messages = loader.load_all()
             if debug and messages:
-                click.echo(f"Message sample: {messages[0].content[:100]}")
-            click.echo(f"Loaded {len(messages)} messages")
-            
+                click.echo(f"[{label}] Message sample: {messages[0].content[:100]}")
+            click.echo(f"[{label}] Loaded {len(messages)} messages")
+
             if len(messages) == 0:
-                click.echo("No messages found to index!", err=True)
+                click.echo(f"[{label}] No messages found to index!", err=True)
                 return
-            
+
             # Convert to index documents
-            click.echo("Converting to index documents...")
+            click.echo(f"[{label}] Converting to index documents...")
             documents = [msg.to_dict() for msg in messages]
 
             if debug:
-                click.echo(f"Found {len(documents)} documents")
-                for doc in documents[:5]:  # Show first 5 only
-                    click.echo(f"Document: {doc['doc_id']} - {doc['document_type']}")
+                click.echo(f"[{label}] Found {len(documents)} documents")
+                for doc in documents[:5]:
+                    click.echo(f"[{label}] Document: {doc['doc_id']} - {doc['document_type']}")
 
             # Build the index
-            click.echo("Building index...")
+            click.echo(f"[{label}] Building index...")
             if debug and documents:
-                click.echo("Document sample:")
-                click.echo(f"ID: {documents[0]['doc_id']}")
-                click.echo(f"Content: {documents[0]['content'][:100]}")
-                
+                click.echo(f"[{label}] Document sample:")
+                click.echo(f"[{label}] ID: {documents[0]['doc_id']}")
+                click.echo(f"[{label}] Content: {documents[0]['content'][:100]}")
+
             index.rebuild(documents)
 
             # Show chunk level stats
             _show_chunk_stats(index, click)
 
-            click.echo("Full index rebuild complete!")
-            
+            click.echo(f"[{label}] Full index rebuild complete!")
+
         else:
-            click.echo("Performing incremental index update...")
+            click.echo(f"[{label}] Performing incremental index update...")
             index = SearchIndex(index_path=index_path, embedding_model=co.config.embedding_model, device=device)
-            
+
             # Load all conversations
-            click.echo("Loading conversations...")
+            click.echo(f"[{label}] Loading conversations...")
             messages = loader.load_all()
-            click.echo(f"Loaded {len(messages)} messages")
-            
+            click.echo(f"[{label}] Loaded {len(messages)} messages")
+
             if len(messages) == 0:
-                click.echo("No messages found to index!", err=True)
+                click.echo(f"[{label}] No messages found to index!", err=True)
                 return
-            
+
             # Convert to index documents
-            click.echo("Converting to index documents...")
+            click.echo(f"[{label}] Converting to index documents...")
             documents = [msg.to_dict() for msg in messages]
 
             if debug:
-                click.echo(f"Found {len(documents)} documents")
+                click.echo(f"[{label}] Found {len(documents)} documents")
 
             # Perform incremental update
-            click.echo("Comparing with existing index...")
+            click.echo(f"[{label}] Comparing with existing index...")
             added_count, updated_count, deleted_count = index.incremental_update(
                 documents, use_tqdm=True, batch_size=batch_size
             )
-            
-            click.echo(f"Incremental update complete!")
-            click.echo(f"  Added: {added_count} documents")
-            click.echo(f"  Updated: {updated_count} documents")
-            click.echo(f"  Deleted: {deleted_count} documents")
+
+            click.echo(f"[{label}] Incremental update complete!")
+            click.echo(f"[{label}]   Added: {added_count} documents")
+            click.echo(f"[{label}]   Updated: {updated_count} documents")
+            click.echo(f"[{label}]   Deleted: {deleted_count} documents")
 
             # Show chunk level stats
             _show_chunk_stats(index, click)
 
             if added_count == 0 and updated_count == 0 and deleted_count == 0:
-                click.echo("Index was already up to date!")
-        
+                click.echo(f"[{label}] Index was already up to date!")
+
+    try:
+        # Handle --all-agents: discover and rebuild all
+        if all_agents:
+            agents = _discover_agents()
+            if not agents:
+                click.echo("No agent directories found under memory/", err=True)
+                raise click.Abort()
+            click.echo(f"Discovered {len(agents)} agents: {', '.join(agents)}")
+            for agent in agents:
+                conv_dir = f"memory/{agent}/conversations"
+                idx_dir = f"memory/{agent}/indices"
+                _rebuild_for_paths(conv_dir, idx_dir, agent)
+            click.echo(f"\nCompleted rebuild for {len(agents)} agents.")
+            return
+
+        # Resolve paths from --agent-id or explicit options
+        if conversations_dir is None and index_dir is None:
+            if agent_id:
+                conversations_dir = f"memory/{agent_id}/conversations"
+                index_dir = f"memory/{agent_id}/indices"
+            else:
+                # Legacy default: global paths
+                conversations_dir = "memory/conversations"
+                index_dir = "memory/indices"
+        elif conversations_dir is None or index_dir is None:
+            click.echo("Must specify both --conversations-dir and --index-dir, or use --agent-id", err=True)
+            raise click.Abort()
+
+        label = agent_id or "global"
+        _rebuild_for_paths(conversations_dir, index_dir, label)
+
     except Exception as e:
         click.echo(f"Error rebuilding index: {e}", err=True)
         if debug:

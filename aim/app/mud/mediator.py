@@ -1,21 +1,22 @@
 # aim/app/mud/mediator.py
 # AI-Mind (C) 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
-"""Mediator service for coordinating MUD events and actions.
+"""Mediator service for coordinating MUD events.
 
 The Mediator is the central coordination point between Evennia and AIM agents.
-It runs as an independent async service with two concurrent tasks:
+It runs as an independent async service that routes events:
 
-1. Event Router: Reads from mud:events, filters by room, enriches, and
-   distributes to per-agent streams.
+Event Router: Reads from mud:events, filters by room, enriches, and
+distributes to per-agent streams.
 
-2. Action Executor: Reads from mud:actions, applies round-robin ordering,
-   and forwards to Evennia for execution.
+Note: Action execution is handled by Evennia's ActionConsumer directly.
+The mediator does not consume from mud:actions - agents emit actions
+to that stream and Evennia's ActionConsumer executes them.
 
 Architecture:
     Evennia -> mud:events -> [Mediator] -> agent:andi:events -> AIM Worker
-                                |      -> agent:roommate:events -> AIM Worker
-                                v
-    Evennia <- mud:actions <- [Mediator] <- AIM Workers
+                                       -> agent:roommate:events -> AIM Worker
+
+    AIM Workers -> mud:actions -> Evennia ActionConsumer
 
 Usage:
     python -m aim.app.mud.mediator --agents andi roommate
@@ -26,14 +27,14 @@ import asyncio
 import json
 import logging
 import signal
-from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Optional
+import uuid
 
 import redis.asyncio as redis
 
-from aim_mud_types import MUDEvent, MUDAction, EventType, ActorType, RedisKeys
+from aim_mud_types import MUDEvent, RedisKeys
 
 logger = logging.getLogger(__name__)
 
@@ -50,41 +51,41 @@ class MediatorConfig:
     Attributes:
         redis_url: Redis connection URL.
         event_stream: Stream to read raw events from Evennia.
-        action_stream: Stream to read actions from agents.
         event_poll_timeout: Timeout in seconds for event stream polling.
-        action_poll_timeout: Timeout in seconds for action stream polling.
         evennia_api_url: URL for Evennia REST API (for room state queries).
         pause_key: Redis key for mediator pause flag.
     """
 
     redis_url: str = "redis://localhost:6379"
     event_stream: str = RedisKeys.MUD_EVENTS
-    action_stream: str = RedisKeys.MUD_ACTIONS
     event_poll_timeout: float = 5.0
-    action_poll_timeout: float = 5.0
     evennia_api_url: str = "http://localhost:4001"
     pause_key: str = RedisKeys.MEDIATOR_PAUSE
+    # Stream bounds and turn coordination
+    mud_events_maxlen: int = 1000
+    agent_events_maxlen: int = 200
+    turn_request_ttl_seconds: int = 120
+    # Event processing hash
+    events_processed_hash_max: int = 10000  # Max entries to keep in hash
+    events_processed_cleanup_interval: int = 86400  # Seconds between cleanups (24h)
 
 
 class MediatorService:
     """Central coordination service between Evennia and AIM agents.
 
-    The mediator runs two concurrent tasks:
+    The mediator runs the Event Router task:
     - Event Router: Consumes mud:events, filters by room, enriches with
       room state, and distributes to per-agent event streams.
-    - Action Executor: Consumes mud:actions, applies round-robin ordering
-      for fairness, and forwards to Evennia for execution.
+
+    Note: Action execution is handled by Evennia's ActionConsumer directly.
+    The mediator does not consume from mud:actions.
 
     Attributes:
         redis: Async Redis client.
         config: MediatorConfig instance.
         running: Whether the service is running.
-        agent_rooms: Mapping of agent_id to current room_id.
         registered_agents: Set of registered agent IDs.
         last_event_id: Last processed event stream ID.
-        last_action_id: Last processed action stream ID.
-        action_queues: Per-agent queues of pending actions.
-        last_agent_index: Index for round-robin agent selection.
     """
 
     def __init__(
@@ -103,70 +104,83 @@ class MediatorService:
         self.running = False
 
         # Agent tracking
-        self.agent_rooms: dict[str, str] = {}  # agent_id -> room_id
         self.registered_agents: set[str] = set()
 
         # Stream position tracking
         self.last_event_id: str = "0"
-        self.last_action_id: str = "0"
-
-        # Action execution state
-        self.action_queues: dict[str, list[dict[str, Any]]] = defaultdict(list)
-        self.last_agent_index: int = 0
 
         # Task references for shutdown
         self._event_task: Optional[asyncio.Task] = None
-        self._action_task: Optional[asyncio.Task] = None
 
     async def start(self) -> None:
-        """Start both router and executor as concurrent tasks.
+        """Start the event router task.
 
-        Uses asyncio.gather() to run both tasks concurrently.
-        Returns when either task completes or an error occurs.
+        Returns when the task completes or an error occurs.
         """
         logger.info("Starting Mediator service")
         logger.info(f"Event stream: {self.config.event_stream}")
-        logger.info(f"Action stream: {self.config.action_stream}")
         logger.info(f"Registered agents: {self.registered_agents}")
 
         self.running = True
         self.setup_signal_handlers()
+        await self._load_last_event_id_from_hash()
 
-        # Create tasks for concurrent execution
+        # Create event router task
         self._event_task = asyncio.create_task(
             self.run_event_router(),
             name="event_router",
         )
-        self._action_task = asyncio.create_task(
-            self.run_action_executor(),
-            name="action_executor",
-        )
 
         try:
-            # Wait for both tasks (or until stopped)
-            await asyncio.gather(
-                self._event_task,
-                self._action_task,
-                return_exceptions=True,
-            )
+            # Wait for event router (or until stopped)
+            await self._event_task
         except asyncio.CancelledError:
-            logger.info("Mediator tasks cancelled")
+            logger.info("Mediator task cancelled")
 
         logger.info("Mediator service stopped")
+
+    async def _load_last_event_id_from_hash(self) -> None:
+        """Load last processed event ID from processing hash."""
+        try:
+            # Get all processed event IDs
+            processed = await self.redis.hkeys(RedisKeys.EVENTS_PROCESSED)
+
+            if not processed:
+                logger.info("No processed events hash found, starting from 0")
+                self.last_event_id = "0"
+                return
+
+            # Decode and find maximum event ID
+            event_ids = []
+            for key in processed:
+                if isinstance(key, bytes):
+                    key = key.decode("utf-8")
+                event_ids.append(key)
+
+            # Event IDs are like "1704297296123-0" - max() works on string sort
+            max_id = max(event_ids)
+            self.last_event_id = max_id
+
+            logger.info(
+                "Loaded last_event_id from processed hash: %s (%d events in hash)",
+                self.last_event_id,
+                len(event_ids),
+            )
+        except Exception as e:
+            logger.error(f"Failed to load last_event_id from hash: {e}")
+            self.last_event_id = "0"
 
     async def stop(self) -> None:
         """Gracefully shutdown the mediator.
 
-        Sets running flag to False and cancels both tasks.
+        Sets running flag to False and cancels the event router task.
         """
         logger.info("Stopping Mediator service...")
         self.running = False
 
-        # Cancel tasks if they exist
+        # Cancel event router task if it exists
         if self._event_task and not self._event_task.done():
             self._event_task.cancel()
-        if self._action_task and not self._action_task.done():
-            self._action_task.cancel()
 
     async def _is_paused(self) -> bool:
         """Check if mediator is paused via Redis flag.
@@ -224,6 +238,9 @@ class MediatorService:
                                 exc_info=True,
                             )
 
+                # Trim processed events from stream (based on hash)
+                await self._trim_processed_events()
+
             except asyncio.CancelledError:
                 logger.info("Event router cancelled")
                 break
@@ -242,6 +259,19 @@ class MediatorService:
             msg_id: Redis stream message ID.
             data: Raw event data from Redis.
         """
+        # Check if already processed (idempotency check)
+        try:
+            already_processed = await self.redis.hexists(
+                RedisKeys.EVENTS_PROCESSED,
+                msg_id,
+            )
+            if already_processed:
+                logger.debug(f"Event {msg_id} already processed, skipping")
+                return
+        except Exception as e:
+            logger.error(f"Failed to check processed hash for {msg_id}: {e}")
+            # Continue anyway - better to duplicate than to lose
+
         # Parse event data
         raw_data = data.get(b"data") or data.get("data")
         if raw_data is None:
@@ -260,24 +290,20 @@ class MediatorService:
             f"from {event.actor} in {event.room_id}"
         )
 
-        # Track agent location from movement events
-        if event.event_type == EventType.MOVEMENT and event.actor_type == ActorType.AI:
-            self.update_agent_room(event.actor, event.room_id)
-            logger.debug(f"Updated agent {event.actor} location to {event.room_id}")
-
         # Enrich event with room state
         enriched = await self.enrich_event(event)
 
         # Determine which agents should receive this event
-        agents_in_room = self.get_agents_in_room(event.room_id)
-        # Also include agents with no room set (they see everything until placed)
-        agents_without_room = [
-            a for a in self.registered_agents if a not in self.agent_rooms
-        ]
-        agents_to_notify = list(set(agents_in_room + agents_without_room))
+        agents_to_notify = await self._agents_from_room_profile(event.room_id)
+        if self.registered_agents:
+            agents_to_notify = [
+                a for a in agents_to_notify if a in self.registered_agents
+            ]
 
         if not agents_to_notify:
             logger.debug(f"No agents to notify for event in room {event.room_id}")
+            # Still mark as processed (we've looked at it)
+            await self._mark_event_processed(msg_id, [])
             return
 
         # Distribute to each relevant agent's stream
@@ -286,8 +312,172 @@ class MediatorService:
             await self.redis.xadd(
                 stream_key,
                 {"data": json.dumps(enriched)},
+                maxlen=self.config.agent_events_maxlen,
+                approximate=True,
             )
             logger.debug(f"Distributed event {msg_id} to {agent_id}")
+            await self._maybe_assign_turn(agent_id, reason="events")
+
+        # Mark event as processed with agent list
+        await self._mark_event_processed(msg_id, agents_to_notify)
+
+    async def _mark_event_processed(
+        self, msg_id: str, agents: list[str]
+    ) -> None:
+        """Mark an event as processed in the hash.
+
+        Args:
+            msg_id: Redis stream message ID.
+            agents: List of agent IDs that received the event.
+        """
+        try:
+            timestamp = _utc_now().isoformat()
+            agent_list = ",".join(agents) if agents else ""
+            value = f"{timestamp}|{agent_list}"
+
+            await self.redis.hset(
+                RedisKeys.EVENTS_PROCESSED,
+                msg_id,
+                value,
+            )
+
+            logger.debug(
+                f"Marked event {msg_id} as processed (agents: {agent_list or 'none'})"
+            )
+        except Exception as e:
+            logger.error(f"Failed to mark event {msg_id} as processed: {e}")
+
+    async def _trim_processed_events(self) -> None:
+        """Trim processed events from the stream based on hash.
+
+        Only trims events that are confirmed processed (in the hash).
+        Uses the minimum ID in the hash as the trim point.
+        """
+        if self.last_event_id == "0":
+            return
+
+        try:
+            # Get all processed event IDs
+            processed_ids = await self.redis.hkeys(RedisKeys.EVENTS_PROCESSED)
+
+            if not processed_ids:
+                return
+
+            # Decode and find minimum
+            ids = []
+            for key in processed_ids:
+                if isinstance(key, bytes):
+                    key = key.decode("utf-8")
+                ids.append(key)
+
+            # Trim stream up to minimum processed event
+            min_id = min(ids)
+            await self.redis.xtrim(
+                self.config.event_stream,
+                minid=min_id,
+                approximate=True,
+            )
+            logger.debug(f"Trimmed event stream up to {min_id}")
+        except Exception as e:
+            logger.error(f"Failed to trim event stream: {e}")
+
+    async def _cleanup_processed_hash(self) -> None:
+        """Remove old entries from processed hash, keeping most recent N.
+
+        Called periodically to prevent unbounded hash growth.
+        """
+        try:
+            # Get all processed event IDs
+            processed_ids = await self.redis.hkeys(RedisKeys.EVENTS_PROCESSED)
+
+            keep_count = self.config.events_processed_hash_max
+            if len(processed_ids) <= keep_count:
+                return  # No cleanup needed
+
+            # Decode and sort
+            ids = []
+            for key in processed_ids:
+                if isinstance(key, bytes):
+                    key = key.decode("utf-8")
+                ids.append(key)
+
+            ids.sort()  # Event IDs are sortable timestamps
+
+            # Remove oldest entries
+            to_remove = ids[:-keep_count]
+            if to_remove:
+                await self.redis.hdel(RedisKeys.EVENTS_PROCESSED, *to_remove)
+                logger.info(
+                    f"Cleaned up {len(to_remove)} old processed event entries"
+                )
+        except Exception as e:
+            logger.error(f"Failed to cleanup processed hash: {e}")
+
+    async def _get_turn_request(self, agent_id: str) -> dict[str, str]:
+        """Fetch the current turn request hash for an agent."""
+        key = RedisKeys.agent_turn_request(agent_id)
+        data = await self.redis.hgetall(key)
+        if not data:
+            return {}
+        result: dict[str, str] = {}
+        for k, v in data.items():
+            if isinstance(k, bytes):
+                k = k.decode("utf-8")
+            if isinstance(v, bytes):
+                v = v.decode("utf-8")
+            result[str(k)] = str(v)
+        return result
+
+    async def _maybe_assign_turn(self, agent_id: str, reason: str) -> None:
+        """Assign a turn request if none is active."""
+        current = await self._get_turn_request(agent_id)
+        status = current.get("status")
+        if status in ("assigned", "in_progress"):
+            return
+
+        turn_id = uuid.uuid4().hex
+        now = _utc_now().isoformat()
+        key = RedisKeys.agent_turn_request(agent_id)
+        payload = {
+            "turn_id": turn_id,
+            "status": "assigned",
+            "reason": reason,
+            "event_count": "1",
+            "assigned_at": now,
+            "heartbeat_at": now,
+            "deadline_ms": str(self.config.turn_request_ttl_seconds * 1000),
+        }
+        await self.redis.hset(key, mapping=payload)
+        await self.redis.expire(key, self.config.turn_request_ttl_seconds)
+
+    async def _agents_from_room_profile(self, room_id: str) -> list[str]:
+        """Lookup agent_ids present in a room profile."""
+        if not room_id:
+            return []
+        try:
+            raw = await self.redis.hget(RedisKeys.room_profile(room_id), "entities_present")
+        except Exception as e:
+            logger.error(f"Failed to read room profile for {room_id}: {e}")
+            return []
+        if not raw:
+            return []
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8")
+        try:
+            entities = json.loads(raw)
+        except json.JSONDecodeError:
+            logger.warning(f"Invalid room profile entities for {room_id}")
+            return []
+        agent_ids: set[str] = set()
+        for entity in entities:
+            if not isinstance(entity, dict):
+                continue
+            if entity.get("entity_type") != "ai":
+                continue
+            agent_id = entity.get("agent_id")
+            if agent_id:
+                agent_ids.add(str(agent_id))
+        return list(agent_ids)
 
     async def enrich_event(self, event: MUDEvent) -> dict[str, Any]:
         """Add room state to event.
@@ -305,142 +495,9 @@ class MediatorService:
         enriched = event.to_redis_dict()
         enriched["id"] = event.event_id
 
-        # Placeholder enrichment - actual room state query comes later
-        enriched["room_state"] = {
-            "room_id": event.room_id,
-            "name": event.room_name,
-            "description": "",
-            "exits": {},
-        }
-        enriched["entities_present"] = []
-        enriched["enriched"] = True
-
+        # No enrichment when world_state is absent (worker pulls from agent profile)
+        enriched["enriched"] = False
         return enriched
-
-    async def run_action_executor(self) -> None:
-        """Read mud:actions, round-robin execute.
-
-        Main action execution loop:
-        1. XREAD from mud:actions stream (short timeout for responsiveness)
-        2. Collect actions into per-agent queues
-        3. Round-robin through agents, executing one action per agent per cycle
-        """
-        logger.info("Action executor started")
-
-        while self.running:
-            try:
-                # Check if paused
-                if await self._is_paused():
-                    logger.debug("Action executor paused, sleeping...")
-                    await asyncio.sleep(1)
-                    continue
-
-                # Collect pending actions from stream
-                result = await self.redis.xread(
-                    {self.config.action_stream: self.last_action_id},
-                    block=int(self.config.action_poll_timeout * 1000),
-                    count=100,
-                )
-
-                if result:
-                    for stream_name, messages in result:
-                        for msg_id, data in messages:
-                            # Update last action ID
-                            if isinstance(msg_id, bytes):
-                                msg_id = msg_id.decode("utf-8")
-                            self.last_action_id = msg_id
-
-                            try:
-                                await self._queue_action(msg_id, data)
-                            except Exception as e:
-                                logger.error(
-                                    f"Error queuing action {msg_id}: {e}",
-                                    exc_info=True,
-                                )
-
-                # Round-robin execution
-                await self._execute_round_robin()
-
-            except asyncio.CancelledError:
-                logger.info("Action executor cancelled")
-                break
-            except Exception as e:
-                logger.error(f"Error in action executor: {e}", exc_info=True)
-                continue
-
-        logger.info("Action executor stopped")
-
-    async def _queue_action(
-        self, msg_id: str, data: dict[bytes, bytes] | dict[str, str]
-    ) -> None:
-        """Queue an action for execution.
-
-        Args:
-            msg_id: Redis stream message ID.
-            data: Raw action data from Redis.
-        """
-        raw_data = data.get(b"data") or data.get("data")
-        if raw_data is None:
-            logger.warning(f"Action {msg_id} missing data field")
-            return
-
-        if isinstance(raw_data, bytes):
-            raw_data = raw_data.decode("utf-8")
-
-        action = json.loads(raw_data)
-        action["msg_id"] = msg_id
-
-        agent_id = action.get("agent_id")
-        if not agent_id:
-            logger.warning(f"Action {msg_id} missing agent_id")
-            return
-
-        self.action_queues[agent_id].append(action)
-        logger.debug(
-            f"Queued action {msg_id} from {agent_id}: {action.get('command', '')}"
-        )
-
-    async def _execute_round_robin(self) -> None:
-        """Execute one action per agent in round-robin order."""
-        agents = list(self.action_queues.keys())
-        if not agents:
-            return
-
-        # Select next agent in round-robin order
-        agent_id = agents[self.last_agent_index % len(agents)]
-
-        if self.action_queues[agent_id]:
-            action = self.action_queues[agent_id].pop(0)
-            await self._execute_action(action)
-
-            # Clean up empty queues
-            if not self.action_queues[agent_id]:
-                del self.action_queues[agent_id]
-
-        self.last_agent_index += 1
-
-    async def _execute_action(self, action: dict[str, Any]) -> None:
-        """Execute an action in Evennia.
-
-        Currently a placeholder that logs the action.
-        Future implementation will call Evennia REST API or execute command.
-
-        Args:
-            action: Action dictionary with agent_id, command, tool, args, etc.
-        """
-        agent_id = action.get("agent_id", "unknown")
-        command = action.get("command", "")
-        msg_id = action.get("msg_id", "unknown")
-
-        logger.info(f"Executing action {msg_id} from {agent_id}: {command}")
-
-        # TODO: Actual Evennia execution
-        # async with aiohttp.ClientSession() as session:
-        #     async with session.post(
-        #         f"{self.config.evennia_api_url}/api/execute",
-        #         json={"agent_id": agent_id, "command": command}
-        #     ) as resp:
-        #         result = await resp.json()
 
     def register_agent(self, agent_id: str, initial_room: str = "") -> None:
         """Register an agent with the mediator.
@@ -450,11 +507,8 @@ class MediatorService:
             initial_room: Optional initial room ID for the agent.
         """
         self.registered_agents.add(agent_id)
-        if initial_room:
-            self.agent_rooms[agent_id] = initial_room
         logger.info(
             f"Registered agent {agent_id}"
-            + (f" in room {initial_room}" if initial_room else "")
         )
 
     def unregister_agent(self, agent_id: str) -> None:
@@ -464,33 +518,7 @@ class MediatorService:
             agent_id: Agent ID to unregister.
         """
         self.registered_agents.discard(agent_id)
-        self.agent_rooms.pop(agent_id, None)
         logger.info(f"Unregistered agent {agent_id}")
-
-    def update_agent_room(self, agent_id: str, room_id: str) -> None:
-        """Update agent's current room.
-
-        Args:
-            agent_id: Agent ID to update.
-            room_id: New room ID for the agent.
-        """
-        self.agent_rooms[agent_id] = room_id
-        logger.debug(f"Agent {agent_id} moved to room {room_id}")
-
-    def get_agents_in_room(self, room_id: str) -> list[str]:
-        """Get all agent IDs currently in a room.
-
-        Args:
-            room_id: Room ID to query.
-
-        Returns:
-            List of agent IDs in the specified room.
-        """
-        return [
-            agent_id
-            for agent_id, agent_room in self.agent_rooms.items()
-            if agent_room == room_id
-        ]
 
     def setup_signal_handlers(self) -> None:
         """Setup handlers for graceful shutdown.
@@ -583,12 +611,6 @@ Examples:
         default=None,
         help=f"Event poll timeout in seconds (default: {MediatorConfig.event_poll_timeout})",
     )
-    parser.add_argument(
-        "--action-timeout",
-        type=float,
-        default=None,
-        help=f"Action poll timeout in seconds (default: {MediatorConfig.action_poll_timeout})",
-    )
     return parser.parse_args()
 
 
@@ -618,13 +640,10 @@ def main() -> None:
     config_kwargs = {"redis_url": args.redis_url}
     if args.event_timeout is not None:
         config_kwargs["event_poll_timeout"] = args.event_timeout
-    if args.action_timeout is not None:
-        config_kwargs["action_poll_timeout"] = args.action_timeout
     config = MediatorConfig(**config_kwargs)
 
     logger.info(f"Redis URL: {config.redis_url}")
     logger.info(f"Event stream: {config.event_stream}")
-    logger.info(f"Action stream: {config.action_stream}")
     logger.info(f"Agents: {args.agents}")
 
     try:

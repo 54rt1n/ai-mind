@@ -47,11 +47,28 @@ class MUDAction(BaseModel):
             message = self.args.get("message", "")
             return f"whisper {target} = {message}"
 
-        elif self.tool == "look":
-            target = self.args.get("target", "")
-            return f"look {target}".strip()
+        elif self.tool == "pose":
+            return f"pose {self.args.get('action', '')}".strip()
+
+        elif self.tool == "home":
+            return "home"
+
+        elif self.tool == "setdesc":
+            if "description" not in self.args:
+                return ""
+            return f"setdesc {self.args.get('description', '')}".strip()
+
+        elif self.tool == "describe":
+            target = self.args.get("target")
+            description = self.args.get("description")
+            if not target or description is None:
+                return ""
+            return f"@set {target}/desc = {description}".strip()
 
         elif self.tool == "move":
+            location = self.args.get("location")
+            if location:
+                return location
             return self.args.get("direction", "")
 
         elif self.tool == "get":
@@ -68,45 +85,178 @@ class MUDAction(BaseModel):
         elif self.tool == "use":
             return f"use {self.args.get('object', '')}"
 
+        elif self.tool == "speak":
+            text = self.args.get("text", "")
+            if not text:
+                return ""
+            # Encode newlines to avoid command parser splitting
+            normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+            encoded = normalized.replace("\n", "\\n")
+            return f"act {encoded}".rstrip()
+
         # Builder-level commands (Andi only)
         elif self.tool == "dig":
-            room = self.args.get("room", "")
-            exits = self.args.get("exits", "")
-            return f"@dig {room} = {exits}"
+            if "room" not in self.args or "exits" not in self.args:
+                return ""
+            return f"@dig {self.args.get('room', '')} = {self.args.get('exits', '')}".strip()
+
+        elif self.tool == "tunnel":
+            if "direction" not in self.args or "room" not in self.args:
+                return ""
+            return f"@tunnel {self.args.get('direction', '')} = {self.args.get('room', '')}".strip()
+
+        elif self.tool == "open":
+            if "name" not in self.args or "destination" not in self.args:
+                return ""
+            return f"@open {self.args.get('name', '')} = {self.args.get('destination', '')}".strip()
+
+        elif self.tool == "alias":
+            if "object" not in self.args or "aliases" not in self.args:
+                return ""
+            delete = self.args.get("delete", False)
+            suffix = "/delete" if delete else ""
+            return f"@alias{suffix} {self.args.get('object', '')} = {self.args.get('aliases', '')}".strip()
+
+        elif self.tool == "copy":
+            if "source" not in self.args or "destination" not in self.args:
+                return ""
+            return f"@copy {self.args.get('source', '')} = {self.args.get('destination', '')}".strip()
+
+        elif self.tool == "cpattr":
+            if (
+                "source" not in self.args
+                or "source_attr" not in self.args
+                or "target" not in self.args
+                or "target_attr" not in self.args
+            ):
+                return ""
+            return (
+                f"@cpattr {self.args.get('source', '')}/"
+                f"{self.args.get('source_attr', '')} = "
+                f"{self.args.get('target', '')}/"
+                f"{self.args.get('target_attr', '')}"
+            ).strip()
+
+        elif self.tool == "mvattr":
+            if (
+                "source" not in self.args
+                or "source_attr" not in self.args
+                or "target" not in self.args
+                or "target_attr" not in self.args
+            ):
+                return ""
+            return (
+                f"@mvattr {self.args.get('source', '')}/"
+                f"{self.args.get('source_attr', '')} = "
+                f"{self.args.get('target', '')}/"
+                f"{self.args.get('target_attr', '')}"
+            ).strip()
 
         elif self.tool == "create":
-            return f"@create {self.args.get('object', '')}"
+            if "object" not in self.args:
+                return ""
+            return f"@create {self.args.get('object', '')}".strip()
 
-        elif self.tool == "describe":
-            target = self.args.get("target", "")
-            desc = self.args.get("description", "")
-            return f"@describe {target} = {desc}"
+        elif self.tool == "desc":
+            if "target" not in self.args or "description" not in self.args:
+                return ""
+            return f"@desc {self.args.get('target', '')} = {self.args.get('description', '')}".strip()
 
         elif self.tool == "teleport":
-            return f"@teleport {self.args.get('destination', '')}"
+            if "destination" not in self.args:
+                return ""
+            target = self.args.get("target", "me")
+            return f"@teleport {target} = {self.args.get('destination', '')}".strip()
 
         elif self.tool == "destroy":
-            return f"@destroy {self.args.get('object', '')}"
+            if "object" not in self.args:
+                return ""
+            return f"@destroy {self.args.get('object', '')}".strip()
 
         elif self.tool == "link":
-            exit_name = self.args.get("exit", "")
-            destination = self.args.get("destination", "")
-            return f"@link {exit_name} = {destination}"
+            if "exit" not in self.args or "destination" not in self.args:
+                return ""
+            return f"@link {self.args.get('exit', '')} = {self.args.get('destination', '')}".strip()
+
+        elif self.tool == "unlink":
+            if "exit" not in self.args:
+                return ""
+            return f"unlink {self.args.get('exit', '')}".strip()
 
         elif self.tool == "lock":
-            obj = self.args.get("object", "")
-            lockstring = self.args.get("lockstring", "")
-            return f"@lock {obj} = {lockstring}"
+            if "object" not in self.args or "lockstring" not in self.args:
+                return ""
+            return f"@lock {self.args.get('object', '')} = {self.args.get('lockstring', '')}".strip()
+
+        elif self.tool == "name":
+            if "object" not in self.args or "new_name" not in self.args:
+                return ""
+            return f"@name {self.args.get('object', '')} = {self.args.get('new_name', '')}".strip()
 
         elif self.tool == "set":
-            obj = self.args.get("object", "")
-            attr = self.args.get("attribute", "")
-            value = self.args.get("value", "")
-            return f"@set {obj}/{attr} = {value}"
+            if (
+                "object" not in self.args
+                or "attribute" not in self.args
+                or "value" not in self.args
+            ):
+                return ""
+            return (
+                f"@set {self.args.get('object', '')}/"
+                f"{self.args.get('attribute', '')} = "
+                f"{self.args.get('value', '')}"
+            ).strip()
+
+        elif self.tool == "sethome":
+            if "object" not in self.args or "home" not in self.args:
+                return ""
+            return f"@sethome {self.args.get('object', '')} = {self.args.get('home', '')}".strip()
+
+        elif self.tool == "cmdsets":
+            if "target" not in self.args:
+                return ""
+            return f"@cmdsets {self.args.get('target', '')}".strip()
+
+        elif self.tool == "typeclass":
+            if "target" not in self.args or "typeclass" not in self.args:
+                return ""
+            return f"@typeclass {self.args.get('target', '')} = {self.args.get('typeclass', '')}".strip()
+
+        elif self.tool == "wipe":
+            if "object" not in self.args:
+                return ""
+            attribute = self.args.get("attribute")
+            if attribute:
+                return f"@wipe {self.args.get('object', '')}/{attribute}".strip()
+            return f"@wipe {self.args.get('object', '')}".strip()
+
+        elif self.tool == "examine":
+            if "target" not in self.args:
+                return ""
+            return f"@examine {self.args.get('target', '')}".strip()
+
+        elif self.tool == "find":
+            if "query" not in self.args:
+                return ""
+            return f"@find {self.args.get('query', '')}".strip()
+
+        elif self.tool == "tag":
+            if "object" not in self.args or "tags" not in self.args:
+                return ""
+            category = self.args.get("category")
+            delete = self.args.get("delete", False)
+            suffix = "/del" if delete else ""
+            tag_str = self.args.get("tags", "")
+            if category:
+                tag_str = f"{tag_str}:{category}"
+            return f"@tag{suffix} {self.args.get('object', '')} = {tag_str}".strip()
+
+        elif self.tool == "spawn":
+            if "prototype" not in self.args:
+                return ""
+            return f"@spawn {self.args.get('prototype', '')}".strip()
 
         else:
-            # Unknown tool - use raw command if provided, else format as-is
-            return self.args.get("command", f"{self.tool} {self.args}")
+            return ""
 
     def to_redis_dict(self, agent_id: str) -> dict[str, Any]:
         """Convert to dictionary for Redis stream publishing.

@@ -7,13 +7,15 @@ from datetime import datetime, timezone
 
 from aim.app.mud.adapter import (
     MAX_RECENT_TURNS,
-    build_chat_turns,
     build_system_prompt,
     build_current_context,
     format_event,
     format_turn_events,
     format_turn_response,
+    entries_to_chat_turns,
 )
+from aim.app.mud.conversation import MUDConversationEntry
+from aim.constants import DOC_MUD_WORLD, DOC_MUD_AGENT
 from aim.app.mud.session import (
     EventType,
     RoomState,
@@ -84,6 +86,13 @@ def sample_entities() -> list[EntityState]:
             description="Another AI.",
             is_self=False,
         ),
+        EntityState(
+            entity_id="obj1",
+            name="Fountain",
+            entity_type="object",
+            description="A softly bubbling silver fountain.",
+            is_self=False,
+        ),
     ]
 
 
@@ -136,12 +145,35 @@ class TestFormatEvent:
     def test_format_speech_event(self, sample_speech_event: MUDEvent):
         """Test formatting a speech event."""
         result = format_event(sample_speech_event)
-        assert result == '  Prax says: "Hello, Andi! Happy New Year!"'
+        assert result == 'Prax says, "Hello, Andi! Happy New Year!"'
 
     def test_format_emote_event(self, sample_emote_event: MUDEvent):
         """Test formatting an emote event."""
         result = format_event(sample_emote_event)
-        assert result == "  Prax smiles warmly"
+        assert result == "*Prax smiles warmly*"
+
+    def test_format_emote_with_quotes(self):
+        """Test formatting an emote with quoted speech splits action and speech."""
+        event = MUDEvent(
+            event_type=EventType.EMOTE,
+            actor="Prax",
+            room_id="#123",
+            content='looks at you. "Hello, Andi!"',
+        )
+        result = format_event(event)
+        assert result == '*Prax looks at you.* "Hello, Andi!"'
+
+    def test_format_emote_with_quotes_at_start(self):
+        """Test formatting an emote where quote is at the very start."""
+        event = MUDEvent(
+            event_type=EventType.EMOTE,
+            actor="Prax",
+            room_id="#123",
+            content='"Hello!" she said.',
+        )
+        result = format_event(event)
+        # When quote is at start, just wrap actor
+        assert result == '*Prax* "Hello!" she said.'
 
     def test_format_movement_enter_event(self):
         """Test formatting a movement event for arrival."""
@@ -152,7 +184,7 @@ class TestFormatEvent:
             content="enters from the north",
         )
         result = format_event(event)
-        assert result == "  Prax has arrived."
+        assert result == "*Prax has arrived.*"
 
     def test_format_movement_arrive_event(self):
         """Test formatting a movement event with 'arrive' in content."""
@@ -163,7 +195,7 @@ class TestFormatEvent:
             content="has arrived",
         )
         result = format_event(event)
-        assert result == "  Prax has arrived."
+        assert result == "*Prax has arrived.*"
 
     def test_format_movement_leave_event(self):
         """Test formatting a movement event for departure."""
@@ -174,7 +206,7 @@ class TestFormatEvent:
             content="leaves to the north",
         )
         result = format_event(event)
-        assert result == "  Prax has left."
+        assert result == "*Prax has left.*"
 
     def test_format_object_event(self):
         """Test formatting an object event."""
@@ -185,7 +217,7 @@ class TestFormatEvent:
             content="picks up a golden key",
         )
         result = format_event(event)
-        assert result == "  Prax picks up a golden key"
+        assert result == "*Prax picks up a golden key*"
 
     def test_format_ambient_event(self):
         """Test formatting an ambient event."""
@@ -196,7 +228,7 @@ class TestFormatEvent:
             content="A cool breeze rustles the leaves.",
         )
         result = format_event(event)
-        assert result == "  A cool breeze rustles the leaves."
+        assert result == "A cool breeze rustles the leaves."
 
     def test_format_system_event(self):
         """Test formatting a system event."""
@@ -207,7 +239,7 @@ class TestFormatEvent:
             content="Server maintenance in 5 minutes.",
         )
         result = format_event(event)
-        assert result == "  [System] Server maintenance in 5 minutes."
+        assert result == "[System] Server maintenance in 5 minutes."
 
 
 class TestFormatTurnEvents:
@@ -220,8 +252,8 @@ class TestFormatTurnEvents:
         turn = MUDTurn(events_received=[sample_speech_event, sample_emote_event])
         result = format_turn_events(turn)
 
-        assert '  Prax says: "Hello, Andi! Happy New Year!"' in result
-        assert "  Prax smiles warmly" in result
+        assert 'Prax says, "Hello, Andi! Happy New Year!"' in result
+        assert "*Prax smiles warmly*" in result
         # Should be two lines
         assert result.count("\n") == 1
 
@@ -257,10 +289,10 @@ class TestFormatTurnResponse:
 
     def test_format_turn_response_with_actions_only(self):
         """Test formatting a turn response with only actions."""
-        action = MUDAction(tool="look", args={})
+        action = MUDAction(tool="pose", args={"action": "smiles softly"})
         turn = MUDTurn(actions_taken=[action])
         result = format_turn_response(turn)
-        assert result == "[Action: look] look"
+        assert result == "[Action: pose] pose smiles softly"
 
     def test_format_turn_response_empty(self):
         """Test formatting an empty turn response."""
@@ -289,26 +321,55 @@ class TestBuildCurrentContext:
 
         result = build_current_context(session)
 
-        # Check location
-        assert '<location name="The Garden of Reflection">' in result
-        assert "A serene garden with a softly bubbling fountain" in result
-        assert "Exits: " in result
-        assert "</location>" in result
-
-        # Check entities (should exclude self)
-        assert "<present>" in result
-        assert '<entity name="Prax" type="player"/>' in result
-        assert '<entity name="Roommate" type="ai"/>' in result
-        assert "Andi" not in result.split("<present>")[1].split("</present>")[0]
-        assert "</present>" in result
-
-        # Check events
+        # Check events (default include_events=True)
         assert '<events count="1">' in result
-        assert 'Prax says: "Hello, Andi! Happy New Year!"' in result
+        assert 'Prax says, "Hello, Andi! Happy New Year!"' in result
         assert "</events>" in result
 
-        # Check prompt
-        assert "What do you do?" in result
+        # Check formatting guidance
+        assert "[~~ FORMAT:" in result
+
+    def test_build_current_context_exclude_events(
+        self,
+        sample_room: RoomState,
+        sample_entities: list[EntityState],
+        sample_speech_event: MUDEvent,
+    ):
+        """Test building current context with include_events=False."""
+        session = MUDSession(
+            agent_id="andi",
+            persona_id="andi",
+            current_room=sample_room,
+            entities_present=sample_entities,
+            pending_events=[sample_speech_event],
+        )
+
+        result = build_current_context(session, include_events=False)
+
+        # Events should NOT be included
+        assert "<events" not in result
+        assert "Hello, Andi!" not in result
+
+        # Format guidance should still be there
+        assert "[~~ FORMAT:" in result
+
+    def test_build_current_context_exclude_events_idle_mode(self):
+        """Test that idle guidance is NOT added when include_events=False."""
+        session = MUDSession(
+            agent_id="andi",
+            persona_id="andi",
+            current_room=None,
+            entities_present=[],
+            pending_events=[],
+        )
+
+        result = build_current_context(session, idle_mode=True, include_events=False)
+
+        # Idle guidance is part of events section, so should be excluded
+        assert "<events" not in result
+        assert "<idle>" not in result
+        # Format guidance should still be there
+        assert "[~~ FORMAT:" in result
 
     def test_build_current_context_no_room(self):
         """Test building current context with no room."""
@@ -324,11 +385,11 @@ class TestBuildCurrentContext:
 
         assert "<location" not in result
         assert "<present>" not in result
+        assert "<objects>" not in result
         assert "<events" not in result
-        assert "What do you do?" in result
 
     def test_build_current_context_no_exits(self):
-        """Test building current context with room but no exits."""
+        """Test building current context with room but no exits (idle mode)."""
         room = RoomState(
             room_id="#123",
             name="Dead End",
@@ -343,10 +404,12 @@ class TestBuildCurrentContext:
             pending_events=[],
         )
 
-        result = build_current_context(session)
+        result = build_current_context(session, idle_mode=True)
 
-        assert '<location name="Dead End">' in result
-        assert "Exits:" not in result
+        # With no events and idle_mode, should have idle guidance
+        assert '<events count="0">' in result
+        assert "<idle>" in result
+        assert "[~~ FORMAT:" in result
 
     def test_build_current_context_only_self_present(self):
         """Test that self entity is excluded from present list."""
@@ -368,6 +431,7 @@ class TestBuildCurrentContext:
 
         # Should not have present section since only self is present
         assert "<present>" not in result
+        assert "<objects>" not in result
 
     def test_build_current_context_no_events(
         self, sample_room: RoomState, sample_entities: list[EntityState]
@@ -384,7 +448,6 @@ class TestBuildCurrentContext:
         result = build_current_context(session)
 
         assert "<events" not in result
-        assert "What do you do?" in result
 
 
 class TestBuildSystemPrompt:
@@ -396,7 +459,7 @@ class TestBuildSystemPrompt:
         sample_room: RoomState,
         sample_entities: list[EntityState],
     ):
-        """Test building system prompt with full context."""
+        """Test building system prompt returns only persona prompt."""
         session = MUDSession(
             agent_id="andi",
             persona_id="andi",
@@ -409,20 +472,13 @@ class TestBuildSystemPrompt:
         # Should contain persona information
         assert "Andi Valentine" in result
 
-        # Should contain location
-        assert "[Current Location]" in result
-        assert "The Garden of Reflection" in result
-        assert "serene garden" in result
-
-        # Should list present entities (excluding self)
-        assert "Present: Prax, Roommate" in result
-        # Should not list self in present
-        lines_with_present = [l for l in result.split("\n") if "Present:" in l]
-        assert len(lines_with_present) == 1
-        assert "Andi" not in lines_with_present[0]
+        # Should NOT contain world state (that goes in memory block now)
+        assert "[Current Location]" not in result
+        assert "The Garden of Reflection" not in result
+        assert "Present:" not in result
 
     def test_build_system_prompt_no_room(self, sample_persona: Persona):
-        """Test building system prompt with no room."""
+        """Test building system prompt with no room still returns persona."""
         session = MUDSession(
             agent_id="andi",
             persona_id="andi",
@@ -434,15 +490,14 @@ class TestBuildSystemPrompt:
 
         # Should still have persona
         assert "Andi Valentine" in result
-        # Should indicate alone
-        assert "You are alone." in result
-        # Should not have location section content
+        # Should NOT have world state sections
         assert "[Current Location]" not in result
+        assert "You are alone." not in result
 
     def test_build_system_prompt_alone(
         self, sample_persona: Persona, sample_room: RoomState
     ):
-        """Test building system prompt when alone."""
+        """Test building system prompt when alone still returns only persona."""
         self_only = EntityState(
             entity_id="char1", name="Andi", entity_type="ai", is_self=True
         )
@@ -455,208 +510,111 @@ class TestBuildSystemPrompt:
 
         result = build_system_prompt(session, sample_persona)
 
-        assert "You are alone." in result
+        # Should have persona
+        assert "Andi Valentine" in result
+        # Should NOT have world state
+        assert "You are alone." not in result
         assert "Present:" not in result
 
 
-class TestBuildChatTurns:
-    """Tests for build_chat_turns function."""
+class TestEntriesToChatTurns:
+    """Tests for entries_to_chat_turns function."""
 
-    def test_build_chat_turns_basic_structure(
-        self, sample_session: MUDSession, sample_persona: Persona
-    ):
-        """Test that build_chat_turns produces correct basic structure."""
-        turns = build_chat_turns(sample_session, sample_persona)
+    def test_entries_to_chat_turns_empty(self):
+        """Test converting empty list of entries."""
+        result = entries_to_chat_turns([])
+        assert result == []
 
-        # Should have at least 2 turns (system + current context)
-        assert len(turns) >= 2
-
-        # First turn should be system
-        assert turns[0]["role"] == "system"
-        assert "Andi Valentine" in turns[0]["content"]
-
-        # Last turn should be user (current context)
-        assert turns[-1]["role"] == "user"
-        assert "What do you do?" in turns[-1]["content"]
-
-    def test_build_chat_turns_with_history(
-        self,
-        sample_persona: Persona,
-        sample_room: RoomState,
-        sample_entities: list[EntityState],
-        sample_speech_event: MUDEvent,
-    ):
-        """Test build_chat_turns includes turn history."""
-        # Create a past turn
-        past_action = MUDAction(tool="say", args={"message": "Hello!"})
-        past_turn = MUDTurn(
-            events_received=[sample_speech_event],
-            thinking="I should greet them.",
-            actions_taken=[past_action],
+    def test_entries_to_chat_turns_single_user(self):
+        """Test converting a single user entry."""
+        # Content is now pure prose (no XML wrapper)
+        entry = MUDConversationEntry(
+            role="user",
+            content='Prax says, "Hello!"',
+            tokens=10,
+            document_type=DOC_MUD_WORLD,
+            conversation_id="test_conv_1",
+            sequence_no=0,
         )
+        result = entries_to_chat_turns([entry])
 
-        session = MUDSession(
-            agent_id="andi",
-            persona_id="andi",
-            current_room=sample_room,
-            entities_present=sample_entities,
-            pending_events=[sample_speech_event],
-            recent_turns=[past_turn],
-        )
+        assert len(result) == 1
+        assert result[0]["role"] == "user"
+        assert "Prax says" in result[0]["content"]
 
-        turns = build_chat_turns(session, sample_persona)
+    def test_entries_to_chat_turns_multiple_entries(self):
+        """Test converting multiple entries in alternating roles."""
+        # Content is now pure prose (no XML wrapper)
+        entries = [
+            MUDConversationEntry(
+                role="user",
+                content='Prax says, "Hello!"',
+                tokens=10,
+                document_type=DOC_MUD_WORLD,
+                conversation_id="test_conv_1",
+                sequence_no=0,
+            ),
+            MUDConversationEntry(
+                role="assistant",
+                content="Hello Prax! It's wonderful to see you.",
+                tokens=15,
+                document_type=DOC_MUD_AGENT,
+                conversation_id="test_conv_1",
+                sequence_no=1,
+            ),
+            MUDConversationEntry(
+                role="user",
+                content="Prax smiles warmly",
+                tokens=8,
+                document_type=DOC_MUD_WORLD,
+                conversation_id="test_conv_1",
+                sequence_no=2,
+            ),
+        ]
 
-        # Should have: system, user (past events), assistant (past response), user (current)
-        assert len(turns) == 4
+        result = entries_to_chat_turns(entries)
 
-        assert turns[0]["role"] == "system"
-        assert turns[1]["role"] == "user"
-        assert turns[2]["role"] == "assistant"
-        assert turns[3]["role"] == "user"
+        assert len(result) == 3
+        assert result[0]["role"] == "user"
+        assert result[1]["role"] == "assistant"
+        assert result[2]["role"] == "user"
 
-        # Check past turn content
-        assert "Prax says:" in turns[1]["content"]
-        assert "I should greet them." in turns[2]["content"]
-        assert "[Action: say]" in turns[2]["content"]
+        # Verify content preserved
+        assert "Prax says" in result[0]["content"]
+        assert "wonderful to see you" in result[1]["content"]
+        assert "smiles warmly" in result[2]["content"]
 
-    def test_build_chat_turns_respects_max_history(
-        self,
-        sample_persona: Persona,
-        sample_room: RoomState,
-        sample_entities: list[EntityState],
-    ):
-        """Test that build_chat_turns limits history to MAX_RECENT_TURNS."""
-        # Create more turns than MAX_RECENT_TURNS
-        many_turns = []
-        for i in range(MAX_RECENT_TURNS + 5):
-            turn = MUDTurn(thinking=f"Turn {i}")
-            many_turns.append(turn)
+    def test_entries_to_chat_turns_preserves_order(self):
+        """Test that entries are returned in the same order as input."""
+        entries = [
+            MUDConversationEntry(
+                role="user",
+                content="First message",
+                tokens=5,
+                document_type=DOC_MUD_WORLD,
+                conversation_id="test_conv_1",
+                sequence_no=0,
+            ),
+            MUDConversationEntry(
+                role="assistant",
+                content="Second message",
+                tokens=5,
+                document_type=DOC_MUD_AGENT,
+                conversation_id="test_conv_1",
+                sequence_no=1,
+            ),
+            MUDConversationEntry(
+                role="user",
+                content="Third message",
+                tokens=5,
+                document_type=DOC_MUD_WORLD,
+                conversation_id="test_conv_1",
+                sequence_no=2,
+            ),
+        ]
 
-        session = MUDSession(
-            agent_id="andi",
-            persona_id="andi",
-            current_room=sample_room,
-            entities_present=sample_entities,
-            pending_events=[],
-            recent_turns=many_turns,
-        )
+        result = entries_to_chat_turns(entries)
 
-        turns = build_chat_turns(session, sample_persona)
-
-        # Should have: system + (MAX_RECENT_TURNS * 2 for user/assistant pairs) + current
-        expected_turn_count = 1 + (MAX_RECENT_TURNS * 2) + 1
-        assert len(turns) == expected_turn_count
-
-        # Should have the last MAX_RECENT_TURNS, not the first
-        # Check that we have Turn 5 through Turn 14 (the last 10)
-        assistant_turns = [t for t in turns if t["role"] == "assistant"]
-        assert len(assistant_turns) == MAX_RECENT_TURNS
-        assert "Turn 5" in assistant_turns[0]["content"]
-        assert f"Turn {MAX_RECENT_TURNS + 4}" in assistant_turns[-1]["content"]
-
-    def test_build_chat_turns_empty_session(self, sample_persona: Persona):
-        """Test build_chat_turns with minimal/empty session."""
-        session = MUDSession(
-            agent_id="andi",
-            persona_id="andi",
-            current_room=None,
-            entities_present=[],
-            pending_events=[],
-            recent_turns=[],
-        )
-
-        turns = build_chat_turns(session, sample_persona)
-
-        # Should still have system and current context
-        assert len(turns) == 2
-        assert turns[0]["role"] == "system"
-        assert turns[1]["role"] == "user"
-        assert "What do you do?" in turns[1]["content"]
-
-    def test_build_chat_turns_spontaneous_action_in_history(
-        self, sample_persona: Persona, sample_room: RoomState
-    ):
-        """Test handling of spontaneous action turns in history."""
-        # Turn with no events (spontaneous)
-        spontaneous_turn = MUDTurn(
-            events_received=[],
-            thinking="I feel like looking around.",
-            actions_taken=[MUDAction(tool="look", args={})],
-        )
-
-        session = MUDSession(
-            agent_id="andi",
-            persona_id="andi",
-            current_room=sample_room,
-            entities_present=[],
-            pending_events=[],
-            recent_turns=[spontaneous_turn],
-        )
-
-        turns = build_chat_turns(session, sample_persona)
-
-        # Check that spontaneous action is formatted correctly
-        user_turns = [t for t in turns if t["role"] == "user"]
-        assert any("[No events - spontaneous action]" in t["content"] for t in user_turns)
-
-
-class TestIntegration:
-    """Integration tests for the adapter module."""
-
-    def test_full_conversation_flow(
-        self,
-        sample_persona: Persona,
-        sample_room: RoomState,
-        sample_entities: list[EntityState],
-    ):
-        """Test a realistic conversation flow through the adapter."""
-        # Event 1: Prax arrives
-        arrival_event = MUDEvent(
-            event_type=EventType.MOVEMENT,
-            actor="Prax",
-            room_id="#123",
-            content="enters from the north",
-        )
-
-        # Event 2: Prax speaks
-        greeting_event = MUDEvent(
-            event_type=EventType.SPEECH,
-            actor="Prax",
-            room_id="#123",
-            content="Hello, Andi! Happy New Year!",
-        )
-
-        # Past turn: Andi noticed Prax arrive
-        past_turn = MUDTurn(
-            events_received=[arrival_event],
-            thinking="Prax has arrived. I should greet him.",
-            actions_taken=[
-                MUDAction(
-                    tool="emote", args={"action": "looks up with a warm smile"}, priority=1
-                ),
-            ],
-        )
-
-        # Current session: Prax has spoken
-        session = MUDSession(
-            agent_id="andi",
-            persona_id="andi",
-            current_room=sample_room,
-            entities_present=sample_entities,
-            pending_events=[greeting_event],
-            recent_turns=[past_turn],
-        )
-
-        turns = build_chat_turns(session, sample_persona)
-
-        # Verify structure
-        assert len(turns) == 4  # system, user (past), assistant (past), user (current)
-
-        # Verify roles alternate correctly
-        roles = [t["role"] for t in turns]
-        assert roles == ["system", "user", "assistant", "user"]
-
-        # Verify content makes sense
-        assert "Prax has arrived" in turns[1]["content"]
-        assert "looks up with a warm smile" in turns[2]["content"]
-        assert 'Prax says: "Hello, Andi! Happy New Year!"' in turns[3]["content"]
+        assert result[0]["content"] == "First message"
+        assert result[1]["content"] == "Second message"
+        assert result[2]["content"] == "Third message"

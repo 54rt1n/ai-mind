@@ -1,0 +1,84 @@
+type: mud
+description: Minimal MUD tools for phase 1 decision making
+
+functions:
+  - name: speak
+    description: Choose to take a full response turn (free text will be generated in phase 2)
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: Optional topic to focus memory search on before responding
+      required: []
+      examples:
+        - {speak: {}}
+        - {speak: {query: "memories about the beach"}}
+
+  - name: move
+    description: Move to a different location via an available exit
+    parameters:
+      type: object
+      properties:
+        location:
+          type: string
+          description: Exit or destination name (must match an available exit)
+      required:
+        - location
+      examples:
+        - {move: {location: "north"}}
+        - {move: {location: "garden"}}
+
+  - name: take
+    description: Pick up an item from the current room
+    parameters:
+      type: object
+      properties:
+        object:
+          type: string
+          description: The name of the object to take
+      required:
+        - object
+      examples:
+        - {take: {object: "lantern"}}
+        - {take: {object: "silver key"}}
+
+  - name: drop
+    description: Drop an item from your inventory into the room
+    parameters:
+      type: object
+      properties:
+        object:
+          type: string
+          description: The name of the object to drop
+      required:
+        - object
+      examples:
+        - {drop: {object: "lantern"}}
+
+  - name: give
+    description: Give an item from your inventory to someone or put it in/on something
+    parameters:
+      type: object
+      properties:
+        object:
+          type: string
+          description: The name of the object to give or place
+        target:
+          type: string
+          description: The name of the person or container to give/put it to
+      required:
+        - object
+        - target
+      examples:
+        - {give: {object: "flower", target: "Prax"}}
+        - {give: {object: "cup", target: "shelf"}}
+
+  - name: wait
+    description: Do nothing this turn (wait and observe)
+    parameters:
+      type: object
+      properties: {}
+      required: []
+      examples:
+        - {wait: {}}

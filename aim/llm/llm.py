@@ -178,6 +178,7 @@ class OpenAIProvider(LLMProvider):
                 time.sleep(delay)
 
             progress = 0
+            raw_chunks: list[str] = []
             lastpct = 0
             tenpct = int(config.max_tokens * 0.1)
 
@@ -211,6 +212,17 @@ class OpenAIProvider(LLMProvider):
                         logger.info(f"{pct*100}% done")
                     if c.choices:
                         yield c.choices[0].delta.content
+                        if c.choices[0].delta.content is not None:
+                            raw_chunks.append(c.choices[0].delta.content)
+
+                # Write raw model response to trace_out.txt
+                try:
+                    if raw_chunks:
+                        trace_out_path = Path("local/trace_out.txt")
+                        trace_out_path.parent.mkdir(parents=True, exist_ok=True)
+                        trace_out_path.write_text("".join(raw_chunks))
+                except Exception as e:
+                    logger.warning(f"Failed to write trace_out.txt: {e}")
 
                 # Success - log and return
                 logger.info(f"Generation complete. {progress}/{config.max_tokens} tokens processed.")

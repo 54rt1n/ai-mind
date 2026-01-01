@@ -18,6 +18,7 @@ class ChatManager:
         self.library = Library(documents_dir=config.documents_dir)
         self.current_document : Optional[str] = None
         self.current_workspace : Optional[str] = None
+        self.current_location : Optional[str] = None
 
         self.history : List[Dict[str, str]] = []
 

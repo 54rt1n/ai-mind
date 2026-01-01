@@ -66,36 +66,32 @@ class TestPlayerLevelTools:
         with pytest.raises(ValueError, match="Message parameter is required"):
             mud_tool.execute("whisper", {"target": "Prax"})
 
-    def test_look_without_target(self, mud_tool):
-        """Look tool without target should look at room."""
-        result = mud_tool.execute("look", {})
+    def test_pose_returns_correct_structure(self, mud_tool):
+        """Pose tool should return proper action data."""
+        result = mud_tool.execute("pose", {"action": "smiles softly"})
 
         assert result["status"] == "success"
-        assert result["tool"] == "look"
-        assert result["args"] == {}
-        assert "look around" in result["message"]
+        assert result["tool"] == "pose"
+        assert result["args"] == {"action": "smiles softly"}
+        assert "smiles softly" in result["message"]
 
-    def test_look_with_target(self, mud_tool):
-        """Look tool with target should examine that target."""
-        result = mud_tool.execute("look", {"target": "fountain"})
-
-        assert result["status"] == "success"
-        assert result["tool"] == "look"
-        assert result["args"] == {"target": "fountain"}
-        assert "fountain" in result["message"]
+    def test_pose_requires_action(self, mud_tool):
+        """Pose tool should require action parameter."""
+        with pytest.raises(ValueError, match="Action parameter is required"):
+            mud_tool.execute("pose", {})
 
     def test_move_returns_correct_structure(self, mud_tool):
         """Move tool should return proper action data."""
-        result = mud_tool.execute("move", {"direction": "north"})
+        result = mud_tool.execute("move", {"location": "north"})
 
         assert result["status"] == "success"
         assert result["tool"] == "move"
-        assert result["args"] == {"direction": "north"}
+        assert result["args"] == {"location": "north"}
         assert "north" in result["message"]
 
-    def test_move_requires_direction(self, mud_tool):
-        """Move tool should require direction parameter."""
-        with pytest.raises(ValueError, match="Direction parameter is required"):
+    def test_move_requires_location(self, mud_tool):
+        """Move tool should require location parameter."""
+        with pytest.raises(ValueError, match="Location parameter is required"):
             mud_tool.execute("move", {})
 
     def test_get_returns_correct_structure(self, mud_tool):
@@ -163,6 +159,27 @@ class TestPlayerLevelTools:
         with pytest.raises(ValueError, match="Object parameter is required"):
             mud_tool.execute("use", {})
 
+    def test_home_returns_correct_structure(self, mud_tool):
+        """Home tool should return proper action data."""
+        result = mud_tool.execute("home", {})
+
+        assert result["status"] == "success"
+        assert result["tool"] == "home"
+        assert result["args"] == {}
+
+    def test_setdesc_returns_correct_structure(self, mud_tool):
+        """Setdesc tool should return proper action data."""
+        result = mud_tool.execute("setdesc", {"description": "A calm presence."})
+
+        assert result["status"] == "success"
+        assert result["tool"] == "setdesc"
+        assert result["args"] == {"description": "A calm presence."}
+
+    def test_setdesc_requires_description(self, mud_tool):
+        """Setdesc tool should require description parameter."""
+        with pytest.raises(ValueError, match="Description parameter is required"):
+            mud_tool.execute("setdesc", {})
+
 
 class TestBuilderLevelTools:
     """Tests for builder-level MUD tools (Andi only)."""
@@ -180,8 +197,6 @@ class TestBuilderLevelTools:
             "room": "Garden of Reflection",
             "exits": "north;south"
         }
-        assert "Garden of Reflection" in result["message"]
-        assert "north;south" in result["message"]
 
     def test_dig_requires_room(self, mud_tool):
         """Dig tool should require room parameter."""
@@ -200,47 +215,33 @@ class TestBuilderLevelTools:
         assert result["status"] == "success"
         assert result["tool"] == "create"
         assert result["args"] == {"object": "silver fountain"}
-        assert "silver fountain" in result["message"]
 
     def test_create_requires_object(self, mud_tool):
         """Create tool should require object parameter."""
         with pytest.raises(ValueError, match="Object parameter is required"):
             mud_tool.execute("create", {})
 
-    def test_describe_room_returns_correct_structure(self, mud_tool):
-        """Describe tool for room should return proper action data."""
-        result = mud_tool.execute("describe", {
+    def test_desc_returns_correct_structure(self, mud_tool):
+        """Desc tool should return proper action data."""
+        result = mud_tool.execute("desc", {
             "target": "here",
             "description": "A peaceful garden with a silver fountain."
         })
 
         assert result["status"] == "success"
-        assert result["tool"] == "describe"
+        assert result["tool"] == "desc"
         assert result["args"]["target"] == "here"
         assert "peaceful garden" in result["args"]["description"]
-        assert "room description" in result["message"]
 
-    def test_describe_object_returns_correct_structure(self, mud_tool):
-        """Describe tool for object should return proper action data."""
-        result = mud_tool.execute("describe", {
-            "target": "fountain",
-            "description": "An elegant fountain carved from moonstone."
-        })
-
-        assert result["status"] == "success"
-        assert result["tool"] == "describe"
-        assert result["args"]["target"] == "fountain"
-        assert "fountain" in result["message"]
-
-    def test_describe_requires_target(self, mud_tool):
-        """Describe tool should require target parameter."""
+    def test_desc_requires_target(self, mud_tool):
+        """Desc tool should require target parameter."""
         with pytest.raises(ValueError, match="Target parameter is required"):
-            mud_tool.execute("describe", {"description": "A nice place."})
+            mud_tool.execute("desc", {"description": "A nice place."})
 
-    def test_describe_requires_description(self, mud_tool):
-        """Describe tool should require description parameter."""
+    def test_desc_requires_description(self, mud_tool):
+        """Desc tool should require description parameter."""
         with pytest.raises(ValueError, match="Description parameter is required"):
-            mud_tool.execute("describe", {"target": "here"})
+            mud_tool.execute("desc", {"target": "here"})
 
     def test_teleport_returns_correct_structure(self, mud_tool):
         """Teleport tool should return proper action data."""
@@ -248,15 +249,14 @@ class TestBuilderLevelTools:
 
         assert result["status"] == "success"
         assert result["tool"] == "teleport"
-        assert result["args"] == {"destination": "Limbo"}
-        assert "Limbo" in result["message"]
+        assert result["args"] == {"destination": "Limbo", "target": "me"}
 
     def test_teleport_with_room_id(self, mud_tool):
         """Teleport tool should work with room IDs."""
-        result = mud_tool.execute("teleport", {"destination": "#123"})
+        result = mud_tool.execute("teleport", {"destination": "#123", "target": "me"})
 
         assert result["status"] == "success"
-        assert result["args"] == {"destination": "#123"}
+        assert result["args"] == {"destination": "#123", "target": "me"}
 
     def test_teleport_requires_destination(self, mud_tool):
         """Teleport tool should require destination parameter."""
@@ -300,19 +300,12 @@ class TestDirectMethodCalls:
         assert result["status"] == "success"
         assert result["tool"] == "emote"
 
-    def test_look_method_without_target(self, mud_tool):
-        """Look method works without target."""
-        result = mud_tool.look()
+    def test_pose_method_directly(self, mud_tool):
+        """Pose method can be called directly."""
+        result = mud_tool.pose(action="smiles softly")
 
         assert result["status"] == "success"
-        assert result["args"] == {}
-
-    def test_look_method_with_target(self, mud_tool):
-        """Look method works with target."""
-        result = mud_tool.look(target="door")
-
-        assert result["status"] == "success"
-        assert result["args"] == {"target": "door"}
+        assert result["tool"] == "pose"
 
 
 class TestResultDataStructure:

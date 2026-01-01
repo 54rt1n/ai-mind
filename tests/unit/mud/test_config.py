@@ -32,6 +32,8 @@ class TestMUDConfig:
         # Memory defaults
         assert config.top_n_memories == 10
         assert config.max_recent_turns == 20
+        assert config.bucket_max_tokens == 28000
+        assert config.bucket_idle_flush_seconds == 600
 
         # LLM settings are NOT in MUDConfig - they come from ChatConfig/.env
 
@@ -84,6 +86,8 @@ class TestMUDConfig:
             spontaneous_action_interval=120.0,
             top_n_memories=20,
             max_recent_turns=50,
+            bucket_max_tokens=14000,
+            bucket_idle_flush_seconds=300,
         )
 
         assert config.agent_id == "roommate"
@@ -94,6 +98,8 @@ class TestMUDConfig:
         assert config.spontaneous_action_interval == 120.0
         assert config.top_n_memories == 20
         assert config.max_recent_turns == 50
+        assert config.bucket_max_tokens == 14000
+        assert config.bucket_idle_flush_seconds == 300
         # LLM settings (model, temperature, max_tokens) come from ChatConfig/.env
 
     def test_config_different_agent_and_persona(self):

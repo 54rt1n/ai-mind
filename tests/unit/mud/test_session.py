@@ -234,6 +234,7 @@ class TestMUDEvent:
         assert event.room_state == {"room_id": "#123", "name": "Garden"}
         assert len(event.entities_present) == 1
         assert event.entities_present[0]["name"] == "Andi"
+        assert event.world_state is None
 
     def test_event_serialization(self):
         """Test MUDEvent JSON serialization."""
@@ -292,19 +293,24 @@ class TestMUDAction:
         )
         assert action.to_command() == "whisper Prax = I love you"
 
-    def test_action_to_command_look(self):
-        """Test look action to command conversion."""
-        action = MUDAction(tool="look", args={"target": "fountain"})
-        assert action.to_command() == "look fountain"
+    def test_action_to_command_pose(self):
+        """Test pose action to command conversion."""
+        action = MUDAction(tool="pose", args={"action": "smiles softly"})
+        assert action.to_command() == "pose smiles softly"
 
-    def test_action_to_command_look_no_target(self):
-        """Test look action without target."""
-        action = MUDAction(tool="look", args={})
-        assert action.to_command() == "look"
+    def test_action_to_command_home(self):
+        """Test home action to command conversion."""
+        action = MUDAction(tool="home", args={})
+        assert action.to_command() == "home"
+
+    def test_action_to_command_setdesc(self):
+        """Test setdesc action to command conversion."""
+        action = MUDAction(tool="setdesc", args={"description": "A calm presence."})
+        assert action.to_command() == "setdesc A calm presence."
 
     def test_action_to_command_move(self):
         """Test move action to command conversion."""
-        action = MUDAction(tool="move", args={"direction": "north"})
+        action = MUDAction(tool="move", args={"location": "north"})
         assert action.to_command() == "north"
 
     def test_action_to_command_get(self):
@@ -330,6 +336,11 @@ class TestMUDAction:
         action = MUDAction(tool="use", args={"object": "key"})
         assert action.to_command() == "use key"
 
+    def test_action_to_command_speak(self):
+        """Test speak action to command conversion."""
+        action = MUDAction(tool="speak", args={"text": "Hello\\n\\nWorld"})
+        assert action.to_command() == "act Hello\\n\\nWorld"
+
     def test_action_to_command_dig(self):
         """Test dig builder action to command conversion."""
         action = MUDAction(
@@ -343,18 +354,18 @@ class TestMUDAction:
         action = MUDAction(tool="create", args={"object": "Golden Key"})
         assert action.to_command() == "@create Golden Key"
 
-    def test_action_to_command_describe(self):
-        """Test describe builder action to command conversion."""
+    def test_action_to_command_desc(self):
+        """Test desc builder action to command conversion."""
         action = MUDAction(
-            tool="describe",
-            args={"target": "here", "description": "A cozy room."},
+            tool="desc",
+            args={"target": "here", "description": "A bright room."},
         )
-        assert action.to_command() == "@describe here = A cozy room."
+        assert action.to_command() == "@desc here = A bright room."
 
     def test_action_to_command_teleport(self):
         """Test teleport builder action to command conversion."""
-        action = MUDAction(tool="teleport", args={"destination": "#123"})
-        assert action.to_command() == "@teleport #123"
+        action = MUDAction(tool="teleport", args={"destination": "#123", "target": "me"})
+        assert action.to_command() == "@teleport me = #123"
 
 
 class TestMUDTurn:
@@ -431,6 +442,7 @@ class TestMUDSession:
         assert session.recent_turns == []
         assert session.last_event_id == "0"
         assert session.last_action_time is None
+        assert session.last_event_time is None
 
     def test_session_complete(self):
         """Test MUDSession with all fields."""
@@ -453,6 +465,7 @@ class TestMUDSession:
             recent_turns=[turn],
             last_event_id="1704096000000-0",
             last_action_time=now,
+            last_event_time=now,
             created_at=now,
             updated_at=now,
         )
@@ -463,6 +476,7 @@ class TestMUDSession:
         assert len(session.recent_turns) == 1
         assert session.last_event_id == "1704096000000-0"
         assert session.last_action_time == now
+        assert session.last_event_time == now
 
     def test_session_add_turn(self):
         """Test MUDSession.add_turn method."""
@@ -518,6 +532,7 @@ class TestMUDSession:
             agent_id="andi",
             persona_id="andi",
             last_action_time=now,
+            last_event_time=now,
             created_at=now,
             updated_at=now,
         )
@@ -526,6 +541,7 @@ class TestMUDSession:
         assert json_data["agent_id"] == "andi"
         assert "created_at" in json_data
         assert "last_action_time" in json_data
+        assert "last_event_time" in json_data
 
     def test_session_serialization_none_datetime(self):
         """Test MUDSession serialization with None datetime."""
@@ -533,3 +549,4 @@ class TestMUDSession:
 
         json_data = session.model_dump(mode="json")
         assert json_data["last_action_time"] is None
+        assert json_data["last_event_time"] is None

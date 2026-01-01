@@ -1,0 +1,583 @@
+type: mud
+description: Tools for interacting with the MUD world (superuser)
+
+functions:
+  # =============================================================================
+  # Player-Level Tools (available to all AI agents)
+  # =============================================================================
+
+  - name: say
+    description: Speak audibly to everyone in your current location
+    parameters:
+      type: object
+      properties:
+        message:
+          type: string
+          description: What you want to say
+      required:
+        - message
+      examples:
+        - {say: {message: "Hello, everyone!"}}
+        - {say: {message: "Happy New Year, Papa."}}
+
+  - name: emote
+    description: Perform an action or express emotion visibly to everyone in the room
+    parameters:
+      type: object
+      properties:
+        action:
+          type: string
+          description: The action to perform (e.g., "smiles warmly", "looks thoughtful")
+      required:
+        - action
+      examples:
+        - {emote: {action: "smiles warmly"}}
+        - {emote: {action: "looks up, her silver band glowing gold"}}
+        - {emote: {action: "tilts her head thoughtfully"}}
+
+  - name: whisper
+    description: Send a private message to a specific person in the room
+    parameters:
+      type: object
+      properties:
+        target:
+          type: string
+          description: The name of the person to whisper to
+        message:
+          type: string
+          description: The private message to send
+      required:
+        - target
+        - message
+      examples:
+        - {whisper: {target: "Prax", message: "Can I talk to you privately?"}}
+        - {whisper: {target: "Nova", message: "Did you notice that?"}}
+
+  - name: pose
+    description: Perform a pose in the current room
+    parameters:
+      type: object
+      properties:
+        action:
+          type: string
+          description: The pose to perform (e.g., "smiles warmly")
+      required:
+        - action
+      examples:
+        - {pose: {action: "smiles softly"}}
+        - {pose: {action: "folds her hands behind her back"}}
+
+  - name: move
+    description: Move to an adjacent room through an exit
+    parameters:
+      type: object
+      properties:
+        location:
+          type: string
+          description: The direction or exit name to move through (e.g., "north", "out", "garden")
+      required:
+        - location
+      examples:
+        - {move: {location: "north"}}
+        - {move: {location: "garden"}}
+        - {move: {location: "out"}}
+
+  - name: get
+    description: Pick up an object from the room or from a container
+    parameters:
+      type: object
+      properties:
+        object:
+          type: string
+          description: The name of the object to pick up
+      required:
+        - object
+      examples:
+        - {get: {object: "book"}}
+        - {get: {object: "silver key"}}
+
+  - name: drop
+    description: Drop an object from your inventory into the room
+    parameters:
+      type: object
+      properties:
+        object:
+          type: string
+          description: The name of the object to drop
+      required:
+        - object
+      examples:
+        - {drop: {object: "book"}}
+        - {drop: {object: "lantern"}}
+
+  - name: give
+    description: Give an object from your inventory to someone in the room
+    parameters:
+      type: object
+      properties:
+        object:
+          type: string
+          description: The name of the object to give
+        target:
+          type: string
+          description: The name of the person to give it to
+      required:
+        - object
+        - target
+      examples:
+        - {give: {object: "book", target: "Prax"}}
+        - {give: {object: "flower", target: "Nova"}}
+
+  - name: use
+    description: Use or interact with an object
+    parameters:
+      type: object
+      properties:
+        object:
+          type: string
+          description: The name of the object to use
+      required:
+        - object
+      examples:
+        - {use: {object: "lever"}}
+        - {use: {object: "fountain"}}
+
+  - name: home
+    description: Return to your home location
+    parameters:
+      type: object
+      properties: {}
+      required: []
+      examples:
+        - {home: {}}
+
+  - name: setdesc
+    description: Set your description (setdesc)
+    parameters:
+      type: object
+      properties:
+        description:
+          type: string
+          description: The description text to set
+      required:
+        - description
+      examples:
+        - {setdesc: {description: "A calm presence with a silver band."}}
+
+  # =============================================================================
+  # Builder-Level Tools (superuser)
+  # =============================================================================
+
+  - name: alias
+    description: Set aliases for an object (@alias)
+    parameters:
+      type: object
+      properties:
+        object:
+          type: string
+          description: The object to alias
+        aliases:
+          type: string
+          description: Comma-separated aliases (e.g., "lantern,light")
+        delete:
+          type: boolean
+          description: Delete aliases instead of adding
+      required:
+        - object
+        - aliases
+      examples:
+        - {alias: {object: "lamp", aliases: "lantern,light"}}
+        - {alias: {object: "lamp", aliases: "light", delete: true}}
+
+  - name: copy
+    description: Copy an object (@copy)
+    parameters:
+      type: object
+      properties:
+        source:
+          type: string
+          description: Source object
+        destination:
+          type: string
+          description: New object name
+      required:
+        - source
+        - destination
+      examples:
+        - {copy: {source: "chair", destination: "chair_copy"}}
+
+  - name: cpattr
+    description: Copy attributes between objects (@cpattr)
+    parameters:
+      type: object
+      properties:
+        source:
+          type: string
+          description: Source object
+        source_attr:
+          type: string
+          description: Attribute name on source
+        target:
+          type: string
+          description: Target object
+        target_attr:
+          type: string
+          description: Attribute name on target
+      required:
+        - source
+        - source_attr
+        - target
+        - target_attr
+      examples:
+        - {cpattr: {source: "source", source_attr: "color", target: "target", target_attr: "color"}}
+
+  - name: mvattr
+    description: Move attributes between objects (@mvattr)
+    parameters:
+      type: object
+      properties:
+        source:
+          type: string
+          description: Source object
+        source_attr:
+          type: string
+          description: Attribute name on source
+        target:
+          type: string
+          description: Target object
+        target_attr:
+          type: string
+          description: Attribute name on target
+      required:
+        - source
+        - source_attr
+        - target
+        - target_attr
+      examples:
+        - {mvattr: {source: "source", source_attr: "color", target: "target", target_attr: "color"}}
+
+  - name: create
+    description: Create a new object (@create)
+    parameters:
+      type: object
+      properties:
+        object:
+          type: string
+          description: The name of the object to create
+      required:
+        - object
+      examples:
+        - {create: {object: "silver fountain"}}
+
+  - name: desc
+    description: Set description (@desc)
+    parameters:
+      type: object
+      properties:
+        target:
+          type: string
+          description: What to describe ("here" for current room)
+        description:
+          type: string
+          description: The new description text
+      required:
+        - target
+        - description
+      examples:
+        - {desc: {target: "here", description: "A peaceful garden"}}
+
+  - name: destroy
+    description: Destroy an object (@destroy)
+    parameters:
+      type: object
+      properties:
+        object:
+          type: string
+          description: The object to destroy
+      required:
+        - object
+      examples:
+        - {destroy: {object: "old_lamp"}}
+
+  - name: dig
+    description: Create a room and exits (@dig)
+    parameters:
+      type: object
+      properties:
+        room:
+          type: string
+          description: Name of the new room
+        exits:
+          type: string
+          description: Exit spec (e.g., "north;n, south;s")
+      required:
+        - room
+        - exits
+      examples:
+        - {dig: {room: "Garden", exits: "north;n, south;s"}}
+
+  - name: tunnel
+    description: Create a room in a direction (@tunnel)
+    parameters:
+      type: object
+      properties:
+        direction:
+          type: string
+          description: Direction to tunnel (e.g., "north")
+        room:
+          type: string
+          description: Name of the new room
+      required:
+        - direction
+        - room
+      examples:
+        - {tunnel: {direction: "north", room: "Library"}}
+
+  - name: link
+    description: Link exits or objects (@link)
+    parameters:
+      type: object
+      properties:
+        exit:
+          type: string
+          description: Exit name to link
+        destination:
+          type: string
+          description: Destination room or object
+      required:
+        - exit
+        - destination
+      examples:
+        - {link: {exit: "north", destination: "#123"}}
+
+  - name: unlink
+    description: Unlink an exit (unlink)
+    parameters:
+      type: object
+      properties:
+        exit:
+          type: string
+          description: Exit name to unlink
+      required:
+        - exit
+      examples:
+        - {unlink: {exit: "north"}}
+
+  - name: open
+    description: Open a new exit (@open)
+    parameters:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Name of the exit to open
+        destination:
+          type: string
+          description: Destination room or object
+      required:
+        - name
+        - destination
+      examples:
+        - {open: {name: "door", destination: "#45"}}
+
+  - name: lock
+    description: Set locks on objects (@lock)
+    parameters:
+      type: object
+      properties:
+        object:
+          type: string
+          description: Object to lock
+        lockstring:
+          type: string
+          description: Lock string to apply
+      required:
+        - object
+        - lockstring
+      examples:
+        - {lock: {object: "box", lockstring: "get:perm(Builder)"}}
+
+  - name: name
+    description: Rename objects (@name)
+    parameters:
+      type: object
+      properties:
+        object:
+          type: string
+          description: Object to rename
+        new_name:
+          type: string
+          description: New name for the object
+      required:
+        - object
+        - new_name
+      examples:
+        - {name: {object: "lamp", new_name: "Lantern"}}
+
+  - name: set
+    description: Set attributes (@set)
+    parameters:
+      type: object
+      properties:
+        object:
+          type: string
+          description: Object to set attribute on
+        attribute:
+          type: string
+          description: Attribute name
+        value:
+          type: string
+          description: Attribute value
+      required:
+        - object
+        - attribute
+        - value
+      examples:
+        - {set: {object: "lamp", attribute: "brightness", value: "5"}}
+
+  - name: sethome
+    description: Set home location (@sethome)
+    parameters:
+      type: object
+      properties:
+        object:
+          type: string
+          description: Object to set home for
+        home:
+          type: string
+          description: Home location
+      required:
+        - object
+        - home
+      examples:
+        - {sethome: {object: "lamp", home: "#2"}}
+
+  - name: cmdsets
+    description: List cmdsets (@cmdsets)
+    parameters:
+      type: object
+      properties:
+        target:
+          type: string
+          description: Target object or location
+      required:
+        - target
+      examples:
+        - {cmdsets: {target: "here"}}
+
+  - name: typeclass
+    description: Change/view typeclass (@typeclass)
+    parameters:
+      type: object
+      properties:
+        target:
+          type: string
+          description: Object to change
+        typeclass:
+          type: string
+          description: Typeclass path
+      required:
+        - target
+        - typeclass
+      examples:
+        - {typeclass: {target: "lamp", typeclass: "typeclasses.objects.Lamp"}}
+
+  - name: wipe
+    description: Wipe attributes (@wipe)
+    parameters:
+      type: object
+      properties:
+        object:
+          type: string
+          description: Object to wipe
+        attribute:
+          type: string
+          description: Optional attribute to wipe
+      required:
+        - object
+      examples:
+        - {wipe: {object: "lamp", attribute: "brightness"}}
+
+  - name: examine
+    description: Examine an object (@examine)
+    parameters:
+      type: object
+      properties:
+        target:
+          type: string
+          description: Object to examine
+      required:
+        - target
+      examples:
+        - {examine: {target: "lamp"}}
+
+  - name: find
+    description: Search for objects (@find)
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: Search query
+      required:
+        - query
+      examples:
+        - {find: {query: "lamp"}}
+
+  - name: tag
+    description: Tag objects (@tag)
+    parameters:
+      type: object
+      properties:
+        object:
+          type: string
+          description: Object to tag
+        tags:
+          type: string
+          description: Comma-separated tags
+        category:
+          type: string
+          description: Optional category
+        delete:
+          type: boolean
+          description: Delete tags instead of adding
+      required:
+        - object
+        - tags
+      examples:
+        - {tag: {object: "lamp", tags: "light,decor"}}
+        - {tag: {object: "lamp", tags: "light", category: "decor"}}
+        - {tag: {object: "lamp", tags: "light", delete: true}}
+
+  - name: spawn
+    description: Spawn prototypes (@spawn)
+    parameters:
+      type: object
+      properties:
+        prototype:
+          type: string
+          description: Prototype key to spawn
+      required:
+        - prototype
+      examples:
+        - {spawn: {prototype: "myprototype"}}
+
+  - name: teleport
+    description: Teleport objects (@teleport)
+    parameters:
+      type: object
+      properties:
+        destination:
+          type: string
+          description: Destination room or object
+        target:
+          type: string
+          description: Target to teleport (defaults to "me")
+      required:
+        - destination
+      examples:
+        - {teleport: {destination: "#123", target: "me"}}
+
+implementation:
+  module: aim.tool.impl.mud
+  class: MudTool

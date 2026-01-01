@@ -12,7 +12,6 @@ from per-agent Redis streams (push model) rather than polling.
 
 from .adapter import (
     MAX_RECENT_TURNS,
-    build_chat_turns,
     build_system_prompt,
     build_current_context,
     format_event,
@@ -36,7 +35,6 @@ from .mediator import MediatorService, MediatorConfig, run_mediator
 __all__ = [
     # Adapter
     "MAX_RECENT_TURNS",
-    "build_chat_turns",
     "build_system_prompt",
     "build_current_context",
     "format_event",

@@ -8,6 +8,7 @@ from typing import Any, Optional
 from pydantic import BaseModel, Field, field_serializer
 
 from .enums import EventType, ActorType
+from .world_state import WorldState
 
 
 def _utc_now() -> datetime:
@@ -30,31 +31,37 @@ class MUDEvent(BaseModel):
         event_id: Redis stream message ID.
         event_type: Type of event (speech, emote, movement, etc.).
         actor: Name/key of the entity that caused the event.
+        actor_id: Stable id (dbref) of the actor, if available.
         actor_type: Type of actor (player, ai, npc, system).
         room_id: Room where the event occurred.
         room_name: Human-readable room name.
         content: Event content (e.g., speech text, emote description).
         target: Optional target of the event.
+        target_id: Optional stable id (dbref) of the target, if available.
         timestamp: When the event occurred (UTC).
         metadata: Additional event-specific data.
-        room_state: Enriched room state (added by mediator).
-        entities_present: Enriched entity list (added by mediator).
+        room_state: Optional room state payload (legacy).
+        entities_present: Optional entity list payload (legacy).
+        world_state: Optional world snapshot payload (legacy).
     """
 
     event_id: str = ""
     event_type: EventType
     actor: str
+    actor_id: str = ""
     actor_type: ActorType = ActorType.PLAYER
     room_id: str
     room_name: str = ""
     content: str = ""
     target: Optional[str] = None
+    target_id: str = ""
     timestamp: datetime = Field(default_factory=_utc_now)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     # Enrichment fields (added by mediator)
     room_state: Optional[dict[str, Any]] = None
     entities_present: list[dict[str, Any]] = Field(default_factory=list)
+    world_state: Optional[WorldState] = None
 
     @field_serializer("timestamp")
     def serialize_timestamp(self, dt: datetime, _info: Any) -> str:
@@ -82,22 +89,32 @@ class MUDEvent(BaseModel):
         elif timestamp is None:
             timestamp = _utc_now()
 
+        world_state_data = data.get("world_state")
+        world_state = (
+            WorldState.from_dict(world_state_data)
+            if world_state_data is not None
+            else None
+        )
+
         return cls(
             # Support both 'id' (Redis) and 'event_id' (normalized)
             event_id=data.get("id", data.get("event_id", "")),
             # Support both 'type' (compact) and 'event_type' (explicit)
             event_type=EventType(data.get("type", data.get("event_type", "system"))),
             actor=data.get("actor", ""),
+            actor_id=data.get("actor_id", ""),
             actor_type=ActorType(data.get("actor_type", "player")),
             room_id=data.get("room_id", ""),
             room_name=data.get("room_name", ""),
             content=data.get("content", ""),
             target=data.get("target"),
+            target_id=data.get("target_id", ""),
             timestamp=timestamp,
             metadata=data.get("metadata", {}),
             # Enrichment fields
             room_state=data.get("room_state"),
             entities_present=data.get("entities_present", []),
+            world_state=world_state,
         )
 
     def to_redis_dict(self) -> dict[str, Any]:
@@ -111,11 +128,13 @@ class MUDEvent(BaseModel):
         return {
             "type": self.event_type.value,
             "actor": self.actor,
+            "actor_id": self.actor_id,
             "actor_type": self.actor_type.value,
             "room_id": self.room_id,
             "room_name": self.room_name,
             "content": self.content,
             "target": self.target,
+            "target_id": self.target_id,
             "timestamp": self.timestamp.isoformat(),
             "metadata": self.metadata,
         }

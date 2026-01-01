@@ -4,7 +4,7 @@
 
 import pytest
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import Mock
 from jinja2 import UndefinedError, TemplateSyntaxError
 import yaml
@@ -131,8 +131,8 @@ def mock_pipeline_state():
         persona_mood="happy",
         branch=1,
         step_counter=3,
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
     )
 
 
@@ -410,8 +410,8 @@ class TestBuildTemplateContext:
             branch=1,
             guidance=None,  # No guidance
             query_text=None,  # No query
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
         )
         scenario = Scenario(
             name="test",
@@ -468,8 +468,8 @@ class TestScenarioIntegration:
             branch=1,
             step_counter=1,
             guidance="Be helpful",
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
         )
 
         # Build context

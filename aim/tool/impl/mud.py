@@ -8,7 +8,7 @@ Redis stream for execution by Evennia. The tools themselves do not execute
 commands directly - they return structured data representing the intended action.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 from .base import ToolImplementation
 
 
@@ -77,35 +77,28 @@ class MudTool(ToolImplementation):
             "message": f'You whisper to {target}: "{message}"'
         }
 
-    def look(self, target: Optional[str] = None, **kwargs: Any) -> Dict[str, Any]:
-        """Examine the current location, an object, or a person.
+    def pose(self, action: str, **kwargs: Any) -> Dict[str, Any]:
+        """Perform a pose in the current room.
 
         Args:
-            target: What to look at (optional, defaults to room)
+            action: The pose to perform
             **kwargs: Additional parameters (ignored)
 
         Returns:
             Dictionary with action data for execution
         """
-        args = {}
-        if target:
-            args["target"] = target
-            message = f"You look at {target}"
-        else:
-            message = "You look around"
-
         return {
             "status": "success",
-            "tool": "look",
-            "args": args,
-            "message": message
+            "tool": "pose",
+            "args": {"action": action},
+            "message": f"You pose: {action}"
         }
 
-    def move(self, direction: str, **kwargs: Any) -> Dict[str, Any]:
+    def move(self, location: str, **kwargs: Any) -> Dict[str, Any]:
         """Move to an adjacent room through an exit.
 
         Args:
-            direction: The direction or exit name to move through
+            location: The direction or exit name to move through
             **kwargs: Additional parameters (ignored)
 
         Returns:
@@ -114,8 +107,8 @@ class MudTool(ToolImplementation):
         return {
             "status": "success",
             "tool": "move",
-            "args": {"direction": direction},
-            "message": f"You move {direction}"
+            "args": {"location": location},
+            "message": f"You move {location}"
         }
 
     def get(self, object: str, **kwargs: Any) -> Dict[str, Any]:
@@ -187,6 +180,32 @@ class MudTool(ToolImplementation):
             "message": f"You use {object}"
         }
 
+    def home(self, **kwargs: Any) -> Dict[str, Any]:
+        """Return to your home location."""
+        return {
+            "status": "success",
+            "tool": "home",
+            "args": {},
+            "message": "You return home"
+        }
+
+    def setdesc(self, description: str, **kwargs: Any) -> Dict[str, Any]:
+        """Set your description.
+
+        Args:
+            description: The description text to set
+            **kwargs: Additional parameters (ignored)
+
+        Returns:
+            Dictionary with action data for execution
+        """
+        return {
+            "status": "success",
+            "tool": "setdesc",
+            "args": {"description": description},
+            "message": "You update your description"
+        }
+
     # =========================================================================
     # Builder-Level Tools (Andi only)
     # =========================================================================
@@ -196,7 +215,7 @@ class MudTool(ToolImplementation):
 
         Args:
             room: The name of the new room to create
-            exits: Exit specification (e.g., "north;south")
+            exits: Exit specification (e.g., "north;n, south;s")
             **kwargs: Additional parameters (ignored)
 
         Returns:
@@ -206,7 +225,7 @@ class MudTool(ToolImplementation):
             "status": "success",
             "tool": "dig",
             "args": {"room": room, "exits": exits},
-            "message": f"You create a new room: {room} (exits: {exits})"
+            "message": "You create a new room."
         }
 
     def create(self, object: str, **kwargs: Any) -> Dict[str, Any]:
@@ -223,11 +242,11 @@ class MudTool(ToolImplementation):
             "status": "success",
             "tool": "create",
             "args": {"object": object},
-            "message": f"You create: {object}"
+            "message": "You create something."
         }
 
-    def describe(self, target: str, description: str, **kwargs: Any) -> Dict[str, Any]:
-        """Set the description of a room, object, or character.
+    def desc(self, target: str, description: str, **kwargs: Any) -> Dict[str, Any]:
+        """Set the description of a room, object, or character via @desc.
 
         Args:
             target: What to describe ("here" for current room)
@@ -237,23 +256,19 @@ class MudTool(ToolImplementation):
         Returns:
             Dictionary with action data for execution
         """
-        if target == "here":
-            message = "You set the room description"
-        else:
-            message = f"You set the description of {target}"
-
         return {
             "status": "success",
-            "tool": "describe",
+            "tool": "desc",
             "args": {"target": target, "description": description},
-            "message": message
+            "message": "You update a description"
         }
 
-    def teleport(self, destination: str, **kwargs: Any) -> Dict[str, Any]:
+    def teleport(self, destination: str, target: str = "me", **kwargs: Any) -> Dict[str, Any]:
         """Instantly transport to another location.
 
         Args:
             destination: The name or ID of the room to teleport to
+            target: Target to teleport (defaults to "me")
             **kwargs: Additional parameters (ignored)
 
         Returns:
@@ -262,8 +277,8 @@ class MudTool(ToolImplementation):
         return {
             "status": "success",
             "tool": "teleport",
-            "args": {"destination": destination},
-            "message": f"You teleport to {destination}"
+            "args": {"destination": destination, "target": target},
+            "message": "You teleport."
         }
 
     # =========================================================================
@@ -304,13 +319,16 @@ class MudTool(ToolImplementation):
                 message=parameters["message"]
             )
 
-        elif function_name == "look":
-            return self.look(target=parameters.get("target"))
+        elif function_name == "pose":
+            if "action" not in parameters:
+                raise ValueError("Action parameter is required")
+            return self.pose(action=parameters["action"])
 
         elif function_name == "move":
-            if "direction" not in parameters:
-                raise ValueError("Direction parameter is required")
-            return self.move(direction=parameters["direction"])
+            location = parameters.get("location") or parameters.get("direction")
+            if not location:
+                raise ValueError("Location parameter is required")
+            return self.move(location=location)
 
         elif function_name == "get":
             if "object" not in parameters:
@@ -337,28 +355,33 @@ class MudTool(ToolImplementation):
                 raise ValueError("Object parameter is required")
             return self.use(object=parameters["object"])
 
+        elif function_name == "home":
+            return self.home()
+
+        elif function_name == "setdesc":
+            if "description" not in parameters:
+                raise ValueError("Description parameter is required")
+            return self.setdesc(description=parameters["description"])
+
         # Builder-level tools
         elif function_name == "dig":
             if "room" not in parameters:
                 raise ValueError("Room parameter is required")
             if "exits" not in parameters:
                 raise ValueError("Exits parameter is required")
-            return self.dig(
-                room=parameters["room"],
-                exits=parameters["exits"]
-            )
+            return self.dig(room=parameters["room"], exits=parameters["exits"])
 
         elif function_name == "create":
             if "object" not in parameters:
                 raise ValueError("Object parameter is required")
             return self.create(object=parameters["object"])
 
-        elif function_name == "describe":
+        elif function_name == "desc":
             if "target" not in parameters:
                 raise ValueError("Target parameter is required")
             if "description" not in parameters:
                 raise ValueError("Description parameter is required")
-            return self.describe(
+            return self.desc(
                 target=parameters["target"],
                 description=parameters["description"]
             )
@@ -366,7 +389,10 @@ class MudTool(ToolImplementation):
         elif function_name == "teleport":
             if "destination" not in parameters:
                 raise ValueError("Destination parameter is required")
-            return self.teleport(destination=parameters["destination"])
+            return self.teleport(
+                destination=parameters["destination"],
+                target=parameters.get("target", "me")
+            )
 
         else:
             return {

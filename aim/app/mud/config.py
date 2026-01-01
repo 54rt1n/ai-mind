@@ -43,11 +43,25 @@ class MUDConfig:
     # Timing
     spontaneous_check_interval: float = 60.0
     spontaneous_action_interval: float = 300.0
+    event_settle_seconds: float = 15.0  # Wait time for event cascade settling
 
     # Memory
     memory_path: Optional[str] = None
     top_n_memories: int = 10
     max_recent_turns: int = 20
+    bucket_max_tokens: int = 28000
+    bucket_idle_flush_seconds: int = 600
+    conversation_max_tokens: int = 50000
+
+    # Phase 1 decision tools
+    decision_tool_file: str = "config/tools/mud_phase1.yaml"
+    decision_max_retries: int = 3
+    agent_tool_file: str = "config/tools/mud_agent.yaml"
+
+    # Turn request coordination
+    turn_request_ttl_seconds: int = 120
+    turn_request_heartbeat_seconds: int = 20
+    turn_request_poll_interval: float = 0.5
 
     # Pause control (Redis key for pause flag)
     pause_key: str = field(init=False)

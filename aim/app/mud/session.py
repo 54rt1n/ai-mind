@@ -20,6 +20,7 @@ from aim_mud_types import (
     ActorType,
     RoomState,
     EntityState,
+    WorldState,
     MUDEvent,
     MUDAction,
     RedisKeys,
@@ -32,6 +33,7 @@ __all__ = [
     "ActorType",
     "RoomState",
     "EntityState",
+    "WorldState",
     "MUDEvent",
     "MUDAction",
     "RedisKeys",
@@ -96,6 +98,7 @@ class MUDSession(BaseModel):
         current_room: Current room state (rebuilt each turn).
         entities_present: Entities in current room (rebuilt each turn).
         pending_events: Events waiting to be processed.
+        world_state: Latest enriched world snapshot.
         recent_turns: Rolling history of recent turns.
         last_event_id: Redis stream ID for resumption.
         last_action_time: Timestamp of last action taken.
@@ -110,21 +113,24 @@ class MUDSession(BaseModel):
     current_room: Optional[RoomState] = None
     entities_present: list[EntityState] = Field(default_factory=list)
     pending_events: list[MUDEvent] = Field(default_factory=list)
+    world_state: Optional[WorldState] = None
 
     # Rolling history (persists, compressed over time)
     recent_turns: list[MUDTurn] = Field(default_factory=list)
+    max_recent_turns: int = 20
 
     # Stream tracking
     last_event_id: str = "0"
 
     # Timing
     last_action_time: Optional[datetime] = None
+    last_event_time: Optional[datetime] = None
 
     # Timestamps
     created_at: datetime = Field(default_factory=_utc_now)
     updated_at: datetime = Field(default_factory=_utc_now)
 
-    @field_serializer("created_at", "updated_at", "last_action_time")
+    @field_serializer("created_at", "updated_at", "last_action_time", "last_event_time")
     def serialize_datetime(
         self, dt: Optional[datetime], _info: Any
     ) -> Optional[str]:
@@ -137,6 +143,8 @@ class MUDSession(BaseModel):
         Updates the session timestamp and appends the turn.
         """
         self.recent_turns.append(turn)
+        if self.max_recent_turns > 0 and len(self.recent_turns) > self.max_recent_turns:
+            self.recent_turns = self.recent_turns[-self.max_recent_turns :]
         self.last_action_time = turn.timestamp
         self.updated_at = _utc_now()
 

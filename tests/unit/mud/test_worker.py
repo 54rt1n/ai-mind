@@ -19,6 +19,10 @@ from aim.app.mud.session import (
     EventType,
     ActorType,
 )
+from aim_mud_types import RedisKeys
+from aim.tool.loader import ToolLoader
+from aim.tool.formatting import ToolUser
+from aim.app.mud.strategy import MUDDecisionStrategy
 
 
 @pytest.fixture
@@ -38,7 +42,12 @@ def mock_redis():
     """Create a mock async Redis client."""
     redis = AsyncMock()
     redis.get = AsyncMock(return_value=None)
-    redis.xread = AsyncMock(return_value=[])
+    redis.xinfo_stream = AsyncMock(return_value={"last-generated-id": "0"})
+    redis.xrange = AsyncMock(return_value=[])
+    redis.hgetall = AsyncMock(return_value={})
+    redis.hget = AsyncMock(return_value=None)
+    redis.hset = AsyncMock(return_value=1)
+    redis.expire = AsyncMock(return_value=True)
     redis.aclose = AsyncMock()
     return redis
 
@@ -82,6 +91,8 @@ class TestMUDAgentWorkerInit:
         assert worker.persona is None
         assert worker.session is None
         assert worker.chat_config is None
+        assert worker._decision_strategy is None
+        assert worker._response_strategy is None
 
     def test_init_with_chat_config(self, mud_config, mock_redis):
         """Test that __init__ stores provided chat_config."""
@@ -315,8 +326,8 @@ class TestMUDAgentWorkerSpontaneous:
 
         assert result is False
 
-    def test_should_act_spontaneously_no_last_action(self, mud_config, mock_redis):
-        """Test spontaneous action returns False when never acted."""
+    def test_should_act_spontaneously_no_last_event(self, mud_config, mock_redis):
+        """Test spontaneous action returns False when no events seen."""
         worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
         worker.session = MUDSession(agent_id="test", persona_id="test")
 
@@ -327,10 +338,12 @@ class TestMUDAgentWorkerSpontaneous:
     def test_should_act_spontaneously_recent_action(self, mud_config, mock_redis):
         """Test spontaneous action returns False when acted recently."""
         worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
+        now = datetime.now(timezone.utc)
         worker.session = MUDSession(
             agent_id="test",
             persona_id="test",
-            last_action_time=datetime.now(timezone.utc),
+            last_action_time=now,
+            last_event_time=now,
         )
 
         result = worker._should_act_spontaneously()
@@ -340,17 +353,36 @@ class TestMUDAgentWorkerSpontaneous:
     def test_should_act_spontaneously_long_silence(self, mud_config, mock_redis):
         """Test spontaneous action returns True after long silence."""
         worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
-        # Set last action time to 10 minutes ago (> 300s default)
+        # Set last event time to 10 minutes ago (> 300s default)
         old_time = datetime.now(timezone.utc) - timedelta(minutes=10)
         worker.session = MUDSession(
             agent_id="test",
             persona_id="test",
             last_action_time=old_time,
+            last_event_time=old_time,
         )
 
         result = worker._should_act_spontaneously()
 
         assert result is True
+
+
+class TestMUDAgentWorkerPermissions:
+    """Test persona permission filtering."""
+
+    def test_is_superuser_persona_false(self, mud_config, mock_redis):
+        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
+        worker.persona = MagicMock()
+        worker.persona.attributes = {"mud_role": "player"}
+
+        assert worker._is_superuser_persona() is False
+
+    def test_is_superuser_persona_true(self, mud_config, mock_redis):
+        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
+        worker.persona = MagicMock()
+        worker.persona.attributes = {"mud_role": "superuser"}
+
+        assert worker._is_superuser_persona() is True
 
 
 class TestMUDAgentWorkerDrainEvents:
@@ -359,14 +391,14 @@ class TestMUDAgentWorkerDrainEvents:
     @pytest.mark.asyncio
     async def test_drain_events_no_messages(self, mud_config, mock_redis):
         """Test drain_events returns empty list when no messages."""
-        mock_redis.xread = AsyncMock(return_value=[])
+        mock_redis.xinfo_stream = AsyncMock(return_value={"last-generated-id": "0"})
         worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
         worker.session = MUDSession(agent_id="test", persona_id="test")
 
         events = await worker.drain_events(timeout=1.0)
 
         assert events == []
-        mock_redis.xread.assert_called_once()
+        mock_redis.xinfo_stream.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_drain_events_parses_messages(
@@ -376,11 +408,8 @@ class TestMUDAgentWorkerDrainEvents:
         # Simulate Redis stream response format
         message_id = b"1704096000000-0"
         message_data = {b"data": json.dumps(sample_event_data).encode("utf-8")}
-        mock_redis.xread = AsyncMock(
-            return_value=[
-                (b"agent:test_agent:events", [(message_id, message_data)])
-            ]
-        )
+        mock_redis.xinfo_stream = AsyncMock(return_value={"last-generated-id": "1704096000000-0"})
+        mock_redis.xrange = AsyncMock(return_value=[(message_id, message_data)])
 
         worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
         worker.session = MUDSession(agent_id="test", persona_id="test")
@@ -407,15 +436,11 @@ class TestMUDAgentWorkerDrainEvents:
         event2["content"] = "Second message"
         event2["type"] = "emote"
 
-        mock_redis.xread = AsyncMock(
+        mock_redis.xinfo_stream = AsyncMock(return_value={"last-generated-id": "1704096000001-0"})
+        mock_redis.xrange = AsyncMock(
             return_value=[
-                (
-                    b"agent:test_agent:events",
-                    [
-                        (b"1704096000000-0", {b"data": json.dumps(event1).encode()}),
-                        (b"1704096000001-0", {b"data": json.dumps(event2).encode()}),
-                    ],
-                )
+                (b"1704096000000-0", {b"data": json.dumps(event1).encode()}),
+                (b"1704096000001-0", {b"data": json.dumps(event2).encode()}),
             ]
         )
 
@@ -434,7 +459,7 @@ class TestMUDAgentWorkerDrainEvents:
         """Test drain_events handles Redis errors gracefully."""
         import redis.asyncio as redis_lib
 
-        mock_redis.xread = AsyncMock(
+        mock_redis.xinfo_stream = AsyncMock(
             side_effect=redis_lib.RedisError("Connection lost")
         )
 
@@ -446,17 +471,49 @@ class TestMUDAgentWorkerDrainEvents:
         assert events == []
 
     @pytest.mark.asyncio
+    async def test_drain_events_drains_multiple_batches(
+        self, mud_config, mock_redis, sample_event_data
+    ):
+        """Test drain_events drains multiple batches in one call."""
+        event1 = sample_event_data.copy()
+        event1["content"] = "First message"
+
+        event2 = sample_event_data.copy()
+        event2["content"] = "Second message"
+
+        event3 = sample_event_data.copy()
+        event3["content"] = "Third message"
+
+        mock_redis.xinfo_stream = AsyncMock(return_value={"last-generated-id": "1704096000002-0"})
+        mock_redis.xrange = AsyncMock(
+            side_effect=[
+                [
+                    (b"1704096000000-0", {b"data": json.dumps(event1).encode()}),
+                ],
+                [
+                    (b"1704096000001-0", {b"data": json.dumps(event2).encode()}),
+                    (b"1704096000002-0", {b"data": json.dumps(event3).encode()}),
+                ],
+            ]
+        )
+
+        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
+        worker.session = MUDSession(agent_id="test", persona_id="test")
+
+        events = await worker.drain_events(timeout=1.0)
+
+        assert len(events) == 3
+        assert events[0].content == "First message"
+        assert events[2].content == "Third message"
+
+    @pytest.mark.asyncio
     async def test_drain_events_handles_malformed_json(
         self, mud_config, mock_redis
     ):
         """Test drain_events skips messages with malformed JSON."""
-        mock_redis.xread = AsyncMock(
-            return_value=[
-                (
-                    b"agent:test_agent:events",
-                    [(b"1704096000000-0", {b"data": b"not valid json"})]
-                )
-            ]
+        mock_redis.xinfo_stream = AsyncMock(return_value={"last-generated-id": "1704096000000-0"})
+        mock_redis.xrange = AsyncMock(
+            return_value=[(b"1704096000000-0", {b"data": b"not valid json"})]
         )
 
         worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
@@ -471,13 +528,9 @@ class TestMUDAgentWorkerDrainEvents:
         self, mud_config, mock_redis
     ):
         """Test drain_events skips messages without data field."""
-        mock_redis.xread = AsyncMock(
-            return_value=[
-                (
-                    b"agent:test_agent:events",
-                    [(b"1704096000000-0", {b"other_field": b"value"})]
-                )
-            ]
+        mock_redis.xinfo_stream = AsyncMock(return_value={"last-generated-id": "1704096000000-0"})
+        mock_redis.xrange = AsyncMock(
+            return_value=[(b"1704096000000-0", {b"other_field": b"value"})]
         )
 
         worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
@@ -494,51 +547,91 @@ class TestMUDAgentWorkerProcessTurn:
     @pytest.fixture
     def fully_mocked_worker(self, mud_config, mock_redis):
         """Create a worker with all dependencies mocked for process_turn tests."""
-        from aim.tool.dto import Tool, ToolFunction, ToolFunctionParameters
-        from aim.tool.formatting import ToolUser
+        async def hgetall_side_effect(key):
+            if key == RedisKeys.agent_profile("test"):
+                return {
+                    b"room_id": b"#123",
+                    b"character_id": b"andi_1",
+                    b"inventory": b"[]",
+                }
+            if key == RedisKeys.room_profile("#123"):
+                room_state = {
+                    "room_id": "#123",
+                    "name": "The Garden",
+                    "description": "A serene garden.",
+                    "exits": {"north": "#124"},
+                    "tags": [],
+                }
+                entities = [
+                    {"entity_id": "prax_1", "name": "Prax", "entity_type": "player"},
+                    {
+                        "entity_id": "andi_1",
+                        "name": "Andi",
+                        "entity_type": "ai",
+                        "agent_id": "test_agent",
+                    },
+                ]
+                return {
+                    b"room_state": json.dumps(room_state).encode("utf-8"),
+                    b"entities_present": json.dumps(entities).encode("utf-8"),
+                }
+            return {}
+
+        mock_redis.hgetall = AsyncMock(side_effect=hgetall_side_effect)
 
         worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
         worker.session = MUDSession(agent_id="test", persona_id="test")
 
         # Mock persona
         mock_persona = MagicMock()
-        mock_persona.xml_decorator = MagicMock()
+        mock_persona.system_prompt = MagicMock(return_value="System prompt")
         worker.persona = mock_persona
-
-        # Create minimal tool for testing
-        tools = [
-            Tool(
-                type="mud",
-                function=ToolFunction(
-                    name="say",
-                    description="Speak audibly",
-                    parameters=ToolFunctionParameters(
-                        type="object",
-                        properties={"message": {"type": "string", "description": "What to say"}},
-                        required=["message"],
-                    ),
-                ),
-            ),
-        ]
-        worker.tool_user = ToolUser(tools)
 
         # Mock LLM provider
         mock_llm = MagicMock()
-        mock_llm.stream_turns = MagicMock(return_value=iter([
-            '{"say": {"message": "Hello!"}}'
-        ]))
+        mock_llm.stream_turns = MagicMock(side_effect=[
+            iter(['{"speak": {}}']),
+            iter(["[== Andi's Emotional State: +Warmth+ ==]\n\nHello!"]),
+        ])
         worker._llm_provider = mock_llm
 
         # Mock chat config
         worker.chat_config = MagicMock()
+        worker.chat_config.max_tokens = 4096
+
+        # Mock model for token limits
+        worker.model = MagicMock()
+        worker.model.max_tokens = 128000
+
+        # Load decision tools
+        loader = ToolLoader("config/tools")
+        tools = loader.load_tool_file("config/tools/mud_phase1.yaml")
+        worker._decision_tool_user = ToolUser(tools)
+
+        # Mock conversation manager and initialize decision strategy
+        mock_conversation_manager = AsyncMock()
+        mock_conversation_manager.get_history = AsyncMock(return_value=[])
+        mock_conversation_manager.get_total_tokens = AsyncMock(return_value=0)
+        worker.conversation_manager = mock_conversation_manager
+
+        # Initialize decision strategy (required since we now use it in _decide_action)
+        worker._decision_strategy = MUDDecisionStrategy(mock_conversation_manager)
+        worker._decision_strategy.set_tool_user(worker._decision_tool_user)
+
+        # Initialize response strategy (mocked for Phase 2 response generation)
+        mock_response_strategy = AsyncMock()
+        mock_response_strategy.build_turns = AsyncMock(return_value=[
+            {"role": "system", "content": "System prompt"},
+            {"role": "user", "content": "Hello!"},
+        ])
+        worker._response_strategy = mock_response_strategy
 
         return worker
 
     @pytest.mark.asyncio
     async def test_process_turn_empty_events(self, fully_mocked_worker):
         """Test process_turn with no events."""
-        with patch.object(fully_mocked_worker, '_build_system_prompt_with_tools', return_value="System prompt"):
-            await fully_mocked_worker.process_turn([])
+        await fully_mocked_worker.process_turn([])
 
         assert len(fully_mocked_worker.session.recent_turns) == 1
         assert len(fully_mocked_worker.session.pending_events) == 0
@@ -550,8 +643,7 @@ class TestMUDAgentWorkerProcessTurn:
         """Test process_turn updates session context from events."""
         event = MUDEvent.from_dict(sample_event_data)
 
-        with patch.object(fully_mocked_worker, '_build_system_prompt_with_tools', return_value="System prompt"):
-            await fully_mocked_worker.process_turn([event])
+        await fully_mocked_worker.process_turn([event])
 
         # Verify session was updated
         assert len(fully_mocked_worker.session.recent_turns) == 1
@@ -567,14 +659,14 @@ class TestMUDAgentWorkerProcessTurn:
         """Test process_turn adds a turn record to session history."""
         event = MUDEvent.from_dict(sample_event_data)
 
-        with patch.object(fully_mocked_worker, '_build_system_prompt_with_tools', return_value="System prompt"):
-            await fully_mocked_worker.process_turn([event])
+        await fully_mocked_worker.process_turn([event])
 
         turn = fully_mocked_worker.session.recent_turns[0]
         assert len(turn.events_received) == 1
         assert turn.events_received[0].actor == "Prax"
-        # Turn should have actions since mocked LLM returns a tool call
+        # Turn should have actions since mocked LLM returns text
         assert len(turn.actions_taken) == 1
+        assert turn.actions_taken[0].tool == "speak"
 
     @pytest.mark.asyncio
     async def test_process_turn_clears_pending_events(
@@ -585,8 +677,7 @@ class TestMUDAgentWorkerProcessTurn:
         # Pre-populate pending events
         fully_mocked_worker.session.pending_events = [event]
 
-        with patch.object(fully_mocked_worker, '_build_system_prompt_with_tools', return_value="System prompt"):
-            await fully_mocked_worker.process_turn([event])
+        await fully_mocked_worker.process_turn([event])
 
         assert len(fully_mocked_worker.session.pending_events) == 0
 
@@ -597,17 +688,6 @@ class TestMUDAgentWorkerStart:
     @pytest.mark.asyncio
     async def test_start_initializes_resources(self, mud_config, mock_redis):
         """Test that start() initializes shared resources."""
-        call_count = [0]
-
-        # Stop worker after a couple of iterations
-        async def xread_side_effect(*args, **kwargs):
-            call_count[0] += 1
-            if call_count[0] >= 2:
-                worker.running = False
-            return []
-
-        mock_redis.xread = AsyncMock(side_effect=xread_side_effect)
-
         worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
 
         # Mock the resource initialization
@@ -616,6 +696,14 @@ class TestMUDAgentWorkerStart:
         mock_persona = Mock()
         mock_roster.get_persona = Mock(return_value=mock_persona)
 
+        call_count = [0]
+
+        async def turn_request_side_effect():
+            call_count[0] += 1
+            if call_count[0] >= 2:
+                worker.running = False
+            return {}
+
         with patch(
             "aim.app.mud.worker.ConversationModel"
         ) as mock_cvm_class, patch(
@@ -623,7 +711,9 @@ class TestMUDAgentWorkerStart:
         ) as mock_roster_class, patch.object(
             worker, "_init_llm_provider"
         ), patch.object(
-            worker, "_init_tool_user"
+            worker, "_get_turn_request", new=AsyncMock(side_effect=turn_request_side_effect)
+        ), patch(
+            "asyncio.sleep", new_callable=AsyncMock
         ):
             mock_cvm_class.from_config.return_value = mock_cvm
             mock_roster_class.from_config.return_value = mock_roster
@@ -663,7 +753,7 @@ class TestMUDAgentWorkerStart:
         ) as mock_sleep, patch.object(
             worker, "_init_llm_provider"
         ), patch.object(
-            worker, "_init_tool_user"
+            worker, "_get_turn_request", new=AsyncMock(return_value={})
         ):
             mock_cvm_class.from_config.return_value = Mock()
             mock_roster = Mock()
@@ -680,17 +770,15 @@ class TestMUDAgentWorkerStart:
         """Test that start() continues after errors in loop."""
         call_count = [0]
 
-        async def xread_side_effect(*args, **kwargs):
+        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
+
+        async def turn_request_side_effect():
             call_count[0] += 1
             if call_count[0] == 1:
                 raise ValueError("Test error")
             if call_count[0] >= 3:
                 worker.running = False
-            return []
-
-        mock_redis.xread = AsyncMock(side_effect=xread_side_effect)
-
-        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
+            return {}
 
         with patch(
             "aim.app.mud.worker.ConversationModel"
@@ -699,7 +787,9 @@ class TestMUDAgentWorkerStart:
         ) as mock_roster_class, patch.object(
             worker, "_init_llm_provider"
         ), patch.object(
-            worker, "_init_tool_user"
+            worker, "_get_turn_request", new=AsyncMock(side_effect=turn_request_side_effect)
+        ), patch(
+            "asyncio.sleep", new_callable=AsyncMock
         ):
             mock_cvm_class.from_config.return_value = Mock()
             mock_roster = Mock()
@@ -711,6 +801,219 @@ class TestMUDAgentWorkerStart:
 
             # Verify worker continued after error
             assert call_count[0] >= 2
+
+    @pytest.mark.asyncio
+    async def test_start_processes_assigned_turn(self, mud_config, mock_redis):
+        """Test worker processes a turn when turn_request is assigned."""
+        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
+
+        with patch(
+            "aim.app.mud.worker.ConversationModel"
+        ) as mock_cvm_class, patch(
+            "aim.app.mud.worker.Roster"
+        ) as mock_roster_class, patch.object(
+            worker, "_init_llm_provider"
+        ), patch.object(
+            worker, "process_turn", new=AsyncMock()
+        ) as mock_process, patch.object(
+            worker, "drain_events", new=AsyncMock(return_value=[])
+        ), patch.object(
+            worker, "_get_turn_request", new=AsyncMock(return_value={"turn_id": "t1", "status": "assigned"})
+        ), patch.object(
+            worker, "_set_turn_request_state", new=AsyncMock()
+        ) as mock_set_state, patch(
+            "asyncio.sleep", new_callable=AsyncMock
+        ):
+            mock_cvm_class.from_config.return_value = Mock()
+            mock_roster = Mock()
+            mock_roster.get_persona = Mock(return_value=Mock())
+            mock_roster_class.from_config.return_value = mock_roster
+
+            # Stop after one loop
+            async def stop_after_first(*args, **kwargs):
+                worker.running = False
+
+            mock_process.side_effect = stop_after_first
+
+            await worker.start()
+
+            mock_process.assert_called_once()
+            assert mock_set_state.call_count >= 2
+
+    @pytest.mark.asyncio
+    async def test_start_processes_agent_turn_request(self, mud_config, mock_redis):
+        """Test worker processes a turn when turn_request has reason='agent'."""
+        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
+
+        # Mock events to return
+        mock_events = [
+            MUDEvent(
+                event_id="evt_1",
+                event_type=EventType.SPEECH,
+                actor="Prax",
+                actor_type=ActorType.PLAYER,
+                room_id="#123",
+                room_name="The Garden",
+                content="Hello, Andi!",
+                timestamp=datetime.now(timezone.utc),
+            )
+        ]
+
+        with patch(
+            "aim.app.mud.worker.ConversationModel"
+        ) as mock_cvm_class, patch(
+            "aim.app.mud.worker.Roster"
+        ) as mock_roster_class, patch.object(
+            worker, "_init_llm_provider"
+        ), patch.object(
+            worker, "process_agent_turn", new=AsyncMock()
+        ) as mock_process_agent, patch.object(
+            worker, "drain_events", new=AsyncMock(return_value=mock_events)
+        ) as mock_drain, patch.object(
+            worker, "_get_turn_request", new=AsyncMock(return_value={
+                "turn_id": "t1",
+                "status": "assigned",
+                "reason": "agent",
+                "guidance": "test guidance"
+            })
+        ), patch.object(
+            worker, "_set_turn_request_state", new=AsyncMock()
+        ) as mock_set_state, patch(
+            "asyncio.sleep", new_callable=AsyncMock
+        ):
+            mock_cvm_class.from_config.return_value = Mock()
+            mock_roster = Mock()
+            mock_roster.get_persona = Mock(return_value=Mock())
+            mock_roster_class.from_config.return_value = mock_roster
+
+            # Stop after one loop
+            async def stop_after_first(*args, **kwargs):
+                worker.running = False
+
+            mock_process_agent.side_effect = stop_after_first
+
+            await worker.start()
+
+            # Verify drain_events was called
+            mock_drain.assert_called_once_with(timeout=0)
+
+            # Verify process_agent_turn was called with events and guidance
+            mock_process_agent.assert_called_once_with(mock_events, "test guidance")
+
+            # Verify turn state was set to done
+            assert mock_set_state.call_count >= 2
+            # Check that one of the calls was to set state to "done"
+            done_calls = [call for call in mock_set_state.call_args_list if call[0][1] == "done"]
+            assert len(done_calls) >= 1
+
+    @pytest.mark.asyncio
+    async def test_start_processes_choose_turn_request(self, mud_config, mock_redis):
+        """Test worker processes a turn when turn_request has reason='choose'."""
+        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
+
+        # Mock events to return
+        mock_events = [
+            MUDEvent(
+                event_id="evt_2",
+                event_type=EventType.SPEECH,
+                actor="Nova",
+                actor_type=ActorType.PLAYER,
+                room_id="#124",
+                room_name="The Library",
+                content="What do you think?",
+                timestamp=datetime.now(timezone.utc),
+            )
+        ]
+
+        with patch(
+            "aim.app.mud.worker.ConversationModel"
+        ) as mock_cvm_class, patch(
+            "aim.app.mud.worker.Roster"
+        ) as mock_roster_class, patch.object(
+            worker, "_init_llm_provider"
+        ), patch.object(
+            worker, "process_agent_turn", new=AsyncMock()
+        ) as mock_process_agent, patch.object(
+            worker, "drain_events", new=AsyncMock(return_value=mock_events)
+        ) as mock_drain, patch.object(
+            worker, "_get_turn_request", new=AsyncMock(return_value={
+                "turn_id": "t2",
+                "status": "assigned",
+                "reason": "choose",
+                "guidance": "choose guidance"
+            })
+        ), patch.object(
+            worker, "_set_turn_request_state", new=AsyncMock()
+        ) as mock_set_state, patch(
+            "asyncio.sleep", new_callable=AsyncMock
+        ):
+            mock_cvm_class.from_config.return_value = Mock()
+            mock_roster = Mock()
+            mock_roster.get_persona = Mock(return_value=Mock())
+            mock_roster_class.from_config.return_value = mock_roster
+
+            # Stop after one loop
+            async def stop_after_first(*args, **kwargs):
+                worker.running = False
+
+            mock_process_agent.side_effect = stop_after_first
+
+            await worker.start()
+
+            # Verify drain_events was called
+            mock_drain.assert_called_once_with(timeout=0)
+
+            # Verify process_agent_turn was called with events and guidance
+            mock_process_agent.assert_called_once_with(mock_events, "choose guidance")
+
+            # Verify turn state was set to done
+            assert mock_set_state.call_count >= 2
+            # Check that one of the calls was to set state to "done"
+            done_calls = [call for call in mock_set_state.call_args_list if call[0][1] == "done"]
+            assert len(done_calls) >= 1
+
+    @pytest.mark.asyncio
+    async def test_start_processes_agent_turn_without_guidance(self, mud_config, mock_redis):
+        """Test worker processes agent turn with default empty guidance."""
+        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
+
+        with patch(
+            "aim.app.mud.worker.ConversationModel"
+        ) as mock_cvm_class, patch(
+            "aim.app.mud.worker.Roster"
+        ) as mock_roster_class, patch.object(
+            worker, "_init_llm_provider"
+        ), patch.object(
+            worker, "process_agent_turn", new=AsyncMock()
+        ) as mock_process_agent, patch.object(
+            worker, "drain_events", new=AsyncMock(return_value=[])
+        ), patch.object(
+            worker, "_get_turn_request", new=AsyncMock(return_value={
+                "turn_id": "t3",
+                "status": "assigned",
+                "reason": "agent"
+                # No guidance key
+            })
+        ), patch.object(
+            worker, "_set_turn_request_state", new=AsyncMock()
+        ), patch(
+            "asyncio.sleep", new_callable=AsyncMock
+        ):
+            mock_cvm_class.from_config.return_value = Mock()
+            mock_roster = Mock()
+            mock_roster.get_persona = Mock(return_value=Mock())
+            mock_roster_class.from_config.return_value = mock_roster
+
+            # Stop after one loop
+            async def stop_after_first(*args, **kwargs):
+                worker.running = False
+
+            mock_process_agent.side_effect = stop_after_first
+
+            await worker.start()
+
+            # Verify process_agent_turn was called with empty guidance
+            mock_process_agent.assert_called_once_with([], "")
 
 
 class TestRunWorker:
@@ -786,6 +1089,7 @@ class TestParseArgs:
             assert args.persona_id == "andi"
             assert args.redis_url == "redis://localhost:6379"
             assert args.log_level == "INFO"
+            assert args.verbose is False
             # Optional args default to None (use .env values)
             assert args.env_file is None
             assert args.model is None
@@ -808,6 +1112,7 @@ class TestParseArgs:
                 "redis://custom:6380",
                 "--log-level",
                 "DEBUG",
+                "-v",
                 "--memory-path",
                 "/custom/path",
                 "--spontaneous-interval",
@@ -827,6 +1132,7 @@ class TestParseArgs:
             assert args.env_file == "/custom/.env"
             assert args.redis_url == "redis://custom:6380"
             assert args.log_level == "DEBUG"
+            assert args.verbose is True
             assert args.memory_path == "/custom/path"
             assert args.spontaneous_interval == 600.0
             assert args.model == "gpt-4"

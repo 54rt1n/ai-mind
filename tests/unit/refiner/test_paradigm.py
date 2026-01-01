@@ -114,13 +114,14 @@ class TestParadigmScenarioRouting:
         assert paradigm.get_scenario(None) == "daydream_dialogue"
 
     def test_knowledge_routes_to_researcher_or_approach(self):
-        """Knowledge should route based on approach or default to researcher."""
+        """Knowledge should route based on approach to dialogue scenarios."""
         from aim.refiner.paradigm import Paradigm
 
         paradigm = Paradigm.load("knowledge")
-        # Knowledge has scenarios_by_approach
-        assert paradigm.get_scenario("philosopher") == "philosopher"
-        assert paradigm.get_scenario("journaler") == "journaler"
+        # Knowledge has scenarios_by_approach, now routing to dialogue scenarios
+        assert paradigm.get_scenario("philosopher") == "philosopher_dialogue"
+        assert paradigm.get_scenario("journaler") == "journaler_dialogue"
+        assert paradigm.get_scenario("researcher") == "researcher_dialogue"
 
     def test_critique_routes_to_critique(self):
         """Critique should route to critique_dialogue scenario."""

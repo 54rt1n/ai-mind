@@ -19,32 +19,47 @@ class AdminModule:
         self.router = APIRouter(prefix="/api/admin", tags=["admin"])
         self.security = security
         self.config = config
-        self.index_path = Path("memory/indices")
-        self.loader = ConversationLoader()
-        
+
         self.setup_routes()
 
-    async def rebuild_index_task(self) -> None:
-        """Background task to rebuild the index"""
+    async def rebuild_index_task(self, agent_id: Optional[str] = None) -> None:
+        """Background task to rebuild the index.
+
+        Args:
+            agent_id: If provided, rebuilds index for specific agent (memory/{agent_id}/).
+                     If None, rebuilds global index (memory/).
+        """
         try:
+            # Resolve paths based on agent_id
+            if agent_id:
+                index_path = Path(f"memory/{agent_id}/indices")
+                conversations_dir = f"memory/{agent_id}/conversations"
+                label = agent_id
+            else:
+                index_path = Path("memory/indices")
+                conversations_dir = "memory/conversations"
+                label = "global"
+
+            loader = ConversationLoader(conversations_dir)
+
             # Create a new index
-            index = SearchIndex(self.index_path, embedding_model=self.config.embedding_model)
-            
+            index = SearchIndex(index_path, embedding_model=self.config.embedding_model)
+
             # Load all conversations
-            messages = self.loader.load_all()
-            
+            messages = loader.load_all()
+
             # Convert to index documents
             documents = [
                 msg.to_index_doc()
                 for msg in messages
             ]
-            
+
             # Index the documents
-            logger.info("Starting indexing...")
+            logger.info(f"[{label}] Starting indexing ({len(documents)} documents)...")
             index.add_documents(documents)
-            
-            logger.info("Index rebuild complete")
-            
+
+            logger.info(f"[{label}] Index rebuild complete")
+
         except Exception as e:
             logger.error(f"Error rebuilding index: {e}")
             raise
@@ -53,18 +68,26 @@ class AdminModule:
         @self.router.post("/rebuild_index")
         async def rebuild_index(
             background_tasks: BackgroundTasks,
+            request: Optional[dict] = None,
             credentials: Optional[HTTPAuthorizationCredentials] = Depends(self.security)
         ):
-            """Rebuild the search index from JSONL files"""
+            """Rebuild the search index from JSONL files.
+
+            Request body (optional):
+                {"agent_id": "andi"}  - Rebuild index for specific agent
+                {} or omitted        - Rebuild global index
+            """
             try:
                 if self.config.server_api_key and (credentials is None or credentials.credentials != self.config.server_api_key):
                     raise HTTPException(status_code=401, detail="Invalid API key")
-                
-                background_tasks.add_task(self.rebuild_index_task)
-                
+
+                agent_id = request.get("agent_id") if request else None
+                background_tasks.add_task(self.rebuild_index_task, agent_id)
+
+                label = agent_id or "global"
                 return {
                     "status": "success",
-                    "message": "Index rebuild started in background"
+                    "message": f"Index rebuild started in background for {label}"
                 }
 
             except Exception as e:

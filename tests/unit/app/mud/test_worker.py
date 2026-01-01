@@ -1,19 +1,18 @@
 # tests/unit/app/mud/test_worker.py
 # AI-Mind (C) 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
-"""Unit tests for MUDAgentWorker.process_turn and helper methods."""
+"""Unit tests for MUDAgentWorker two-phase action mode."""
 
 import json
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from aim.app.mud.config import MUDConfig
-from aim.app.mud.session import MUDSession, MUDTurn, RoomState, EntityState
+from aim.app.mud.session import MUDSession, RoomState, EntityState
 from aim.app.mud.worker import MUDAgentWorker
-from aim.tool.dto import Tool, ToolFunction, ToolFunctionParameters
-from aim.tool.formatting import ToolUser, ToolCallResult
-from aim_mud_types import EventType, MUDEvent, MUDAction
+from aim_mud_types import EventType, MUDEvent, MUDAction, RedisKeys
+from aim.tool.loader import ToolLoader
+from aim.tool.formatting import ToolUser
 
 
 @pytest.fixture
@@ -31,29 +30,82 @@ def mock_redis():
     """Create a mock Redis client."""
     redis_mock = AsyncMock()
     redis_mock.xadd = AsyncMock(return_value="1234567890-0")
+    async def hgetall_side_effect(key):
+        if key == RedisKeys.agent_profile("test_agent"):
+            return {
+                b"room_id": b"room_1",
+                b"character_id": b"self_1",
+                b"inventory": b"[]",
+            }
+        if key == RedisKeys.room_profile("room_1"):
+            room_state = {
+                "room_id": "room_1",
+                "name": "The Garden",
+                "description": "A serene garden.",
+                "exits": {"north": "#2"},
+                "tags": [],
+            }
+            entities = [
+                {"entity_id": "p1", "name": "Prax", "entity_type": "player"},
+                {
+                    "entity_id": "self_1",
+                    "name": "Andi",
+                    "entity_type": "ai",
+                    "agent_id": "test_agent",
+                },
+            ]
+            return {
+                b"room_state": json.dumps(room_state).encode("utf-8"),
+                b"entities_present": json.dumps(entities).encode("utf-8"),
+            }
+        return {}
+    redis_mock.hgetall = AsyncMock(side_effect=hgetall_side_effect)
     return redis_mock
 
 
 @pytest.fixture
-def sample_room_state():
-    """Create a sample room state."""
-    return RoomState(
-        room_id="room_1",
-        name="The Garden",
-        description="A peaceful garden with a silver fountain.",
-        exits={"north": "room_2", "south": "room_3"},
+def worker(mud_config, mock_redis):
+    """Create a MUDAgentWorker with mocked dependencies."""
+    worker = MUDAgentWorker(mud_config, mock_redis)
+    worker.session = MUDSession(
+        agent_id=mud_config.agent_id,
+        persona_id=mud_config.persona_id,
     )
+    return worker
 
 
 @pytest.fixture
-def sample_entity_state():
-    """Create a sample entity state."""
-    return EntityState(
-        entity_id="entity_1",
-        name="Prax",
-        entity_type="player",
-        is_self=False,
-    )
+def decision_tool_user():
+    """Load the phase 1 decision tool user (act/move)."""
+    loader = ToolLoader("config/tools")
+    tools = loader.load_tool_file("config/tools/mud_phase1.yaml")
+    return ToolUser(tools)
+
+
+@pytest.fixture
+def mock_decision_strategy():
+    """Create a mock MUDDecisionStrategy."""
+    from aim.app.mud.strategy import MUDDecisionStrategy
+
+    # Create a mock conversation manager
+    mock_conv_manager = MagicMock()
+    mock_conv_manager.get_recent_entries = AsyncMock(return_value=[])
+    mock_conv_manager.get_history = AsyncMock(return_value=[])
+
+    # Create the strategy
+    strategy = MUDDecisionStrategy(mock_conv_manager)
+    return strategy
+
+
+@pytest.fixture
+def mock_response_strategy():
+    """Create a mock MUDResponseStrategy for phase 2."""
+    mock_strategy = AsyncMock()
+    mock_strategy.build_turns = AsyncMock(return_value=[
+        {"role": "system", "content": "You are Andi"},
+        {"role": "user", "content": "Current context"}
+    ])
+    return mock_strategy
 
 
 @pytest.fixture
@@ -71,316 +123,231 @@ def sample_events():
     ]
 
 
-@pytest.fixture
-def sample_mud_tools():
-    """Create sample MUD tools for testing."""
-    return [
-        Tool(
-            type="mud",
-            function=ToolFunction(
-                name="say",
-                description="Speak audibly to everyone in your current location",
-                parameters=ToolFunctionParameters(
-                    type="object",
-                    properties={
-                        "message": {
-                            "type": "string",
-                            "description": "What you want to say",
-                        }
-                    },
-                    required=["message"],
-                ),
-            ),
-        ),
-        Tool(
-            type="mud",
-            function=ToolFunction(
-                name="emote",
-                description="Perform an action or express emotion",
-                parameters=ToolFunctionParameters(
-                    type="object",
-                    properties={
-                        "action": {
-                            "type": "string",
-                            "description": "The action to perform",
-                        }
-                    },
-                    required=["action"],
-                ),
-            ),
-        ),
-    ]
+class TestNormalizeResponse:
+    def test_normalize_response_collapses_blank_lines(self, worker):
+        raw = """
+
+[== Andi's Emotional State: +Warmth+ ==]
 
 
-@pytest.fixture
-def worker(mud_config, mock_redis):
-    """Create a MUDAgentWorker with mocked dependencies."""
-    worker = MUDAgentWorker(mud_config, mock_redis)
-
-    # Set up minimal session
-    worker.session = MUDSession(
-        agent_id=mud_config.agent_id,
-        persona_id=mud_config.persona_id,
-    )
-
-    return worker
+Hello, Prax!
 
 
-class TestParseToolCalls:
-    """Tests for _parse_tool_calls method."""
+How are you?
 
-    def test_parse_valid_say_tool_call(self, worker, sample_mud_tools):
-        """Should parse a valid say tool call."""
-        worker.tool_user = ToolUser(sample_mud_tools)
-        response = '{"say": {"message": "Hello, everyone!"}}'
-
-        results = worker._parse_tool_calls(response)
-
-        assert len(results) == 1
-        assert results[0].is_valid
-        assert results[0].function_name == "say"
-        assert results[0].arguments == {"message": "Hello, everyone!"}
-
-    def test_parse_valid_emote_tool_call(self, worker, sample_mud_tools):
-        """Should parse a valid emote tool call."""
-        worker.tool_user = ToolUser(sample_mud_tools)
-        response = '{"emote": {"action": "smiles warmly"}}'
-
-        results = worker._parse_tool_calls(response)
-
-        assert len(results) == 1
-        assert results[0].is_valid
-        assert results[0].function_name == "emote"
-        assert results[0].arguments == {"action": "smiles warmly"}
-
-    def test_parse_tool_call_with_think_tags(self, worker, sample_mud_tools):
-        """Should parse tool call after think tags."""
-        worker.tool_user = ToolUser(sample_mud_tools)
-        response = '<think>Prax greeted me, I should respond.</think>\n{"say": {"message": "Hello, Prax!"}}'
-
-        results = worker._parse_tool_calls(response)
-
-        assert len(results) == 1
-        assert results[0].is_valid
-        assert results[0].function_name == "say"
-
-    def test_parse_invalid_tool_call(self, worker, sample_mud_tools):
-        """Should return empty list for invalid tool calls."""
-        worker.tool_user = ToolUser(sample_mud_tools)
-        response = "This is not a valid tool call."
-
-        results = worker._parse_tool_calls(response)
-
-        assert len(results) == 0
-
-    def test_parse_tool_call_missing_required_param(self, worker, sample_mud_tools):
-        """Should return empty list when required param is missing."""
-        worker.tool_user = ToolUser(sample_mud_tools)
-        response = '{"say": {}}'  # Missing required "message" param
-
-        results = worker._parse_tool_calls(response)
-
-        assert len(results) == 0
+"""
+        normalized = worker._normalize_response(raw)
+        assert normalized.startswith("[== Andi's Emotional State")
+        assert "\n\n\n" not in normalized
+        assert "Hello, Prax!" in normalized
 
 
 class TestEmitActions:
-    """Tests for _emit_actions method."""
-
     @pytest.mark.asyncio
-    async def test_emit_single_action(self, worker, mock_redis):
-        """Should emit a single action to Redis stream."""
-        action = MUDAction(tool="say", args={"message": "Hello!"})
+    async def test_emit_act_action(self, worker, mock_redis):
+        # Use "speak" tool which generates "act" commands
+        action = MUDAction(tool="speak", args={"text": "Hello\n\nWorld"})
 
         await worker._emit_actions([action])
 
         mock_redis.xadd.assert_called_once()
         call_args = mock_redis.xadd.call_args
-        assert call_args[0][0] == worker.config.action_stream
-
-        # Verify the data structure
         data = json.loads(call_args[0][1]["data"])
-        assert data["agent_id"] == "test_agent"
-        assert data["tool"] == "say"
-        assert data["command"] == "say Hello!"
+        assert data["tool"] == "speak"
+        assert data["command"].startswith("act Hello")
 
+
+class TestProcessTurnTwoPhase:
     @pytest.mark.asyncio
-    async def test_emit_multiple_actions(self, worker, mock_redis):
-        """Should emit multiple actions to Redis stream."""
-        actions = [
-            MUDAction(tool="emote", args={"action": "smiles"}),
-            MUDAction(tool="say", args={"message": "Hello!"}),
-        ]
-
-        await worker._emit_actions(actions)
-
-        assert mock_redis.xadd.call_count == 2
-
-    @pytest.mark.asyncio
-    async def test_emit_action_handles_redis_error(self, worker, mock_redis):
-        """Should handle Redis errors gracefully."""
-        import redis.asyncio as redis_async
-        mock_redis.xadd.side_effect = redis_async.RedisError("Connection failed")
-
-        action = MUDAction(tool="say", args={"message": "Hello!"})
-
-        # Should not raise, just log the error
-        await worker._emit_actions([action])
-
-
-class TestProcessTurn:
-    """Tests for process_turn method."""
-
-    @pytest.fixture
-    def fully_mocked_worker(self, worker, sample_mud_tools, sample_room_state, sample_entity_state):
-        """Create a worker with all LLM dependencies mocked."""
-        # Mock persona
+    async def test_process_turn_emits_act(self, worker, sample_events, mock_redis, decision_tool_user, mock_decision_strategy, mock_response_strategy):
         mock_persona = MagicMock()
-        mock_persona.xml_decorator = MagicMock()
+        mock_persona.system_prompt = MagicMock(return_value="System")
         worker.persona = mock_persona
+        worker.chat_config = MagicMock()
+        worker.chat_config.max_tokens = 2000
+        worker._decision_tool_user = decision_tool_user
+        worker._decision_strategy = mock_decision_strategy
+        worker._response_strategy = mock_response_strategy
+        mock_decision_strategy.set_tool_user(decision_tool_user)
 
-        # Mock tool user
-        worker.tool_user = ToolUser(sample_mud_tools)
+        # Mock the model
+        mock_model = MagicMock()
+        mock_model.max_tokens = 8000
+        worker.model = mock_model
 
-        # Mock LLM provider
         mock_llm = MagicMock()
-        mock_llm.stream_turns = MagicMock(return_value=iter([
-            '{"say": {"message": "Hello, Prax!"}}'
-        ]))
+        mock_llm.stream_turns = MagicMock(side_effect=[
+            iter(['{"speak": {}}']),
+            iter(["[== Andi's Emotional State: +Warmth+ ==]\n\nHello, Prax!"]),
+        ])
         worker._llm_provider = mock_llm
 
-        # Mock chat config
-        mock_config = MagicMock()
-        worker.chat_config = mock_config
-
         # Set up room and entities
-        worker.session.current_room = sample_room_state
-        worker.session.entities_present = [sample_entity_state]
+        worker.session.current_room = RoomState(room_id="room_1", name="The Garden")
+        worker.session.entities_present = [
+            EntityState(entity_id="p1", name="Prax", entity_type="player", is_self=False)
+        ]
 
-        return worker
+        await worker.process_turn(sample_events)
 
-    @pytest.mark.asyncio
-    async def test_process_turn_creates_turn_record(self, fully_mocked_worker, sample_events):
-        """Should create a turn record with events and actions."""
-        with patch.object(fully_mocked_worker, '_build_system_prompt_with_tools', return_value="System prompt"):
-            await fully_mocked_worker.process_turn(sample_events)
-
-        assert len(fully_mocked_worker.session.recent_turns) == 1
-        turn = fully_mocked_worker.session.recent_turns[0]
-        assert len(turn.events_received) == 1
+        assert len(worker.session.recent_turns) == 1
+        turn = worker.session.recent_turns[0]
         assert len(turn.actions_taken) == 1
-        assert turn.actions_taken[0].tool == "say"
-
-    @pytest.mark.asyncio
-    async def test_process_turn_emits_actions_to_redis(self, fully_mocked_worker, sample_events, mock_redis):
-        """Should emit parsed actions to Redis stream."""
-        with patch.object(fully_mocked_worker, '_build_system_prompt_with_tools', return_value="System prompt"):
-            await fully_mocked_worker.process_turn(sample_events)
-
+        assert turn.actions_taken[0].tool == "speak"
+        assert mock_llm.stream_turns.call_count == 2
         mock_redis.xadd.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_process_turn_updates_session_context(self, fully_mocked_worker, sample_events):
-        """Should update session context from events."""
-        # Add room_state to the event
-        sample_events[0].room_state = {
-            "room_id": "room_1",
-            "name": "New Room",
-            "description": "A new room.",
-            "exits": {"east": "room_4"},
-        }
+    async def test_process_turn_handles_empty_response(self, worker, sample_events, mock_redis, decision_tool_user, mock_decision_strategy, mock_response_strategy):
+        mock_persona = MagicMock()
+        mock_persona.system_prompt = MagicMock(return_value="System")
+        worker.persona = mock_persona
+        worker.chat_config = MagicMock()
+        worker.chat_config.max_tokens = 2000
+        worker._decision_tool_user = decision_tool_user
+        worker._decision_strategy = mock_decision_strategy
+        worker._response_strategy = mock_response_strategy
+        mock_decision_strategy.set_tool_user(decision_tool_user)
 
-        with patch.object(fully_mocked_worker, '_build_system_prompt_with_tools', return_value="System prompt"):
-            await fully_mocked_worker.process_turn(sample_events)
+        # Mock the model
+        mock_model = MagicMock()
+        mock_model.max_tokens = 8000
+        worker.model = mock_model
 
-        assert fully_mocked_worker.session.current_room.name == "New Room"
+        mock_llm = MagicMock()
+        mock_llm.stream_turns = MagicMock(side_effect=[
+            iter(['{"speak": {}}']),
+            iter(["   "]),
+        ])
+        worker._llm_provider = mock_llm
 
-    @pytest.mark.asyncio
-    async def test_process_turn_handles_no_tool_calls(self, fully_mocked_worker, sample_events, mock_redis):
-        """Should handle response with no valid tool calls."""
-        fully_mocked_worker._llm_provider.stream_turns = MagicMock(
-            return_value=iter(["I'm not sure what to do."])
-        )
+        await worker.process_turn(sample_events)
 
-        with patch.object(fully_mocked_worker, '_build_system_prompt_with_tools', return_value="System prompt"):
-            await fully_mocked_worker.process_turn(sample_events)
-
-        # Should still create turn record
-        assert len(fully_mocked_worker.session.recent_turns) == 1
-        turn = fully_mocked_worker.session.recent_turns[0]
+        turn = worker.session.recent_turns[0]
         assert len(turn.actions_taken) == 0
-
-        # Should not emit any actions
         mock_redis.xadd.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_process_turn_handles_llm_error(self, fully_mocked_worker, sample_events, mock_redis):
-        """Should handle LLM errors gracefully."""
-        fully_mocked_worker._llm_provider.stream_turns = MagicMock(
-            side_effect=Exception("LLM API error")
-        )
+    async def test_process_turn_strips_think_tags(self, worker, sample_events, mock_redis, decision_tool_user, mock_decision_strategy, mock_response_strategy):
+        mock_persona = MagicMock()
+        mock_persona.system_prompt = MagicMock(return_value="System")
+        worker.persona = mock_persona
+        worker.chat_config = MagicMock()
+        worker.chat_config.max_tokens = 2000
+        worker._decision_tool_user = decision_tool_user
+        worker._decision_strategy = mock_decision_strategy
+        worker._response_strategy = mock_response_strategy
+        mock_decision_strategy.set_tool_user(decision_tool_user)
 
-        with patch.object(fully_mocked_worker, '_build_system_prompt_with_tools', return_value="System prompt"):
-            await fully_mocked_worker.process_turn(sample_events)
+        # Mock the model
+        mock_model = MagicMock()
+        mock_model.max_tokens = 8000
+        worker.model = mock_model
 
-        # Should still create turn record with error
-        assert len(fully_mocked_worker.session.recent_turns) == 1
-        turn = fully_mocked_worker.session.recent_turns[0]
-        assert "[ERROR]" in turn.thinking
-        assert len(turn.actions_taken) == 0
+        mock_llm = MagicMock()
+        mock_llm.stream_turns = MagicMock(side_effect=[
+            iter(['{"speak": {}}']),
+            iter([
+                "<think>internal</think>\n[== Andi's Emotional State: +Warmth+ ==]\n\nHello!"
+            ]),
+        ])
+        worker._llm_provider = mock_llm
 
-    @pytest.mark.asyncio
-    async def test_process_turn_clears_pending_events(self, fully_mocked_worker, sample_events):
-        """Should clear pending events after processing."""
-        with patch.object(fully_mocked_worker, '_build_system_prompt_with_tools', return_value="System prompt"):
-            await fully_mocked_worker.process_turn(sample_events)
+        await worker.process_turn(sample_events)
 
-        assert len(fully_mocked_worker.session.pending_events) == 0
-
-    @pytest.mark.asyncio
-    async def test_process_turn_with_emote_action(self, fully_mocked_worker, sample_events, mock_redis):
-        """Should handle emote tool calls correctly."""
-        fully_mocked_worker._llm_provider.stream_turns = MagicMock(
-            return_value=iter(['{"emote": {"action": "smiles warmly at Prax"}}'])
-        )
-
-        with patch.object(fully_mocked_worker, '_build_system_prompt_with_tools', return_value="System prompt"):
-            await fully_mocked_worker.process_turn(sample_events)
-
-        turn = fully_mocked_worker.session.recent_turns[0]
+        turn = worker.session.recent_turns[0]
         assert len(turn.actions_taken) == 1
-        assert turn.actions_taken[0].tool == "emote"
-        assert turn.actions_taken[0].args["action"] == "smiles warmly at Prax"
+        assert "<think>" not in turn.actions_taken[0].args["text"]
+        mock_redis.xadd.assert_called_once()
 
-
-class TestBuildSystemPromptWithTools:
-    """Tests for _build_system_prompt_with_tools method."""
-
-    def test_build_system_prompt_includes_tools(self, worker, sample_mud_tools, sample_room_state):
-        """Should include tool instructions in system prompt."""
+    @pytest.mark.asyncio
+    async def test_process_turn_move_action(self, worker, sample_events, mock_redis, decision_tool_user, mock_decision_strategy):
         mock_persona = MagicMock()
-        mock_persona.xml_decorator = MagicMock()
+        mock_persona.system_prompt = MagicMock(return_value="System")
         worker.persona = mock_persona
-        worker.tool_user = ToolUser(sample_mud_tools)
-        worker.session.current_room = sample_room_state
+        worker.chat_config = MagicMock()
+        worker._decision_tool_user = decision_tool_user
+        worker._decision_strategy = mock_decision_strategy
+        mock_decision_strategy.set_tool_user(decision_tool_user)
 
-        result = worker._build_system_prompt_with_tools()
+        mock_llm = MagicMock()
+        mock_llm.stream_turns = MagicMock(side_effect=[
+            iter(['{"move": {"location": "north"}}']),
+        ])
+        worker._llm_provider = mock_llm
 
-        # Should contain XML structure
-        assert "<root>" in result
-        assert "</root>" in result
+        worker.session.current_room = RoomState(
+            room_id="room_1",
+            name="The Garden",
+            exits={"north": "#2"},
+        )
 
-        # Should contain MUD instructions
-        assert "text-based world" in result or "MUD" in result
+        await worker.process_turn(sample_events)
 
-    def test_build_system_prompt_without_room(self, worker, sample_mud_tools):
-        """Should handle case when no room is set."""
+        turn = worker.session.recent_turns[0]
+        assert len(turn.actions_taken) == 1
+        assert turn.actions_taken[0].tool == "move"
+        assert mock_llm.stream_turns.call_count == 1
+        mock_redis.xadd.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_process_turn_take_action(self, worker, sample_events, mock_redis, decision_tool_user, mock_decision_strategy):
         mock_persona = MagicMock()
-        mock_persona.xml_decorator = MagicMock()
+        mock_persona.system_prompt = MagicMock(return_value="System")
         worker.persona = mock_persona
-        worker.tool_user = ToolUser(sample_mud_tools)
-        worker.session.current_room = None
+        worker.chat_config = MagicMock()
+        worker._decision_tool_user = decision_tool_user
+        worker._decision_strategy = mock_decision_strategy
+        mock_decision_strategy.set_tool_user(decision_tool_user)
 
-        # Should not raise
-        result = worker._build_system_prompt_with_tools()
+        # Update the mock_redis hgetall to include the lantern in the room profile
+        async def hgetall_with_lantern(key):
+            if key == RedisKeys.agent_profile("test_agent"):
+                return {
+                    b"room_id": b"room_1",
+                    b"character_id": b"self_1",
+                    b"inventory": b"[]",
+                }
+            if key == RedisKeys.room_profile("room_1"):
+                room_state = {
+                    "room_id": "room_1",
+                    "name": "The Garden",
+                    "description": "A serene garden.",
+                    "exits": {"north": "#2"},
+                    "tags": [],
+                }
+                entities = [
+                    {"entity_id": "p1", "name": "Prax", "entity_type": "player"},
+                    {
+                        "entity_id": "self_1",
+                        "name": "Andi",
+                        "entity_type": "ai",
+                        "agent_id": "test_agent",
+                    },
+                    {
+                        "entity_id": "lantern_1",
+                        "name": "lantern",
+                        "entity_type": "object",
+                        "description": "A brass lantern",
+                    },
+                ]
+                return {
+                    b"room_state": json.dumps(room_state).encode("utf-8"),
+                    b"entities_present": json.dumps(entities).encode("utf-8"),
+                }
+            return {}
 
-        assert result is not None
+        mock_redis.hgetall = AsyncMock(side_effect=hgetall_with_lantern)
+
+        mock_llm = MagicMock()
+        # Single response should work now
+        mock_llm.stream_turns = MagicMock(return_value=iter(['{"take": {"object": "lantern"}}']))
+        worker._llm_provider = mock_llm
+
+        await worker.process_turn(sample_events)
+
+        turn = worker.session.recent_turns[0]
+        assert len(turn.actions_taken) == 1
+        assert turn.actions_taken[0].tool == "get"
+        assert turn.actions_taken[0].args["object"] == "lantern"
+        mock_redis.xadd.assert_called_once()

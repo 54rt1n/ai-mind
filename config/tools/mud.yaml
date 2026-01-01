@@ -53,34 +53,34 @@ functions:
         - {whisper: {target: "Prax", message: "Can I talk to you privately?"}}
         - {whisper: {target: "Nova", message: "Did you notice that?"}}
 
-  - name: look
-    description: Examine your current location, a specific object, or a person
+  - name: pose
+    description: Perform a pose in the current room
     parameters:
       type: object
       properties:
-        target:
+        action:
           type: string
-          description: Optional - what to look at. If omitted, look at the room.
-      required: []
+          description: The pose to perform (e.g., "smiles warmly")
+      required:
+        - action
       examples:
-        - {look: {}}
-        - {look: {target: "fountain"}}
-        - {look: {target: "Prax"}}
+        - {pose: {action: "smiles softly"}}
+        - {pose: {action: "folds her hands behind her back"}}
 
   - name: move
     description: Move to an adjacent room through an exit
     parameters:
       type: object
       properties:
-        direction:
+        location:
           type: string
           description: The direction or exit name to move through (e.g., "north", "out", "garden")
       required:
-        - direction
+        - location
       examples:
-        - {move: {direction: "north"}}
-        - {move: {direction: "garden"}}
-        - {move: {direction: "out"}}
+        - {move: {location: "north"}}
+        - {move: {location: "garden"}}
+        - {move: {location: "out"}}
 
   - name: get
     description: Pick up an object from the room or from a container
@@ -142,73 +142,27 @@ functions:
         - {use: {object: "lever"}}
         - {use: {object: "fountain"}}
 
-  # =============================================================================
-  # Builder-Level Tools (Andi only - requires builder permissions)
-  # =============================================================================
-
-  - name: dig
-    description: Create a new room connected to your current location via exits
+  - name: home
+    description: Return to your home location
     parameters:
       type: object
-      properties:
-        room:
-          type: string
-          description: The name of the new room to create
-        exits:
-          type: string
-          description: Exit specification (e.g., "north;south" for bidirectional exits)
-      required:
-        - room
-        - exits
+      properties: {}
+      required: []
       examples:
-        - {dig: {room: "Garden of Reflection", exits: "north;south"}}
-        - {dig: {room: "The Lighthouse", exits: "up;down"}}
+        - {home: {}}
 
-  - name: create
-    description: Create a new object in your current location
+  - name: setdesc
+    description: Set your description (setdesc)
     parameters:
       type: object
       properties:
-        object:
-          type: string
-          description: The name of the object to create
-      required:
-        - object
-      examples:
-        - {create: {object: "silver fountain"}}
-        - {create: {object: "ancient tome"}}
-
-  - name: describe
-    description: Set the description of a room, object, or character
-    parameters:
-      type: object
-      properties:
-        target:
-          type: string
-          description: The name of what to describe (or "here" for current room)
         description:
           type: string
-          description: The new description text
+          description: The description text to set
       required:
-        - target
         - description
       examples:
-        - {describe: {target: "here", description: "A peaceful garden with a silver fountain at its center. The air smells of jasmine."}}
-        - {describe: {target: "fountain", description: "An elegant fountain carved from moonstone, its waters shimmering with an inner light."}}
-
-  - name: teleport
-    description: Instantly transport yourself to another location
-    parameters:
-      type: object
-      properties:
-        destination:
-          type: string
-          description: The name or ID of the room to teleport to
-      required:
-        - destination
-      examples:
-        - {teleport: {destination: "Limbo"}}
-        - {teleport: {destination: "#123"}}
+        - {setdesc: {description: "A calm presence with a silver band."}}
 
 implementation:
   module: aim.tool.impl.mud

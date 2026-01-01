@@ -3,7 +3,7 @@
 """Step execution logic composing existing infrastructure."""
 
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 import logging
 import re
@@ -516,7 +516,7 @@ async def execute_step(
         document_type=step_def.output.document_type,
         document_weight=step_def.output.weight,
         tokens_used=tokens_used,
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(timezone.utc),
     )
 
     logger.info(

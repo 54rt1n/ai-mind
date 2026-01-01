@@ -5,7 +5,7 @@
 import asyncio
 import logging
 import signal
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from .executor import execute_step, create_message, RetryableError
@@ -236,7 +236,7 @@ class DreamerWorker:
             state.completed_steps.append(job.step_id)
             state.step_doc_ids[job.step_id] = result.doc_id
             state.step_counter += 1
-            state.updated_at = datetime.utcnow()
+            state.updated_at = datetime.now(timezone.utc)
 
             # Update accumulated context:
             # - If initial context (from DSL): set context_doc_ids to DSL result + step output

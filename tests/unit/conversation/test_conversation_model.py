@@ -14,13 +14,14 @@ from aim.constants import DOC_CONVERSATION
 # Use fixtures from the existing conftest.py
 # Make sure it's in the python path or discoverable by pytest
 
-TEST_MEMORY_PATH = "test_memory"
+TEST_PERSONA_ID = "test_persona"
+TEST_MEMORY_PATH = f"memory/{TEST_PERSONA_ID}"
 
 @pytest.fixture
 def mock_chat_config():
     "Fixture for a mock ChatConfig object."""
     config = MagicMock(spec=ChatConfig)
-    config.memory_path = TEST_MEMORY_PATH
+    config.persona_id = TEST_PERSONA_ID
     config.embedding_model = "mock_embedding_model"
     config.user_timezone = "UTC"
     config.embedding_device = None
@@ -29,70 +30,56 @@ def mock_chat_config():
 @pytest.fixture
 @patch('aim.conversation.model.SearchIndex')
 @patch('aim.conversation.model.ConversationLoader')
-@patch('aim.conversation.model.ConversationModel.init_folders') # Mock classmethod
-def conversation_model(mock_init_folders, MockLoader, MockIndex, mock_chat_config):
+@patch('aim.conversation.model.ConversationModel.maybe_init_folders')
+def conversation_model(mock_maybe_init_folders, MockLoader, MockIndex, mock_chat_config):
     """Fixture for an initialized ConversationModel with mocked dependencies."""
     # Setup mocks for SearchIndex and ConversationLoader instances if needed
     mock_index_instance = MockIndex.return_value
     mock_loader_instance = MockLoader.return_value
-    
-    # Instantiate the model using from_config which will call the mocked init_folders
+
+    # Instantiate the model using from_config which derives memory path from persona_id
     model = ConversationModel.from_config(mock_chat_config)
-    
+
     # Ensure mocks were called as expected during init
-    mock_init_folders.assert_called_once_with(TEST_MEMORY_PATH)
+    mock_maybe_init_folders.assert_called_once_with(TEST_MEMORY_PATH)
     MockIndex.assert_called_once_with(Path('.', TEST_MEMORY_PATH, 'indices'), embedding_model="mock_embedding_model", device=None)
     MockLoader.assert_called_once_with(conversations_dir=os.path.join(TEST_MEMORY_PATH, 'conversations'))
-    
+
     # Attach mocks for later use if needed in tests
-    model.index = mock_index_instance 
+    model.index = mock_index_instance
     model.loader = mock_loader_instance
-    
+
     return model
 
 def test_conversation_model_init(conversation_model, mock_chat_config):
     """Test ConversationModel initialization."""
-    assert conversation_model.memory_path == mock_chat_config.memory_path
+    assert conversation_model.memory_path == TEST_MEMORY_PATH
     assert conversation_model.collection_path == Path(f'./{TEST_MEMORY_PATH}/conversations')
     assert conversation_model.index is not None
     assert conversation_model.loader is not None
 
 @patch('aim.conversation.model.Path.mkdir')
 @patch('aim.conversation.model.Path.exists')
-def test_init_folders(mock_exists, mock_mkdir):
-    """Test that init_folders creates directories if they don't exist."""
+def test_maybe_init_folders(mock_exists, mock_mkdir):
+    """Test that maybe_init_folders creates directories if they don't exist."""
     # Simulate folders not existing
     mock_exists.return_value = False
-    
-    ConversationModel.init_folders(TEST_MEMORY_PATH)
-    
-    expected_calls = [
-        call(Path(f'./{TEST_MEMORY_PATH}/conversations')),
-        call(Path(f'./{TEST_MEMORY_PATH}/indices'))
-    ]
-    assert mock_exists.call_count == 2
 
-    expected_mkdir_calls = [
-        call(parents=True),
-        call(parents=True)
-    ]
+    ConversationModel.maybe_init_folders(TEST_MEMORY_PATH)
+
+    assert mock_exists.call_count == 2
     assert mock_mkdir.call_count == 2
 
 @patch('aim.conversation.model.Path.mkdir')
 @patch('aim.conversation.model.Path.exists')
-def test_init_folders_existing(mock_exists, mock_mkdir):
-    """Test that init_folders doesn't create directories if they exist."""
+def test_maybe_init_folders_existing(mock_exists, mock_mkdir):
+    """Test that maybe_init_folders doesn't create directories if they exist."""
     # Simulate folders existing
     mock_exists.return_value = True
-    
-    ConversationModel.init_folders(TEST_MEMORY_PATH)
-    
-    expected_calls = [
-        call(Path(f'./{TEST_MEMORY_PATH}/conversations')),
-        call(Path(f'./{TEST_MEMORY_PATH}/indices'))
-    ]
+
+    ConversationModel.maybe_init_folders(TEST_MEMORY_PATH)
+
     assert mock_exists.call_count == 2
-    
     # mkdir should not be called
     mock_mkdir.assert_not_called()
 

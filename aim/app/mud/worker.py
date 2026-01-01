@@ -17,30 +17,41 @@ Usage:
 
 import argparse
 import asyncio
+import contextlib
 import json
 import logging
 import signal
-from dataclasses import replace
+import warnings
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
+import uuid
 
+import yaml
 import redis.asyncio as redis
 
-from aim_mud_types import MUDAction
+from aim_mud_types import MUDAction, RedisKeys
 
-from .adapter import build_chat_turns
+from .adapter import (
+    build_current_context,
+    build_system_prompt,
+)
 from .config import MUDConfig
-from .session import MUDSession, MUDEvent, MUDTurn, RoomState, EntityState
+from .session import MUDSession, MUDEvent, MUDTurn, RoomState, EntityState, WorldState
+from aim_mud_types.world_state import InventoryItem
 from ...conversation.model import ConversationModel
 from ...agents.roster import Roster
+from ...chat.manager import ChatManager
 from ...agents.persona import Persona
 from ...config import ChatConfig
 from ...dreamer.executor import extract_think_tags
 from ...llm.llm import LLMProvider, is_retryable_error
 from ...llm.models import LanguageModelV2
 from ...tool.loader import ToolLoader
-from ...tool.formatting import ToolUser, ToolCallResult
-from ...utils.xml import XmlFormatter
+from ...tool.formatting import ToolUser
+from .memory import MUDMemoryRetriever
+from .conversation import MUDConversationManager
+from .strategy import MUDDecisionStrategy, MUDResponseStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -97,8 +108,27 @@ class MUDAgentWorker:
         # LLM and tool resources (loaded during start)
         # Store pre-loaded config if provided, otherwise will load in start()
         self.chat_config: Optional[ChatConfig] = chat_config
-        self.tool_user: Optional[ToolUser] = None
         self._llm_provider: Optional[LLMProvider] = None
+        self.model_name: Optional[str] = None
+        self.model = None
+
+        # Memory helpers
+        self.memory_retriever: Optional[MUDMemoryRetriever] = None
+
+        # Conversation manager (Redis-backed conversation list)
+        self.conversation_manager: Optional[MUDConversationManager] = None
+
+        # Phase 1 decision tools
+        self._decision_tool_user: Optional[ToolUser] = None
+        self._decision_strategy: Optional[MUDDecisionStrategy] = None
+        self._agent_action_spec: Optional[dict] = None
+        self._chat_manager: Optional[ChatManager] = None
+
+        # Phase 2 response strategy
+        self._response_strategy: Optional[MUDResponseStrategy] = None
+
+        # Turn request tracking
+        self._last_turn_request_id: Optional[str] = None
 
     async def start(self) -> None:
         """Start the worker loop.
@@ -115,32 +145,63 @@ class MUDAgentWorker:
         if self.chat_config is None:
             self.chat_config = ChatConfig.from_env()
 
-        # Apply MUD-specific overrides to the chat config (identity and memory only)
+        # Apply MUD-specific persona override (from_config derives memory path from persona_id)
         # LLM settings (model, temperature, max_tokens) come from ChatConfig/.env
-        self.chat_config.memory_path = self.config.memory_path
         self.chat_config.persona_id = self.config.persona_id
 
         self.cvm = ConversationModel.from_config(self.chat_config)
         self.roster = Roster.from_config(self.chat_config)
+        self._chat_manager = ChatManager(self.cvm, self.chat_config, self.roster)
         self.persona = self.roster.get_persona(self.config.persona_id)
 
         # Initialize LLM provider
         self._init_llm_provider()
 
-        # Initialize tool user with MUD tools
-        self._init_tool_user()
+        # Initialize phase 1 decision tools
+        self._init_decision_tools()
+        self._init_agent_action_spec()
 
         # Initialize session
         self.session = MUDSession(
             agent_id=self.config.agent_id,
             persona_id=self.config.persona_id,
+            max_recent_turns=self.config.max_recent_turns,
         )
+
+        # Initialize memory helpers
+        # Suppress deprecation warning - we intentionally use the deprecated class
+        # during the transition period; MUDResponseStrategy handles memory retrieval
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            self.memory_retriever = MUDMemoryRetriever(
+                cvm=self.cvm,
+                top_n=self.config.top_n_memories,
+            )
+
+        # Initialize conversation manager (Redis-backed conversation list)
+        self.conversation_manager = MUDConversationManager(
+            redis=self.redis,
+            agent_id=self.config.agent_id,
+            persona_id=self.config.persona_id,
+            max_tokens=self.config.conversation_max_tokens,
+        )
+
+        # Initialize decision strategy
+        self._decision_strategy = MUDDecisionStrategy(self.conversation_manager)
+        self._decision_strategy.set_tool_user(self._decision_tool_user)
+
+        # Initialize response strategy
+        self._response_strategy = MUDResponseStrategy(self._chat_manager)
+        self._response_strategy.set_conversation_manager(self.conversation_manager)
 
         # Set running flag
         self.running = True
 
         # Setup signal handlers for graceful shutdown
         self.setup_signal_handlers()
+
+        # Load agent profile state (last_event_id, etc.)
+        await self._load_agent_profile()
 
         logger.info(
             f"Worker initialized. Listening on stream: {self.config.agent_stream}"
@@ -156,21 +217,105 @@ class MUDAgentWorker:
                     await asyncio.sleep(1)
                     continue
 
-                # Block until events arrive (timeout for spontaneous check)
-                events = await self.drain_events(
-                    timeout=self.config.spontaneous_check_interval
-                )
-
-                if not events:
-                    # No events - check for spontaneous action
-                    if self._should_act_spontaneously():
-                        logger.debug("No events, triggering spontaneous action")
-                        await self.process_turn([])
+                # Check for turn request assignment
+                turn_request = await self._get_turn_request()
+                if not turn_request or turn_request.get("status") != "assigned":
+                    await asyncio.sleep(self.config.turn_request_poll_interval)
                     continue
 
-                # Process the turn with received events
-                logger.info(f"Received {len(events)} events, processing turn")
-                await self.process_turn(events)
+                turn_id = turn_request.get("turn_id") or uuid.uuid4().hex
+                reason = turn_request.get("reason", "events")
+
+                await self._set_turn_request_state(turn_id, "in_progress")
+                heartbeat_stop = asyncio.Event()
+                heartbeat_task = asyncio.create_task(
+                    self._heartbeat_turn_request(heartbeat_stop)
+                )
+                saved_last_event_id = None  # For rollback on failure
+
+                try:
+                    if reason == "flush":
+                        # @write console command - flush conversation to CVM
+                        if self.conversation_manager:
+                            flushed = await self.conversation_manager.flush_to_cvm(self.cvm)
+                            logger.info(f"@write: Flushed {flushed} entries to CVM")
+                            # Emote completion
+                            action = MUDAction(tool="emote", args={"action": "feels more knowledgeable."})
+                            await self._emit_actions([action])
+                        else:
+                            logger.warning("Flush requested but no conversation manager")
+                        await self._set_turn_request_state(turn_id, "done")
+                        self._last_turn_request_id = turn_id
+                        continue
+                    if reason == "clear":
+                        # @clear console command - clear conversation history
+                        if self.conversation_manager:
+                            await self.conversation_manager.clear()
+                            logger.info("@clear: Cleared conversation history")
+                        else:
+                            logger.warning("Clear requested but no conversation manager")
+                        await self._set_turn_request_state(turn_id, "done")
+                        self._last_turn_request_id = turn_id
+                        continue
+                    if reason == "agent":
+                        # Save event position before draining (for rollback on failure)
+                        saved_last_event_id = self.session.last_event_id
+                        events = await self.drain_events(timeout=0)
+                        guidance = turn_request.get("guidance", "")
+                        logger.info(
+                            "Processing @agent turn %s with %d events",
+                            turn_id,
+                            len(events),
+                        )
+                        await self.process_agent_turn(events, guidance)
+                        await self._set_turn_request_state(turn_id, "done")
+                        self._last_turn_request_id = turn_id
+                        continue
+                    if reason == "choose":
+                        # Save event position before draining (for rollback on failure)
+                        saved_last_event_id = self.session.last_event_id
+                        events = await self.drain_events(timeout=0)
+                        guidance = turn_request.get("guidance", "")
+                        logger.info(
+                            "Processing @choose turn %s with %d events",
+                            turn_id,
+                            len(events),
+                        )
+                        # Use process_agent_turn for @choose (same as @agent)
+                        await self.process_agent_turn(events, guidance)
+                        await self._set_turn_request_state(turn_id, "done")
+                        self._last_turn_request_id = turn_id
+                        continue
+                    if reason == "idle":
+                        events = []
+                        saved_last_event_id = None
+                    else:
+                        # Save event position before draining (for rollback on failure)
+                        saved_last_event_id = self.session.last_event_id
+                        # Drain events with settling delay for cascades
+                        events = await self._drain_with_settle()
+
+                    logger.info(
+                        "Processing assigned turn %s (%s) with %d events",
+                        turn_id,
+                        reason,
+                        len(events),
+                    )
+                    await self.process_turn(events)
+                    await self._set_turn_request_state(turn_id, "done")
+                    self._last_turn_request_id = turn_id
+                except Exception as e:
+                    logger.error(f"Error during assigned turn {turn_id}: {e}", exc_info=True)
+                    # Restore event position so next drain re-reads these events
+                    if saved_last_event_id is not None:
+                        self.session.last_event_id = saved_last_event_id
+                        logger.info("Restored last_event_id to %s for retry", saved_last_event_id)
+                    await self._set_turn_request_state(turn_id, "fail", message=str(e))
+                finally:
+                    heartbeat_stop.set()
+                    heartbeat_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await heartbeat_task
 
             except asyncio.CancelledError:
                 logger.info("Worker cancelled, shutting down...")
@@ -200,6 +345,215 @@ class MUDAgentWorker:
         value = await self.redis.get(self.config.pause_key)
         return value == b"1"
 
+    def _turn_request_key(self) -> str:
+        """Return the Redis key for this agent's turn request."""
+        return RedisKeys.agent_turn_request(self.config.agent_id)
+
+    def _agent_profile_key(self) -> str:
+        """Return the Redis key for this agent's profile hash."""
+        return RedisKeys.agent_profile(self.config.agent_id)
+
+    async def _load_agent_profile(self) -> None:
+        """Load agent profile state from Redis."""
+        if not self.session:
+            return
+        data = await self.redis.hgetall(self._agent_profile_key())
+        if not data:
+            # Initialize profile shell
+            await self._update_agent_profile(agent_id=self.config.agent_id)
+            return
+        decoded: dict[str, str] = {}
+        for k, v in data.items():
+            if isinstance(k, bytes):
+                k = k.decode("utf-8")
+            if isinstance(v, bytes):
+                v = v.decode("utf-8")
+            decoded[str(k)] = str(v)
+
+        last_event_id = decoded.get("last_event_id")
+        if last_event_id:
+            self.session.last_event_id = last_event_id
+
+    async def _load_agent_world_state(self) -> tuple[Optional[str], Optional[str]]:
+        """Load inventory and room pointer from agent profile.
+
+        Returns:
+            Tuple of (room_id, character_id) when available.
+        """
+        if not self.session:
+            return None, None
+        try:
+            data = await self.redis.hgetall(self._agent_profile_key())
+        except redis.RedisError as e:
+            logger.error(f"Redis error loading agent profile: {e}")
+            return None, None
+        if not data:
+            return None, None
+
+        def _decode(value):
+            if isinstance(value, bytes):
+                return value.decode("utf-8")
+            return value
+
+        room_id = _decode(data.get(b"room_id") or data.get("room_id"))
+        character_id = _decode(data.get(b"character_id") or data.get("character_id"))
+
+        inventory_raw = _decode(data.get(b"inventory") or data.get("inventory"))
+        inventory_items: list = []
+        if inventory_raw:
+            try:
+                inventory_items = json.loads(inventory_raw)
+            except json.JSONDecodeError:
+                logger.warning("Invalid inventory JSON in agent profile")
+
+        home = _decode(data.get(b"home") or data.get("home"))
+        time_val = _decode(data.get(b"time") or data.get("time"))
+
+        inventory = [
+            InventoryItem.from_dict(i)
+            for i in inventory_items
+            if isinstance(i, dict)
+        ]
+
+        if self.session.world_state is None:
+            self.session.world_state = WorldState(
+                inventory=inventory,
+                home=home,
+                time=time_val,
+            )
+        else:
+            self.session.world_state.inventory = inventory
+            self.session.world_state.home = home
+            self.session.world_state.time = time_val
+
+        return room_id, character_id
+
+    async def _load_room_profile(self, room_id: Optional[str], character_id: Optional[str]) -> None:
+        """Load room profile snapshot from Redis and merge into world_state."""
+        if not self.session or not room_id:
+            return
+        try:
+            data = await self.redis.hgetall(RedisKeys.room_profile(room_id))
+        except redis.RedisError as e:
+            logger.error(f"Redis error loading room profile {room_id}: {e}")
+            return
+        if not data:
+            return
+
+        def _decode(value):
+            if isinstance(value, bytes):
+                return value.decode("utf-8")
+            return value
+
+        room_state_raw = _decode(data.get(b"room_state") or data.get("room_state"))
+        entities_raw = _decode(data.get(b"entities_present") or data.get("entities_present"))
+
+        room_state = None
+        entities_present: list[EntityState] = []
+
+        if room_state_raw:
+            try:
+                room_state = RoomState.from_dict(json.loads(room_state_raw))
+            except Exception:
+                logger.warning("Invalid room_state JSON in room profile")
+
+        if entities_raw:
+            try:
+                parsed = json.loads(entities_raw)
+                if isinstance(parsed, list):
+                    entities_present = [
+                        EntityState.from_dict(e) for e in parsed if isinstance(e, dict)
+                    ]
+            except Exception:
+                logger.warning("Invalid entities_present JSON in room profile")
+
+        if character_id:
+            for entity in entities_present:
+                if entity.entity_id == character_id:
+                    entity.is_self = True
+                    break
+
+        if self.session.world_state is None:
+            self.session.world_state = WorldState(
+                room_state=room_state,
+                entities_present=entities_present,
+            )
+        else:
+            if room_state is not None:
+                self.session.world_state.room_state = room_state
+            self.session.world_state.entities_present = entities_present
+
+        # Update chat manager location XML for unified memory queries
+        if self._chat_manager and self.session.world_state and self.session.world_state.room_state:
+            room_state_only = WorldState(
+                room_state=self.session.world_state.room_state,
+                entities_present=self.session.world_state.entities_present,
+            )
+            self._chat_manager.current_location = room_state_only.to_xml(include_self=False)
+
+        if room_state is not None:
+            self.session.current_room = room_state
+        self.session.entities_present = entities_present
+
+    async def _update_agent_profile(self, **fields: str) -> None:
+        """Update agent profile fields in Redis."""
+        payload = {"updated_at": _utc_now().isoformat()}
+        payload.update({k: v for k, v in fields.items() if v is not None})
+        await self.redis.hset(self._agent_profile_key(), mapping=payload)
+
+    async def _get_turn_request(self) -> dict[str, str]:
+        """Fetch the current turn request hash."""
+        data = await self.redis.hgetall(self._turn_request_key())
+        if not data:
+            return {}
+        result: dict[str, str] = {}
+        for k, v in data.items():
+            if isinstance(k, bytes):
+                k = k.decode("utf-8")
+            if isinstance(v, bytes):
+                v = v.decode("utf-8")
+            result[str(k)] = str(v)
+        return result
+
+    async def _set_turn_request_state(
+        self,
+        turn_id: str,
+        status: str,
+        message: Optional[str] = None,
+    ) -> None:
+        """Update turn request state and refresh TTL."""
+        now = _utc_now().isoformat()
+        payload = {
+            "turn_id": turn_id,
+            "status": status,
+            "heartbeat_at": now,
+        }
+        if message:
+            payload["message"] = message
+        await self.redis.hset(self._turn_request_key(), mapping=payload)
+        await self.redis.expire(
+            self._turn_request_key(),
+            self.config.turn_request_ttl_seconds,
+        )
+
+    async def _heartbeat_turn_request(self, stop_event: asyncio.Event) -> None:
+        """Refresh the turn request TTL while processing a turn."""
+        try:
+            while not stop_event.is_set():
+                await asyncio.sleep(self.config.turn_request_heartbeat_seconds)
+                if stop_event.is_set():
+                    break
+                await self.redis.expire(
+                    self._turn_request_key(),
+                    self.config.turn_request_ttl_seconds,
+                )
+                await self.redis.hset(
+                    self._turn_request_key(),
+                    mapping={"heartbeat_at": _utc_now().isoformat()},
+                )
+        except asyncio.CancelledError:
+            return
+
     def _should_act_spontaneously(self) -> bool:
         """Determine if agent should act without new events.
 
@@ -211,12 +565,20 @@ class MUDAgentWorker:
         if self.session is None:
             return False
 
-        if self.session.last_action_time is None:
-            # Never acted - don't trigger spontaneous action
+        if self.session.last_event_time is None:
+            # No events yet - don't trigger spontaneous action
             return False
 
-        elapsed = (_utc_now() - self.session.last_action_time).total_seconds()
-        return elapsed >= self.config.spontaneous_action_interval
+        now = _utc_now()
+        elapsed_since_event = (now - self.session.last_event_time).total_seconds()
+        if elapsed_since_event < self.config.spontaneous_action_interval:
+            return False
+
+        if self.session.last_action_time is None:
+            return True
+
+        elapsed_since_action = (now - self.session.last_action_time).total_seconds()
+        return elapsed_since_action >= self.config.spontaneous_action_interval
 
     async def drain_events(self, timeout: float) -> list[MUDEvent]:
         """Block until events arrive on agent's stream.
@@ -229,54 +591,127 @@ class MUDAgentWorker:
         Returns:
             List of MUDEvent objects parsed from the stream.
         """
-        try:
-            result = await self.redis.xread(
-                {self.config.agent_stream: self.session.last_event_id},
-                block=int(timeout * 1000),
-                count=100,
-            )
-        except redis.RedisError as e:
-            logger.error(f"Redis error in drain_events: {e}")
-            return []
+        events: list[MUDEvent] = []
+        max_id = None
 
-        if not result:
-            return []
+        def _parse_result(result) -> None:
+            for _stream_name, messages in result:
+                for msg_id, data in messages:
+                    # Update last event ID for resumption
+                    # msg_id may be bytes or str depending on Redis client config
+                    if isinstance(msg_id, bytes):
+                        msg_id = msg_id.decode("utf-8")
+                    self.session.last_event_id = msg_id
 
-        events = []
-        for stream_name, messages in result:
-            for msg_id, data in messages:
-                # Update last event ID for resumption
-                # msg_id may be bytes or str depending on Redis client config
-                if isinstance(msg_id, bytes):
-                    msg_id = msg_id.decode("utf-8")
-                self.session.last_event_id = msg_id
+                    # Parse event data
+                    try:
+                        # Data field contains the JSON payload
+                        raw_data = data.get(b"data") or data.get("data")
+                        if raw_data is None:
+                            logger.warning(f"Event {msg_id} missing data field")
+                            continue
 
-                # Parse event data
-                try:
-                    # Data field contains the JSON payload
-                    raw_data = data.get(b"data") or data.get("data")
-                    if raw_data is None:
-                        logger.warning(f"Event {msg_id} missing data field")
+                        if isinstance(raw_data, bytes):
+                            raw_data = raw_data.decode("utf-8")
+
+                        enriched = json.loads(raw_data)
+                        event = MUDEvent.from_dict(enriched)
+                        event.event_id = msg_id
+                        events.append(event)
+
+                        logger.debug(
+                            f"Parsed event {msg_id}: {event.event_type.value} "
+                            f"from {event.actor}"
+                        )
+
+                    except (json.JSONDecodeError, KeyError, ValueError) as e:
+                        logger.error(f"Failed to parse event {msg_id}: {e}")
                         continue
 
-                    if isinstance(raw_data, bytes):
-                        raw_data = raw_data.decode("utf-8")
+        # Snapshot the max stream id at drain start to avoid chasing new events
+        try:
+            info = await self.redis.xinfo_stream(self.config.agent_stream)
+            max_id = info.get("last-generated-id") or info.get(b"last-generated-id")
+            if isinstance(max_id, bytes):
+                max_id = max_id.decode("utf-8")
+        except redis.RedisError as e:
+            logger.error(f"Redis error in drain_events (xinfo): {e}")
+            return []
 
-                    enriched = json.loads(raw_data)
-                    event = MUDEvent.from_dict(enriched)
-                    event.event_id = msg_id
-                    events.append(event)
+        if not max_id or max_id == "0":
+            return []
 
-                    logger.debug(
-                        f"Parsed event {msg_id}: {event.event_type.value} "
-                        f"from {event.actor}"
-                    )
+        # Drain events up to snapshot max_id
+        start_id = self.session.last_event_id or "0"
+        min_id = f"({start_id}" if start_id != "0" else "-"
+        while True:
+            try:
+                result = await self.redis.xrange(
+                    self.config.agent_stream,
+                    min=min_id,
+                    max=max_id,
+                    count=100,
+                )
+            except redis.RedisError as e:
+                logger.error(f"Redis error in drain_events (xrange): {e}")
+                break
 
-                except (json.JSONDecodeError, KeyError, ValueError) as e:
-                    logger.error(f"Failed to parse event {msg_id}: {e}")
-                    continue
+            if not result:
+                break
+
+            _parse_result([(self.config.agent_stream, result)])
+            last_msg_id = self.session.last_event_id
+            if not last_msg_id or last_msg_id == max_id:
+                break
+            min_id = f"({last_msg_id}"
+
+        if self.session and self.session.last_event_id:
+            await self._update_agent_profile(last_event_id=self.session.last_event_id)
 
         return events
+
+    async def _drain_with_settle(self) -> list[MUDEvent]:
+        """Drain events with settling delay for cascading events.
+
+        Drains events, waits settle_seconds, drains again.
+        Repeats until a drain returns zero events. This allows
+        cascading events (e.g., someone entering a room and immediately
+        speaking) to be batched together.
+
+        Returns:
+            All accumulated events from multiple drains.
+        """
+        settle_time = self.config.event_settle_seconds
+        all_events: list[MUDEvent] = []
+        drain_count = 0
+
+        while True:
+            events = await self.drain_events(timeout=0)
+            drain_count += 1
+            if not events:
+                # No new events - cascade has settled
+                if all_events:
+                    logger.info(
+                        "Event cascade settled after %.1fs with %d total events",
+                        settle_time,
+                        len(all_events),
+                    )
+                elif drain_count == 1:
+                    logger.warning(
+                        "First drain returned 0 events - turn assigned but stream empty?"
+                    )
+                break
+
+            all_events.extend(events)
+            logger.info(
+                "Drained %d events (total %d), waiting %.1fs for more",
+                len(events),
+                len(all_events),
+                settle_time,
+            )
+            await asyncio.sleep(settle_time)
+
+        return all_events
 
     def _init_llm_provider(self) -> None:
         """Initialize the LLM provider from configuration.
@@ -301,59 +736,393 @@ class MUDAgentWorker:
             )
 
         self._llm_provider = model.llm_factory(self.chat_config)
+        self.model_name = model_name
+        self.model = model
         logger.info(f"Initialized LLM provider for model: {model_name}")
 
-    def _init_tool_user(self) -> None:
-        """Initialize the ToolUser with MUD tools.
+    def _init_decision_tools(self) -> None:
+        """Initialize phase 1 decision tools (speak/move)."""
+        if self.chat_config is None:
+            raise ValueError("ChatConfig must be initialized before loading tools")
 
-        Loads MUD tool definitions from config/tools/mud.yaml and creates
-        a ToolUser instance for formatting and parsing tool calls.
-        """
+        tool_file = Path(self.config.decision_tool_file)
+        if not tool_file.is_absolute():
+            # Allow passing just a filename; resolve relative to tools_path
+            if "/" not in str(tool_file):
+                tool_file = Path(self.chat_config.tools_path) / tool_file
+            elif not tool_file.exists():
+                candidate = Path(self.chat_config.tools_path) / tool_file.name
+                if candidate.exists():
+                    tool_file = candidate
+
         loader = ToolLoader(self.chat_config.tools_path)
-        mud_tools = loader.load_tool_file(f"{self.chat_config.tools_path}/mud.yaml")
+        tools = loader.load_tool_file(str(tool_file))
+        if not tools:
+            raise ValueError(f"No tools loaded from {tool_file}")
 
-        if not mud_tools:
-            raise ValueError("No MUD tools found in config/tools/mud.yaml")
+        self._decision_tool_user = ToolUser(tools)
+        logger.info(
+            "Loaded %d phase 1 decision tools from %s",
+            len(tools),
+            tool_file,
+        )
 
-        # Filter to player-level tools only (builder tools require permissions)
-        # For now, include all tools - permission checking happens at execution
-        self.tool_user = ToolUser(mud_tools)
-        logger.info(f"Loaded {len(mud_tools)} MUD tools")
+    def _init_agent_action_spec(self) -> None:
+        """Load @agent action specification from YAML."""
+        tool_file = Path(self.config.agent_tool_file)
+        if not tool_file.is_absolute():
+            if "/" not in str(tool_file):
+                tool_file = Path(self.chat_config.tools_path) / tool_file
+            elif not tool_file.exists():
+                candidate = Path(self.chat_config.tools_path) / tool_file.name
+                if candidate.exists():
+                    tool_file = candidate
 
-    def _build_system_prompt_with_tools(self) -> str:
-        """Build system prompt with persona context and tool instructions.
+        if not tool_file.exists():
+            raise ValueError(f"Agent tool file not found: {tool_file}")
 
-        Combines the persona's system prompt with MUD-specific context
-        and tool usage instructions.
+        try:
+            with open(tool_file, "r", encoding="utf-8") as handle:
+                data = yaml.safe_load(handle) or {}
+        except Exception as e:
+            raise ValueError(f"Failed to load agent tool file {tool_file}: {e}") from e
+
+        self._agent_action_spec = data
+        logger.info("Loaded @agent action spec from %s", tool_file)
+
+    def _agent_action_list(self) -> list[dict]:
+        """Return the list of actions from the @agent spec."""
+        if not self._agent_action_spec:
+            return []
+        actions = self._agent_action_spec.get("actions", [])
+        return actions if isinstance(actions, list) else []
+
+    def _build_agent_guidance(self, user_guidance: str) -> str:
+        """Build guidance for @agent action selection."""
+        spec = self._agent_action_spec or {}
+        instructions = spec.get("instructions", "")
+        actions = self._agent_action_list()
+
+        lines = []
+        if instructions:
+            lines.append(instructions)
+        lines.append("Include any other text inside of the JSON response instead.")
+        lines.append("You are in your memory palace. Respond as yourself.")
+        lines.append(
+            "For describe, write paragraph-long descriptions infused with your personality."
+        )
+        if user_guidance:
+            lines.append(f"User guidance: {user_guidance}")
+
+        if actions:
+            action_names = ", ".join([a.get("name", "") for a in actions if a.get("name")])
+            lines.append(f"Allowed actions: {action_names}")
+            lines.append('Output format: {"action": "<name>", ...}')
+            for action in actions:
+                name = action.get("name")
+                desc = action.get("description", "")
+                examples = action.get("examples") or action.get("parameters", {}).get("examples")
+                if name:
+                    if desc:
+                        lines.append(f"- {name}: {desc}")
+                    if examples:
+                        first = examples[0]
+                        if isinstance(first, dict):
+                            lines.append(f"Example: {json.dumps(first)}")
+
+        if self._decision_strategy and self.session:
+            lines.extend(self._decision_strategy._build_agent_action_hints(self.session))
+        return "\n".join([line for line in lines if line])
+
+    def _resolve_target_name(self, target_id: str) -> str:
+        """Resolve a target id to a display name for emotes."""
+        if not target_id or not self.session:
+            return target_id or "object"
+
+        world_state = self.session.world_state
+        if world_state and world_state.room_state:
+            room = world_state.room_state
+            if room.room_id == target_id:
+                return room.name or "room"
+
+        # Check entities present
+        if world_state:
+            for entity in world_state.entities_present:
+                if entity.entity_id == target_id:
+                    return entity.name or target_id
+
+            for item in world_state.inventory:
+                if getattr(item, "item_id", None) == target_id:
+                    return item.name or target_id
+
+        return target_id
+
+    def _resolve_move_location(self, location: Optional[str]) -> Optional[str]:
+        """Validate and normalize a move location against current exits."""
+        if not location:
+            return None
+
+        room = self.session.current_room if self.session else None
+        exits = room.exits if room else None
+        if not exits:
+            return location
+
+        if location in exits:
+            return location
+
+        lowered = location.lower()
+        for exit_name in exits.keys():
+            if exit_name.lower() == lowered:
+                return exit_name
+
+        return None
+
+    async def _decide_action(self, idle_mode: bool) -> tuple[Optional[str], dict, str, str, str]:
+        """Phase 1 decision: choose speak or move via tool call.
 
         Returns:
-            Complete system prompt string for LLM inference.
+            Tuple of (tool_name, args, raw_response, thinking, cleaned_text)
         """
-        xml = XmlFormatter()
+        if not self._decision_tool_user:
+            raise ValueError("Decision tools not initialized")
 
-        # Add persona context
-        self.persona.xml_decorator(
-            xml,
-            location=self.session.current_room.name if self.session.current_room else None,
+        turns = await self._decision_strategy.build_turns(
+            persona=self.persona,
+            session=self.session,
+            idle_mode=idle_mode,
         )
+        last_response = ""
+        last_cleaned = ""
+        last_thinking = ""
 
-        # Add tool instructions
-        self.tool_user.xml_decorator(xml)
+        for attempt in range(self.config.decision_max_retries):
+            response = await self._call_llm(turns)
+            last_response = response
+            logger.debug("Phase1 LLM response: %s...", response[:500])
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Phase1 LLM response (full):\n%s", response)
+            cleaned, think_content = extract_think_tags(response)
+            last_cleaned = cleaned.strip()
+            last_thinking = think_content or ""
 
-        # Add MUD-specific instructions
-        xml.add_element(
-            "MUD", "Instructions",
-            content=(
-                "You are in a text-based world (MUD). "
-                "Respond to events by using the available tools. "
-                "You may use multiple tools in sequence. "
-                "Output ONE tool call at a time as a JSON object. "
-                "Think about what you want to do, then output the tool call."
-            ),
-            nowrap=True,
-        )
+            result = self._decision_tool_user.process_response(response)
+            if result.is_valid and result.function_name:
+                tool_name = result.function_name
+                args = result.arguments or {}
 
-        return xml.render()
+                if tool_name == "move":
+                    location = args.get("location") or args.get("direction")
+                    resolved = self._resolve_move_location(location)
+                    if not resolved:
+                        # Get valid exits for guidance
+                        valid_exits = []
+                        if self.session.current_room and self.session.current_room.exits:
+                            valid_exits = list(self.session.current_room.exits.keys())
+                        exits_str = ", ".join(valid_exits) if valid_exits else "none available"
+                        error_guidance = (
+                            f"Invalid move location '{location}'. "
+                            f"Valid exits are: {exits_str}. "
+                            f"Please try again with a valid exit, or use {{\"speak\": {{}}}} to respond instead."
+                        )
+                        turns.append({"role": "assistant", "content": response})
+                        turns.append({"role": "user", "content": error_guidance})
+                        logger.warning(
+                            "Invalid move location '%s'; retrying with guidance (attempt %d/%d)",
+                            location, attempt + 1, self.config.decision_max_retries,
+                        )
+                        continue
+                    return "move", {"location": resolved}, last_response, last_thinking, last_cleaned
+
+                if tool_name == "speak":
+                    # Args are used to enhance memory query, not as action parameters
+                    return "speak", args, last_response, last_thinking, last_cleaned
+
+                if tool_name == "wait":
+                    # Explicit choice to do nothing this turn
+                    return "wait", {}, last_response, last_thinking, last_cleaned
+
+                if tool_name == "take":
+                    obj = args.get("object")
+                    # Get available items in the room
+                    room_objects = self._get_room_objects()
+                    if obj and obj.lower() in [o.lower() for o in room_objects]:
+                        return "take", args, last_response, last_thinking, last_cleaned
+                    # Invalid - give guidance
+                    objects_str = ", ".join(room_objects) if room_objects else "nothing here to take"
+                    error_guidance = (
+                        f"Cannot take '{obj}'. "
+                        f"Available items: {objects_str}. "
+                        f"Please try again with a valid item, or use {{\"speak\": {{}}}} to respond instead."
+                    )
+                    turns.append({"role": "assistant", "content": response})
+                    turns.append({"role": "user", "content": error_guidance})
+                    logger.warning(
+                        "Invalid take object '%s'; retrying with guidance (attempt %d/%d)",
+                        obj, attempt + 1, self.config.decision_max_retries,
+                    )
+                    continue
+
+                if tool_name == "drop":
+                    obj = args.get("object")
+                    # Get inventory items
+                    inventory = self._get_inventory_items()
+                    if obj and obj.lower() in [i.lower() for i in inventory]:
+                        return "drop", args, last_response, last_thinking, last_cleaned
+                    # Invalid - give guidance
+                    inventory_str = ", ".join(inventory) if inventory else "nothing in inventory"
+                    error_guidance = (
+                        f"Cannot drop '{obj}'. "
+                        f"Your inventory: {inventory_str}. "
+                        f"Please try again with an item you're carrying, or use {{\"speak\": {{}}}} to respond instead."
+                    )
+                    turns.append({"role": "assistant", "content": response})
+                    turns.append({"role": "user", "content": error_guidance})
+                    logger.warning(
+                        "Invalid drop object '%s'; retrying with guidance (attempt %d/%d)",
+                        obj, attempt + 1, self.config.decision_max_retries,
+                    )
+                    continue
+
+                if tool_name == "give":
+                    obj = args.get("object")
+                    target = args.get("target")
+                    # Get inventory and valid targets
+                    inventory = self._get_inventory_items()
+                    valid_targets = self._get_valid_give_targets()
+
+                    obj_valid = obj and obj.lower() in [i.lower() for i in inventory]
+                    target_valid = target and target.lower() in [t.lower() for t in valid_targets]
+
+                    if obj_valid and target_valid:
+                        return "give", args, last_response, last_thinking, last_cleaned
+
+                    # Build specific guidance
+                    errors = []
+                    if not obj_valid:
+                        inventory_str = ", ".join(inventory) if inventory else "nothing"
+                        errors.append(f"Cannot give '{obj}'. Your inventory: {inventory_str}.")
+                    if not target_valid:
+                        targets_str = ", ".join(valid_targets) if valid_targets else "no one here"
+                        errors.append(f"Cannot give to '{target}'. People present: {targets_str}.")
+
+                    error_guidance = (
+                        " ".join(errors) + " "
+                        f"Please try again with valid item and target, or use {{\"speak\": {{}}}} to respond instead."
+                    )
+                    turns.append({"role": "assistant", "content": response})
+                    turns.append({"role": "user", "content": error_guidance})
+                    logger.warning(
+                        "Invalid give (object='%s', target='%s'); retrying with guidance (attempt %d/%d)",
+                        obj, target, attempt + 1, self.config.decision_max_retries,
+                    )
+                    continue
+
+                # Unexpected tool - give guidance and retry
+                error_guidance = (
+                    f"Unknown tool '{tool_name}'. "
+                    f"Available tools are: speak, wait, move, take, drop, give. "
+                    f"Please try again with a valid tool."
+                )
+                turns.append({"role": "assistant", "content": response})
+                turns.append({"role": "user", "content": error_guidance})
+                logger.warning(
+                    "Unexpected tool '%s'; retrying with guidance (attempt %d/%d)",
+                    tool_name, attempt + 1, self.config.decision_max_retries,
+                )
+                continue
+
+            # Invalid tool call format - give guidance and retry
+            error_guidance = (
+                f"Invalid response format: {result.error}. "
+                f"Please respond with exactly one JSON tool call, e.g. {{\"speak\": {{}}}} or {{\"move\": {{\"location\": \"north\"}}}}."
+            )
+            turns.append({"role": "assistant", "content": response})
+            turns.append({"role": "user", "content": error_guidance})
+            logger.warning(
+                "Invalid tool call (attempt %d/%d): %s",
+                attempt + 1,
+                self.config.decision_max_retries,
+                result.error,
+            )
+
+        # Fallback: return "confused" if tool call keeps failing after all retries
+        logger.warning("All %d decision attempts failed; returning confused", self.config.decision_max_retries)
+        return "confused", {}, last_response, last_thinking, last_cleaned
+
+    def _is_superuser_persona(self) -> bool:
+        """Return True if persona should have builder tools."""
+        if not self.persona:
+            return False
+
+        attrs = self.persona.attributes or {}
+        role = str(attrs.get("mud_role", "")).lower()
+        perms = attrs.get("mud_permissions")
+
+        if role in ("superuser", "builder"):
+            return True
+
+        if isinstance(perms, list):
+            return any(str(p).lower() in ("superuser", "builder") for p in perms)
+
+        if isinstance(perms, str):
+            return perms.lower() in ("superuser", "builder")
+
+        return False
+
+    def _get_room_objects(self) -> list[str]:
+        """Get names of objects available to take in the current room."""
+        objects: list[str] = []
+        world_state = self.session.world_state if self.session else None
+        if world_state:
+            for entity in world_state.entities_present:
+                if entity.is_self:
+                    continue
+                # Objects are entities that aren't players/AIs/NPCs
+                if entity.entity_type not in ("player", "ai", "npc"):
+                    if entity.name:
+                        objects.append(entity.name)
+        else:
+            # Fall back to session entities
+            if self.session:
+                for entity in self.session.entities_present:
+                    if entity.is_self:
+                        continue
+                    if entity.entity_type not in ("player", "ai", "npc"):
+                        if entity.name:
+                            objects.append(entity.name)
+        return objects
+
+    def _get_inventory_items(self) -> list[str]:
+        """Get names of items in the agent's inventory."""
+        items: list[str] = []
+        world_state = self.session.world_state if self.session else None
+        if world_state:
+            for item in world_state.inventory:
+                if item.name:
+                    items.append(item.name)
+        return items
+
+    def _get_valid_give_targets(self) -> list[str]:
+        """Get names of valid targets for giving items (players, AIs, NPCs, objects)."""
+        targets: list[str] = []
+        world_state = self.session.world_state if self.session else None
+        if world_state:
+            for entity in world_state.entities_present:
+                if entity.is_self:
+                    continue
+                if entity.entity_type in ("player", "ai", "npc", "object"):
+                    if entity.name:
+                        targets.append(entity.name)
+        else:
+            # Fall back to session entities
+            if self.session:
+                for entity in self.session.entities_present:
+                    if entity.is_self:
+                        continue
+                    if entity.entity_type in ("player", "ai", "npc", "object"):
+                        if entity.name:
+                            targets.append(entity.name)
+        return targets
 
     async def _call_llm(self, chat_turns: list[dict[str, str]], max_retries: int = 3) -> str:
         """Call the LLM with chat turns and return the response.
@@ -393,29 +1162,6 @@ class MUDAgentWorker:
         # Should not reach here, but just in case
         raise RuntimeError(f"LLM call failed after {max_retries} attempts")
 
-    def _parse_tool_calls(self, response: str) -> list[ToolCallResult]:
-        """Parse tool calls from LLM response.
-
-        The LLM may output multiple tool calls. This method finds and
-        parses all valid tool calls from the response.
-
-        Args:
-            response: The raw LLM response text.
-
-        Returns:
-            List of ToolCallResult objects (valid or invalid).
-        """
-        results = []
-
-        # Try to extract the main tool call
-        result = self.tool_user.process_response(response)
-        if result.is_valid:
-            results.append(result)
-        elif result.error:
-            logger.warning(f"Tool call parsing failed: {result.error}")
-
-        return results
-
 
     async def _emit_actions(self, actions: list[MUDAction]) -> None:
         """Emit actions to the Redis mud:actions stream.
@@ -425,16 +1171,167 @@ class MUDAgentWorker:
         """
         for action in actions:
             try:
+                command = action.to_command().strip()
+                if not command:
+                    logger.warning(
+                        "Skipping action with empty command: %s(%s)",
+                        action.tool,
+                        action.args,
+                    )
+                    continue
                 data = action.to_redis_dict(self.config.agent_id)
-                await self.redis.xadd(
+                action_id = await self.redis.xadd(
                     self.config.action_stream,
                     {"data": json.dumps(data)},
                 )
+                if isinstance(action_id, bytes):
+                    action_id = action_id.decode("utf-8")
+                await self._update_agent_profile(last_action_id=str(action_id))
                 logger.info(
-                    f"Emitted action: {action.tool} -> {action.to_command()}"
+                    f"Emitted action: {action.tool} -> {command}"
                 )
             except redis.RedisError as e:
                 logger.error(f"Failed to emit action {action.tool}: {e}")
+
+        # Trim old actions from stream (keep last 1000)
+        try:
+            await self.redis.xtrim(
+                self.config.action_stream,
+                maxlen=1000,
+                approximate=True,
+            )
+        except redis.RedisError as e:
+            logger.warning(f"Failed to trim action stream: {e}")
+
+    @staticmethod
+    def _normalize_response(response: str) -> str:
+        """Normalize a free-text response for emission."""
+        if not response:
+            return ""
+
+        stripped = response.strip()
+        if not stripped:
+            return ""
+
+        lines = [line.rstrip() for line in stripped.splitlines()]
+        normalized: list[str] = []
+        blank = False
+        for line in lines:
+            if not line.strip():
+                if not blank:
+                    normalized.append("")
+                    blank = True
+                continue
+            normalized.append(line)
+            blank = False
+
+        return "\n".join(normalized).strip()
+
+    async def _is_fresh_session(self) -> bool:
+        """Check if this is a fresh session (no conversation history)."""
+        if not self.conversation_manager:
+            return True
+        total = await self.conversation_manager.get_total_tokens()
+        return total == 0
+
+    @staticmethod
+    def _has_emotional_state_header(response: str) -> bool:
+        """Check if response starts with emotional state header after think block."""
+        import re
+        # Remove think block first
+        cleaned = re.sub(r'<think>.*?</think>', '', response, flags=re.DOTALL).strip()
+        # Check if it starts with [== ... Emotional State ... ==]
+        return bool(re.match(r'\[==.*Emotional State.*==\]', cleaned, re.IGNORECASE))
+
+    @staticmethod
+    def _extract_speak_text_from_tool_call(response: str) -> Optional[str]:
+        """Extract speak text if the response is a tool-call-like JSON blob."""
+        if not response:
+            return None
+
+        stripped = response.strip()
+        if not stripped:
+            return None
+
+        parsed = None
+        try:
+            parsed = json.loads(stripped)
+        except json.JSONDecodeError:
+            try:
+                parsed = ToolUser([])._extract_tool_call(stripped)
+            except Exception:
+                parsed = None
+
+        if not isinstance(parsed, dict):
+            return None
+
+        if "speak" not in parsed:
+            return None
+
+        payload = parsed.get("speak")
+        if isinstance(payload, str):
+            return payload
+
+        if isinstance(payload, dict):
+            for key in ("text", "say", "message", "content"):
+                value = payload.get(key)
+                if isinstance(value, str):
+                    return value
+
+        return None
+
+    def _parse_agent_action_response(self, response: str) -> tuple[Optional[str], dict, str]:
+        """Parse @agent JSON response into (action, args, error)."""
+        cleaned, _think = extract_think_tags(response)
+        text = cleaned.strip()
+        parsed = None
+        json_text = None
+
+        try:
+            parsed = json.loads(text)
+            json_text = text
+        except json.JSONDecodeError:
+            # Try to extract a JSON object from mixed text
+            json_candidates = []
+            brace_depth = 0
+            start_idx = None
+            for i, char in enumerate(text):
+                if char == "{":
+                    if brace_depth == 0:
+                        start_idx = i
+                    brace_depth += 1
+                elif char == "}":
+                    brace_depth -= 1
+                    if brace_depth == 0 and start_idx is not None:
+                        json_candidates.append(text[start_idx : i + 1])
+                        start_idx = None
+            for candidate in reversed(json_candidates):
+                try:
+                    parsed = json.loads(candidate)
+                    json_text = candidate.strip()
+                    break
+                except json.JSONDecodeError:
+                    continue
+
+        if not isinstance(parsed, dict):
+            return None, {}, "Could not parse JSON"
+
+        # Preferred format: {"action": "<name>", ...}
+        if "action" in parsed:
+            action = parsed.get("action")
+            if not isinstance(action, str):
+                return None, {}, "Action must be a string"
+            args = {k: v for k, v in parsed.items() if k != "action"}
+            return action.lower(), args, ""
+
+        # Alternate tool-call format: {"describe": {...}}
+        if len(parsed) == 1:
+            action = next(iter(parsed))
+            args = parsed.get(action)
+            if isinstance(action, str) and isinstance(args, dict):
+                return action.lower(), args, ""
+
+        return None, {}, "Missing action field"
 
     async def process_turn(self, events: list[MUDEvent]) -> None:
         """Process a batch of events into a single agent turn.
@@ -443,14 +1340,22 @@ class MUDAgentWorker:
         1. Update session context from events
         2. Build chat turns from session state
         3. Call LLM to generate response
-        4. Parse tool calls from response
-        5. Convert to MUDActions and emit to Redis
+        4. Normalize free-text response
+        5. Emit a single `speak` action (or noop)
         6. Create turn record and add to session history
 
         Args:
             events: List of MUDEvent objects to process.
         """
         logger.info(f"Processing turn with {len(events)} events")
+
+        # Refresh world state snapshot from agent + room profiles
+        room_id, character_id = await self._load_agent_world_state()
+        if not room_id and self.session.current_room and self.session.current_room.room_id:
+            room_id = self.session.current_room.room_id
+        if not room_id and events:
+            room_id = events[-1].room_id
+        await self._load_room_profile(room_id, character_id)
 
         # Log event details for debugging
         for event in events:
@@ -465,58 +1370,166 @@ class MUDAgentWorker:
         self.session.pending_events = events
         if events:
             latest = events[-1]
-            if latest.room_state:
-                self.session.current_room = RoomState.from_dict(latest.room_state)
-            if latest.entities_present:
-                self.session.entities_present = [
-                    EntityState.from_dict(e) for e in latest.entities_present
-                ]
+            self.session.last_event_time = latest.timestamp
 
-        # Step 2: Build chat turns from session state
-        chat_turns = build_chat_turns(self.session, self.persona)
+        # Push user turn to conversation list
+        if self.conversation_manager and events:
+            await self.conversation_manager.push_user_turn(
+                events=events,
+                world_state=self.session.world_state,
+                room_id=self.session.current_room.room_id if self.session.current_room else None,
+                room_name=self.session.current_room.name if self.session.current_room else None,
+            )
 
-        # Replace system prompt with tool-augmented version
-        if chat_turns and chat_turns[0]["role"] == "system":
-            chat_turns[0]["content"] = self._build_system_prompt_with_tools()
-
-        # Step 3: Call LLM to generate response
-        thinking = ""
+        # Step 2: Phase 1 decision (speak/move)
+        idle_mode = len(events) == 0
+        thinking_parts: list[str] = []
         actions_taken: list[MUDAction] = []
+        raw_responses: list[str] = []
 
         try:
-            response = await self._call_llm(chat_turns)
-            logger.debug(f"LLM response: {response[:500]}...")
+            decision_tool, decision_args, decision_raw, decision_thinking, decision_cleaned = (
+                await self._decide_action(idle_mode=idle_mode)
+            )
+            # Phase 1 thinking captured for debugging, but not the raw JSON response
+            if decision_thinking:
+                thinking_parts.append(decision_thinking)
 
-            # Step 4: Extract thinking using the same pattern as dreamer/executor.py
-            # This handles <think> tags from thinking models (DeepSeek, Claude extended, etc.)
-            # and cleans the response for tool parsing
-            cleaned_response, think_content = extract_think_tags(response)
-            thinking = think_content or ""
-
-            # Parse tool calls from the CLEANED response (think tags removed)
-            tool_results = self._parse_tool_calls(cleaned_response)
-
-            # Step 5: Convert to MUDActions
-            for result in tool_results:
-                if result.is_valid:
-                    action = MUDAction(
-                        tool=result.function_name,
-                        args=result.arguments,
-                    )
-                    actions_taken.append(action)
-                    logger.info(
-                        f"Parsed action: {action.tool}({action.args})"
-                    )
-
-            # Step 6: Emit actions to Redis
-            if actions_taken:
+            if decision_tool == "move":
+                action = MUDAction(tool="move", args=decision_args)
+                actions_taken.append(action)
                 await self._emit_actions(actions_taken)
+
+            elif decision_tool == "take":
+                obj = decision_args.get("object")
+                if obj:
+                    action = MUDAction(tool="get", args={"object": obj})
+                    actions_taken.append(action)
+                    await self._emit_actions(actions_taken)
+                else:
+                    logger.warning("Phase1 take missing object; no action emitted")
+
+            elif decision_tool == "drop":
+                obj = decision_args.get("object")
+                if obj:
+                    action = MUDAction(tool="drop", args={"object": obj})
+                    actions_taken.append(action)
+                    await self._emit_actions(actions_taken)
+                else:
+                    logger.warning("Phase1 drop missing object; no action emitted")
+
+            elif decision_tool == "give":
+                obj = decision_args.get("object")
+                target = decision_args.get("target")
+                if obj and target:
+                    action = MUDAction(tool="give", args={"object": obj, "target": target})
+                    actions_taken.append(action)
+                    await self._emit_actions(actions_taken)
+                else:
+                    logger.warning("Phase1 give missing object or target; no action emitted")
+
+            elif decision_tool == "wait":
+                # Explicit choice to do nothing - skip Phase 2
+                logger.info("Phase 1 decided to wait; no action this turn")
+
+            elif decision_tool == "speak":
+                # Phase 2: full response turn with memory via response strategy
+                coming_online = await self._is_fresh_session()
+
+                # Extract memory query from speak args (enhances CVM search)
+                memory_query = decision_args.get("query") or decision_args.get("focus") or ""
+                if memory_query:
+                    logger.info(f"Phase 2 memory query: {memory_query[:100]}...")
+
+                # Build user input with current context (events/guidance)
+                # Events already pushed to conversation history, so exclude here
+                user_input = build_current_context(
+                    self.session,
+                    idle_mode=idle_mode,
+                    guidance=None,
+                    coming_online=coming_online,
+                    include_events=False,
+                )
+
+                # Use response strategy for full context (consciousness + memory)
+                chat_turns = await self._response_strategy.build_turns(
+                    persona=self.persona,
+                    user_input=user_input,
+                    session=self.session,
+                    coming_online=coming_online,
+                    max_context_tokens=self.model.max_tokens,
+                    max_output_tokens=self.chat_config.max_tokens,
+                    memory_query=memory_query,
+                )
+
+                response = await self._call_llm(chat_turns)
+                raw_responses.append(response)
+                logger.debug(f"LLM response: {response[:500]}...")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("LLM response (full):\n%s", response)
+
+                cleaned_response, think_content = extract_think_tags(response)
+                cleaned_response = cleaned_response.strip()
+                if think_content:
+                    thinking_parts.append(think_content)
+
+                extracted_text = self._extract_speak_text_from_tool_call(cleaned_response)
+                if extracted_text is not None:
+                    logger.debug(
+                        "Phase2 response looked like a tool call; extracted speak text (%d chars)",
+                        len(extracted_text),
+                    )
+                normalized = self._normalize_response(
+                    extracted_text if extracted_text is not None else cleaned_response
+                )
+
+                if normalized:
+                    action = MUDAction(tool="speak", args={"text": normalized})
+                    actions_taken.append(action)
+                    logger.info("Prepared speak action (%d chars)", len(normalized))
+                    await self._emit_actions(actions_taken)
+                else:
+                    logger.info("No response content to emit")
+
+            elif decision_tool == "confused":
+                # Phase 1 failed to parse a valid decision - emit confused emote
+                logger.info("Phase 1 returned confused; emitting confused emote")
+                action = MUDAction(tool="emote", args={"action": "looks confused."})
+                actions_taken.append(action)
+                await self._emit_actions(actions_taken)
+
             else:
-                logger.info("No valid actions to emit")
+                # Unknown decision tool - log warning and skip
+                logger.warning(
+                    "Unknown phase 1 decision tool '%s'; skipping turn",
+                    decision_tool,
+                )
 
         except Exception as e:
             logger.error(f"Error during LLM inference: {e}", exc_info=True)
-            thinking = f"[ERROR] LLM inference failed: {e}"
+            thinking_parts.append(f"[ERROR] LLM inference failed: {e}")
+            raw_responses.append(f"[ERROR] LLM inference failed: {e}")
+            # Emit a graceful emote when LLM fails
+            action = MUDAction(tool="emote", args={"action": "was at a loss for words."})
+            actions_taken.append(action)
+            await self._emit_actions(actions_taken)
+
+        thinking = "\n\n".join(thinking_parts).strip()
+
+        # Push assistant turn to conversation list - ONLY for speak actions
+        # Non-speak actions (move/take/drop/give) are mechanical tool calls,
+        # not narrative content, so we don't save them to conversation history.
+        if self.conversation_manager:
+            for action in actions_taken:
+                if action.tool == "speak":
+                    speak_text = action.args.get("text", "")
+                    if speak_text:
+                        await self.conversation_manager.push_assistant_turn(
+                            content=speak_text,
+                            think=thinking if thinking else None,
+                            actions=actions_taken,
+                        )
+                    break
 
         # Step 7: Create turn record
         turn = MUDTurn(
@@ -534,6 +1547,213 @@ class MUDAgentWorker:
 
         logger.info(
             f"Turn processed. Actions: {len(actions_taken)}. "
+            f"Session now has {len(self.session.recent_turns)} turns"
+        )
+
+    async def process_agent_turn(self, events: list[MUDEvent], user_guidance: str) -> None:
+        """Process a guided @agent turn using mud_agent.yaml action schema."""
+        logger.info(f"Processing @agent turn with {len(events)} events")
+
+        # Refresh world state snapshot from agent + room profiles
+        room_id, character_id = await self._load_agent_world_state()
+        if not room_id and self.session.current_room and self.session.current_room.room_id:
+            room_id = self.session.current_room.room_id
+        if not room_id and events:
+            room_id = events[-1].room_id
+        await self._load_room_profile(room_id, character_id)
+
+        for event in events:
+            logger.info(
+                f"  Event: {event.event_type.value} | "
+                f"Actor: {event.actor} | "
+                f"Room: {event.room_name or event.room_id} | "
+                f"Content: {event.content[:100] if event.content else '(none)'}..."
+            )
+
+        self.session.pending_events = events
+        if events:
+            latest = events[-1]
+            self.session.last_event_time = latest.timestamp
+
+        # Push user turn to conversation list
+        if self.conversation_manager and events:
+            await self.conversation_manager.push_user_turn(
+                events=events,
+                world_state=self.session.world_state,
+                room_id=self.session.current_room.room_id if self.session.current_room else None,
+                room_name=self.session.current_room.name if self.session.current_room else None,
+            )
+
+        guidance = self._build_agent_guidance(user_guidance)
+        coming_online = await self._is_fresh_session()
+
+        # Build user input with current context and agent guidance
+        # Events already pushed to conversation history, so exclude here
+        user_input = build_current_context(
+            self.session,
+            idle_mode=False,
+            guidance=guidance,
+            coming_online=coming_online,
+            include_events=False,
+        )
+
+        # Use response strategy for full context (consciousness + memory)
+        chat_turns = await self._response_strategy.build_turns(
+            persona=self.persona,
+            user_input=user_input,
+            session=self.session,
+            coming_online=coming_online,
+            max_context_tokens=self.model.max_tokens,
+            max_output_tokens=self.chat_config.max_tokens,
+        )
+
+        actions_taken: list[MUDAction] = []
+        raw_responses: list[str] = []
+        thinking_parts: list[str] = []
+
+        allowed = {a.get("name", "").lower() for a in self._agent_action_list() if a.get("name")}
+
+        try:
+            for attempt in range(self.config.decision_max_retries):
+                response = await self._call_llm(chat_turns)
+                raw_responses.append(response)
+                cleaned, think_content = extract_think_tags(response)
+                cleaned = cleaned.strip()
+                if think_content:
+                    thinking_parts.append(think_content)
+
+                action, args, error = self._parse_agent_action_response(cleaned)
+                if not action:
+                    logger.warning(
+                        "Invalid @agent response (attempt %d/%d): %s",
+                        attempt + 1,
+                        self.config.decision_max_retries,
+                        error,
+                    )
+                    continue
+
+                if allowed and action not in allowed:
+                    logger.warning(
+                        "Invalid @agent action '%s' (attempt %d/%d)",
+                        action,
+                        attempt + 1,
+                        self.config.decision_max_retries,
+                    )
+                    continue
+
+                # Valid action -> emit
+                if action == "speak":
+                    text = args.get("text", "")
+                    normalized = self._normalize_response(text)
+                    if normalized:
+                        action_obj = MUDAction(tool="speak", args={"text": normalized})
+                        actions_taken.append(action_obj)
+                        await self._emit_actions(actions_taken)
+                    else:
+                        logger.info("Agent speak had no text; no action emitted")
+                    break
+
+                if action == "move":
+                    location = args.get("location") or args.get("direction")
+                    resolved = self._resolve_move_location(location)
+                    if resolved:
+                        action_obj = MUDAction(tool="move", args={"location": resolved})
+                        actions_taken.append(action_obj)
+                        await self._emit_actions(actions_taken)
+                    else:
+                        logger.warning("Agent move missing/invalid location")
+                    break
+
+                if action == "take":
+                    obj = args.get("object")
+                    if obj:
+                        action_obj = MUDAction(tool="get", args={"object": obj})
+                        actions_taken.append(action_obj)
+                        await self._emit_actions(actions_taken)
+                    else:
+                        logger.warning("Agent take missing object")
+                    break
+
+                if action == "drop":
+                    obj = args.get("object")
+                    if obj:
+                        action_obj = MUDAction(tool="drop", args={"object": obj})
+                        actions_taken.append(action_obj)
+                        await self._emit_actions(actions_taken)
+                    else:
+                        logger.warning("Agent drop missing object")
+                    break
+
+                if action == "give":
+                    obj = args.get("object")
+                    target = args.get("target")
+                    if obj and target:
+                        action_obj = MUDAction(tool="give", args={"object": obj, "target": target})
+                        actions_taken.append(action_obj)
+                        await self._emit_actions(actions_taken)
+                    else:
+                        logger.warning("Agent give missing object or target")
+                    break
+
+                if action == "describe":
+                    target = args.get("target")
+                    description = args.get("description")
+                    if target and description:
+                        action_obj = MUDAction(
+                            tool="describe",
+                            args={"target": target, "description": description},
+                        )
+                        actions_taken.append(action_obj)
+                        object_name = self._resolve_target_name(target)
+                        emote_text = f"adjusted the {object_name}."
+                        actions_taken.append(
+                            MUDAction(tool="emote", args={"action": emote_text})
+                        )
+                        await self._emit_actions(actions_taken)
+                    else:
+                        logger.warning("Agent describe missing target or description")
+                    break
+
+        except Exception as e:
+            logger.error(f"Error during @agent LLM inference: {e}", exc_info=True)
+            thinking_parts.append(f"[ERROR] LLM inference failed: {e}")
+            raw_responses.append(f"[ERROR] LLM inference failed: {e}")
+            # Emit a graceful emote when LLM fails
+            action = MUDAction(tool="emote", args={"action": "was at a loss for words."})
+            actions_taken.append(action)
+            await self._emit_actions(actions_taken)
+
+        thinking = "\n\n".join(thinking_parts).strip()
+
+        # Push assistant turn to conversation list - ONLY for speak actions
+        # Non-speak actions (move/take/drop/give/describe) are mechanical tool calls,
+        # not narrative content, so we don't save them to conversation history.
+        if self.conversation_manager:
+            for action in actions_taken:
+                if action.tool == "speak":
+                    speak_text = action.args.get("text", "")
+                    if speak_text:
+                        await self.conversation_manager.push_assistant_turn(
+                            content=speak_text,
+                            think=thinking if thinking else None,
+                            actions=actions_taken,
+                        )
+                    break
+
+        turn = MUDTurn(
+            timestamp=_utc_now(),
+            events_received=events,
+            room_context=self.session.current_room,
+            entities_context=self.session.entities_present,
+            thinking=thinking,
+            actions_taken=actions_taken,
+        )
+
+        self.session.add_turn(turn)
+        self.session.clear_pending_events()
+
+        logger.info(
+            f"@agent turn processed. Actions: {len(actions_taken)}. "
             f"Session now has {len(self.session.recent_turns)} turns"
         )
 
@@ -634,6 +1854,12 @@ Examples:
         help="Logging level (default: INFO)",
     )
     parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose debug logging (overrides --log-level)",
+    )
+    parser.add_argument(
         "--memory-path",
         help="Base path for memory storage (default: memory/{persona_id})",
     )
@@ -680,7 +1906,8 @@ def main() -> None:
     Handles graceful shutdown on KeyboardInterrupt.
     """
     args = parse_args()
-    setup_logging(args.log_level)
+    log_level = "DEBUG" if args.verbose else args.log_level
+    setup_logging(log_level)
 
     logger.info(f"Initializing MUD agent worker for {args.agent_id}...")
 

@@ -25,6 +25,7 @@ class RoomState(BaseModel):
     name: str
     description: str = ""
     exits: dict[str, str] = Field(default_factory=dict)
+    tags: list[str] = Field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "RoomState":
@@ -43,6 +44,7 @@ class RoomState(BaseModel):
             name=data.get("name", ""),
             description=data.get("description", ""),
             exits=data.get("exits", {}),
+            tags=data.get("tags", []) or [],
         )
 
 
@@ -65,6 +67,8 @@ class EntityState(BaseModel):
     entity_type: str = "object"
     description: str = ""
     is_self: bool = False
+    tags: list[str] = Field(default_factory=list)
+    agent_id: str = ""
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "EntityState":
@@ -84,4 +88,6 @@ class EntityState(BaseModel):
             entity_type=data.get("entity_type", "object"),
             description=data.get("description", ""),
             is_self=data.get("is_self", False),
+            tags=data.get("tags", []) or [],
+            agent_id=data.get("agent_id", "") or "",
         )

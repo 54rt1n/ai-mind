@@ -3,7 +3,7 @@
 """Unit tests for aim/dreamer/worker.py"""
 
 import pytest
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 import asyncio
 
@@ -93,7 +93,7 @@ class TestDreamerWorkerProcessJob:
             step_id="step-1",
             attempt=1,
             max_attempts=3,
-            enqueued_at=datetime.utcnow(),
+            enqueued_at=datetime.now(timezone.utc),
             priority=0,
         )
 
@@ -112,6 +112,7 @@ class TestDreamerWorkerProcessJob:
 
         # Lock acquisition succeeds but state not found
         mock_state_store.acquire_lock = AsyncMock(return_value=True)
+        mock_state_store.get_state_type = AsyncMock(return_value='pipeline')
         mock_state_store.load_state = AsyncMock(return_value=None)
         mock_state_store.release_lock = AsyncMock()
 
@@ -126,14 +127,16 @@ class TestDreamerWorkerProcessJob:
             step_id="step-1",
             attempt=1,
             max_attempts=3,
-            enqueued_at=datetime.utcnow(),
+            enqueued_at=datetime.now(timezone.utc),
             priority=0,
         )
 
         await worker.process_job(job)
 
-        # Verify state was loaded but scenario not loaded
-        mock_state_store.load_state.assert_called_once_with("test-123")
+        # Verify state was loaded for early dependency check
+        # Implementation loads state twice: once for early check, once for execution
+        assert mock_state_store.load_state.call_count == 2
+        mock_state_store.load_state.assert_called_with("test-123")
         # Lock should be released in finally
         mock_state_store.release_lock.assert_called_once_with("test-123", "step-1")
 
@@ -154,8 +157,8 @@ class TestDreamerWorkerProcessJob:
             model="gpt-4",
             branch=0,
             step_counter=1,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
         )
 
         # Setup scenario and step
@@ -184,6 +187,7 @@ class TestDreamerWorkerProcessJob:
 
         # Setup mocks
         mock_state_store.acquire_lock = AsyncMock(return_value=True)
+        mock_state_store.get_state_type = AsyncMock(return_value='pipeline')
         mock_state_store.load_state = AsyncMock(return_value=state)
         mock_state_store.save_state = AsyncMock()
         mock_state_store.release_lock = AsyncMock()
@@ -219,7 +223,7 @@ class TestDreamerWorkerProcessJob:
             document_type="test",
             document_weight=1.0,
             tokens_used=50,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
         )
 
         mock_message = Mock()
@@ -238,7 +242,7 @@ class TestDreamerWorkerProcessJob:
                 step_id="step-1",
                 attempt=1,
                 max_attempts=3,
-                enqueued_at=datetime.utcnow(),
+                enqueued_at=datetime.now(timezone.utc),
                 priority=0,
             )
 
@@ -246,8 +250,10 @@ class TestDreamerWorkerProcessJob:
 
         # Verify the full flow
         mock_state_store.acquire_lock.assert_called_once()
-        mock_state_store.load_state.assert_called_once_with("test-123")
-        mock_load_scenario.assert_called_once_with("test_scenario")
+        # load_state is called twice: once for early dependency check, once for execution
+        assert mock_state_store.load_state.call_count == 2
+        mock_state_store.load_state.assert_called_with("test-123")
+        mock_load_scenario.assert_called_with("test_scenario")
         mock_scheduler.all_deps_complete.assert_called()
         mock_execute_step.assert_called_once()
         mock_cvm.insert.assert_called_once_with(mock_message)
@@ -258,7 +264,7 @@ class TestDreamerWorkerProcessJob:
 
     @pytest.mark.asyncio
     async def test_process_job_requeue_when_deps_not_complete(self):
-        """Test that job is requeued when dependencies not complete."""
+        """Test that job is skipped when dependencies not complete (early check catches stale jobs)."""
         mock_config = Mock(spec=ChatConfig)
         mock_state_store = AsyncMock()
         mock_scheduler = AsyncMock()
@@ -272,8 +278,8 @@ class TestDreamerWorkerProcessJob:
             model="gpt-4",
             branch=0,
             step_counter=1,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
         )
 
         scenario = Scenario(
@@ -292,10 +298,11 @@ class TestDreamerWorkerProcessJob:
         )
 
         mock_state_store.acquire_lock = AsyncMock(return_value=True)
+        mock_state_store.get_state_type = AsyncMock(return_value='pipeline')
         mock_state_store.load_state = AsyncMock(return_value=state)
         mock_state_store.release_lock = AsyncMock()
 
-        # Dependencies not complete
+        # Dependencies not complete - early check will skip job
         mock_scheduler.all_deps_complete = AsyncMock(return_value=False)
         mock_scheduler.requeue_step = AsyncMock()
 
@@ -313,18 +320,19 @@ class TestDreamerWorkerProcessJob:
                 step_id="step-1",
                 attempt=1,
                 max_attempts=3,
-                enqueued_at=datetime.utcnow(),
+                enqueued_at=datetime.now(timezone.utc),
                 priority=0,
             )
 
             await worker.process_job(job)
 
-        # Verify job was requeued
+        # Verify early dependency check was performed
         mock_scheduler.all_deps_complete.assert_called_once()
-        mock_scheduler.requeue_step.assert_called_once()
-        call_args = mock_scheduler.requeue_step.call_args
-        assert call_args[0][0] == job  # First positional arg is the job
-        assert call_args[1]["delay"] == 5  # Keyword arg delay=5
+        # Job is skipped (not requeued) by early check when dependencies incomplete
+        # This prevents stale jobs from being reprocessed
+        mock_scheduler.requeue_step.assert_not_called()
+        # Lock should be released
+        mock_state_store.release_lock.assert_called_once_with("test-123", "step-1")
 
     @pytest.mark.asyncio
     async def test_process_job_with_retryable_error(self):
@@ -342,8 +350,8 @@ class TestDreamerWorkerProcessJob:
             model="gpt-4",
             branch=0,
             step_counter=1,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
         )
 
         scenario = Scenario(
@@ -392,7 +400,7 @@ class TestDreamerWorkerProcessJob:
                 step_id="step-1",
                 attempt=2,  # Second attempt
                 max_attempts=3,
-                enqueued_at=datetime.utcnow(),
+                enqueued_at=datetime.now(timezone.utc),
                 priority=0,
             )
 
@@ -422,8 +430,8 @@ class TestDreamerWorkerProcessJob:
             model="gpt-4",
             branch=0,
             step_counter=1,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
         )
 
         scenario = Scenario(
@@ -471,7 +479,7 @@ class TestDreamerWorkerProcessJob:
                 step_id="step-1",
                 attempt=3,  # Max attempts reached
                 max_attempts=3,
-                enqueued_at=datetime.utcnow(),
+                enqueued_at=datetime.now(timezone.utc),
                 priority=0,
             )
 
@@ -500,8 +508,8 @@ class TestDreamerWorkerProcessJob:
             model="gpt-4",
             branch=0,
             step_counter=1,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
         )
 
         scenario = Scenario(
@@ -550,7 +558,7 @@ class TestDreamerWorkerProcessJob:
                 step_id="step-1",
                 attempt=1,
                 max_attempts=3,
-                enqueued_at=datetime.utcnow(),
+                enqueued_at=datetime.now(timezone.utc),
                 priority=0,
             )
 
@@ -586,7 +594,7 @@ class TestDreamerWorkerProcessJob:
             step_id="step-1",
             attempt=1,
             max_attempts=3,
-            enqueued_at=datetime.utcnow(),
+            enqueued_at=datetime.now(timezone.utc),
             priority=0,
         )
 

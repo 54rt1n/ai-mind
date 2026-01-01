@@ -22,7 +22,7 @@ from aim.dreamer.models import (
     StepStatus,
     PipelineState,
     StepResult,
-    ContextAction,
+    MemoryAction,
 )
 from aim.dreamer.context import prepare_step_context
 
@@ -220,21 +220,24 @@ class TestContextDSL:
 
     @pytest.mark.parametrize("scenario_name", PRODUCTION_SCENARIOS)
     def test_context_dsl_has_load_action(self, scenario_name: str):
-        """Root steps should have at least one load_conversation or query action."""
+        """Root steps should have at least one memory retrieval action."""
         scenario = load_scenario(scenario_name)
         scenario.compute_dependencies()
 
         roots = scenario.get_root_steps()
+
+        # Memory retrieval actions per MemoryAction model
+        retrieval_actions = {"load_conversation", "get_memory", "search_memories"}
 
         for root_id in roots:
             root_step = scenario.steps[root_id]
             if root_step.context:
                 load_actions = [
                     a for a in root_step.context
-                    if a.action in ("load_conversation", "query")
+                    if a.action in retrieval_actions
                 ]
                 assert len(load_actions) > 0, (
-                    f"Root step {root_id} in {scenario_name} has no load/query action"
+                    f"Root step {root_id} in {scenario_name} has no memory retrieval action"
                 )
 
     @pytest.mark.parametrize("scenario_name", PRODUCTION_SCENARIOS)
@@ -242,7 +245,21 @@ class TestContextDSL:
         """All context actions should have valid action types."""
         scenario = load_scenario(scenario_name)
 
-        valid_actions = {"load_conversation", "query", "sort", "filter"}
+        # Valid actions per MemoryAction model
+        valid_actions = {
+            # Retrieval
+            "load_conversation",
+            "get_memory",
+            "search_memories",
+            # Transform
+            "sort",
+            "filter",
+            "truncate",
+            "drop",
+            # Meta
+            "flush",
+            "clear",
+        }
 
         for step_id, step in scenario.steps.items():
             if step.context:
