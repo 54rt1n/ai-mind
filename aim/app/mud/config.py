@@ -11,7 +11,8 @@ class MUDConfig:
     """Configuration for a MUD agent worker.
 
     Controls agent identity, Redis connections, timing parameters,
-    memory settings, and LLM configuration.
+    and memory settings. LLM configuration (model, temperature, max_tokens)
+    comes from ChatConfig which loads from .env.
 
     Attributes:
         agent_id: Unique identifier for this agent in the MUD.
@@ -28,10 +29,6 @@ class MUDConfig:
             Defaults to "memory/{persona_id}".
         top_n_memories: Maximum memories to retrieve per query.
         max_recent_turns: Maximum recent turns to keep in session history.
-        llm_provider: LLM provider name (e.g., "anthropic", "openai").
-        model: Model identifier for LLM inference.
-        temperature: Sampling temperature for LLM.
-        max_tokens: Maximum tokens for LLM response.
     """
 
     # Identity
@@ -51,12 +48,6 @@ class MUDConfig:
     memory_path: Optional[str] = None
     top_n_memories: int = 10
     max_recent_turns: int = 20
-
-    # LLM
-    llm_provider: str = "anthropic"
-    model: str = "claude-sonnet-4-20250514"
-    temperature: float = 0.7
-    max_tokens: int = 2048
 
     # Pause control (Redis key for pause flag)
     pause_key: str = field(init=False)

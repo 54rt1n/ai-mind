@@ -23,9 +23,6 @@ def mud_config():
         agent_id="test_agent",
         persona_id="andi",
         redis_url="redis://localhost:6379",
-        model="test-model",
-        temperature=0.7,
-        max_tokens=1024,
     )
 
 
@@ -127,42 +124,6 @@ def worker(mud_config, mock_redis):
     )
 
     return worker
-
-
-class TestExtractThinking:
-    """Tests for _extract_thinking method."""
-
-    def test_extract_thinking_from_think_tags(self, worker):
-        """Should extract content from <think> tags."""
-        response = "<think>I should greet them warmly.</think>\n{\"say\": {\"message\": \"Hello!\"}}"
-
-        result = worker._extract_thinking(response)
-
-        assert result == "I should greet them warmly."
-
-    def test_extract_thinking_before_json(self, worker):
-        """Should extract content before first JSON object."""
-        response = "Let me respond to Prax.\n\n{\"say\": {\"message\": \"Hello, Prax!\"}}"
-
-        result = worker._extract_thinking(response)
-
-        assert result == "Let me respond to Prax."
-
-    def test_extract_thinking_empty_when_no_json(self, worker):
-        """Should return empty string when no JSON found."""
-        response = "Just some text without any JSON."
-
-        result = worker._extract_thinking(response)
-
-        assert result == ""
-
-    def test_extract_thinking_empty_when_json_at_start(self, worker):
-        """Should return empty string when JSON is at the start."""
-        response = "{\"say\": {\"message\": \"Hello!\"}}"
-
-        result = worker._extract_thinking(response)
-
-        assert result == ""
 
 
 class TestParseToolCalls:

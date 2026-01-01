@@ -1,0 +1,72 @@
+# aim-mud-types
+# AI-Mind (C) 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
+"""Redis key conventions for MUD event streaming.
+
+This module provides consistent key naming across all components:
+- Evennia (event publisher, action consumer)
+- Mediator (event router, action sequencer)
+- AIM Workers (event consumers, action emitters)
+"""
+
+
+class RedisKeys:
+    """Redis key name generator for MUD streams.
+
+    All stream and control keys should be generated through this class
+    to ensure consistency across Evennia, the mediator, and AIM workers.
+
+    Stream Architecture:
+        mud:events          <- Evennia publishes raw events
+        agent:{id}:events   <- Mediator pushes enriched events per agent
+        mud:actions         <- Agents emit actions for execution
+
+    Control Keys:
+        mud:agent:{id}:paused   <- Pause flag for individual agents
+        mud:mediator:paused     <- Pause flag for mediator
+        mediator:agent_rooms    <- Hash of agent_id -> room_id mappings
+    """
+
+    # Stream names
+    MUD_EVENTS = "mud:events"
+    MUD_ACTIONS = "mud:actions"
+
+    @staticmethod
+    def agent_events(agent_id: str) -> str:
+        """Get the event stream key for a specific agent.
+
+        Args:
+            agent_id: Unique identifier for the agent.
+
+        Returns:
+            Redis stream key for the agent's events.
+        """
+        return f"agent:{agent_id}:events"
+
+    @staticmethod
+    def agent_pause(agent_id: str) -> str:
+        """Get the pause flag key for a specific agent.
+
+        Args:
+            agent_id: Unique identifier for the agent.
+
+        Returns:
+            Redis key for the agent's pause flag.
+        """
+        return f"mud:agent:{agent_id}:paused"
+
+    # Mediator keys
+    MEDIATOR_PAUSE = "mud:mediator:paused"
+    AGENT_ROOMS = "mediator:agent_rooms"
+
+    @staticmethod
+    def format_stream_id(timestamp_ms: int, sequence: int = 0) -> str:
+        """Format a Redis stream message ID.
+
+        Args:
+            timestamp_ms: Unix timestamp in milliseconds.
+            sequence: Sequence number within the millisecond.
+
+        Returns:
+            Formatted stream ID (e.g., "1704096000000-0").
+        """
+        return f"{timestamp_ms}-{sequence}"

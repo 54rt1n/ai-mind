@@ -33,11 +33,7 @@ class TestMUDConfig:
         assert config.top_n_memories == 10
         assert config.max_recent_turns == 20
 
-        # LLM defaults
-        assert config.llm_provider == "anthropic"
-        assert config.model == "claude-sonnet-4-20250514"
-        assert config.temperature == 0.7
-        assert config.max_tokens == 2048
+        # LLM settings are NOT in MUDConfig - they come from ChatConfig/.env
 
     def test_config_computed_agent_stream(self):
         """Test agent_stream is computed from agent_id."""
@@ -88,10 +84,6 @@ class TestMUDConfig:
             spontaneous_action_interval=120.0,
             top_n_memories=20,
             max_recent_turns=50,
-            llm_provider="openai",
-            model="gpt-4",
-            temperature=0.5,
-            max_tokens=4096,
         )
 
         assert config.agent_id == "roommate"
@@ -102,10 +94,7 @@ class TestMUDConfig:
         assert config.spontaneous_action_interval == 120.0
         assert config.top_n_memories == 20
         assert config.max_recent_turns == 50
-        assert config.llm_provider == "openai"
-        assert config.model == "gpt-4"
-        assert config.temperature == 0.5
-        assert config.max_tokens == 4096
+        # LLM settings (model, temperature, max_tokens) come from ChatConfig/.env
 
     def test_config_different_agent_and_persona(self):
         """Test config where agent_id differs from persona_id."""

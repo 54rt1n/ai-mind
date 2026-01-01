@@ -81,6 +81,177 @@ class TestMUDAgentWorkerInit:
         assert worker.roster is None
         assert worker.persona is None
         assert worker.session is None
+        assert worker.chat_config is None
+
+    def test_init_with_chat_config(self, mud_config, mock_redis):
+        """Test that __init__ stores provided chat_config."""
+        mock_chat_config = MagicMock()
+        mock_chat_config.default_model = "test-model"
+
+        worker = MUDAgentWorker(
+            config=mud_config,
+            redis_client=mock_redis,
+            chat_config=mock_chat_config,
+        )
+
+        assert worker.chat_config == mock_chat_config
+
+
+class TestMUDAgentWorkerInitLLMProvider:
+    """Test MUDAgentWorker _init_llm_provider method."""
+
+    def test_init_llm_provider_raises_when_no_model(self, mud_config, mock_redis):
+        """Test _init_llm_provider raises ValueError when default_model is None."""
+        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
+
+        # Set up chat_config with no default_model
+        mock_chat_config = MagicMock()
+        mock_chat_config.default_model = None
+        worker.chat_config = mock_chat_config
+
+        with pytest.raises(ValueError, match="No model specified"):
+            worker._init_llm_provider()
+
+    def test_init_llm_provider_raises_when_model_not_found(self, mud_config, mock_redis):
+        """Test _init_llm_provider raises ValueError when model is not available."""
+        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
+
+        # Set up chat_config with an invalid model
+        mock_chat_config = MagicMock()
+        mock_chat_config.default_model = "nonexistent-model-xyz"
+        worker.chat_config = mock_chat_config
+
+        with patch("aim.app.mud.worker.LanguageModelV2.index_models") as mock_index:
+            mock_index.return_value = {"valid-model": MagicMock()}
+
+            with pytest.raises(ValueError, match="nonexistent-model-xyz not available"):
+                worker._init_llm_provider()
+
+
+class TestMUDAgentWorkerCallLLM:
+    """Test MUDAgentWorker _call_llm method with retry logic."""
+
+    @pytest.mark.asyncio
+    async def test_call_llm_returns_response(self, mud_config, mock_redis):
+        """Test _call_llm returns concatenated chunks on success."""
+        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
+        worker.chat_config = MagicMock()
+
+        # Mock LLM provider to return chunks
+        mock_llm = MagicMock()
+        mock_llm.stream_turns = MagicMock(return_value=iter(["Hello, ", "world!"]))
+        worker._llm_provider = mock_llm
+
+        result = await worker._call_llm([{"role": "user", "content": "Hi"}])
+
+        assert result == "Hello, world!"
+        mock_llm.stream_turns.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_call_llm_retries_on_retryable_error(self, mud_config, mock_redis):
+        """Test _call_llm retries on retryable errors with backoff."""
+        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
+        worker.chat_config = MagicMock()
+
+        # Mock LLM to fail once then succeed
+        call_count = [0]
+
+        def mock_stream(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                raise ConnectionError("Connection reset by peer")
+            return iter(["Success!"])
+
+        mock_llm = MagicMock()
+        mock_llm.stream_turns = mock_stream
+        worker._llm_provider = mock_llm
+
+        with patch("aim.app.mud.worker.is_retryable_error", return_value=True):
+            with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+                result = await worker._call_llm(
+                    [{"role": "user", "content": "Hi"}],
+                    max_retries=3
+                )
+
+        assert result == "Success!"
+        assert call_count[0] == 2
+        mock_sleep.assert_called_once()
+        # First retry delay should be 30s
+        assert mock_sleep.call_args[0][0] == 30
+
+    @pytest.mark.asyncio
+    async def test_call_llm_raises_non_retryable_error(self, mud_config, mock_redis):
+        """Test _call_llm raises immediately on non-retryable errors."""
+        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
+        worker.chat_config = MagicMock()
+
+        # Mock LLM to raise a non-retryable error
+        mock_llm = MagicMock()
+        mock_llm.stream_turns = MagicMock(side_effect=ValueError("Invalid input"))
+        worker._llm_provider = mock_llm
+
+        with patch("aim.app.mud.worker.is_retryable_error", return_value=False):
+            with pytest.raises(ValueError, match="Invalid input"):
+                await worker._call_llm([{"role": "user", "content": "Hi"}])
+
+        # Should only try once for non-retryable errors
+        assert mock_llm.stream_turns.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_call_llm_raises_after_max_retries(self, mud_config, mock_redis):
+        """Test _call_llm raises after exhausting all retries."""
+        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
+        worker.chat_config = MagicMock()
+
+        # Mock LLM to always fail with retryable error
+        mock_llm = MagicMock()
+        mock_llm.stream_turns = MagicMock(side_effect=ConnectionError("Network down"))
+        worker._llm_provider = mock_llm
+
+        with patch("aim.app.mud.worker.is_retryable_error", return_value=True):
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                with pytest.raises(ConnectionError, match="Network down"):
+                    await worker._call_llm(
+                        [{"role": "user", "content": "Hi"}],
+                        max_retries=3
+                    )
+
+        # Should try max_retries times
+        assert mock_llm.stream_turns.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_call_llm_exponential_backoff(self, mud_config, mock_redis):
+        """Test _call_llm uses exponential backoff for retries."""
+        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
+        worker.chat_config = MagicMock()
+
+        # Mock LLM to fail twice then succeed
+        call_count = [0]
+
+        def mock_stream(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] <= 2:
+                raise ConnectionError("Timeout")
+            return iter(["Finally!"])
+
+        mock_llm = MagicMock()
+        mock_llm.stream_turns = mock_stream
+        worker._llm_provider = mock_llm
+
+        with patch("aim.app.mud.worker.is_retryable_error", return_value=True):
+            with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+                result = await worker._call_llm(
+                    [{"role": "user", "content": "Hi"}],
+                    max_retries=3
+                )
+
+        assert result == "Finally!"
+        assert call_count[0] == 3
+        assert mock_sleep.call_count == 2
+
+        # Check exponential backoff: 30s, 60s (capped at 120s)
+        delays = [call[0][0] for call in mock_sleep.call_args_list]
+        assert delays == [30, 60]
 
 
 class TestMUDAgentWorkerStop:
@@ -567,11 +738,37 @@ class TestRunWorker:
             )
 
             # Verify worker was created and started
-            mock_worker_class.assert_called_once_with(mud_config, mock_redis)
+            # chat_config is optional and defaults to None when not passed
+            mock_worker_class.assert_called_once_with(mud_config, mock_redis, None)
             mock_worker.start.assert_called_once()
 
             # Verify Redis client was closed
             mock_redis.aclose.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_run_worker_passes_chat_config(self, mud_config):
+        """Test that run_worker passes chat_config to worker when provided."""
+        with patch("redis.asyncio.from_url") as mock_from_url, patch(
+            "aim.app.mud.worker.MUDAgentWorker"
+        ) as mock_worker_class:
+            mock_redis = AsyncMock()
+            mock_from_url.return_value = mock_redis
+
+            mock_worker = AsyncMock()
+            mock_worker.start = AsyncMock()
+            mock_worker_class.return_value = mock_worker
+
+            # Create a mock ChatConfig
+            mock_chat_config = MagicMock()
+            mock_chat_config.default_model = "test-model"
+
+            await run_worker(mud_config, chat_config=mock_chat_config)
+
+            # Verify chat_config was passed to worker
+            mock_worker_class.assert_called_once_with(
+                mud_config, mock_redis, mock_chat_config
+            )
+            mock_worker.start.assert_called_once()
 
 
 class TestParseArgs:
@@ -589,6 +786,11 @@ class TestParseArgs:
             assert args.persona_id == "andi"
             assert args.redis_url == "redis://localhost:6379"
             assert args.log_level == "INFO"
+            # Optional args default to None (use .env values)
+            assert args.env_file is None
+            assert args.model is None
+            assert args.temperature is None
+            assert args.max_tokens is None
 
     def test_parse_args_all_options(self):
         """Test parsing all optional arguments."""
@@ -600,6 +802,8 @@ class TestParseArgs:
                 "test",
                 "--persona-id",
                 "test",
+                "--env-file",
+                "/custom/.env",
                 "--redis-url",
                 "redis://custom:6380",
                 "--log-level",
@@ -608,16 +812,26 @@ class TestParseArgs:
                 "/custom/path",
                 "--spontaneous-interval",
                 "600",
+                "--model",
+                "gpt-4",
+                "--temperature",
+                "0.5",
+                "--max-tokens",
+                "2048",
             ],
         ):
             args = parse_args()
 
             assert args.agent_id == "test"
             assert args.persona_id == "test"
+            assert args.env_file == "/custom/.env"
             assert args.redis_url == "redis://custom:6380"
             assert args.log_level == "DEBUG"
             assert args.memory_path == "/custom/path"
             assert args.spontaneous_interval == 600.0
+            assert args.model == "gpt-4"
+            assert args.temperature == 0.5
+            assert args.max_tokens == 2048
 
 
 class TestSignalHandlers:

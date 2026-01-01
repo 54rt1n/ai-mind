@@ -19,7 +19,6 @@ import argparse
 import asyncio
 import json
 import logging
-import re
 import signal
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -36,7 +35,8 @@ from ...conversation.model import ConversationModel
 from ...agents.roster import Roster
 from ...agents.persona import Persona
 from ...config import ChatConfig
-from ...llm.llm import LLMProvider
+from ...dreamer.executor import extract_think_tags
+from ...llm.llm import LLMProvider, is_retryable_error
 from ...llm.models import LanguageModelV2
 from ...tool.loader import ToolLoader
 from ...tool.formatting import ToolUser, ToolCallResult
@@ -74,12 +74,15 @@ class MUDAgentWorker:
         self,
         config: MUDConfig,
         redis_client: redis.Redis,
+        chat_config: Optional[ChatConfig] = None,
     ):
         """Initialize worker with configuration and Redis client.
 
         Args:
             config: MUDConfig with agent identity and settings.
             redis_client: Async Redis client for stream operations.
+            chat_config: Optional pre-loaded ChatConfig with API keys and paths.
+                If None, will be loaded from environment in start().
         """
         self.config = config
         self.redis = redis_client
@@ -92,7 +95,8 @@ class MUDAgentWorker:
         self.session: Optional[MUDSession] = None
 
         # LLM and tool resources (loaded during start)
-        self.chat_config: Optional[ChatConfig] = None
+        # Store pre-loaded config if provided, otherwise will load in start()
+        self.chat_config: Optional[ChatConfig] = chat_config
         self.tool_user: Optional[ToolUser] = None
         self._llm_provider: Optional[LLMProvider] = None
 
@@ -106,12 +110,15 @@ class MUDAgentWorker:
         logger.info(f"Starting MUD agent worker for {self.config.agent_id}")
 
         # Initialize shared resources once
-        # Create a ChatConfig for ConversationModel and Roster initialization
-        self.chat_config = ChatConfig.from_env()
+        # Use pre-loaded ChatConfig if available, otherwise load from environment
+        # This follows the pattern from aim/app/dreamer/__main__.py
+        if self.chat_config is None:
+            self.chat_config = ChatConfig.from_env()
+
+        # Apply MUD-specific overrides to the chat config (identity and memory only)
+        # LLM settings (model, temperature, max_tokens) come from ChatConfig/.env
         self.chat_config.memory_path = self.config.memory_path
         self.chat_config.persona_id = self.config.persona_id
-        self.chat_config.max_tokens = self.config.max_tokens
-        self.chat_config.temperature = self.config.temperature
 
         self.cvm = ConversationModel.from_config(self.chat_config)
         self.roster = Roster.from_config(self.chat_config)
@@ -138,7 +145,7 @@ class MUDAgentWorker:
         logger.info(
             f"Worker initialized. Listening on stream: {self.config.agent_stream}"
         )
-        logger.info(f"Using model: {self.config.model}")
+        logger.info(f"Using model: {self.chat_config.default_model}")
 
         # Main worker loop - blocks until events arrive (push model)
         while self.running:
@@ -274,21 +281,27 @@ class MUDAgentWorker:
     def _init_llm_provider(self) -> None:
         """Initialize the LLM provider from configuration.
 
-        Uses the model specified in MUDConfig to create an appropriate
-        LLMProvider instance via LanguageModelV2.
+        Uses the model specified in ChatConfig (from .env DEFAULT_MODEL) to
+        create an appropriate LLMProvider instance via LanguageModelV2.
         """
+        model_name = self.chat_config.default_model
+        if not model_name:
+            raise ValueError(
+                "No model specified. Set DEFAULT_MODEL in .env or provide --model argument."
+            )
+
         models = LanguageModelV2.index_models(self.chat_config)
-        model = models.get(self.config.model)
+        model = models.get(model_name)
 
         if not model:
             available = list(models.keys())[:5]
             raise ValueError(
-                f"Model {self.config.model} not available. "
+                f"Model {model_name} not available. "
                 f"Available models: {available}..."
             )
 
         self._llm_provider = model.llm_factory(self.chat_config)
-        logger.info(f"Initialized LLM provider for model: {self.config.model}")
+        logger.info(f"Initialized LLM provider for model: {model_name}")
 
     def _init_tool_user(self) -> None:
         """Initialize the ToolUser with MUD tools.
@@ -342,20 +355,43 @@ class MUDAgentWorker:
 
         return xml.render()
 
-    def _call_llm(self, chat_turns: list[dict[str, str]]) -> str:
+    async def _call_llm(self, chat_turns: list[dict[str, str]], max_retries: int = 3) -> str:
         """Call the LLM with chat turns and return the response.
+
+        Implements retry logic with exponential backoff for transient errors,
+        following the pattern from aim/refiner/engine.py.
 
         Args:
             chat_turns: List of chat turns (system/user/assistant messages).
+            max_retries: Maximum number of retry attempts for transient errors.
 
         Returns:
             The complete LLM response as a string.
+
+        Raises:
+            Exception: If max retries exceeded or non-retryable error occurs.
         """
-        chunks = []
-        for chunk in self._llm_provider.stream_turns(chat_turns, self.chat_config):
-            if chunk:
-                chunks.append(chunk)
-        return "".join(chunks)
+        for attempt in range(max_retries):
+            try:
+                chunks = []
+                for chunk in self._llm_provider.stream_turns(chat_turns, self.chat_config):
+                    if chunk:
+                        chunks.append(chunk)
+                return "".join(chunks)
+
+            except Exception as e:
+                logger.error(f"LLM error (attempt {attempt + 1}/{max_retries}): {e}")
+
+                # Check if error is retryable and we have retries left
+                if is_retryable_error(e) and attempt < max_retries - 1:
+                    delay = min(30 * (2 ** attempt), 120)  # 30s, 60s, 120s max
+                    logger.info(f"Retryable error, waiting {delay}s before retry...")
+                    await asyncio.sleep(delay)
+                else:
+                    raise
+
+        # Should not reach here, but just in case
+        raise RuntimeError(f"LLM call failed after {max_retries} attempts")
 
     def _parse_tool_calls(self, response: str) -> list[ToolCallResult]:
         """Parse tool calls from LLM response.
@@ -380,28 +416,6 @@ class MUDAgentWorker:
 
         return results
 
-    def _extract_thinking(self, response: str) -> str:
-        """Extract thinking/reasoning from LLM response.
-
-        Looks for content before tool calls or in <think> tags.
-
-        Args:
-            response: The raw LLM response text.
-
-        Returns:
-            The thinking portion of the response.
-        """
-        # Check for <think>...</think> tags
-        think_match = re.search(r"<think>(.*?)</think>", response, re.DOTALL)
-        if think_match:
-            return think_match.group(1).strip()
-
-        # Otherwise, take content before the first JSON object
-        json_start = response.find("{")
-        if json_start > 0:
-            return response[:json_start].strip()
-
-        return ""
 
     async def _emit_actions(self, actions: list[MUDAction]) -> None:
         """Emit actions to the Redis mud:actions stream.
@@ -470,12 +484,17 @@ class MUDAgentWorker:
         actions_taken: list[MUDAction] = []
 
         try:
-            response = self._call_llm(chat_turns)
+            response = await self._call_llm(chat_turns)
             logger.debug(f"LLM response: {response[:500]}...")
 
-            # Step 4: Extract thinking and parse tool calls
-            thinking = self._extract_thinking(response)
-            tool_results = self._parse_tool_calls(response)
+            # Step 4: Extract thinking using the same pattern as dreamer/executor.py
+            # This handles <think> tags from thinking models (DeepSeek, Claude extended, etc.)
+            # and cleans the response for tool parsing
+            cleaned_response, think_content = extract_think_tags(response)
+            thinking = think_content or ""
+
+            # Parse tool calls from the CLEANED response (think tags removed)
+            tool_results = self._parse_tool_calls(cleaned_response)
 
             # Step 5: Convert to MUDActions
             for result in tool_results:
@@ -537,13 +556,15 @@ class MUDAgentWorker:
         signal.signal(signal.SIGTERM, signal_handler)
 
 
-async def run_worker(config: MUDConfig) -> None:
+async def run_worker(config: MUDConfig, chat_config: Optional[ChatConfig] = None) -> None:
     """Entry point for running a MUD agent worker.
 
     Creates Redis client, initializes the worker, and starts the loop.
 
     Args:
         config: MUDConfig with connection settings and agent identity.
+        chat_config: Optional pre-loaded ChatConfig with API keys and paths.
+            If None, will be loaded from environment in worker.start().
     """
     # Create Redis client from URL
     redis_client = redis.from_url(
@@ -552,7 +573,7 @@ async def run_worker(config: MUDConfig) -> None:
     )
 
     # Create and start worker
-    worker = MUDAgentWorker(config, redis_client)
+    worker = MUDAgentWorker(config, redis_client, chat_config)
 
     try:
         await worker.start()
@@ -575,6 +596,10 @@ Examples:
   # Start Andi agent worker
   python -m aim.app.mud.worker --agent-id andi --persona-id andi
 
+  # Start with custom env file
+  python -m aim.app.mud.worker --agent-id andi --persona-id andi \\
+      --env-file /path/to/.env
+
   # Start with custom Redis URL
   python -m aim.app.mud.worker --agent-id andi --persona-id andi \\
       --redis-url redis://redis.example.com:6379
@@ -592,6 +617,10 @@ Examples:
         "--persona-id",
         required=True,
         help="ID of the persona configuration to use",
+    )
+    parser.add_argument(
+        "--env-file",
+        help="Path to .env file for loading environment variables",
     )
     parser.add_argument(
         "--redis-url",
@@ -613,6 +642,20 @@ Examples:
         type=float,
         default=300.0,
         help="Seconds of silence before spontaneous action (default: 300)",
+    )
+    parser.add_argument(
+        "--model",
+        help="Model override (default: from env DEFAULT_MODEL)",
+    )
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        help="Temperature override (default: from env TEMPERATURE)",
+    )
+    parser.add_argument(
+        "--max-tokens",
+        type=int,
+        help="Max tokens override (default: from env MAX_TOKENS)",
     )
     return parser.parse_args()
 
@@ -641,7 +684,25 @@ def main() -> None:
 
     logger.info(f"Initializing MUD agent worker for {args.agent_id}...")
 
-    # Build configuration
+    # Load environment configuration first (loads .env file and API keys)
+    # This follows the pattern from aim/app/dreamer/__main__.py
+    chat_config = ChatConfig.from_env(args.env_file)
+    logger.info("Loaded environment configuration")
+
+    # Apply CLI overrides to ChatConfig (only when explicitly provided)
+    if args.model:
+        chat_config.default_model = args.model
+        logger.info(f"Model override: {args.model}")
+
+    if args.temperature is not None:
+        chat_config.temperature = args.temperature
+        logger.info(f"Temperature override: {args.temperature}")
+
+    if args.max_tokens is not None:
+        chat_config.max_tokens = args.max_tokens
+        logger.info(f"Max tokens override: {args.max_tokens}")
+
+    # Build MUD-specific configuration (identity, redis, timing, memory only)
     config = MUDConfig(
         agent_id=args.agent_id,
         persona_id=args.persona_id,
@@ -656,10 +717,11 @@ def main() -> None:
     logger.info(f"Persona ID: {config.persona_id}")
     logger.info(f"Redis URL: {config.redis_url}")
     logger.info(f"Agent stream: {config.agent_stream}")
+    logger.info(f"Default model: {chat_config.default_model}")
 
     try:
-        # Run the async worker
-        asyncio.run(run_worker(config))
+        # Run the async worker, passing the pre-loaded chat_config
+        asyncio.run(run_worker(config, chat_config))
     except KeyboardInterrupt:
         logger.info("Worker stopped by user (KeyboardInterrupt)")
     except Exception as e:
