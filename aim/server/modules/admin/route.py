@@ -128,3 +128,67 @@ class AdminModule:
             except Exception as e:
                 logger.exception(e)
                 raise HTTPException(status_code=500, detail=str(e))
+
+        @self.router.get("/dreamer/status")
+        async def get_dreamer_status(
+            credentials: Optional[HTTPAuthorizationCredentials] = Depends(self.security)
+        ):
+            """Get the current dreamer paused status."""
+            try:
+                if self.config.server_api_key and (credentials is None or credentials.credentials != self.config.server_api_key):
+                    raise HTTPException(status_code=401, detail="Invalid API key")
+
+                cache = RedisCache(self.config)
+                paused = cache.is_dreamer_paused()
+
+                return {
+                    "status": "success",
+                    "paused": paused
+                }
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.exception(e)
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.router.post("/dreamer/toggle")
+        async def toggle_dreamer(
+            request: dict,
+            credentials: Optional[HTTPAuthorizationCredentials] = Depends(self.security)
+        ):
+            """Toggle the dreamer paused status.
+
+            Request body: {"paused": true/false}
+
+            When paused=true:
+            - DreamerWorker stops processing new jobs from the queue
+            - Dream watcher stops triggering new pipelines
+
+            Current jobs in progress will complete before pausing takes effect.
+            """
+            try:
+                if self.config.server_api_key and (credentials is None or credentials.credentials != self.config.server_api_key):
+                    raise HTTPException(status_code=401, detail="Invalid API key")
+
+                paused = request.get("paused")
+                if paused is None:
+                    raise HTTPException(status_code=400, detail="Missing 'paused' field in request body")
+
+                cache = RedisCache(self.config)
+                success = cache.set_dreamer_paused(bool(paused))
+
+                if not success:
+                    raise HTTPException(status_code=500, detail="Failed to update dreamer status in Redis")
+
+                return {
+                    "status": "success",
+                    "paused": bool(paused),
+                    "message": f"Dreamer {'paused' if paused else 'resumed'}"
+                }
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.exception(e)
+                raise HTTPException(status_code=500, detail=str(e))

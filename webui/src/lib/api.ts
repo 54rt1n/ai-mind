@@ -164,6 +164,20 @@ class Api {
         }
     }
 
+    // Dreamer Admin API
+    async getDreamerStatus(): Promise<{ status: string; paused: boolean }> {
+        const response = await this.fetch('/api/admin/dreamer/status');
+        return response.json();
+    }
+
+    async toggleDreamer(paused: boolean): Promise<{ status: string; paused: boolean; message: string }> {
+        const response = await this.fetch('/api/admin/dreamer/toggle', {
+            method: 'POST',
+            body: JSON.stringify({ paused }),
+        });
+        return response.json();
+    }
+
     async getCompletion(config: CompletionConfig): Promise<CompletionResponse> {
         const response = await this.fetch('/v1/completions', {
             method: 'POST',

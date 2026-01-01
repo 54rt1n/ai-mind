@@ -4,11 +4,38 @@
     import { taskStore } from "$lib/store/taskStore";
     import { configStore } from "$lib/store/configStore";
     import { pipelineStore } from "$lib/store/pipelineStore";
-    import { RefreshCw } from "lucide-svelte";
+    import { api } from "$lib/api";
+    import { RefreshCw, Pause, Play } from "lucide-svelte";
     import PipelineSettingsPanel from "$lib/components/pipeline/PipelineSettingsPanel.svelte";
+
+    // Dreamer pause state
+    let dreamerPaused = false;
+    let dreamerLoading = false;
+
+    async function fetchDreamerStatus() {
+        try {
+            const result = await api.getDreamerStatus();
+            dreamerPaused = result.paused;
+        } catch (error) {
+            console.error('Error fetching dreamer status:', error);
+        }
+    }
+
+    async function handleDreamerToggle() {
+        dreamerLoading = true;
+        try {
+            const result = await api.toggleDreamer(!dreamerPaused);
+            dreamerPaused = result.paused;
+        } catch (error) {
+            console.error('Error toggling dreamer:', error);
+        } finally {
+            dreamerLoading = false;
+        }
+    }
 
     onMount(() => {
         taskStore.fetchTasks();
+        fetchDreamerStatus();
     });
 
     function submitTask() {
@@ -230,6 +257,25 @@
                         >Next refresh in {countdown} seconds</span
                     >
                 {/if}
+
+                <div class="dreamer-control">
+                    <button
+                        class="dreamer-toggle {dreamerPaused ? 'paused' : 'running'}"
+                        on:click={handleDreamerToggle}
+                        disabled={dreamerLoading}
+                        title={dreamerPaused ? 'Resume dreamer' : 'Pause dreamer'}
+                    >
+                        {#if dreamerPaused}
+                            <Play size={14} />
+                        {:else}
+                            <Pause size={14} />
+                        {/if}
+                        <span>{dreamerPaused ? 'Resume' : 'Pause'}</span>
+                    </button>
+                    <span class="dreamer-status {dreamerPaused ? 'paused' : 'running'}">
+                        {dreamerPaused ? 'Paused' : 'Running'}
+                    </span>
+                </div>
             </div>
         </section>
 
@@ -574,5 +620,62 @@
 
     .modal-confirm:hover {
         background: #d97706;
+    }
+
+    /* Dreamer Control */
+    .dreamer-control {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-left: auto;
+        padding-left: 1rem;
+        border-left: 1px solid #e5e7eb;
+    }
+
+    .dreamer-toggle {
+        display: flex;
+        align-items: center;
+        gap: 0.375rem;
+        padding: 0.375rem 0.75rem;
+        font-size: 0.875rem;
+        border-radius: 0.375rem;
+        transition: all 0.2s;
+    }
+
+    .dreamer-toggle.running {
+        background: #fef3c7;
+        color: #92400e;
+        border: 1px solid #fcd34d;
+    }
+
+    .dreamer-toggle.running:hover:not(:disabled) {
+        background: #fde68a;
+    }
+
+    .dreamer-toggle.paused {
+        background: #d1fae5;
+        color: #065f46;
+        border: 1px solid #6ee7b7;
+    }
+
+    .dreamer-toggle.paused:hover:not(:disabled) {
+        background: #a7f3d0;
+    }
+
+    .dreamer-status {
+        font-size: 0.75rem;
+        font-weight: 600;
+        padding: 0.25rem 0.5rem;
+        border-radius: 9999px;
+    }
+
+    .dreamer-status.running {
+        background: #d1fae5;
+        color: #065f46;
+    }
+
+    .dreamer-status.paused {
+        background: #fee2e2;
+        color: #991b1b;
     }
 </style>

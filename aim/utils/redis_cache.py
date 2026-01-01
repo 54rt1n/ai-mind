@@ -285,3 +285,48 @@ class RedisCache:
         except Exception as e:
             logger.warning(f"Redis refiner enabled get error: {e}")
             return True  # Default to enabled on error
+
+    def set_dreamer_paused(self, paused: bool) -> bool:
+        """
+        Set the dreamer paused state.
+
+        Used to pause/resume the dreamer worker and dream_watcher processes
+        without restarting them.
+
+        Args:
+            paused: True to pause dreamer, False to resume
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if not self.redis:
+            return False
+
+        try:
+            key = "aim:dreamer:paused"
+            value = "1" if paused else "0"
+            # No TTL - persists until explicitly changed
+            return bool(self.redis.set(key, value))
+        except Exception as e:
+            logger.warning(f"Redis dreamer paused set error: {e}")
+            return False
+
+    def is_dreamer_paused(self) -> bool:
+        """
+        Check if the dreamer is paused.
+
+        Returns:
+            bool: True if paused, False if running (default: running)
+        """
+        if not self.redis:
+            return False  # Default to running if Redis unavailable
+
+        try:
+            key = "aim:dreamer:paused"
+            value = self.redis.get(key)
+            if value is None:
+                return False  # Default to running if not set
+            return value == "1"
+        except Exception as e:
+            logger.warning(f"Redis dreamer paused get error: {e}")
+            return False  # Default to running on error

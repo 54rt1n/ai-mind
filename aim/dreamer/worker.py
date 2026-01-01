@@ -3,11 +3,14 @@
 """Worker process for consuming and executing pipeline steps."""
 
 import asyncio
+import logging
 import signal
 from datetime import datetime
 from typing import Optional
 
 from .executor import execute_step, create_message, RetryableError
+
+logger = logging.getLogger(__name__)
 from .models import StepJob, StepStatus
 from .scenario import load_scenario
 from .scheduler import Scheduler
@@ -63,6 +66,11 @@ class DreamerWorker:
         # Main worker loop
         while self.running:
             try:
+                # Check if paused
+                if await self._is_paused():
+                    await asyncio.sleep(1)
+                    continue
+
                 # Pop next job (blocking with timeout to check running flag)
                 job = await self.scheduler.pop_step_job(timeout=1)
 
@@ -76,8 +84,7 @@ class DreamerWorker:
 
             except Exception as e:
                 # Log error but continue processing
-                print(f"Error in worker loop: {e}")
-                # In production, use proper logging
+                logger.error(f"Error in worker loop: {e}")
                 continue
 
     async def stop(self) -> None:
@@ -87,6 +94,15 @@ class DreamerWorker:
         to complete before shutting down.
         """
         self.running = False
+
+    async def _is_paused(self) -> bool:
+        """Check if worker is paused via Redis flag.
+
+        Returns:
+            bool: True if paused, False if running
+        """
+        value = await self.scheduler.redis.get("aim:dreamer:paused")
+        return value == b"1"
 
     async def process_job(self, job: StepJob) -> None:
         """Process a single step job.

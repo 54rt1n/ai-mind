@@ -275,6 +275,15 @@ class Watcher:
 
         return triggered
 
+    def _is_paused(self) -> bool:
+        """Check if watcher is paused via Redis flag.
+
+        Returns:
+            bool: True if paused, False if running
+        """
+        cache = self._get_redis_cache()
+        return cache.is_dreamer_paused()
+
     async def run(self) -> None:
         """
         Run the watcher loop indefinitely.
@@ -287,6 +296,11 @@ class Watcher:
 
         while self._running:
             try:
+                # Check if paused
+                if self._is_paused():
+                    await asyncio.sleep(1)
+                    continue
+
                 triggered = await self.run_cycle()
 
                 if triggered > 0:
