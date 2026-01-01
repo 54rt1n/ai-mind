@@ -323,14 +323,14 @@ steps:
       rise: what spark do you carry forward? What will this dream become?
 
       Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
-      Then "{{ persona.name }}'s Inspiration:" for the spark you carry.
+      For "{{ persona.name }}'s Inspiration:"
     context:
       - action: search_memories
         top_n: 4
     config:
       max_tokens: 4096
     output:
-      document_type: daydream
+      document_type: inspiration
       weight: 1.0
     next: [codex_request]
 

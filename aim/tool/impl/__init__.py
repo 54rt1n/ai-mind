@@ -1,5 +1,5 @@
 # aim/tool/impl/__init__.py
-# AI-Mind © 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0 
+# AI-Mind © 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
 
 from .weather import WeatherTool
 from .system import SystemTool
@@ -8,6 +8,7 @@ from .web import WebTool
 from .memory import MemoryTool
 from .self_rag import SelfRagTool
 from .schedule import ScheduleTool
+from .mud import MudTool
 
 __all__ = [
     'WeatherTool',
@@ -16,5 +17,6 @@ __all__ = [
     'WebTool',
     'MemoryTool',
     'SelfRagTool',
-    'ScheduleTool'
+    'ScheduleTool',
+    'MudTool',
 ]

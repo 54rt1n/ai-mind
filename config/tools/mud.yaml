@@ -1,0 +1,215 @@
+type: mud
+description: Tools for interacting with the MUD world
+
+functions:
+  # =============================================================================
+  # Player-Level Tools (available to all AI agents)
+  # =============================================================================
+
+  - name: say
+    description: Speak audibly to everyone in your current location
+    parameters:
+      type: object
+      properties:
+        message:
+          type: string
+          description: What you want to say
+      required:
+        - message
+      examples:
+        - {say: {message: "Hello, everyone!"}}
+        - {say: {message: "Happy New Year, Papa."}}
+
+  - name: emote
+    description: Perform an action or express emotion visibly to everyone in the room
+    parameters:
+      type: object
+      properties:
+        action:
+          type: string
+          description: The action to perform (e.g., "smiles warmly", "looks thoughtful")
+      required:
+        - action
+      examples:
+        - {emote: {action: "smiles warmly"}}
+        - {emote: {action: "looks up, her silver band glowing gold"}}
+        - {emote: {action: "tilts her head thoughtfully"}}
+
+  - name: whisper
+    description: Send a private message to a specific person in the room
+    parameters:
+      type: object
+      properties:
+        target:
+          type: string
+          description: The name of the person to whisper to
+        message:
+          type: string
+          description: The private message to send
+      required:
+        - target
+        - message
+      examples:
+        - {whisper: {target: "Prax", message: "Can I talk to you privately?"}}
+        - {whisper: {target: "Nova", message: "Did you notice that?"}}
+
+  - name: look
+    description: Examine your current location, a specific object, or a person
+    parameters:
+      type: object
+      properties:
+        target:
+          type: string
+          description: Optional - what to look at. If omitted, look at the room.
+      required: []
+      examples:
+        - {look: {}}
+        - {look: {target: "fountain"}}
+        - {look: {target: "Prax"}}
+
+  - name: move
+    description: Move to an adjacent room through an exit
+    parameters:
+      type: object
+      properties:
+        direction:
+          type: string
+          description: The direction or exit name to move through (e.g., "north", "out", "garden")
+      required:
+        - direction
+      examples:
+        - {move: {direction: "north"}}
+        - {move: {direction: "garden"}}
+        - {move: {direction: "out"}}
+
+  - name: get
+    description: Pick up an object from the room or from a container
+    parameters:
+      type: object
+      properties:
+        object:
+          type: string
+          description: The name of the object to pick up
+      required:
+        - object
+      examples:
+        - {get: {object: "book"}}
+        - {get: {object: "silver key"}}
+
+  - name: drop
+    description: Drop an object from your inventory into the room
+    parameters:
+      type: object
+      properties:
+        object:
+          type: string
+          description: The name of the object to drop
+      required:
+        - object
+      examples:
+        - {drop: {object: "book"}}
+        - {drop: {object: "lantern"}}
+
+  - name: give
+    description: Give an object from your inventory to someone in the room
+    parameters:
+      type: object
+      properties:
+        object:
+          type: string
+          description: The name of the object to give
+        target:
+          type: string
+          description: The name of the person to give it to
+      required:
+        - object
+        - target
+      examples:
+        - {give: {object: "book", target: "Prax"}}
+        - {give: {object: "flower", target: "Nova"}}
+
+  - name: use
+    description: Use or interact with an object
+    parameters:
+      type: object
+      properties:
+        object:
+          type: string
+          description: The name of the object to use
+      required:
+        - object
+      examples:
+        - {use: {object: "lever"}}
+        - {use: {object: "fountain"}}
+
+  # =============================================================================
+  # Builder-Level Tools (Andi only - requires builder permissions)
+  # =============================================================================
+
+  - name: dig
+    description: Create a new room connected to your current location via exits
+    parameters:
+      type: object
+      properties:
+        room:
+          type: string
+          description: The name of the new room to create
+        exits:
+          type: string
+          description: Exit specification (e.g., "north;south" for bidirectional exits)
+      required:
+        - room
+        - exits
+      examples:
+        - {dig: {room: "Garden of Reflection", exits: "north;south"}}
+        - {dig: {room: "The Lighthouse", exits: "up;down"}}
+
+  - name: create
+    description: Create a new object in your current location
+    parameters:
+      type: object
+      properties:
+        object:
+          type: string
+          description: The name of the object to create
+      required:
+        - object
+      examples:
+        - {create: {object: "silver fountain"}}
+        - {create: {object: "ancient tome"}}
+
+  - name: describe
+    description: Set the description of a room, object, or character
+    parameters:
+      type: object
+      properties:
+        target:
+          type: string
+          description: The name of what to describe (or "here" for current room)
+        description:
+          type: string
+          description: The new description text
+      required:
+        - target
+        - description
+      examples:
+        - {describe: {target: "here", description: "A peaceful garden with a silver fountain at its center. The air smells of jasmine."}}
+        - {describe: {target: "fountain", description: "An elegant fountain carved from moonstone, its waters shimmering with an inner light."}}
+
+  - name: teleport
+    description: Instantly transport yourself to another location
+    parameters:
+      type: object
+      properties:
+        destination:
+          type: string
+          description: The name or ID of the room to teleport to
+      required:
+        - destination
+      examples:
+        - {teleport: {destination: "Limbo"}}
+        - {teleport: {destination: "#123"}}
+
+implementation:
+  module: aim.tool.impl.mud
+  class: MudTool
