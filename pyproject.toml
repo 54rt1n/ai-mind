@@ -9,37 +9,20 @@ license = {text = "CC-BY-NC-SA-4.0"}
 readme = "README.md"
 requires-python = ">=3.10, <4.0"
 dependencies = [
-    "aim-mud-types",
-    "chardet",
-    "bullmq",
-    "redis",
-    "semver",
-    "click",
-    "nltk",
-    "numpy",
-    "openai",
-    "pandas",
-    "python-dotenv",
-    "scikit-learn",
-    "torch",
-    "transformers",
-    "sentence-transformers",
-    "watchdog",
-    "wonderwords",
+    "aim-core",
+    "aim-mud",
     "fastapi",
+    "uvicorn",
     "sse-starlette",
     "starlette",
-    "uvicorn",
+    "python-multipart",
+    "click",
+    "watchdog",
     "trafilatura",
     "lxml_html_clean",
-    "python-multipart",
-    "tantivy",
-    "faiss-cpu",
-    "pydantic",
-    "pyyaml",
     "psutil",
     "torchvision",
-    "tiktoken (>=0.12.0,<0.13.0)",
+    "semver",
 ]
 
 [project.optional-dependencies]
@@ -67,12 +50,13 @@ filterwarnings = [
 
 [tool.uv.workspace]
 members = [
-    "cliui",
-    "packages/aim-mud-types",
+    "packages/aim-core",
+    "packages/aim-mud",
 ]
 
 [tool.uv.sources]
-aim-mud-types = { workspace = true }
+aim-core = { workspace = true }
+aim-mud = { workspace = true }
 
 [dependency-groups]
 test = [

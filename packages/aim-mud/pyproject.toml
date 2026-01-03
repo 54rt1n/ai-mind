@@ -1,0 +1,39 @@
+[project]
+name = "aim-mud"
+version = "0.1.0"
+description = "ANDIMUD integration - mediator and worker services for AI-Mind"
+readme = "README.md"
+license = {text = "CC-BY-NC-SA-4.0"}
+requires-python = ">=3.10, <4.0"
+authors = [
+    { name = "Martin Bukowski" },
+]
+dependencies = [
+    "aim-core",
+    "pydantic>=2.0",
+    "redis",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+mud = [
+    "evennia>=0.9",
+]
+test = [
+    "pytest>=8.0",
+    "pytest-mock",
+    "pytest-asyncio",
+    "fakeredis",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aim_mud_types", "src/andimud_mediator", "src/andimud_worker"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_default_fixture_loop_scope = "function"
+asyncio_mode = "auto"
