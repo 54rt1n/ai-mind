@@ -5,8 +5,8 @@ from dataclasses import dataclass, field
 from typing import Optional, List
 import copy
 
-from ...agents import Roster, Persona
-from ...config import ChatConfig
+from aim.agents import Roster, Persona
+from aim.config import ChatConfig
 
 @dataclass
 class SessionState:

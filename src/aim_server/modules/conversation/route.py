@@ -9,11 +9,11 @@ from fastapi import APIRouter, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import JSONResponse
 
-from ....config import ChatConfig
-from ....chat import ChatManager
-from ....conversation.message import ConversationMessage, VISIBLE_COLUMNS
-from ....constants import DOC_CONVERSATION
-from ....agents.roster import Roster
+from aim.config import ChatConfig
+from aim.chat import ChatManager
+from aim.conversation.message import ConversationMessage, VISIBLE_COLUMNS
+from aim.constants import DOC_CONVERSATION
+from aim.agents.roster import Roster
 
 from .dto import SaveConversationRequest
 

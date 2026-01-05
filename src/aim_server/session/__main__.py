@@ -5,8 +5,8 @@ import os
 from typing import Dict, List, Any, AsyncGenerator, Optional
 import logging
 
-from ...config import ChatConfig
-from ...llm.models import LanguageModelV2
+from aim.config import ChatConfig
+from aim.llm.models import LanguageModelV2
 from .workflow import SessionWorkflow, WorkflowRequest
 from .state import SessionState, CurrentState
 

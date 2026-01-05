@@ -178,21 +178,24 @@ class TestMUDDecisionStrategyBuildTurns:
         turns = await strategy.build_turns(mock_persona, session)
 
         assert isinstance(turns, list)
-        assert len(turns) >= 2  # At minimum: system + user
-        assert turns[0]["role"] == "system"
+        assert len(turns) >= 1  # At minimum: user turn (no system turn in array)
         assert turns[-1]["role"] == "user"
 
     @pytest.mark.asyncio
-    async def test_build_turns_includes_persona_system_prompt(
+    async def test_build_turns_no_system_turn_in_array(
         self, strategy, mock_persona, mock_redis
     ):
-        """Test that build_turns includes persona system prompt."""
+        """Test that build_turns does not include system turn in array.
+
+        System message is now set in config.system_message by worker.py,
+        not added to the turns array.
+        """
         session = _sample_session()
 
         turns = await strategy.build_turns(mock_persona, session)
 
-        mock_persona.system_prompt.assert_called_once()
-        assert "You are Andi" in turns[0]["content"]
+        # System turn should NOT be in the turns array
+        assert all(turn["role"] != "system" for turn in turns)
 
     @pytest.mark.asyncio
     async def test_build_turns_includes_history(
@@ -210,20 +213,23 @@ class TestMUDDecisionStrategyBuildTurns:
         session = _sample_session()
         turns = await strategy.build_turns(mock_persona, session)
 
-        # Should have: system, user history, assistant history, current user
-        assert len(turns) == 4
-        assert turns[0]["role"] == "system"
-        assert turns[1]["role"] == "user"
-        assert turns[1]["content"] == "Hello!"
-        assert turns[2]["role"] == "assistant"
-        assert turns[2]["content"] == "Hi there!"
-        assert turns[3]["role"] == "user"
+        # Should have: user history, assistant history, current user (NO system turn)
+        assert len(turns) == 3
+        assert turns[0]["role"] == "user"
+        assert turns[0]["content"] == "Hello!"
+        assert turns[1]["role"] == "assistant"
+        assert turns[1]["content"] == "Hi there!"
+        assert turns[2]["role"] == "user"
 
     @pytest.mark.asyncio
     async def test_build_turns_with_tool_user(
         self, strategy, mock_persona, mock_redis
     ):
-        """Test that build_turns includes tool definitions when tool_user is set."""
+        """Test that build_turns works when tool_user is set.
+
+        Tool definitions are now handled in worker.py's system message,
+        not in the turns array returned by build_turns().
+        """
         from aim.tool.formatting import ToolUser
 
         tool_user = ToolUser(tools=[_sample_tool()])
@@ -232,9 +238,9 @@ class TestMUDDecisionStrategyBuildTurns:
         session = _sample_session()
         turns = await strategy.build_turns(mock_persona, session)
 
-        # System prompt should include tool definitions
-        system_content = turns[0]["content"]
-        assert "move" in system_content.lower()
+        # Turns should still be valid (no system turn in array)
+        assert len(turns) >= 1
+        assert all(turn["role"] != "system" for turn in turns)
 
     @pytest.mark.asyncio
     async def test_build_turns_idle_mode(
@@ -246,9 +252,11 @@ class TestMUDDecisionStrategyBuildTurns:
 
         turns = await strategy.build_turns(mock_persona, session, idle_mode=True)
 
-        # User turn should indicate idle mode
+        # Last turn should be user turn and prompt for action
+        assert turns[-1]["role"] == "user"
         user_content = turns[-1]["content"]
-        assert "idle" in user_content.lower() or "spontaneous" in user_content.lower()
+        # Idle mode asks agent what they want to do
+        assert "agency" in user_content.lower() or "want to do" in user_content.lower()
 
     @pytest.mark.asyncio
     async def test_build_turns_includes_guidance(
@@ -259,6 +267,8 @@ class TestMUDDecisionStrategyBuildTurns:
 
         turns = await strategy.build_turns(mock_persona, session)
 
+        # Last turn should be user turn with guidance
+        assert turns[-1]["role"] == "user"
         user_content = turns[-1]["content"]
         # Guidance should mention available exits
         assert "north" in user_content or "south" in user_content
@@ -482,34 +492,6 @@ class TestMUDDecisionStrategyGetConversationHistory:
         assert len(history) == 2
 
 
-class TestMUDDecisionStrategyBuildSystemPrompt:
-    """Test MUDDecisionStrategy._build_system_prompt method."""
-
-    def test_build_system_prompt_includes_persona(self, strategy, mock_persona):
-        """Test that system prompt includes persona."""
-        prompt = strategy._build_system_prompt(mock_persona)
-
-        assert "You are Andi" in prompt
-
-    def test_build_system_prompt_without_tool_user(self, strategy, mock_persona):
-        """Test system prompt without tool_user."""
-        prompt = strategy._build_system_prompt(mock_persona)
-
-        # Should just have persona prompt
-        assert "You are Andi" in prompt
-
-    def test_build_system_prompt_with_tool_user(self, strategy, mock_persona):
-        """Test system prompt with tool_user."""
-        from aim.tool.formatting import ToolUser
-
-        tool_user = ToolUser(tools=[_sample_tool()])
-        strategy.set_tool_user(tool_user)
-
-        prompt = strategy._build_system_prompt(mock_persona)
-
-        # Should include tool definitions
-        assert "move" in prompt.lower()
-        assert "location" in prompt.lower()
 
 
 # =============================================================================

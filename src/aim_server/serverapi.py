@@ -7,8 +7,8 @@ from fastapi.security import HTTPBearer
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from ..config import ChatConfig
-from ..agents.roster import Roster
+from aim.config import ChatConfig
+from aim.agents.roster import Roster
 
 from .modules.admin.route import AdminModule
 from .modules.chat.route import ChatModule

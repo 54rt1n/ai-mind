@@ -14,6 +14,7 @@ class EventType(str, Enum):
     Attributes:
         SPEECH: A character speaking (say command).
         EMOTE: A character performing an emote/action.
+        NARRATIVE: Multi-paragraph prose narrative (act command).
         MOVEMENT: A character entering or leaving a room.
         OBJECT: An object being manipulated (get, drop, give).
         AMBIENT: Environmental or atmospheric events.
@@ -22,6 +23,7 @@ class EventType(str, Enum):
 
     SPEECH = "speech"
     EMOTE = "emote"
+    NARRATIVE = "narrative"
     MOVEMENT = "movement"
     OBJECT = "object"
     AMBIENT = "ambient"

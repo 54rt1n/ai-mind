@@ -8,9 +8,9 @@ import hikari
 import lightbulb
 import time
 
-from ...config import ChatConfig
-from ...chat.manager import ChatManager, ROLE_USER, ROLE_ASSISTANT
-from ...chat.strategy import ChatTurnStrategy, chat_strategy_for
+from aim.config import ChatConfig
+from aim.chat.manager import ChatManager, ROLE_USER, ROLE_ASSISTANT
+from aim.chat.strategy import ChatTurnStrategy, chat_strategy_for
 
 logger = logging.getLogger(__name__)
 

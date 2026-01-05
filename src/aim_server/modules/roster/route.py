@@ -5,8 +5,9 @@ import logging
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
-from ....config import ChatConfig
-from ....agents.roster import Roster, PersonaNotFoundError, PersonaExistsError, RosterError
+from aim.config import ChatConfig
+from aim.agents.roster import Roster, PersonaNotFoundError, PersonaExistsError, RosterError
+
 from .dto import CreatePersonaRequest, UpdatePersonaRequest, PersonaResponse, PersonaListResponse
 
 logger = logging.getLogger(__name__)

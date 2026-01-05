@@ -4,7 +4,7 @@
 from typing import List
 from pydantic import BaseModel, Field
 
-from ....tool.dto import Tool
+from aim.tool.dto import Tool
 
 class CreateToolRequest(Tool):
     """Schema for creating a new tool. Inherits all fields from Tool."""

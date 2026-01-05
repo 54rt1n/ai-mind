@@ -106,6 +106,9 @@ class MediatorService:
         # Agent tracking
         self.registered_agents: set[str] = set()
 
+        # Round-robin turn assignment
+        self._turn_index: int = 0
+
         # Stream position tracking
         self.last_event_id: str = "0"
 
@@ -300,26 +303,50 @@ class MediatorService:
                 a for a in agents_to_notify if a in self.registered_agents
             ]
 
+        # Filter out self-events (actor shouldn't receive their own events)
+        actor_agent_id = await self._agent_id_from_actor(event.room_id, event.actor_id)
+        if actor_agent_id:
+            agents_to_notify = [a for a in agents_to_notify if a != actor_agent_id]
+
         if not agents_to_notify:
             logger.debug(f"No agents to notify for event in room {event.room_id}")
             # Still mark as processed (we've looked at it)
             await self._mark_event_processed(msg_id, [])
             return
 
-        # Distribute to each relevant agent's stream
-        for agent_id in agents_to_notify:
-            stream_key = RedisKeys.agent_events(agent_id)
+        # Round-robin: only assign turn to ONE available agent
+        # Only the agent who gets the turn (or is first in line if all busy)
+        # receives the event in their stream. This prevents multiple agents
+        # from responding to the same event.
+        assigned_agent: Optional[str] = None
+        first_candidate: Optional[str] = None
+        if agents_to_notify:
+            n = len(agents_to_notify)
+            for i in range(n):
+                candidate = agents_to_notify[(self._turn_index + i) % n]
+                if first_candidate is None:
+                    first_candidate = candidate
+                assigned = await self._maybe_assign_turn(candidate, reason="events")
+                if assigned:
+                    assigned_agent = candidate
+                    self._turn_index = (self._turn_index + i + 1) % n
+                    break
+
+        # Distribute event to the agent who got the turn, or if all are busy,
+        # to the first candidate (they'll process it when they finish).
+        target_agent = assigned_agent or first_candidate
+        if target_agent:
+            stream_key = RedisKeys.agent_events(target_agent)
             await self.redis.xadd(
                 stream_key,
                 {"data": json.dumps(enriched)},
                 maxlen=self.config.agent_events_maxlen,
                 approximate=True,
             )
-            logger.debug(f"Distributed event {msg_id} to {agent_id}")
-            await self._maybe_assign_turn(agent_id, reason="events")
+            logger.debug(f"Distributed event {msg_id} to {target_agent}")
 
-        # Mark event as processed with agent list
-        await self._mark_event_processed(msg_id, agents_to_notify)
+        # Mark event as processed with the target agent
+        await self._mark_event_processed(msg_id, [target_agent] if target_agent else [])
 
     async def _mark_event_processed(
         self, msg_id: str, agents: list[str]
@@ -428,12 +455,16 @@ class MediatorService:
             result[str(k)] = str(v)
         return result
 
-    async def _maybe_assign_turn(self, agent_id: str, reason: str) -> None:
-        """Assign a turn request if none is active."""
+    async def _maybe_assign_turn(self, agent_id: str, reason: str) -> bool:
+        """Assign a turn request if none is active.
+
+        Returns:
+            True if turn was assigned, False if agent already has active turn.
+        """
         current = await self._get_turn_request(agent_id)
         status = current.get("status")
         if status in ("assigned", "in_progress"):
-            return
+            return False
 
         turn_id = uuid.uuid4().hex
         now = _utc_now().isoformat()
@@ -449,6 +480,7 @@ class MediatorService:
         }
         await self.redis.hset(key, mapping=payload)
         await self.redis.expire(key, self.config.turn_request_ttl_seconds)
+        return True
 
     async def _agents_from_room_profile(self, room_id: str) -> list[str]:
         """Lookup agent_ids present in a room profile."""
@@ -478,6 +510,38 @@ class MediatorService:
             if agent_id:
                 agent_ids.add(str(agent_id))
         return list(agent_ids)
+
+    async def _agent_id_from_actor(self, room_id: str, actor_id: str) -> Optional[str]:
+        """Lookup agent_id for an actor by their entity_id (dbref).
+
+        Args:
+            room_id: The room where the event occurred.
+            actor_id: The actor's entity_id (e.g., "#3").
+
+        Returns:
+            The agent_id if the actor is an AI agent, None otherwise.
+        """
+        if not room_id or not actor_id:
+            return None
+        try:
+            raw = await self.redis.hget(RedisKeys.room_profile(room_id), "entities_present")
+        except Exception as e:
+            logger.error(f"Failed to read room profile for {room_id}: {e}")
+            return None
+        if not raw:
+            return None
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8")
+        try:
+            entities = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+        for entity in entities:
+            if not isinstance(entity, dict):
+                continue
+            if entity.get("entity_id") == actor_id:
+                return entity.get("agent_id")
+        return None
 
     async def enrich_event(self, event: MUDEvent) -> dict[str, Any]:
         """Add room state to event.

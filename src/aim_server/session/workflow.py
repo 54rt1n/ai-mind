@@ -8,18 +8,18 @@ import copy
 from typing import List, Dict, Any, Optional, Callable, AsyncGenerator
 from dataclasses import dataclass
 
-from ...chat import ChatManager, chat_strategy_for
-from ...llm.models import LanguageModelV2
-from ...config import ChatConfig
-from ...agents import Persona, Tool as PersonaTool
+from aim.chat import ChatManager, chat_strategy_for
+from aim.llm.models import LanguageModelV2
+from aim.config import ChatConfig
+from aim.agents import Persona, Tool as PersonaTool
+from aim.tool.dto import Tool as DtoTool
+from aim.tool.loader import ToolLoader
 
 from .state import SessionState, CurrentState
 from .turn.base import BaseTurn
 from .turn.conversation import ConversationTurn
 from .turn.thought import ThoughtTurn
 from .turn.tool import ToolTurn
-from ...tool.dto import Tool as DtoTool
-from ...tool.loader import ToolLoader
         
 
 logger = logging.getLogger(__name__)

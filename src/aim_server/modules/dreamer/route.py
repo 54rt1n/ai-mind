@@ -7,8 +7,9 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import Optional
 import redis.asyncio as redis
 
-from ....config import ChatConfig
-from ....dreamer.api import (
+from aim.config import ChatConfig
+from aim.conversation.model import ConversationModel
+from aim.dreamer.api import (
     start_pipeline,
     get_status,
     cancel_pipeline,
@@ -17,9 +18,9 @@ from ....dreamer.api import (
     refresh_pipeline,
     list_pipelines,
 )
-from ....dreamer.state import StateStore
-from ....dreamer.scheduler import Scheduler
-from ....dreamer.scenario import load_scenario
+from aim.dreamer.state import StateStore
+from aim.dreamer.scheduler import Scheduler
+from aim.dreamer.scenario import load_scenario
 
 from .dto import (
     StartPipelineRequest,
@@ -78,7 +79,6 @@ class DreamerModule:
     def get_cvm(self):
         """Lazy initialization of ConversationModel."""
         if self._cvm is None:
-            from ....conversation.model import ConversationModel
             self._cvm = ConversationModel.from_config(self.config)
         return self._cvm
 

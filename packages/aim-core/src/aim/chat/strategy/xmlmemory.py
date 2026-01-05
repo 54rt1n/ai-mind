@@ -45,8 +45,17 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         self.hud_name = "HUD Display Output"
 
     def _calc_max_context_tokens(self, max_context_tokens: int, max_output_tokens: int) -> int:
-        """Calculate usable context tokens (reserve output + safety margin)."""
-        return max_context_tokens - max_output_tokens - 1024
+        """Calculate usable context tokens (reserve output + system prompt + safety margin).
+
+        The system prompt is prepended to messages in the LLM provider's stream_turns(),
+        so we must account for it here to avoid exceeding context limits.
+        """
+        system_tokens = 0
+        if hasattr(self.chat, 'config') and self.chat.config:
+            system_message = getattr(self.chat.config, 'system_message', None)
+            if system_message and isinstance(system_message, str):
+                system_tokens = self.count_tokens(system_message)
+        return max_context_tokens - max_output_tokens - system_tokens - 1024
 
     def user_turn_for(self, persona: Persona, user_input: str, history: list[dict[str, str]] = []) -> dict[str, str]:
         return {"role": "user", "content": user_input}
@@ -421,10 +430,14 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
             formatter.add_element(self.hud_name, "thought", content=thought, nowrap=True, priority=2)
 
         # Add Aggregated Emotions/Keywords (as before, but now includes dynamic results)
-        if len(aggregated_emotions) > 0:
-            formatter.add_element(self.hud_name, "emotions", content=", ".join(e for e in aggregated_emotions.keys() if e is not None), priority=1, nowrap=True) # Filter None keys
-        if len(aggregated_keywords) > 0:
-            formatter.add_element(self.hud_name, "keywords", content=", ".join(k for k in aggregated_keywords.keys() if k is not None), priority=1, nowrap=True) # Filter None keys
+        # Only add emotions/keywords if there are actual non-None values
+        emotions_content = ", ".join(e for e in aggregated_emotions.keys() if e is not None)
+        if emotions_content:  # Only add if non-empty after filtering
+            formatter.add_element(self.hud_name, "emotions", content=emotions_content, priority=1, nowrap=True)
+
+        keywords_content = ", ".join(k for k in aggregated_keywords.keys() if k is not None)
+        if keywords_content:  # Only add if non-empty after filtering
+            formatter.add_element(self.hud_name, "keywords", content=keywords_content, priority=1, nowrap=True)
 
         # Add Workspace/Scratchpad (as before)
         if self.chat.current_workspace is not None:

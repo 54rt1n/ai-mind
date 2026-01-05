@@ -3,7 +3,8 @@
 
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any, Literal
-from ....tool.dto import Tool
+
+from aim.tool.dto import Tool
 
 
 class ChatMessage(BaseModel):

@@ -20,8 +20,8 @@ import asyncio
 import logging
 import sys
 
-from ...config import ChatConfig
-from ...dreamer.worker import run_worker
+from aim.config import ChatConfig
+from aim.dreamer.worker import run_worker
 
 logger = logging.getLogger(__name__)
 

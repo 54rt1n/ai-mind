@@ -12,8 +12,9 @@ from fastapi import APIRouter, HTTPException, Depends
 from fastapi.security import HTTPBearer
 from fastapi.responses import StreamingResponse
 
-from ....config import ChatConfig
-from ....llm.models import LanguageModelV2, LLMProviderError, CompletionProvider
+from aim.config import ChatConfig
+from aim.llm.models import LanguageModelV2, LLMProviderError, CompletionProvider
+
 from .dto import CompletionRequest, CompletionResponse
 
 logger = logging.getLogger(__name__)

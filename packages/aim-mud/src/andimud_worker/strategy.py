@@ -26,7 +26,6 @@ from aim.chat.manager import ChatManager
 from aim.chat.strategy.xmlmemory import XMLMemoryTurnStrategy
 from aim.tool.formatting import ToolUser
 from aim.utils.tokens import count_tokens
-from aim.utils.xml import XmlFormatter
 
 logger = logging.getLogger(__name__)
 
@@ -85,15 +84,11 @@ class MUDDecisionStrategy:
         """
         turns: list[dict[str, str]] = []
 
-        # 1. Build system prompt with tool definitions
-        system_content = self._build_system_prompt(persona)
-        turns.append({"role": "system", "content": system_content})
-
-        # 2. Get conversation history from Redis
+        # 1. Get conversation history from Redis
         history = await self._get_conversation_history(token_budget=8000)
         turns.extend(history)
 
-        # 3. Build user turn with decision guidance
+        # 2. Build user turn with decision guidance
         guidance = self._build_decision_guidance(session)
         user_content = build_current_context(
             session,
@@ -103,30 +98,6 @@ class MUDDecisionStrategy:
         turns.append({"role": "user", "content": user_content})
 
         return turns
-
-    def _build_system_prompt(self, persona: Persona) -> str:
-        """Build system prompt with persona and tool definitions.
-
-        Args:
-            persona: The agent's persona configuration.
-
-        Returns:
-            Combined system prompt string.
-        """
-        parts: list[str] = []
-
-        # Add persona system prompt
-        parts.append(persona.system_prompt())
-
-        # Add tool definitions if available
-        if self.tool_user:
-            xml = XmlFormatter()
-            self.tool_user.xml_decorator(xml)
-            tool_content = xml.render()
-            if tool_content:
-                parts.append(tool_content)
-
-        return "\n\n".join(parts)
 
     def _build_decision_guidance(self, session: MUDSession) -> str:
         """Build guidance for Phase 1 tool selection.
@@ -361,7 +332,7 @@ class MUDResponseStrategy(XMLMemoryTurnStrategy):
         5. Delegate to parent's chat_turns_for() for heavy lifting
 
         Token budget (matching XMLMemoryTurnStrategy pattern):
-        - usable = max_context - max_output - 1024 (safety margin)
+        - usable = max_context - max_output - system_prompt - 1024 (safety margin)
         - content_len = history + user_input + wakeup (external tokens)
         - Memory queries get remaining after fixed elements
         - History compressed if > 50% of usable tokens
@@ -386,7 +357,8 @@ class MUDResponseStrategy(XMLMemoryTurnStrategy):
         Returns:
             List of chat turns ready for LLM inference.
         """
-        usable = max_context_tokens - max_output_tokens - 1024
+        # Use parent's calculation which accounts for system prompt tokens
+        usable = self._calc_max_context_tokens(max_context_tokens, max_output_tokens)
 
         # Get conversation history from Redis
         history = await self._get_conversation_history(token_budget=usable // 2)

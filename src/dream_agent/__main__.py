@@ -68,9 +68,10 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from ...config import ChatConfig
-from ...dreamer.scenario import load_scenario
-from ...llm.models import LanguageModelV2
+from aim.config import ChatConfig
+from aim.dreamer.scenario import load_scenario
+from aim.llm.models import LanguageModelV2
+
 from .client import DreamerClient, PipelineResult
 
 

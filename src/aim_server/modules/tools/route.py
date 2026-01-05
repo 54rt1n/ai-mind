@@ -5,8 +5,9 @@ import logging
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
-from ....config import ChatConfig
-from ....tool.loader import ToolLoader
+from aim.config import ChatConfig
+from aim.tool.loader import ToolLoader
+
 from .dto import CreateToolRequest, UpdateToolRequest, ToolResponse, ToolListResponse, Tool
 
 logger = logging.getLogger(__name__)

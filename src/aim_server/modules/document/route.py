@@ -7,8 +7,9 @@ from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import FileResponse, Response
 
-from ....config import ChatConfig
-from ....io.documents import Library
+from aim.config import ChatConfig
+from aim.io.documents import Library
+
 from .dto import DocumentInfo, DocumentListResponse
 
 logger = logging.getLogger(__name__)

@@ -20,6 +20,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import re
 import signal
 import warnings
 from datetime import datetime, timezone
@@ -52,6 +53,7 @@ from aim.tool.formatting import ToolUser
 from .memory import MUDMemoryRetriever
 from .conversation import MUDConversationManager
 from .strategy import MUDDecisionStrategy, MUDResponseStrategy
+from .utils import sanitize_response
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +161,22 @@ class MUDAgentWorker:
 
         # Initialize phase 1 decision tools
         self._init_decision_tools()
+
+        # Build system message using XML decorator (includes wardrobe, features, attributes)
+        # This follows the pattern from aim_server/modules/chat/route.py
+        # Tools are included so Phase 1 (decision) can use them; Phase 2 ignores them
+        from aim.utils.xml import XmlFormatter
+        xml = XmlFormatter()
+        xml = self.persona.xml_decorator(
+            xml,
+            disable_guidance=False,
+            disable_pif=False,
+            conversation_length=0,
+        )
+        # Add decision tools to system message
+        if self._decision_tool_user:
+            xml = self._decision_tool_user.xml_decorator(xml)
+        self.chat_config.system_message = xml.render()
         self._init_agent_action_spec()
 
         # Initialize session
@@ -902,6 +920,7 @@ class MUDAgentWorker:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Phase1 LLM response (full):\n%s", response)
             cleaned, think_content = extract_think_tags(response)
+            cleaned = sanitize_response(cleaned)
             last_cleaned = cleaned.strip()
             last_thinking = think_content or ""
 
@@ -1237,7 +1256,6 @@ class MUDAgentWorker:
     @staticmethod
     def _has_emotional_state_header(response: str) -> bool:
         """Check if response starts with emotional state header after think block."""
-        import re
         # Remove think block first
         cleaned = re.sub(r'<think>.*?</think>', '', response, flags=re.DOTALL).strip()
         # Check if it starts with [== ... Emotional State ... ==]
@@ -1283,6 +1301,7 @@ class MUDAgentWorker:
     def _parse_agent_action_response(self, response: str) -> tuple[Optional[str], dict, str]:
         """Parse @agent JSON response into (action, args, error)."""
         cleaned, _think = extract_think_tags(response)
+        cleaned = sanitize_response(cleaned)
         text = cleaned.strip()
         parsed = None
         json_text = None
@@ -1462,16 +1481,41 @@ class MUDAgentWorker:
                     memory_query=memory_query,
                 )
 
-                response = await self._call_llm(chat_turns)
-                raw_responses.append(response)
-                logger.debug(f"LLM response: {response[:500]}...")
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug("LLM response (full):\n%s", response)
+                # Retry loop for emotional state header validation
+                max_format_retries = 3
+                cleaned_response = ""
+                for format_attempt in range(max_format_retries):
+                    response = await self._call_llm(chat_turns)
+                    raw_responses.append(response)
+                    logger.debug(f"LLM response: {response[:500]}...")
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug("LLM response (full):\n%s", response)
 
-                cleaned_response, think_content = extract_think_tags(response)
-                cleaned_response = cleaned_response.strip()
-                if think_content:
-                    thinking_parts.append(think_content)
+                    cleaned_response, think_content = extract_think_tags(response)
+                    cleaned_response = sanitize_response(cleaned_response)
+                    cleaned_response = cleaned_response.strip()
+                    if think_content:
+                        thinking_parts.append(think_content)
+
+                    # Validate emotional state header
+                    if self._has_emotional_state_header(cleaned_response):
+                        break  # Valid format, continue
+
+                    # Missing header - retry with stronger guidance
+                    logger.warning(
+                        f"Response missing Emotional State header (attempt {format_attempt + 1}/{max_format_retries})"
+                    )
+                    if format_attempt < max_format_retries - 1:
+                        persona_name = self.session.persona_id if self.session else "Agent"
+                        format_guidance = (
+                            f"\n\n[Gentle reminder from your link: Please begin with your emotional state, "
+                            f"e.g. [== {persona_name}'s Emotional State: <list of your +Emotions+> ==] then continue with prose.]"
+                        )
+                        # Append guidance to the last user turn
+                        if chat_turns and chat_turns[-1]["role"] == "user":
+                            chat_turns[-1]["content"] += format_guidance
+                        else:
+                            chat_turns.append({"role": "user", "content": format_guidance})
 
                 extracted_text = self._extract_speak_text_from_tool_call(cleaned_response)
                 if extracted_text is not None:
@@ -1618,6 +1662,7 @@ class MUDAgentWorker:
                 response = await self._call_llm(chat_turns)
                 raw_responses.append(response)
                 cleaned, think_content = extract_think_tags(response)
+                cleaned = sanitize_response(cleaned)
                 cleaned = cleaned.strip()
                 if think_content:
                     thinking_parts.append(think_content)
@@ -1644,6 +1689,24 @@ class MUDAgentWorker:
                 # Valid action -> emit
                 if action == "speak":
                     text = args.get("text", "")
+                    # Validate emotional state header for speak actions
+                    if not self._has_emotional_state_header(text):
+                        logger.warning(
+                            "Agent speak missing Emotional State header (attempt %d/%d)",
+                            attempt + 1,
+                            self.config.decision_max_retries,
+                        )
+                        if attempt < self.config.decision_max_retries - 1:
+                            persona_name = self.session.persona_id if self.session else "Agent"
+                            format_guidance = (
+                                f"\n\n[Gentle reminder from your link: Please begin with your emotional state, "
+                                f"e.g. [== {persona_name}'s Emotional State: <list of your +Emotion+> ==] then continue with prose.]"
+                            )
+                            if chat_turns and chat_turns[-1]["role"] == "user":
+                                chat_turns[-1]["content"] += format_guidance
+                            else:
+                                chat_turns.append({"role": "user", "content": format_guidance})
+                            continue
                     normalized = self._normalize_response(text)
                     if normalized:
                         action_obj = MUDAction(tool="speak", args={"text": normalized})

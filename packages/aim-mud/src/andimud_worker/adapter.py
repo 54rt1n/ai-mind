@@ -69,33 +69,27 @@ def build_current_context(
 
     # Coming online guidance for fresh sessions
     if coming_online:
-        parts.append("[~~ Guidance: Coming online ~~]")
+        parts.append("[~~ Link Coming Online ~~]")
+        parts.append("*chirp*Hello!")
         parts.append("Orient yourself in your apartment, feel your surroundings, greet whoever is present.")
-        parts.append("[/~~Guidance~~/]")
+        parts.append("[/~~Link~~/]")
 
     # Pending events - only include if requested (not when already in history)
     if include_events:
         if session.pending_events:
-            parts.append(f'<events count="{len(session.pending_events)}">')
             for event in session.pending_events:
                 parts.append(format_event(event))
-            parts.append("</events>")
         elif idle_mode:
-            parts.append('<events count="0">')
-            parts.append("  No new events have occurred.")
-            parts.append("</events>")
-            parts.append("<idle>")
             parts.append(
-                "  This is a spontaneous turn. Act only if you have a meaningful, "
-                "persona-grounded reason based on the current world state."
+                "You don't see anything of note occuring. You have agency - what do you want to do?"
             )
-            parts.append("</idle>")
 
     if guidance:
-        parts.append(f"\n[Guidance: {guidance}]")
+        parts.append(f"\n[Link Guidance: {guidance}]")
 
-    # Formatting reminder for the agent
-    parts.append("\n[~~ FORMAT: <think>...</think> then [== Andi's Emotional State: +Emotion+ ==] then *prose narrative* ~~]")
+    # Formatting reminder for the agent (use persona_id from session)
+    persona_name = session.persona_id if session.persona_id else "Agent"
+    parts.append(f"\n[~~ Link Format Guidance ~~]\n<think>...</think>\n[== {persona_name}'s Emotional State: <list of your +Emotions+> ==]\nBe sure to be expressive with details regarding what you are doing and saying.[/~~Link~~/]")
 
     return "\n".join(parts)
 
@@ -172,9 +166,9 @@ def format_event(event: MUDEvent) -> str:
         # Determine if this is an arrival or departure based on content
         content_lower = event.content.lower()
         if "enter" in content_lower or "arrive" in content_lower:
-            return f"*{event.actor} has arrived.*"
+            return f"*You see {event.actor} has arrived.*"
         else:
-            return f"*{event.actor} has left.*"
+            return f"*You watch {event.actor} leave.*"
 
     elif event.event_type == EventType.OBJECT:
         return f"*{event.actor} {event.content}*"
@@ -184,6 +178,9 @@ def format_event(event: MUDEvent) -> str:
 
     elif event.event_type == EventType.SYSTEM:
         return f"[System] {event.content}"
+
+    elif event.event_type == EventType.NARRATIVE:
+        return event.content
 
     else:
         # Fallback for unknown event types
@@ -241,7 +238,7 @@ def format_turn_response(turn: MUDTurn) -> str:
     return "\n".join(parts) if parts else "[No response]"
 
 
-def entries_to_chat_turns(entries: list["MUDConversationEntry"]) -> list[dict[str, str]]:
+def entries_to_chat_turns(entries: list["MUDConversationEntry"], inject_think: bool = False) -> list[dict[str, str]]:
     """Convert conversation entries to chat turn format.
 
     Takes MUDConversationEntry objects from the Redis conversation list
@@ -260,7 +257,7 @@ def entries_to_chat_turns(entries: list["MUDConversationEntry"]) -> list[dict[st
     for entry in entries:
         content = entry.content
         # For assistant turns, prepend think block if present
-        if entry.role == "assistant" and entry.think:
+        if entry.role == "assistant" and entry.think and inject_think:
             content = f"<think>{entry.think}</think>\n{content}"
         turns.append({"role": entry.role, "content": content})
     return turns

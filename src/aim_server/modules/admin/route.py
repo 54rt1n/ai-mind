@@ -7,10 +7,10 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
-from ....config import ChatConfig
-from ....conversation.loader import ConversationLoader
-from ....conversation.index import SearchIndex
-from ....utils.redis_cache import RedisCache
+from aim.config import ChatConfig
+from aim.conversation.loader import ConversationLoader
+from aim.conversation.index import SearchIndex
+from aim.utils.redis_cache import RedisCache
 
 logger = logging.getLogger(__name__)
 

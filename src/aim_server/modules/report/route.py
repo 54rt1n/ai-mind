@@ -5,9 +5,9 @@ import logging
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
-from ....config import ChatConfig
-from ....chat import ChatManager
-from ....utils.keywords import get_all_keywords
+from aim.config import ChatConfig
+from aim.chat import ChatManager
+from aim.utils.keywords import get_all_keywords
 
 logger = logging.getLogger(__name__)
 

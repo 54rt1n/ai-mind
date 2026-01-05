@@ -1,10 +1,12 @@
 import re
 from typing import Dict, Any, List, Optional, Tuple
+
+from aim.config import ChatConfig
+from aim.utils.xml import XmlFormatter
+from aim.tool.formatting import ToolUser
+from aim.agents import Persona
+
 from .base import BaseTurn
-from ....config import ChatConfig
-from ....utils.xml import XmlFormatter
-from ....tool.formatting import ToolUser
-from ....agents import Persona
 from ..state import SessionState, CurrentState
 
 

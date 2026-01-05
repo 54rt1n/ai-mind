@@ -5,10 +5,11 @@ from typing import Tuple, AsyncGenerator
 from abc import ABC, abstractmethod
 import copy
 
-from ....config import ChatConfig
-from ....tool.formatting import ToolUser
-from ....utils.xml import XmlFormatter
-from ....agents import Persona
+from aim.config import ChatConfig
+from aim.tool.formatting import ToolUser
+from aim.utils.xml import XmlFormatter
+from aim.agents import Persona
+
 from ..state import SessionState, CurrentState
 
 class BaseTurn(ABC):

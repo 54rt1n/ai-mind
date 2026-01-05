@@ -1,0 +1,1 @@
+"""AI-Mind CLI application"""

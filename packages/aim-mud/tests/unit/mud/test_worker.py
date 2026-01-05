@@ -1159,5 +1159,72 @@ class TestSignalHandlers:
             assert signal_module.SIGTERM in signals_registered
 
 
+class TestGetRoomObjects:
+    """Test _get_room_objects method including container contents."""
+
+    def test_get_room_objects_direct_items(self, mud_config, mock_redis):
+        """Test _get_room_objects returns items directly in the room."""
+        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
+        worker.session = MUDSession(agent_id="test", persona_id="test")
+
+        # Set up entities with a direct object
+        worker.session.entities_present = [
+            EntityState(entity_id="shelf_1", name="Shelf", entity_type="object"),
+            EntityState(entity_id="andi_1", name="Andi", entity_type="ai", is_self=True),
+        ]
+
+        objects = worker._get_room_objects()
+
+        assert "Shelf" in objects
+        assert "Andi" not in objects  # Self should be excluded
+
+    def test_get_room_objects_includes_container_contents(self, mud_config, mock_redis):
+        """Test _get_room_objects returns items inside containers.
+
+        When the room profile includes items with a 'container' field,
+        those items should be available for take validation.
+        """
+        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
+        worker.session = MUDSession(agent_id="test", persona_id="test")
+
+        # Set up entities including an item in a container
+        # This simulates what _build_room_profile now produces
+        worker.session.entities_present = [
+            EntityState(entity_id="shelf_1", name="Shelf", entity_type="object"),
+            EntityState(
+                entity_id="cup_1",
+                name="Kintsugi Cup",
+                entity_type="object",
+                # The container field indicates this is inside the Shelf
+            ),
+            EntityState(entity_id="andi_1", name="Andi", entity_type="ai", is_self=True),
+        ]
+
+        objects = worker._get_room_objects()
+
+        assert "Shelf" in objects
+        assert "Kintsugi Cup" in objects  # Container contents should be included
+        assert len(objects) == 2
+
+    def test_get_room_objects_excludes_characters(self, mud_config, mock_redis):
+        """Test _get_room_objects excludes players, AIs, and NPCs."""
+        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
+        worker.session = MUDSession(agent_id="test", persona_id="test")
+
+        worker.session.entities_present = [
+            EntityState(entity_id="shelf_1", name="Shelf", entity_type="object"),
+            EntityState(entity_id="prax_1", name="Prax", entity_type="player"),
+            EntityState(entity_id="nova_1", name="Nova", entity_type="ai"),
+            EntityState(entity_id="guard_1", name="Guard", entity_type="npc"),
+        ]
+
+        objects = worker._get_room_objects()
+
+        assert objects == ["Shelf"]
+        assert "Prax" not in objects
+        assert "Nova" not in objects
+        assert "Guard" not in objects
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

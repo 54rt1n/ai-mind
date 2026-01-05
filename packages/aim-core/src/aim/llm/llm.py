@@ -183,12 +183,13 @@ class OpenAIProvider(LLMProvider):
             tenpct = int(config.max_tokens * 0.1)
 
             try:
-                # Write all messages to trace file
+                # Write all messages to trace file (after system message has been prepended)
                 if messages:
                     import json
                     from pathlib import Path
                     trace_path = Path("local/trace.txt")
                     trace_path.parent.mkdir(parents=True, exist_ok=True)
+                    # Write the final messages array that will be sent to the API
                     trace_path.write_text(json.dumps(messages, indent=2, default=str))
 
                 for t in self.openai.chat.completions.create(

@@ -17,8 +17,8 @@ from typing import Optional, Literal, AsyncIterator, Callable
 import httpx
 import redis.asyncio as redis
 
-from ...config import ChatConfig
-from ...dreamer.api import (
+from aim.config import ChatConfig
+from aim.dreamer.api import (
     start_pipeline,
     get_status,
     cancel_pipeline,
@@ -28,9 +28,9 @@ from ...dreamer.api import (
     get_restart_info,
     PipelineStatus,
 )
-from ...dreamer.state import StateStore
-from ...dreamer.scheduler import Scheduler
-from ...dreamer.scenario import load_scenario
+from aim.dreamer.state import StateStore
+from aim.dreamer.scheduler import Scheduler
+from aim.dreamer.scenario import load_scenario
 
 
 @dataclass

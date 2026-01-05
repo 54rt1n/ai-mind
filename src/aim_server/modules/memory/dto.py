@@ -4,7 +4,7 @@
 from pydantic import BaseModel
 from typing import Any
 
-from ....conversation.message import ConversationMessage
+from aim.conversation.message import ConversationMessage
 
 
 class DocumentUpdate(BaseModel):

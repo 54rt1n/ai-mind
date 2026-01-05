@@ -6,11 +6,11 @@ import numpy as np
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
-from ....config import ChatConfig
-from ....chat import ChatManager
-from ....agents.roster import Roster
-from ....constants import CHUNK_LEVEL_FULL
-from ....conversation.message import VISIBLE_COLUMNS
+from aim.config import ChatConfig
+from aim.chat import ChatManager
+from aim.agents.roster import Roster
+from aim.constants import CHUNK_LEVEL_FULL
+from aim.conversation.message import VISIBLE_COLUMNS
 
 from .dto import DocumentUpdate, CreateDocumentRequest
 

@@ -14,14 +14,14 @@ from fastapi import APIRouter, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import StreamingResponse
 
-from ....llm.models import LanguageModelV2, LLMProvider, ModelCategory
-from ....chat import ChatManager, chat_strategy_for
-from ....config import ChatConfig
-from ....utils.redis_cache import RedisCache
-from ....utils.turns import validate_turns
-from ....utils.xml import XmlFormatter
-from ....tool.formatting import ToolUser
-from ....agents.roster import Roster
+from aim.llm.models import LanguageModelV2, LLMProvider, ModelCategory
+from aim.chat import ChatManager, chat_strategy_for
+from aim.config import ChatConfig
+from aim.utils.redis_cache import RedisCache
+from aim.utils.turns import validate_turns
+from aim.utils.xml import XmlFormatter
+from aim.tool.formatting import ToolUser
+from aim.agents.roster import Roster
 
 from .dto import ChatCompletionRequest, ChatCompletionResponse
 

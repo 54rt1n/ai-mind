@@ -13,15 +13,17 @@ import pandas as pd
 import sys
 from typing import Any, Dict, Optional
 
-from ...agents import Persona
-from ...chat.app import ChatApp
-from ...conversation.model import ConversationModel
-from ...io.jsonl import write_jsonl, read_jsonl
-from ...llm.llm import LLMProvider, OpenAIProvider, ChatConfig
-from ...conversation.message import ConversationMessage
-from ...utils.turns import process_think_tag_in_message, extract_and_update_emotions_from_header
-from ...conversation.loader import ConversationLoader
-from ...constants import DOC_STEP, DOC_NER
+from aim.agents import Persona
+from aim.chat.app import ChatApp
+from aim.constants import DOC_STEP, DOC_NER, CHUNK_LEVEL_256, CHUNK_LEVEL_768, CHUNK_LEVEL_FULL
+from aim.conversation.index import SearchIndex
+from aim.conversation.loader import ConversationLoader
+from aim.conversation.message import ConversationMessage
+from aim.conversation.model import ConversationModel
+from aim.io.jsonl import write_jsonl, read_jsonl
+from aim.llm.llm import LLMProvider, OpenAIProvider, ChatConfig
+from aim.utils.turns import process_think_tag_in_message, extract_and_update_emotions_from_header
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -258,8 +260,6 @@ def chat(co: ContextObject, model_url, api_key, user_id, persona_id, conversatio
 
 def _show_chunk_stats(index, click):
     """Display chunk level statistics for the index."""
-    from ...constants import CHUNK_LEVEL_256, CHUNK_LEVEL_768, CHUNK_LEVEL_FULL
-
     searcher = index.index.searcher()
 
     # Count entries per chunk level
@@ -302,10 +302,6 @@ def rebuild_index(co: ContextObject, agent_id: Optional[str], all_agents: bool, 
         # Legacy: rebuild global index
         python -m aim.app.cli rebuild-index --conversations-dir memory/conversations --index-dir memory/indices
     """
-    from ...conversation.loader import ConversationLoader
-    from ...conversation.index import SearchIndex
-    from pathlib import Path
-
     def _discover_agents() -> list[str]:
         """Discover all agent directories under memory/"""
         memory_base = Path("memory")
