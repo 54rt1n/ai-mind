@@ -70,6 +70,20 @@ class RedisKeys:
     def agent_turn_request(agent_id: str) -> str:
         """Get the turn request key for a specific agent.
 
+        The turn request hash contains:
+        - turn_id: Unique identifier for this turn
+        - status: Current state (assigned, in_progress, done, fail, abort_requested, aborted)
+        - reason: Why turn was triggered (events, idle, flush, clear, agent, choose)
+        - event_count: Number of events in this turn
+        - assigned_at: ISO timestamp when turn was assigned
+        - heartbeat_at: ISO timestamp of last heartbeat
+        - deadline_ms: Turn timeout in milliseconds
+        - message: Optional status message (for fail/aborted states)
+
+        Status transitions:
+        - assigned -> in_progress -> done/fail
+        - assigned/in_progress -> abort_requested -> aborted (user abort)
+
         Args:
             agent_id: Unique identifier for the agent.
 

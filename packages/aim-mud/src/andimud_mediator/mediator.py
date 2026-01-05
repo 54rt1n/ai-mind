@@ -463,7 +463,7 @@ class MediatorService:
         """
         current = await self._get_turn_request(agent_id)
         status = current.get("status")
-        if status in ("assigned", "in_progress"):
+        if status in ("assigned", "in_progress", "abort_requested"):
             return False
 
         turn_id = uuid.uuid4().hex

@@ -1,0 +1,3 @@
+# packages/aim-mud/tests/unit/worker/__init__.py
+# AI-Mind (C) 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
+"""Worker unit tests."""

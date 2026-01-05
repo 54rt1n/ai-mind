@@ -58,6 +58,11 @@ from .utils import sanitize_response
 logger = logging.getLogger(__name__)
 
 
+class AbortRequestedException(Exception):
+    """Raised when a turn is aborted by user request."""
+    pass
+
+
 def _utc_now() -> datetime:
     """Return current UTC time as timezone-aware datetime."""
     return datetime.now(timezone.utc)
@@ -235,6 +240,11 @@ class MUDAgentWorker:
                     await asyncio.sleep(1)
                     continue
 
+                # Check for abort request
+                if await self._check_abort_requested():
+                    logger.info("Turn abort detected, clearing abort flag")
+                    continue
+
                 # Check for turn request assignment
                 turn_request = await self._get_turn_request()
                 if not turn_request or turn_request.get("status") != "assigned":
@@ -322,6 +332,13 @@ class MUDAgentWorker:
                     await self.process_turn(events)
                     await self._set_turn_request_state(turn_id, "done")
                     self._last_turn_request_id = turn_id
+                except AbortRequestedException:
+                    logger.info(f"Turn {turn_id} aborted by user request")
+                    # Restore event position so next drain re-reads these events
+                    if saved_last_event_id is not None:
+                        self.session.last_event_id = saved_last_event_id
+                        logger.info("Restored last_event_id to %s after abort", saved_last_event_id)
+                    await self._set_turn_request_state(turn_id, "aborted", message="Aborted by user")
                 except Exception as e:
                     logger.error(f"Error during assigned turn {turn_id}: {e}", exc_info=True)
                     # Restore event position so next drain re-reads these events
@@ -362,6 +379,24 @@ class MUDAgentWorker:
         """
         value = await self.redis.get(self.config.pause_key)
         return value == b"1"
+
+    async def _check_abort_requested(self) -> bool:
+        """Check if current turn has abort requested.
+
+        Returns:
+            bool: True if abort requested, False otherwise.
+        """
+        turn_request = await self._get_turn_request()
+        status = turn_request.get("status")
+        if status == "abort_requested":
+            # Clear the abort flag
+            await self._set_turn_request_state(
+                turn_request.get("turn_id", "unknown"),
+                "aborted",
+                message="Aborted by user request"
+            )
+            return True
+        return False
 
     def _turn_request_key(self) -> str:
         """Return the Redis key for this agent's turn request."""
