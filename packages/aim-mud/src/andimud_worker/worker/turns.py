@@ -25,7 +25,10 @@ from .utils import _utc_now
 
 
 if TYPE_CHECKING:
-    from .main import MUDAgentWorker
+    from .main import MUDAgentWorker, AbortRequestedException
+else:
+    # Avoid circular import - import at runtime
+    AbortRequestedException = None
 
 
 logger = logging.getLogger(__name__)
@@ -658,6 +661,11 @@ class TurnsMixin:
         raw_responses: list[str] = []
 
         try:
+            # Check for abort before decision LLM call
+            if await self._check_abort_requested():
+                from .main import AbortRequestedException
+                raise AbortRequestedException("Turn aborted before decision")
+
             decision_tool, decision_args, decision_raw, decision_thinking, decision_cleaned = (
                 await self._decide_action(idle_mode=idle_mode)
             )
@@ -736,6 +744,11 @@ class TurnsMixin:
                 max_format_retries = 3
                 cleaned_response = ""
                 for format_attempt in range(max_format_retries):
+                    # Check for abort before response LLM call
+                    if await self._check_abort_requested():
+                        from .main import AbortRequestedException
+                        raise AbortRequestedException("Turn aborted before response")
+
                     response = await self._call_llm(chat_turns)
                     raw_responses.append(response)
                     logger.debug(f"LLM response: {response[:500]}...")
@@ -913,6 +926,11 @@ class TurnsMixin:
 
         try:
             for attempt in range(self.config.decision_max_retries):
+                # Check for abort before @agent LLM call
+                if await self._check_abort_requested():
+                    from .main import AbortRequestedException
+                    raise AbortRequestedException("Turn aborted before @agent action")
+
                 response = await self._call_llm(chat_turns)
                 raw_responses.append(response)
                 cleaned, think_content = extract_think_tags(response)

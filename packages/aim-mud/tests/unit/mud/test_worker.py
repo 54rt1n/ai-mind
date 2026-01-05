@@ -140,7 +140,7 @@ class TestMUDAgentWorkerInitLLMProvider:
 
 
 class TestMUDAgentWorkerCallLLM:
-    """Test MUDAgentWorker _call_llm method with retry logic."""
+    """Test MUDAgentWorker _call_llm method (single attempt, no retries)."""
 
     @pytest.mark.asyncio
     async def test_call_llm_returns_response(self, mud_config, mock_redis):
@@ -159,110 +159,77 @@ class TestMUDAgentWorkerCallLLM:
         mock_llm.stream_turns.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_call_llm_retries_on_retryable_error(self, mud_config, mock_redis):
-        """Test _call_llm retries on retryable errors with backoff."""
+    async def test_call_llm_raises_on_error(self, mud_config, mock_redis):
+        """Test _call_llm raises immediately on any error (no retries)."""
         worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
         worker.chat_config = MagicMock()
 
-        # Mock LLM to fail once then succeed
-        call_count = [0]
-
-        def mock_stream(*args, **kwargs):
-            call_count[0] += 1
-            if call_count[0] == 1:
-                raise ConnectionError("Connection reset by peer")
-            return iter(["Success!"])
-
+        # Mock LLM to raise an error
         mock_llm = MagicMock()
-        mock_llm.stream_turns = mock_stream
+        mock_llm.stream_turns = MagicMock(side_effect=ConnectionError("Connection reset"))
         worker._llm_provider = mock_llm
 
-        with patch("andimud_worker.worker.llm.is_retryable_error", return_value=True):
-            with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
-                result = await worker._call_llm(
-                    [{"role": "user", "content": "Hi"}],
-                    max_retries=3
-                )
+        with pytest.raises(ConnectionError, match="Connection reset"):
+            await worker._call_llm([{"role": "user", "content": "Hi"}])
 
-        assert result == "Success!"
-        assert call_count[0] == 2
-        mock_sleep.assert_called_once()
-        # First retry delay should be 30s
-        assert mock_sleep.call_args[0][0] == 30
+        # Should only try once
+        assert mock_llm.stream_turns.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_call_llm_raises_non_retryable_error(self, mud_config, mock_redis):
-        """Test _call_llm raises immediately on non-retryable errors."""
+    async def test_call_llm_raises_on_value_error(self, mud_config, mock_redis):
+        """Test _call_llm raises immediately on ValueError."""
         worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
         worker.chat_config = MagicMock()
 
-        # Mock LLM to raise a non-retryable error
+        # Mock LLM to raise ValueError
         mock_llm = MagicMock()
         mock_llm.stream_turns = MagicMock(side_effect=ValueError("Invalid input"))
         worker._llm_provider = mock_llm
 
-        with patch("andimud_worker.worker.llm.is_retryable_error", return_value=False):
-            with pytest.raises(ValueError, match="Invalid input"):
-                await worker._call_llm([{"role": "user", "content": "Hi"}])
+        with pytest.raises(ValueError, match="Invalid input"):
+            await worker._call_llm([{"role": "user", "content": "Hi"}])
 
-        # Should only try once for non-retryable errors
+        # Should only try once
         assert mock_llm.stream_turns.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_call_llm_raises_after_max_retries(self, mud_config, mock_redis):
-        """Test _call_llm raises after exhausting all retries."""
+    async def test_call_llm_max_retries_parameter_ignored(self, mud_config, mock_redis):
+        """Test _call_llm ignores max_retries parameter (kept for API compatibility)."""
         worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
         worker.chat_config = MagicMock()
 
-        # Mock LLM to always fail with retryable error
+        # Mock LLM to fail
         mock_llm = MagicMock()
         mock_llm.stream_turns = MagicMock(side_effect=ConnectionError("Network down"))
         worker._llm_provider = mock_llm
 
-        with patch("andimud_worker.worker.llm.is_retryable_error", return_value=True):
-            with patch("asyncio.sleep", new_callable=AsyncMock):
-                with pytest.raises(ConnectionError, match="Network down"):
-                    await worker._call_llm(
-                        [{"role": "user", "content": "Hi"}],
-                        max_retries=3
-                    )
+        with pytest.raises(ConnectionError, match="Network down"):
+            await worker._call_llm(
+                [{"role": "user", "content": "Hi"}],
+                max_retries=10  # Should be ignored
+            )
 
-        # Should try max_retries times
-        assert mock_llm.stream_turns.call_count == 3
+        # Should only try once, regardless of max_retries
+        assert mock_llm.stream_turns.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_call_llm_exponential_backoff(self, mud_config, mock_redis):
-        """Test _call_llm uses exponential backoff for retries."""
+    async def test_call_llm_logs_error_on_failure(self, mud_config, mock_redis):
+        """Test _call_llm logs error before re-raising."""
         worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
         worker.chat_config = MagicMock()
 
-        # Mock LLM to fail twice then succeed
-        call_count = [0]
-
-        def mock_stream(*args, **kwargs):
-            call_count[0] += 1
-            if call_count[0] <= 2:
-                raise ConnectionError("Timeout")
-            return iter(["Finally!"])
-
+        # Mock LLM to fail
         mock_llm = MagicMock()
-        mock_llm.stream_turns = mock_stream
+        mock_llm.stream_turns = MagicMock(side_effect=RuntimeError("Test error"))
         worker._llm_provider = mock_llm
 
-        with patch("andimud_worker.worker.llm.is_retryable_error", return_value=True):
-            with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
-                result = await worker._call_llm(
-                    [{"role": "user", "content": "Hi"}],
-                    max_retries=3
-                )
+        with patch("andimud_worker.worker.llm.logger") as mock_logger:
+            with pytest.raises(RuntimeError, match="Test error"):
+                await worker._call_llm([{"role": "user", "content": "Hi"}])
 
-        assert result == "Finally!"
-        assert call_count[0] == 3
-        assert mock_sleep.call_count == 2
-
-        # Check exponential backoff: 30s, 60s (capped at 120s)
-        delays = [call[0][0] for call in mock_sleep.call_args_list]
-        assert delays == [30, 60]
+            # Verify error was logged
+            mock_logger.error.assert_called_once()
+            assert "LLM call failed" in str(mock_logger.error.call_args)
 
 
 class TestMUDAgentWorkerStop:
@@ -774,8 +741,13 @@ class TestMUDAgentWorkerStart:
 
         async def turn_request_side_effect():
             call_count[0] += 1
+            # First call is from _announce_presence, return success
             if call_count[0] == 1:
+                return {}
+            # Second call is in loop, raise error
+            if call_count[0] == 2:
                 raise ValueError("Test error")
+            # Third+ calls should succeed and stop
             if call_count[0] >= 3:
                 worker.running = False
             return {}
@@ -800,7 +772,7 @@ class TestMUDAgentWorkerStart:
             await worker.start()
 
             # Verify worker continued after error
-            assert call_count[0] >= 2
+            assert call_count[0] >= 3
 
     @pytest.mark.asyncio
     async def test_start_processes_assigned_turn(self, mud_config, mock_redis):
@@ -903,7 +875,11 @@ class TestMUDAgentWorkerStart:
             # Verify turn state was set to done
             assert mock_set_state.call_count >= 2
             # Check that one of the calls was to set state to "done"
-            done_calls = [call for call in mock_set_state.call_args_list if call[0][1] == "done"]
+            # Note: _set_turn_request_state uses keyword args: (turn_id, status, ...)
+            done_calls = [
+                call for call in mock_set_state.call_args_list
+                if (len(call[0]) > 1 and call[0][1] == "done") or call.kwargs.get("status") == "done"
+            ]
             assert len(done_calls) >= 1
 
     @pytest.mark.asyncio
@@ -969,7 +945,11 @@ class TestMUDAgentWorkerStart:
             # Verify turn state was set to done
             assert mock_set_state.call_count >= 2
             # Check that one of the calls was to set state to "done"
-            done_calls = [call for call in mock_set_state.call_args_list if call[0][1] == "done"]
+            # Note: _set_turn_request_state uses keyword args: (turn_id, status, ...)
+            done_calls = [
+                call for call in mock_set_state.call_args_list
+                if (len(call[0]) > 1 and call[0][1] == "done") or call.kwargs.get("status") == "done"
+            ]
             assert len(done_calls) >= 1
 
     @pytest.mark.asyncio

@@ -29,6 +29,8 @@ def mock_redis():
     redis.hget = AsyncMock(return_value=None)
     redis.hset = AsyncMock(return_value=1)
     redis.get = AsyncMock(return_value=None)
+    redis.eval = AsyncMock(return_value=1)  # CAS success
+    redis.expire = AsyncMock(return_value=True)
     redis.aclose = AsyncMock()
     return redis
 
@@ -53,10 +55,11 @@ class TestCheckAbortRequested:
         result = await worker._check_abort_requested()
 
         assert result is True
-        # Should have set status to "aborted"
-        mock_redis.hset.assert_called_once()
-        call_kwargs = mock_redis.hset.call_args[1]
-        assert call_kwargs.get("mapping", {}).get("status") == "aborted"
+        # Should have called eval (Lua script) to set status to "aborted"
+        mock_redis.eval.assert_called_once()
+        # Check that the script was called with "aborted" status
+        call_args = mock_redis.eval.call_args[0]
+        assert "aborted" in str(call_args)
 
     @pytest.mark.asyncio
     async def test_check_abort_returns_false_when_status_is_in_progress(

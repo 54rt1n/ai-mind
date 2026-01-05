@@ -72,17 +72,29 @@ class RedisKeys:
 
         The turn request hash contains:
         - turn_id: Unique identifier for this turn
-        - status: Current state (assigned, in_progress, done, fail, abort_requested, aborted)
-        - reason: Why turn was triggered (events, idle, flush, clear, agent, choose)
+        - status: Current state (ready, assigned, in_progress, done, fail, crashed, abort_requested, aborted)
+        - reason: Why turn was assigned (events, retry, idle, flush, clear, agent, choose)
+        - status_reason: Why status changed (e.g., "Worker online", "Turn completed", "LLM call failed: TimeoutError")
         - event_count: Number of events in this turn
         - assigned_at: ISO timestamp when turn was assigned
         - heartbeat_at: ISO timestamp of last heartbeat
         - deadline_ms: Turn timeout in milliseconds
-        - message: Optional status message (for fail/aborted states)
+        - message: Optional error message (for fail/crashed states)
+        - attempt_count: Number of retry attempts (increments on each failure)
+        - next_attempt_at: ISO timestamp when to retry failed turn (empty if max attempts reached)
 
-        Status transitions:
-        - assigned -> in_progress -> done/fail
+        Status lifecycle:
+        - ready: Worker online and available
+        - assigned -> in_progress -> done (successful completion)
+        - in_progress -> fail (with next_attempt_at) -> assigned (retry after backoff)
+        - in_progress -> crashed (heartbeat stale >5min)
         - assigned/in_progress -> abort_requested -> aborted (user abort)
+        - done/aborted -> ready (worker ready for next turn)
+
+        Field disambiguation:
+        - reason: Why turn was assigned ("events", "retry", "agent", etc.)
+        - status_reason: Why status changed ("Worker online", "Turn completed", "LLM timeout", etc.)
+        - message: Error message (for "fail"/"crashed" statuses)
 
         Args:
             agent_id: Unique identifier for the agent.

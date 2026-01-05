@@ -63,6 +63,11 @@ class MUDConfig:
     turn_request_heartbeat_seconds: int = 20
     turn_request_poll_interval: float = 0.5
 
+    # LLM failure retry configuration
+    llm_failure_backoff_base_seconds: int = 30
+    llm_failure_backoff_max_seconds: int = 600  # 10 minutes
+    llm_failure_max_attempts: int = 3
+
     # Pause control (Redis key for pause flag)
     pause_key: str = field(init=False)
 

@@ -49,6 +49,7 @@ def mock_redis():
     redis.hkeys = AsyncMock(return_value=[])
     redis.hdel = AsyncMock(return_value=0)
     redis.expire = AsyncMock(return_value=True)
+    redis.eval = AsyncMock(return_value=1)  # Lua script success
     redis.aclose = AsyncMock()
     return redis
 
@@ -334,23 +335,31 @@ class TestMediatorEventRouting:
                 ]
             ).encode("utf-8")
         )
+        # Configure hgetall to return a turn_request with "ready" status so assignment can proceed
+        mock_redis.hgetall = AsyncMock(
+            return_value={
+                b"turn_id": b"prev-turn-123",
+                b"status": b"ready",
+            }
+        )
 
         data = {b"data": json.dumps(sample_speech_event).encode()}
         await mediator._process_event("1704096000000-0", data)
 
-        # Should be called twice: once for turn_request, once for events_processed
-        assert mock_redis.hset.call_count == 2
+        # Turn assignment now uses eval (Lua script for CAS pattern)
+        # Only hset call should be for events_processed
+        assert mock_redis.hset.call_count == 1
+        assert mock_redis.eval.call_count == 1
 
-        # First call should be for turn_request
-        first_call = mock_redis.hset.call_args_list[0]
-        assert first_call[0][0] == RedisKeys.agent_turn_request("andi")
-        mapping = first_call.kwargs.get("mapping") or first_call[0][1]
-        assert mapping["status"] == "assigned"
+        # eval call should be for turn_request assignment
+        eval_call = mock_redis.eval.call_args
+        # First argument after script is key count, second is the turn_request key
+        assert eval_call[0][2] == RedisKeys.agent_turn_request("andi")
 
-        # Second call should be for events_processed
-        second_call = mock_redis.hset.call_args_list[1]
-        assert second_call[0][0] == RedisKeys.EVENTS_PROCESSED
-        assert second_call[0][1] == "1704096000000-0"
+        # hset call should be for events_processed
+        hset_call = mock_redis.hset.call_args
+        assert hset_call[0][0] == RedisKeys.EVENTS_PROCESSED
+        assert hset_call[0][1] == "1704096000000-0"
 
         mock_redis.expire.assert_called_once_with(
             RedisKeys.agent_turn_request("andi"),

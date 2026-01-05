@@ -224,6 +224,8 @@ class MediatorService:
                 )
 
                 if not result:
+                    # No events, check agent states for retry/crash
+                    await self._check_agent_states()
                     continue
 
                 for stream_name, messages in result:
@@ -361,6 +363,52 @@ class MediatorService:
         # Mark event as processed with the target agent
         await self._mark_event_processed(msg_id, [target_agent] if target_agent else [])
 
+    async def _check_agent_states(self) -> None:
+        """Check agent states when no events arrive (XREAD timeout).
+
+        Checks for:
+        1. Failed turns past retry time -> trigger retry
+        2. Stale heartbeats (>5min) -> mark as crashed
+        """
+        for agent_id in self.registered_agents:
+            try:
+                turn_request = await self._get_turn_request(agent_id)
+                if not turn_request:
+                    continue
+
+                status = turn_request.get("status")
+
+                # Case 1: Failed turn ready to retry
+                if status == "fail":
+                    next_attempt_at_str = turn_request.get("next_attempt_at", "")
+                    if next_attempt_at_str:
+                        next_attempt_at = datetime.fromisoformat(next_attempt_at_str)
+                        if datetime.now(timezone.utc) >= next_attempt_at:
+                            logger.info(f"Retrying failed turn for {agent_id}")
+                            await self._maybe_assign_turn(agent_id, reason="retry")
+
+                # Case 2: Stale heartbeat (worker crashed)
+                elif status == "in_progress":
+                    heartbeat_at_str = turn_request.get("heartbeat_at", "")
+                    if heartbeat_at_str:
+                        heartbeat_at = datetime.fromisoformat(heartbeat_at_str)
+                        stale_seconds = (datetime.now(timezone.utc) - heartbeat_at).total_seconds()
+                        if stale_seconds > 300:  # 5 minutes
+                            logger.error(
+                                f"Worker {agent_id} crashed (no heartbeat for {stale_seconds:.0f}s)"
+                            )
+                            stale_duration = f"{int(stale_seconds // 60)}m{int(stale_seconds % 60)}s"
+                            await self.redis.hset(
+                                RedisKeys.agent_turn_request(agent_id),
+                                mapping={
+                                    "status": "crashed",
+                                    "status_reason": f"Heartbeat stale for {stale_duration}"
+                                }
+                            )
+            except Exception as e:
+                logger.error(f"Error checking state for {agent_id}: {e}", exc_info=True)
+                continue
+
     async def _mark_event_processed(
         self, msg_id: str, agents: list[str]
     ) -> None:
@@ -468,32 +516,102 @@ class MediatorService:
             result[str(k)] = str(v)
         return result
 
-    async def _maybe_assign_turn(self, agent_id: str, reason: str) -> bool:
-        """Assign a turn request if none is active.
+    async def _maybe_assign_turn(self, agent_id: str, reason: str = "events") -> bool:
+        """Assign turn if agent is available (including ready to retry).
 
         Returns:
-            True if turn was assigned, False if agent already has active turn.
+            True if turn was assigned, False if agent is busy/offline/crashed.
         """
         current = await self._get_turn_request(agent_id)
+
+        # No turn_request = worker offline
+        if not current:
+            logger.debug(f"Agent {agent_id} offline (no turn_request)")
+            return False
+
         status = current.get("status")
+
+        # Block crashed workers
+        if status == "crashed":
+            logger.debug(f"Agent {agent_id} crashed, not assigning")
+            return False
+
+        # Block if actively processing or being aborted
         if status in ("assigned", "in_progress", "abort_requested"):
             return False
 
-        turn_id = uuid.uuid4().hex
-        now = _utc_now().isoformat()
-        key = RedisKeys.agent_turn_request(agent_id)
-        payload = {
-            "turn_id": turn_id,
-            "status": "assigned",
-            "reason": reason,
-            "event_count": "1",
-            "assigned_at": now,
-            "heartbeat_at": now,
-            "deadline_ms": str(self.config.turn_request_ttl_seconds * 1000),
-        }
-        await self.redis.hset(key, mapping=payload)
-        await self.redis.expire(key, self.config.turn_request_ttl_seconds)
-        return True
+        # Check if failed turn ready to retry
+        if status == "fail":
+            next_attempt_at_str = current.get("next_attempt_at", "")
+            if next_attempt_at_str:
+                next_attempt_at = datetime.fromisoformat(next_attempt_at_str)
+                if datetime.now(timezone.utc) < next_attempt_at:
+                    # Still in backoff period
+                    return False
+            # Else: no next_attempt_at (max attempts) or past retry time, fall through to assign
+
+        # Available: status is "ready" or "fail" past retry time
+        # Create new turn assignment
+        turn_id = str(uuid.uuid4())
+        assigned_at = _utc_now().isoformat()
+        current_turn_id = current.get("turn_id", "")
+
+        # Preserve attempt_count if retrying a failed turn
+        attempt_count = "0"
+        if status == "fail":
+            attempt_count = current.get("attempt_count", "0")
+
+        # Use CAS pattern to atomically assign if state hasn't changed
+        lua_script = """
+            local key = KEYS[1]
+            local expected_turn_id = ARGV[1]
+            local expected_status = ARGV[2]
+
+            -- Check current state matches expectations
+            local current_turn_id = redis.call('HGET', key, 'turn_id')
+            local current_status = redis.call('HGET', key, 'status')
+
+            if current_turn_id ~= expected_turn_id or current_status ~= expected_status then
+                return 0  -- State changed, CAS failed
+            end
+
+            -- Atomically assign turn
+            redis.call('HSET', key, 'turn_id', ARGV[3])
+            redis.call('HSET', key, 'status', 'assigned')
+            redis.call('HSET', key, 'reason', ARGV[4])
+            redis.call('HSET', key, 'assigned_at', ARGV[5])
+            redis.call('HSET', key, 'heartbeat_at', ARGV[5])
+            redis.call('HSET', key, 'deadline_ms', ARGV[6])
+            redis.call('HSET', key, 'attempt_count', ARGV[7])
+
+            return 1  -- Success
+        """
+
+        result = await self.redis.eval(
+            lua_script,
+            1,  # number of keys
+            RedisKeys.agent_turn_request(agent_id),
+            current_turn_id or "",
+            status,
+            turn_id,
+            reason,
+            assigned_at,
+            str(self.config.turn_request_ttl_seconds * 1000),
+            attempt_count
+        )
+
+        if result == 1:
+            # CAS succeeded - set TTL
+            await self.redis.expire(
+                RedisKeys.agent_turn_request(agent_id),
+                self.config.turn_request_ttl_seconds
+            )
+            logger.info(f"Assigned turn to {agent_id} (reason={reason}, attempt={attempt_count})")
+            return True
+        else:
+            # CAS failed - state changed between check and assign
+            logger.debug(f"CAS failed for {agent_id}, state changed during assignment")
+            return False
 
     async def _agents_from_room_profile(self, room_id: str) -> list[str]:
         """Lookup agent_ids present in a room profile."""

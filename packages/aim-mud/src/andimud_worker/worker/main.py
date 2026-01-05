@@ -31,6 +31,7 @@ from aim.llm.models import LanguageModelV2
 from ..memory import MUDMemoryRetriever
 from ..conversation import MUDConversationManager
 from ..strategy import MUDDecisionStrategy, MUDResponseStrategy
+from datetime import timedelta
 
 # Import mixins
 from .profile import ProfileMixin
@@ -216,6 +217,9 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
         # Load agent profile state (last_event_id, etc.)
         await self._load_agent_profile()
 
+        # Announce worker presence
+        await self._announce_presence()
+
         logger.info(
             f"Worker initialized. Listening on stream: {self.config.agent_stream}"
         )
@@ -331,16 +335,70 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
                     await self._set_turn_request_state(turn_id, "aborted", message="Aborted by user")
                 except Exception as e:
                     logger.error(f"Error during assigned turn {turn_id}: {e}", exc_info=True)
-                    # Restore event position so next drain re-reads these events
+
+                    # Get current attempt count
+                    turn_request = await self._get_turn_request()
+                    attempt_count = int(turn_request.get("attempt_count", 0)) + 1
+
+                    # Calculate next retry time with exponential backoff
+                    if attempt_count < self.config.llm_failure_max_attempts:
+                        backoff = min(
+                            self.config.llm_failure_backoff_base_seconds * (2 ** (attempt_count - 1)),
+                            self.config.llm_failure_backoff_max_seconds
+                        )
+                        next_attempt_at = (_utc_now() + timedelta(seconds=backoff)).isoformat()
+                        logger.info(
+                            f"Turn {turn_id} failed (attempt {attempt_count}/{self.config.llm_failure_max_attempts}), "
+                            f"will retry in {backoff}s"
+                        )
+                    else:
+                        next_attempt_at = ""  # Max attempts reached
+                        logger.error(f"Turn {turn_id} failed after {attempt_count} attempts, giving up")
+
+                    # Restore event position for retry
                     if saved_last_event_id is not None:
                         self.session.last_event_id = saved_last_event_id
-                        logger.info("Restored last_event_id to %s for retry", saved_last_event_id)
-                    await self._set_turn_request_state(turn_id, "fail", message=str(e))
+                        logger.info(f"Restored last_event_id to {saved_last_event_id} for retry")
+
+                    # Set failure state with retry metadata (use CAS to ensure we're updating the right turn)
+                    error_type = type(e).__name__
+                    await self._set_turn_request_state(
+                        turn_id,
+                        "fail",
+                        message=str(e),
+                        extra_fields={
+                            "attempt_count": str(attempt_count),
+                            "next_attempt_at": next_attempt_at,
+                            "status_reason": f"LLM call failed: {error_type}"
+                        },
+                        expected_turn_id=turn_id  # CAS: only update if turn_id matches
+                    )
                 finally:
                     heartbeat_stop.set()
                     heartbeat_task.cancel()
                     with contextlib.suppress(asyncio.CancelledError):
                         await heartbeat_task
+
+                    # After turn completes (success or abort), return to ready
+                    if turn_id:  # Only if we actually processed a turn
+                        turn_request = await self._get_turn_request()
+                        if turn_request:
+                            status = turn_request.get("status")
+                            # Transition to ready if we completed or aborted (not if failed)
+                            if status == "done":
+                                await self._set_turn_request_state(
+                                    str(uuid.uuid4()),
+                                    "ready",
+                                    extra_fields={"status_reason": "Turn completed"},
+                                    expected_turn_id=turn_id
+                                )
+                            elif status == "aborted":
+                                await self._set_turn_request_state(
+                                    str(uuid.uuid4()),
+                                    "ready",
+                                    extra_fields={"status_reason": "Turn aborted"},
+                                    expected_turn_id=turn_id
+                                )
 
             except asyncio.CancelledError:
                 logger.info("Worker cancelled, shutting down...")
@@ -373,6 +431,25 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
         """
         value = await self.redis.get(self.config.pause_key)
         return value == b"1"
+
+    async def _announce_presence(self) -> None:
+        """Announce worker online with ready status.
+
+        Clears any crashed status and sets worker to ready state.
+        """
+        turn_request = await self._get_turn_request()
+
+        # Clear crashed status if present
+        if turn_request and turn_request.get("status") == "crashed":
+            logger.info("Clearing crashed status, worker is online")
+
+        # Set to ready
+        await self._set_turn_request_state(
+            turn_id=str(uuid.uuid4()),
+            status="ready",
+            extra_fields={"status_reason": "Worker online"}
+        )
+        logger.info(f"Worker {self.config.agent_id} announced as ready")
 
     async def _check_abort_requested(self) -> bool:
         """Check if current turn has abort requested.
@@ -430,24 +507,74 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
         turn_id: str,
         status: str,
         message: Optional[str] = None,
-    ) -> None:
-        """Update turn request state and refresh TTL.
+        extra_fields: Optional[dict] = None,
+        expected_turn_id: Optional[str] = None,
+    ) -> bool:
+        """Set turn request status with CAS pattern.
 
-        Originally from worker.py lines 581-601
+        Args:
+            turn_id: Turn ID to set
+            status: New status
+            message: Optional status message
+            extra_fields: Optional additional fields
+            expected_turn_id: If provided, only update if current turn_id matches (CAS)
+
+        Returns:
+            True if update succeeded, False if CAS check failed
         """
-        now = _utc_now().isoformat()
-        payload = {
-            "turn_id": turn_id,
-            "status": status,
-            "heartbeat_at": now,
-        }
+        key = self._turn_request_key()
+
+        # Use Lua script for atomic CAS
+        lua_script = """
+            local key = KEYS[1]
+            local expected_turn_id = ARGV[1]
+            local new_turn_id = ARGV[2]
+
+            -- If CAS check requested, verify current turn_id matches
+            if expected_turn_id ~= "" then
+                local current = redis.call('HGET', key, 'turn_id')
+                if current ~= expected_turn_id then
+                    return 0  -- CAS failed
+                end
+            end
+
+            -- Update fields (passed as key-value pairs starting at ARGV[3])
+            for i = 3, #ARGV, 2 do
+                redis.call('HSET', key, ARGV[i], ARGV[i+1])
+            end
+
+            return 1  -- Success
+        """
+
+        # Build field updates
+        fields = [
+            "turn_id", turn_id,
+            "status", status,
+            "heartbeat_at", _utc_now().isoformat()
+        ]
         if message:
-            payload["message"] = message
-        await self.redis.hset(self._turn_request_key(), mapping=payload)
-        await self.redis.expire(
-            self._turn_request_key(),
-            self.config.turn_request_ttl_seconds,
+            fields.extend(["message", message])
+        if extra_fields:
+            for k, v in extra_fields.items():
+                fields.extend([k, str(v)])
+
+        # Execute CAS update
+        result = await self.redis.eval(
+            lua_script,
+            1,  # number of keys
+            key,
+            expected_turn_id or "",  # Empty string = no CAS check
+            turn_id,
+            *fields
         )
+
+        if result == 1:
+            # Success - also update TTL
+            await self.redis.expire(key, self.config.turn_request_ttl_seconds)
+            return True
+        else:
+            logger.warning(f"CAS failed: expected turn_id {expected_turn_id}, update aborted")
+            return False
 
     async def _heartbeat_turn_request(self, stop_event: asyncio.Event) -> None:
         """Refresh the turn request TTL while processing a turn.

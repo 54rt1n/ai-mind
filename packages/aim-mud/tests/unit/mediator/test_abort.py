@@ -30,6 +30,7 @@ def mock_redis():
     redis.hexists = AsyncMock(return_value=False)
     redis.xadd = AsyncMock(return_value=b"1704096000000-0")
     redis.expire = AsyncMock(return_value=True)
+    redis.eval = AsyncMock(return_value=1)  # CAS success
     return redis
 
 
@@ -94,36 +95,40 @@ class TestMediatorMaybeAssignTurn:
         mock_redis.hset.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_maybe_assign_turn_allows_assignment_when_aborted(
+    async def test_maybe_assign_turn_allows_assignment_when_ready(
         self, mock_redis, mediator_config
     ):
-        """Test _maybe_assign_turn allows assignment when status is aborted."""
+        """Test _maybe_assign_turn allows assignment when status is ready."""
         mediator = MediatorService(mock_redis, mediator_config)
 
-        # Mock turn_request with aborted status
+        # Mock turn_request with ready status (worker completed turn and returned to ready)
         mock_redis.hgetall = AsyncMock(return_value={
-            b"status": b"aborted",
-            b"turn_id": b"old_aborted_turn"
+            b"status": b"ready",
+            b"turn_id": b"previous_turn"
         })
 
         result = await mediator._maybe_assign_turn("test_agent", reason="events")
 
         assert result is True
-        # Should call hset to assign new turn
-        mock_redis.hset.assert_called_once()
-        call_kwargs = mock_redis.hset.call_args[1]
-        mapping = call_kwargs.get("mapping", {})
-        assert mapping.get("status") == "assigned"
-        assert mapping.get("reason") == "events"
+        # Should call eval (Lua script) to assign new turn with CAS
+        mock_redis.eval.assert_called_once()
+        call_args = mock_redis.eval.call_args[0]
+        # Check that script was called with "assigned" status
+        assert "assigned" in str(call_args)
 
     @pytest.mark.asyncio
     async def test_maybe_assign_turn_allows_assignment_when_done(
         self, mock_redis, mediator_config
     ):
-        """Test _maybe_assign_turn allows assignment when status is done."""
+        """Test _maybe_assign_turn allows assignment when status is done (edge case).
+
+        In the new architecture, workers transition done->ready in the finally block.
+        However, there's a brief moment where status might be "done" before the transition.
+        The mediator allows assignment in this case (status is not actively blocked).
+        """
         mediator = MediatorService(mock_redis, mediator_config)
 
-        # Mock turn_request with done status
+        # Mock turn_request with done status (worker hasn't transitioned to ready yet)
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"done",
             b"turn_id": b"completed_turn"
@@ -131,25 +136,23 @@ class TestMediatorMaybeAssignTurn:
 
         result = await mediator._maybe_assign_turn("test_agent", reason="events")
 
+        # Technically allowed (not in blocked list), though workers should transition to "ready"
         assert result is True
-        # Should call hset to assign new turn
-        mock_redis.hset.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_maybe_assign_turn_allows_assignment_when_no_turn(
+    async def test_maybe_assign_turn_returns_false_when_no_turn(
         self, mock_redis, mediator_config
     ):
-        """Test _maybe_assign_turn allows assignment when no turn_request exists."""
+        """Test _maybe_assign_turn returns False when no turn_request exists (worker offline)."""
         mediator = MediatorService(mock_redis, mediator_config)
 
-        # Mock empty turn_request
+        # Mock empty turn_request (worker never announced presence)
         mock_redis.hgetall = AsyncMock(return_value={})
 
         result = await mediator._maybe_assign_turn("test_agent", reason="events")
 
-        assert result is True
-        # Should call hset to assign new turn
-        mock_redis.hset.assert_called_once()
+        # Should return False - no turn_request means worker offline
+        assert result is False
 
     @pytest.mark.asyncio
     async def test_maybe_assign_turn_handles_string_keys(
@@ -226,10 +229,10 @@ class TestMediatorAbortEventProcessing:
                 pytest.fail("Turn request should not be assigned when status is abort_requested")
 
     @pytest.mark.asyncio
-    async def test_process_event_assigns_turn_after_abort_completed(
+    async def test_process_event_assigns_turn_after_worker_ready(
         self, mock_redis, mediator_config
     ):
-        """Test mediator can assign turn after abort completes (status=aborted)."""
+        """Test mediator can assign turn when worker is ready (completed abort and returned to ready)."""
         mediator = MediatorService(mock_redis, mediator_config)
         mediator.register_agent("test_agent")
 
@@ -245,9 +248,9 @@ class TestMediatorAbortEventProcessing:
             ]).encode("utf-8")
         )
 
-        # Mock turn_request with aborted status (abort completed)
+        # Mock turn_request with ready status (worker completed abort and returned to ready)
         mock_redis.hgetall = AsyncMock(return_value={
-            b"status": b"aborted",
+            b"status": b"ready",
             b"turn_id": b"old_abort_turn"
         })
 
@@ -264,17 +267,14 @@ class TestMediatorAbortEventProcessing:
         data = {b"data": json.dumps(sample_event).encode()}
         await mediator._process_event("1704096000001-0", data)
 
-        # Should assign new turn since status is aborted
-        hset_calls = mock_redis.hset.call_args_list
-        turn_request_calls = [
-            call for call in hset_calls
-            if RedisKeys.agent_turn_request("test_agent") == call[0][0]
-        ]
-        assert len(turn_request_calls) >= 1
+        # Should assign new turn since status is ready (using Lua script/eval)
+        eval_calls = mock_redis.eval.call_args_list
+        # Check that eval was called (for CAS turn assignment)
+        assert len(eval_calls) >= 1
 
-        # Verify new turn was assigned
-        mapping = turn_request_calls[0][1].get("mapping", {})
-        assert mapping.get("status") == "assigned"
+        # Verify the script was called with "assigned" status
+        call_args = eval_calls[0][0]
+        assert "assigned" in str(call_args)
 
 
 if __name__ == "__main__":
