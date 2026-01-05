@@ -302,6 +302,8 @@ def rebuild_index(co: ContextObject, agent_id: Optional[str], all_agents: bool, 
         # Legacy: rebuild global index
         python -m aim.app.cli rebuild-index --conversations-dir memory/conversations --index-dir memory/indices
     """
+    from aim.conversation.utils import rebuild_agent_index
+
     def _discover_agents() -> list[str]:
         """Discover all agent directories under memory/"""
         memory_base = Path("memory")
@@ -315,8 +317,32 @@ def rebuild_index(co: ContextObject, agent_id: Optional[str], all_agents: bool, 
                     agents.append(d.name)
         return sorted(agents)
 
-    def _rebuild_for_paths(conv_dir: str, idx_dir: str, label: str) -> None:
-        """Rebuild index for given paths"""
+    def _show_stats(result: dict, label: str) -> None:
+        """Display rebuild statistics"""
+        mode = result["mode"]
+
+        if mode == "full":
+            click.echo(f"[{label}] Full index rebuild complete!")
+            click.echo(f"[{label}] Total messages: {result['total_messages']}")
+        else:
+            click.echo(f"[{label}] Incremental update complete!")
+            click.echo(f"[{label}]   Added: {result['added']} documents")
+            click.echo(f"[{label}]   Updated: {result['updated']} documents")
+            click.echo(f"[{label}]   Deleted: {result['deleted']} documents")
+
+            if result['added'] == 0 and result['updated'] == 0 and result['deleted'] == 0:
+                click.echo(f"[{label}] Index was already up to date!")
+
+        # Show chunk level stats
+        chunk_stats = result["chunk_stats"]
+        click.echo("\nChunk Level Statistics:")
+        click.echo(f"  Parent documents: {chunk_stats['full']}")
+        click.echo(f"  768-token chunks: {chunk_stats['768']}")
+        click.echo(f"  256-token chunks: {chunk_stats['256']}")
+        click.echo(f"  Total entries: {result['total_entries']}")
+
+    def _rebuild_for_paths_legacy(conv_dir: str, idx_dir: str, label: str) -> None:
+        """Legacy rebuild for custom paths (not agent-scoped)"""
         loader = ConversationLoader(conv_dir)
         index_path = Path(idx_dir)
 
@@ -407,27 +433,42 @@ def rebuild_index(co: ContextObject, agent_id: Optional[str], all_agents: bool, 
                 raise click.Abort()
             click.echo(f"Discovered {len(agents)} agents: {', '.join(agents)}")
             for agent in agents:
-                conv_dir = f"memory/{agent}/conversations"
-                idx_dir = f"memory/{agent}/indices"
-                _rebuild_for_paths(conv_dir, idx_dir, agent)
+                click.echo(f"\nRebuilding index for {agent}...")
+                result = rebuild_agent_index(
+                    agent_id=agent,
+                    embedding_model=co.config.embedding_model,
+                    device=device,
+                    batch_size=batch_size,
+                    full=full
+                )
+                _show_stats(result, agent)
             click.echo(f"\nCompleted rebuild for {len(agents)} agents.")
             return
 
-        # Resolve paths from --agent-id or explicit options
+        # Handle --agent-id: use new utils-based rebuild
+        if agent_id and conversations_dir is None and index_dir is None:
+            click.echo(f"Rebuilding index for {agent_id}...")
+            result = rebuild_agent_index(
+                agent_id=agent_id,
+                embedding_model=co.config.embedding_model,
+                device=device,
+                batch_size=batch_size,
+                full=full
+            )
+            _show_stats(result, agent_id)
+            return
+
+        # Legacy path handling: custom conversations-dir and index-dir
         if conversations_dir is None and index_dir is None:
-            if agent_id:
-                conversations_dir = f"memory/{agent_id}/conversations"
-                index_dir = f"memory/{agent_id}/indices"
-            else:
-                # Legacy default: global paths
-                conversations_dir = "memory/conversations"
-                index_dir = "memory/indices"
+            # Legacy default: global paths
+            conversations_dir = "memory/conversations"
+            index_dir = "memory/indices"
         elif conversations_dir is None or index_dir is None:
             click.echo("Must specify both --conversations-dir and --index-dir, or use --agent-id", err=True)
             raise click.Abort()
 
-        label = agent_id or "global"
-        _rebuild_for_paths(conversations_dir, index_dir, label)
+        label = "global"
+        _rebuild_for_paths_legacy(conversations_dir, index_dir, label)
 
     except Exception as e:
         click.echo(f"Error rebuilding index: {e}", err=True)
