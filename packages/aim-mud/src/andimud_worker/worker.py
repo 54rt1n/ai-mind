@@ -1333,7 +1333,9 @@ class MUDAgentWorker:
                     continue
 
         if not isinstance(parsed, dict):
-            return None, {}, "Could not parse JSON"
+            # Include truncated response in error for debugging
+            preview = text[:200] + "..." if len(text) > 200 else text
+            return None, {}, f"Could not parse JSON: {preview}"
 
         # Preferred format: {"action": "<name>", ...}
         if "action" in parsed:

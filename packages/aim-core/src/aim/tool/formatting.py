@@ -166,9 +166,11 @@ class ToolUser:
         # Extract tool call
         tool_call = self._extract_tool_call(response)
         if not tool_call:
+            # Include truncated response in error for debugging
+            preview = response[:200] + "..." if len(response) > 200 else response
             return ToolCallResult(
                 is_valid=False,
-                error="Could not extract valid JSON tool call from response",
+                error=f"Could not extract valid JSON tool call from response: {preview}",
             )
 
         # Basic structure validation - should be a dict with exactly one key

@@ -447,6 +447,14 @@ class MUDConversationManager:
 
         return total
 
+    async def get_entry_count(self) -> int:
+        """Get the number of entries in the conversation list.
+
+        Returns:
+            Number of entries.
+        """
+        return await self.redis.llen(self.key)
+
     async def clear(self) -> None:
         """Clear the conversation list.
 
