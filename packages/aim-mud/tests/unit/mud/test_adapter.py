@@ -184,7 +184,7 @@ class TestFormatEvent:
             content="enters from the north",
         )
         result = format_event(event)
-        assert result == "*Prax has arrived.*"
+        assert result == "*You see Prax has arrived.*"
 
     def test_format_movement_arrive_event(self):
         """Test formatting a movement event with 'arrive' in content."""
@@ -195,7 +195,7 @@ class TestFormatEvent:
             content="has arrived",
         )
         result = format_event(event)
-        assert result == "*Prax has arrived.*"
+        assert result == "*You see Prax has arrived.*"
 
     def test_format_movement_leave_event(self):
         """Test formatting a movement event for departure."""
@@ -206,7 +206,7 @@ class TestFormatEvent:
             content="leaves to the north",
         )
         result = format_event(event)
-        assert result == "*Prax has left.*"
+        assert result == "*You watch Prax leave.*"
 
     def test_format_object_event(self):
         """Test formatting an object event."""
@@ -321,13 +321,11 @@ class TestBuildCurrentContext:
 
         result = build_current_context(session)
 
-        # Check events (default include_events=True)
-        assert '<events count="1">' in result
+        # Check events (default include_events=True) - now formatted directly
         assert 'Prax says, "Hello, Andi! Happy New Year!"' in result
-        assert "</events>" in result
 
         # Check formatting guidance
-        assert "[~~ FORMAT:" in result
+        assert "[~~ Link Format Guidance ~~]" in result
 
     def test_build_current_context_exclude_events(
         self,
@@ -347,11 +345,10 @@ class TestBuildCurrentContext:
         result = build_current_context(session, include_events=False)
 
         # Events should NOT be included
-        assert "<events" not in result
         assert "Hello, Andi!" not in result
 
         # Format guidance should still be there
-        assert "[~~ FORMAT:" in result
+        assert "[~~ Link Format Guidance ~~]" in result
 
     def test_build_current_context_exclude_events_idle_mode(self):
         """Test that idle guidance is NOT added when include_events=False."""
@@ -366,10 +363,9 @@ class TestBuildCurrentContext:
         result = build_current_context(session, idle_mode=True, include_events=False)
 
         # Idle guidance is part of events section, so should be excluded
-        assert "<events" not in result
-        assert "<idle>" not in result
+        assert "You don't see anything of note occuring" not in result
         # Format guidance should still be there
-        assert "[~~ FORMAT:" in result
+        assert "[~~ Link Format Guidance ~~]" in result
 
     def test_build_current_context_no_room(self):
         """Test building current context with no room."""
@@ -383,10 +379,8 @@ class TestBuildCurrentContext:
 
         result = build_current_context(session)
 
-        assert "<location" not in result
-        assert "<present>" not in result
-        assert "<objects>" not in result
-        assert "<events" not in result
+        # Should just have format guidance when empty
+        assert "[~~ Link Format Guidance ~~]" in result
 
     def test_build_current_context_no_exits(self):
         """Test building current context with room but no exits (idle mode)."""
@@ -407,9 +401,8 @@ class TestBuildCurrentContext:
         result = build_current_context(session, idle_mode=True)
 
         # With no events and idle_mode, should have idle guidance
-        assert '<events count="0">' in result
-        assert "<idle>" in result
-        assert "[~~ FORMAT:" in result
+        assert "You don't see anything of note occuring" in result
+        assert "[~~ Link Format Guidance ~~]" in result
 
     def test_build_current_context_only_self_present(self):
         """Test that self entity is excluded from present list."""

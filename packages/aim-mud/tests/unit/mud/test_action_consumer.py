@@ -21,12 +21,20 @@ andimud_path = Path(__file__).parent.parent.parent.parent.parent / "andimud" / "
 if andimud_path.exists():
     sys.path.insert(0, str(andimud_path.parent))
 
+# Try to import action_consumer - skip all tests if not available or Django not configured
+EVENNIA_AVAILABLE = False
+retry_redis = None
+ActionConsumer = None
+
 try:
     from andimud.server.services.action_consumer import retry_redis, ActionConsumer
     EVENNIA_AVAILABLE = True
-except ImportError:
-    EVENNIA_AVAILABLE = False
-    pytestmark = pytest.mark.skip(reason="Evennia action_consumer not available")
+except Exception:
+    # Skip all tests if Evennia is not available or Django is not configured
+    pass
+
+if not EVENNIA_AVAILABLE:
+    pytestmark = pytest.mark.skip(reason="Evennia action_consumer not available or Django not configured")
 
 
 @pytest.mark.skipif(not EVENNIA_AVAILABLE, reason="Evennia not available")

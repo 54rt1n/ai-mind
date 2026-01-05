@@ -132,7 +132,7 @@ class TestMUDAgentWorkerInitLLMProvider:
         mock_chat_config.default_model = "nonexistent-model-xyz"
         worker.chat_config = mock_chat_config
 
-        with patch("andimud_worker.worker.LanguageModelV2.index_models") as mock_index:
+        with patch("andimud_worker.worker.main.LanguageModelV2.index_models") as mock_index:
             mock_index.return_value = {"valid-model": MagicMock()}
 
             with pytest.raises(ValueError, match="nonexistent-model-xyz not available"):
@@ -177,7 +177,7 @@ class TestMUDAgentWorkerCallLLM:
         mock_llm.stream_turns = mock_stream
         worker._llm_provider = mock_llm
 
-        with patch("andimud_worker.worker.is_retryable_error", return_value=True):
+        with patch("andimud_worker.worker.llm.is_retryable_error", return_value=True):
             with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
                 result = await worker._call_llm(
                     [{"role": "user", "content": "Hi"}],
@@ -201,7 +201,7 @@ class TestMUDAgentWorkerCallLLM:
         mock_llm.stream_turns = MagicMock(side_effect=ValueError("Invalid input"))
         worker._llm_provider = mock_llm
 
-        with patch("andimud_worker.worker.is_retryable_error", return_value=False):
+        with patch("andimud_worker.worker.llm.is_retryable_error", return_value=False):
             with pytest.raises(ValueError, match="Invalid input"):
                 await worker._call_llm([{"role": "user", "content": "Hi"}])
 
@@ -219,7 +219,7 @@ class TestMUDAgentWorkerCallLLM:
         mock_llm.stream_turns = MagicMock(side_effect=ConnectionError("Network down"))
         worker._llm_provider = mock_llm
 
-        with patch("andimud_worker.worker.is_retryable_error", return_value=True):
+        with patch("andimud_worker.worker.llm.is_retryable_error", return_value=True):
             with patch("asyncio.sleep", new_callable=AsyncMock):
                 with pytest.raises(ConnectionError, match="Network down"):
                     await worker._call_llm(
@@ -249,7 +249,7 @@ class TestMUDAgentWorkerCallLLM:
         mock_llm.stream_turns = mock_stream
         worker._llm_provider = mock_llm
 
-        with patch("andimud_worker.worker.is_retryable_error", return_value=True):
+        with patch("andimud_worker.worker.llm.is_retryable_error", return_value=True):
             with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
                 result = await worker._call_llm(
                     [{"role": "user", "content": "Hi"}],
@@ -705,9 +705,9 @@ class TestMUDAgentWorkerStart:
             return {}
 
         with patch(
-            "andimud_worker.worker.ConversationModel"
+            "andimud_worker.worker.main.ConversationModel"
         ) as mock_cvm_class, patch(
-            "andimud_worker.worker.Roster"
+            "andimud_worker.worker.main.Roster"
         ) as mock_roster_class, patch.object(
             worker, "_init_llm_provider"
         ), patch.object(
@@ -745,9 +745,9 @@ class TestMUDAgentWorkerStart:
         worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
 
         with patch(
-            "andimud_worker.worker.ConversationModel"
+            "andimud_worker.worker.main.ConversationModel"
         ) as mock_cvm_class, patch(
-            "andimud_worker.worker.Roster"
+            "andimud_worker.worker.main.Roster"
         ) as mock_roster_class, patch(
             "asyncio.sleep", new_callable=AsyncMock
         ) as mock_sleep, patch.object(
@@ -781,9 +781,9 @@ class TestMUDAgentWorkerStart:
             return {}
 
         with patch(
-            "andimud_worker.worker.ConversationModel"
+            "andimud_worker.worker.main.ConversationModel"
         ) as mock_cvm_class, patch(
-            "andimud_worker.worker.Roster"
+            "andimud_worker.worker.main.Roster"
         ) as mock_roster_class, patch.object(
             worker, "_init_llm_provider"
         ), patch.object(
@@ -808,9 +808,9 @@ class TestMUDAgentWorkerStart:
         worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
 
         with patch(
-            "andimud_worker.worker.ConversationModel"
+            "andimud_worker.worker.main.ConversationModel"
         ) as mock_cvm_class, patch(
-            "andimud_worker.worker.Roster"
+            "andimud_worker.worker.main.Roster"
         ) as mock_roster_class, patch.object(
             worker, "_init_llm_provider"
         ), patch.object(
@@ -860,9 +860,9 @@ class TestMUDAgentWorkerStart:
         ]
 
         with patch(
-            "andimud_worker.worker.ConversationModel"
+            "andimud_worker.worker.main.ConversationModel"
         ) as mock_cvm_class, patch(
-            "andimud_worker.worker.Roster"
+            "andimud_worker.worker.main.Roster"
         ) as mock_roster_class, patch.object(
             worker, "_init_llm_provider"
         ), patch.object(
@@ -926,9 +926,9 @@ class TestMUDAgentWorkerStart:
         ]
 
         with patch(
-            "andimud_worker.worker.ConversationModel"
+            "andimud_worker.worker.main.ConversationModel"
         ) as mock_cvm_class, patch(
-            "andimud_worker.worker.Roster"
+            "andimud_worker.worker.main.Roster"
         ) as mock_roster_class, patch.object(
             worker, "_init_llm_provider"
         ), patch.object(
@@ -978,9 +978,9 @@ class TestMUDAgentWorkerStart:
         worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
 
         with patch(
-            "andimud_worker.worker.ConversationModel"
+            "andimud_worker.worker.main.ConversationModel"
         ) as mock_cvm_class, patch(
-            "andimud_worker.worker.Roster"
+            "andimud_worker.worker.main.Roster"
         ) as mock_roster_class, patch.object(
             worker, "_init_llm_provider"
         ), patch.object(
@@ -1023,7 +1023,7 @@ class TestRunWorker:
     async def test_run_worker_creates_client_and_starts(self, mud_config):
         """Test that run_worker creates Redis client and starts worker."""
         with patch("redis.asyncio.from_url") as mock_from_url, patch(
-            "andimud_worker.worker.MUDAgentWorker"
+            "andimud_worker.worker.main.MUDAgentWorker"
         ) as mock_worker_class:
             mock_redis = AsyncMock()
             mock_from_url.return_value = mock_redis
@@ -1052,7 +1052,7 @@ class TestRunWorker:
     async def test_run_worker_passes_chat_config(self, mud_config):
         """Test that run_worker passes chat_config to worker when provided."""
         with patch("redis.asyncio.from_url") as mock_from_url, patch(
-            "andimud_worker.worker.MUDAgentWorker"
+            "andimud_worker.worker.main.MUDAgentWorker"
         ) as mock_worker_class:
             mock_redis = AsyncMock()
             mock_from_url.return_value = mock_redis

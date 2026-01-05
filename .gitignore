@@ -5,3 +5,9 @@ __pycache__
 poetry.lock
 yarn.lock
 .vscode
+/andimud
+/boneh
+CLAUDE.md
+uv.lock
+/.claude
+/.cursor
