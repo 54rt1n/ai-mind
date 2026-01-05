@@ -37,7 +37,7 @@
                     <button
                         class="control-button"
                         type="button"
-                        on:click={chatStore.saveConversation}
+                        on:click={() => chatStore.saveConversation($configStore.persona_id || '')}
                         disabled={$chatStore.loading}
                     >
                         Save Conversation

@@ -8,7 +8,7 @@ import uuid
 import json
 import asyncio
 import logging
-from typing import AsyncGenerator, Optional
+from typing import AsyncGenerator, Optional, Callable
 
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -85,15 +85,14 @@ class ModelClasses:
 
 
 class ChatModule:
-    def __init__(self, config: ChatConfig, security: HTTPBearer, shared_roster: Roster):
+    def __init__(self, config: ChatConfig, security: HTTPBearer, get_chat_manager: Callable[[str], ChatManager], shared_roster: Roster):
         self.router = APIRouter(prefix="/v1/chat", tags=["chat"])
         self.security = security
         self.config = config
+        self.get_chat_manager = get_chat_manager
         self.shared_roster = shared_roster
-        self.chat = ChatManager.from_config_with_roster(config, shared_roster)
-        self.chat_strategy = chat_strategy_for("xmlmemory", self.chat)
         self.models = LanguageModelV2.index_models(self.config)
-        
+
         self.setup_routes()
 
     def setup_routes(self):
@@ -153,50 +152,53 @@ class ChatModule:
 
         metadata = request.metadata
 
-        if metadata.persona_id is None or metadata.persona_id not in self.chat.roster.personas:
-            logger.error(f"Persona {metadata.persona_id} not found. Available personas: {list(self.chat.roster.personas.keys())}")
-            logger.error(f"Roster object ID: {id(self.chat.roster)}")
+        if metadata.persona_id is None or metadata.persona_id not in self.shared_roster.personas:
+            logger.error(f"Persona {metadata.persona_id} not found. Available personas: {list(self.shared_roster.personas.keys())}")
             raise HTTPException(status_code=400, detail=f"Invalid persona: {metadata.persona_id}")
 
         if metadata.user_id is None or metadata.user_id == "":
             raise HTTPException(status_code=400, detail="No user ID provided")
 
+        # Get persona-specific ChatManager
+        chat = self.get_chat_manager(metadata.persona_id)
+        chat_strategy = chat_strategy_for("xmlmemory", chat)
+
         if metadata.active_document is not None:
             logger.info(f"Found active document: {metadata.active_document}")
-            self.chat.current_document = metadata.active_document
+            chat.current_document = metadata.active_document
         else:
             logger.info("No active document found")
-            self.chat.current_document = None
+            chat.current_document = None
 
         if metadata.workspace_content is not None:
             logger.info(f"Found workspace content: {len(metadata.workspace_content)}")
-            self.chat.current_workspace = metadata.workspace_content
+            chat.current_workspace = metadata.workspace_content
         else:
             logger.info("No workspace content found")
-            self.chat.current_workspace = None
+            chat.current_workspace = None
 
         if metadata.pinned_messages:
             logger.info(f"Pinned messages: {metadata.pinned_messages}")
-            self.chat_strategy.clear_pinned()
+            chat_strategy.clear_pinned()
             for doc_id in metadata.pinned_messages:
-                self.chat_strategy.pin_message(doc_id)
+                chat_strategy.pin_message(doc_id)
         else:
             logger.info("Clearing pinned messages")
-            self.chat_strategy.clear_pinned()
+            chat_strategy.clear_pinned()
 
         if metadata.thought_content:
             logger.info(f"Found thought content: {len(metadata.thought_content)}")
-            self.chat_strategy.thought_content = metadata.thought_content
+            chat_strategy.thought_content = metadata.thought_content
         else:
             logger.info("No thought content found")
-            self.chat_strategy.thought_content = None
+            chat_strategy.thought_content = None
 
         if metadata.scratch_pad:
             logger.info(f"Found scratch pad: {len(metadata.scratch_pad)}")
-            self.chat_strategy.scratch_pad = metadata.scratch_pad
+            chat_strategy.scratch_pad = metadata.scratch_pad
         else:
             logger.info("No scratch pad found")
-            self.chat_strategy.scratch_pad = None
+            chat_strategy.scratch_pad = None
 
         self.config.user_id = metadata.user_id
         self.config.persona_id = metadata.persona_id
@@ -204,7 +206,7 @@ class ChatModule:
         self.config.max_tokens = request.max_tokens or self.config.max_tokens
         self.config.repetition = request.repetition_penalty
 
-        persona = self.chat.roster.personas[metadata.persona_id]
+        persona = self.shared_roster.personas[metadata.persona_id]
 
         system_formatter = XmlFormatter()
 
@@ -233,7 +235,7 @@ class ChatModule:
         user_turn = request.messages[-1].model_dump()['content']
         messages = [msg.model_dump() for msg in request.messages[:-1]]
 
-        prepared_messages = self.chat_strategy.chat_turns_for(persona=persona, user_input=user_turn, history=messages, content_len=content_len, max_context_tokens=selected_model.max_tokens, max_output_tokens=min(self.config.max_tokens, selected_model.max_output_tokens))
+        prepared_messages = chat_strategy.chat_turns_for(persona=persona, user_input=user_turn, history=messages, content_len=content_len, max_context_tokens=selected_model.max_tokens, max_output_tokens=min(self.config.max_tokens, selected_model.max_output_tokens))
 
         logger.info(f"Processing Length: {sum([word_count(v) for e in prepared_messages for k, v in e.items() if k == 'content'])}")
 

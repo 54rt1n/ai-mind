@@ -117,8 +117,15 @@
     }
 
     async function loadConversation() {
+        const persona_id = $configStore.persona_id;
+        if (!persona_id) {
+            error = "No persona selected. Please select a persona from the roster.";
+            loading = false;
+            return;
+        }
+
         try {
-            const response = await api.getConversation(conversationId);
+            const response = await api.getConversation(persona_id, conversationId);
             conversation = response.data;
             loading = false;
         } catch (e) {
@@ -129,8 +136,14 @@
 
     async function deleteConversation() {
         if (confirm("Are you sure you want to delete this conversation?")) {
+            const persona_id = $configStore.persona_id;
+            if (!persona_id) {
+                error = "No persona selected";
+                return;
+            }
+
             try {
-                await api.deleteConversation(conversationId);
+                await api.deleteConversation(persona_id, conversationId);
                 await goto("/chat-matrix");
             } catch (e) {
                 error = "Failed to delete conversation";
@@ -208,8 +221,14 @@
     }
 
     async function handleCreateMessage(event: CustomEvent<{ message: Partial<ChatMessage> }>) {
+        const persona_id = $configStore.persona_id;
+        if (!persona_id) {
+            alert('No persona selected');
+            return;
+        }
+
         try {
-            await api.createMessage(event.detail.message);
+            await api.createMessage(persona_id, event.detail.message);
             await loadConversation();
             showCreateModal = false;
         } catch (error) {
@@ -221,8 +240,15 @@
     async function handleSave({ detail }: CustomEvent<{ content: string }>) {
         if (!editingMessageId) return;
 
+        const persona_id = $configStore.persona_id;
+        if (!persona_id) {
+            error = "No persona selected";
+            return;
+        }
+
         try {
             await api.updateMessage(
+                persona_id,
                 conversationId,
                 editingMessageId,
                 detail.content,
@@ -240,8 +266,14 @@
             return;
         }
 
+        const persona_id = $configStore.persona_id;
+        if (!persona_id) {
+            alert('No persona selected');
+            return;
+        }
+
         try {
-            await api.deleteMessage(conversationId, docId);
+            await api.deleteMessage(persona_id, conversationId, docId);
             conversation = conversation.filter((msg) => msg.doc_id !== docId);
             filteredConversation = filteredConversation.filter(
                 (msg) => msg.doc_id !== docId,

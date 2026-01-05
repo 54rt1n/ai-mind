@@ -25,11 +25,17 @@
     async function handleSearch() {
         if (!searchQuery.trim()) return;
 
+        const persona_id = $configStore.persona_id;
+        if (!persona_id) {
+            error = "No persona selected. Please select a persona from the roster.";
+            return;
+        }
+
         loading = true;
         error = null;
 
         try {
-            const response = await api.searchConversations(searchQuery, topN, documentType);
+            const response = await api.searchConversations(persona_id, searchQuery, topN, documentType);
             searchResults = response.results;
         } catch (e) {
             error = "Failed to perform search";
@@ -75,6 +81,16 @@ function handleTogglePin(message: ChatMessage) {
 
 <main>
     <h1>Search Conversations</h1>
+
+    {#if $configStore.persona_id}
+        <div class="persona-info">
+            Searching in: <strong>{$configStore.persona}</strong> ({$configStore.persona_id})
+        </div>
+    {:else}
+        <div class="persona-warning">
+            No persona selected. Please select a persona from the roster.
+        </div>
+    {/if}
 
     <div class="filter-ribbon">
         <input
@@ -199,6 +215,23 @@ function handleTogglePin(message: ChatMessage) {
 
     .filter-ribbon select {
         min-width: 120px;
+    }
+
+    .persona-info {
+        background-color: #e8f4f8;
+        border-left: 4px solid #4CAF50;
+        padding: 10px;
+        margin-bottom: 20px;
+        border-radius: 4px;
+    }
+
+    .persona-warning {
+        background-color: #fff3cd;
+        border-left: 4px solid #ffc107;
+        padding: 10px;
+        margin-bottom: 20px;
+        border-radius: 4px;
+        color: #856404;
     }
 </style>
 

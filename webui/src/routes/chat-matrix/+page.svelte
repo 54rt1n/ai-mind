@@ -2,7 +2,8 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { api } from "$lib/api";
-    import { ArrowUp, ArrowDown } from "lucide-svelte";
+    import { configStore } from "$lib/store/configStore";
+    import { ArrowUp, ArrowDown, RefreshCw } from "lucide-svelte";
     import { writable } from "svelte/store";
 
     const sortColumn = writable<string | null>(null);
@@ -10,10 +11,18 @@
     let matrixData: Record<string, Record<string, number>> = {};
     let loading = true;
     let error: string | null = null;
+    let rebuildLoading = false;
 
     onMount(async () => {
+        const persona_id = $configStore.persona_id;
+        if (!persona_id) {
+            error = "No persona selected. Please select a persona from the roster.";
+            loading = false;
+            return;
+        }
+
         try {
-            const response = await api.getChatMatrix();
+            const response = await api.getChatMatrix(persona_id);
             matrixData = response.data;
             loading = false;
         } catch (e) {
@@ -92,6 +101,28 @@
             second: "2-digit",
         });
     }
+
+    async function handleRebuildIndex() {
+        const persona_id = $configStore.persona_id;
+        if (!persona_id) {
+            error = "No persona selected. Please select a persona from the roster.";
+            return;
+        }
+
+        if (!confirm(`Rebuild index for ${$configStore.persona}? This may take a few moments.`)) {
+            return;
+        }
+
+        rebuildLoading = true;
+        try {
+            const result = await api.rebuildIndex(persona_id, false);
+            alert(`Index rebuild started for ${$configStore.persona}`);
+        } catch (e) {
+            error = "Failed to start index rebuild";
+        } finally {
+            rebuildLoading = false;
+        }
+    }
 </script>
 
 <svelte:head>
@@ -99,7 +130,26 @@
 </svelte:head>
 
 <main>
-    <h1>Chat Matrix</h1>
+    <div class="header-row">
+        <h1>Chat Matrix</h1>
+        <div class="action-bar">
+            <button
+                class="rebuild-button"
+                on:click={handleRebuildIndex}
+                disabled={rebuildLoading || !$configStore.persona_id}
+                title="Rebuild memory index for selected persona"
+            >
+                <RefreshCw size={14} />
+                <span>{rebuildLoading ? 'Rebuilding...' : 'Rebuild Index'}</span>
+            </button>
+        </div>
+    </div>
+
+    {#if $configStore.persona_id && !loading && !error}
+        <div class="persona-info">
+            Showing conversations for: <strong>{$configStore.persona}</strong> ({$configStore.persona_id})
+        </div>
+    {/if}
 
     {#if loading}
         <p>Loading chat matrix data...</p>
@@ -239,5 +289,48 @@
 
     .header-content span {
         white-space: nowrap;
+    }
+
+    .persona-info {
+        background-color: #e8f4f8;
+        border-left: 4px solid #4CAF50;
+        padding: 10px;
+        margin-bottom: 20px;
+        border-radius: 4px;
+    }
+
+    .header-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+
+    .action-bar {
+        display: flex;
+        gap: 10px;
+    }
+
+    .rebuild-button {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 16px;
+        font-size: 14px;
+        background-color: #4CAF50;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: background-color 0.2s;
+    }
+
+    .rebuild-button:hover:not(:disabled) {
+        background-color: #45a049;
+    }
+
+    .rebuild-button:disabled {
+        background-color: #cccccc;
+        cursor: not-allowed;
     }
 </style>

@@ -191,8 +191,8 @@ class Api {
         return response.json();
     }
 
-    async saveConversation(conversationId: string, messages: any[]): Promise<any> {
-        const response = await this.fetch('/api/conversation', {
+    async saveConversation(persona_id: string, conversationId: string, messages: any[]): Promise<any> {
+        const response = await this.fetch(`/api/conversation/${persona_id}`, {
             method: 'POST',
             body: JSON.stringify({
                 conversation_id: conversationId,
@@ -207,43 +207,43 @@ class Api {
         return response.json();
     }
 
-    async deleteConversation(conversationId: string): Promise<any> {
-        const response = await this.fetch(`/api/conversation/${conversationId}/remove`, {
+    async deleteConversation(persona_id: string, conversationId: string): Promise<any> {
+        const response = await this.fetch(`/api/conversation/${persona_id}/${conversationId}/remove`, {
             method: 'POST',
         });
         return response.json();
     }
 
-    async getChatMatrix(): Promise<any> {
-        const response = await this.fetch('/api/report/conversation_matrix');
+    async getChatMatrix(persona_id: string): Promise<any> {
+        const response = await this.fetch(`/api/report/${persona_id}/conversation_matrix`);
         return response.json();
     }
 
-    async getConversation(conversationId: string): Promise<any> {
-        const response = await this.fetch(`/api/conversation/${conversationId}`);
+    async getConversation(persona_id: string, conversationId: string): Promise<any> {
+        const response = await this.fetch(`/api/conversation/${persona_id}/${conversationId}`);
         return response.json();
     }
 
-    async searchConversations(query: string, top_n: number = 5, document_type: string = 'all'): Promise<any> {
+    async searchConversations(persona_id: string, query: string, top_n: number = 5, document_type: string = 'all'): Promise<any> {
         const params = new URLSearchParams({
             query: query,
             top_n: top_n.toString(),
             document_type: document_type
         });
-        const response = await this.fetch(`/api/memory/search?${params.toString()}`);
+        const response = await this.fetch(`/api/memory/${persona_id}/search?${params.toString()}`);
         return response.json();
     }
 
-    async createMessage(message: Partial<ChatMessage>): Promise<any> {
-        const response = await this.fetch('/api/memory', {
+    async createMessage(persona_id: string, message: Partial<ChatMessage>): Promise<any> {
+        const response = await this.fetch(`/api/memory/${persona_id}`, {
             method: 'POST',
             body: JSON.stringify({ message })
         });
         return response.json();
     }
 
-    async updateMessage(conversationId: string, docId: string, content: string): Promise<any> {
-        const response = await this.fetch(`/api/memory/${conversationId}/${docId}`, {
+    async updateMessage(persona_id: string, conversationId: string, docId: string, content: string): Promise<any> {
+        const response = await this.fetch(`/api/memory/${persona_id}/${conversationId}/${docId}`, {
             method: 'PUT',
             body: JSON.stringify({
                 data: { content }
@@ -258,8 +258,8 @@ class Api {
         }
     }
 
-    async deleteMessage(conversationId: string, docId: string): Promise<{ status: string; message: string }> {
-        const response = await this.fetch(`/api/memory/${conversationId}/${docId}/remove`, {
+    async deleteMessage(persona_id: string, conversationId: string, docId: string): Promise<{ status: string; message: string }> {
+        const response = await this.fetch(`/api/memory/${persona_id}/${conversationId}/${docId}/remove`, {
             method: 'POST'
         });
 
@@ -268,6 +268,14 @@ class Api {
             throw new Error(`Failed to delete document: ${data.message || 'Unknown error'}`);
         }
 
+        return response.json();
+    }
+
+    async rebuildIndex(persona_id: string, full: boolean = false): Promise<any> {
+        const params = full ? '?full=true' : '';
+        const response = await this.fetch(`/api/memory/${persona_id}/rebuild${params}`, {
+            method: 'POST'
+        });
         return response.json();
     }
 

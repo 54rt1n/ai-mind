@@ -245,7 +245,12 @@ function createChatStore() {
         saveConversationData();
     }
 
-    async function saveConversation() {
+    async function saveConversation(persona_id: string) {
+        if (!persona_id) {
+            alert('No persona selected. Please select a persona from the roster.');
+            return;
+        }
+
         update(store => ({ ...store, loading: true }));
 
         try {
@@ -270,6 +275,7 @@ function createChatStore() {
             });
 
             const response = await api.saveConversation(
+                persona_id,
                 get({ subscribe }).conversationId,
                 processedHistory
             )

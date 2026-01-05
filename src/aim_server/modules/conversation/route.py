@@ -4,7 +4,7 @@
 import time
 import logging
 import numpy as np
-from typing import List
+from typing import Callable
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import JSONResponse
@@ -13,7 +13,6 @@ from aim.config import ChatConfig
 from aim.chat import ChatManager
 from aim.conversation.message import ConversationMessage, VISIBLE_COLUMNS
 from aim.constants import DOC_CONVERSATION
-from aim.agents.roster import Roster
 
 from .dto import SaveConversationRequest
 
@@ -28,22 +27,24 @@ def df_to_json_safe(df) -> list:
     return df.replace({np.nan: None}).to_dict(orient='records')
 
 class ConversationModule:
-    def __init__(self, config: ChatConfig, security: HTTPBearer, shared_roster: Roster):
+    def __init__(self, config: ChatConfig, security: HTTPBearer, get_chat_manager: Callable[[str], ChatManager]):
         self.router = APIRouter(prefix="/api/conversation", tags=["conversation"])
         self.security = security
         self.config = config
-        self.chat = ChatManager.from_config_with_roster(config, shared_roster)
-        
+        self.get_chat_manager = get_chat_manager
+
         self.setup_routes()
 
     def setup_routes(self):
-        @self.router.get("")
+        @self.router.get("/{persona_id}")
         async def list_conversations(
+            persona_id: str,
             credentials: HTTPAuthorizationCredentials = Depends(self.security)
         ):
-            """List all conversations"""
+            """List all conversations for a persona"""
             try:
-                df = self.chat.cvm.get_conversation_report()
+                chat = self.get_chat_manager(persona_id)
+                df = chat.cvm.get_conversation_report()
                 return {
                     "status": "success",
                     "message": f"{len(df)} conversations",
@@ -53,47 +54,51 @@ class ConversationModule:
                 logger.exception(e)
                 raise HTTPException(status_code=500, detail=str(e))
 
-        @self.router.post("")
+        @self.router.post("/{persona_id}")
         async def save_conversation(
+            persona_id: str,
             request: SaveConversationRequest,
             credentials: HTTPAuthorizationCredentials = Depends(self.security)
         ):
-            """Save a new conversation"""
+            """Save a new conversation for a persona"""
             try:
+                chat = self.get_chat_manager(persona_id)
                 for i, msg in enumerate(request.messages):
                     timestamp = msg.timestamp if msg.timestamp else int(time.time())
                     message = ConversationMessage(
                         doc_id=ConversationMessage.next_doc_id(),
                         document_type=DOC_CONVERSATION,
                         user_id=self.config.user_id,
-                        persona_id=self.config.persona_id,
+                        persona_id=persona_id,
                         conversation_id=request.conversation_id,
                         branch=0,
                         sequence_no=i,
-                        speaker_id=self.config.user_id if msg.role == "user" else self.config.persona_id,
-                        listener_id=self.config.persona_id if msg.role == "user" else self.config.user_id,
+                        speaker_id=self.config.user_id if msg.role == "user" else persona_id,
+                        listener_id=persona_id if msg.role == "user" else self.config.user_id,
                         role=msg.role,
                         content=msg.content,
                         timestamp=timestamp,
                         think=msg.think,
                     )
-                    self.chat.cvm.insert(message)
+                    chat.cvm.insert(message)
 
-                self.chat.cvm.refresh()
-                
+                chat.cvm.refresh()
+
                 return {"status": "success", "message": "Conversation saved successfully"}
             except Exception as e:
                 logger.exception(e)
                 raise HTTPException(status_code=500, detail=str(e))
 
-        @self.router.get("/{conversation_id}")
+        @self.router.get("/{persona_id}/{conversation_id}")
         async def get_conversation(
+            persona_id: str,
             conversation_id: str,
             credentials: HTTPAuthorizationCredentials = Depends(self.security)
         ):
-            """Get a specific conversation"""
+            """Get a specific conversation for a persona"""
             try:
-                conversation = self.chat.cvm.get_conversation_history(conversation_id=conversation_id)
+                chat = self.get_chat_manager(persona_id)
+                conversation = chat.cvm.get_conversation_history(conversation_id=conversation_id)
                 # Filter to only public columns
                 available_cols = [c for c in API_COLUMNS if c in conversation.columns]
                 filtered = conversation[available_cols]
@@ -106,14 +111,16 @@ class ConversationModule:
                 logger.exception(e)
                 raise HTTPException(status_code=500, detail=str(e))
 
-        @self.router.post("/{conversation_id}/remove")
+        @self.router.post("/{persona_id}/{conversation_id}/remove")
         async def delete_conversation(
+            persona_id: str,
             conversation_id: str,
             credentials: HTTPAuthorizationCredentials = Depends(self.security)
         ):
-            """Delete a conversation"""
+            """Delete a conversation for a persona"""
             try:
-                self.chat.cvm.delete_conversation(conversation_id)
+                chat = self.get_chat_manager(persona_id)
+                chat.cvm.delete_conversation(conversation_id)
                 return {"status": "success", "message": f"Conversation {conversation_id} deleted"}
             except Exception as e:
                 logger.exception(e)
