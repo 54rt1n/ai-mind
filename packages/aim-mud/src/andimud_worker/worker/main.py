@@ -864,13 +864,17 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
         for fast access by @list command.
         """
         try:
-            report = self.cvm.get_conversation_report()
+            report_df = self.cvm.get_conversation_report()
             report_key = RedisKeys.agent_conversation_report(self.config.agent_id)
 
-            # Store as JSON string
             import json
-            await self.redis.set(report_key, json.dumps(report))
-            logger.debug(f"Updated conversation report: {len(report)} conversations")
+            if not report_df.empty:
+                report_dict = report_df.set_index('conversation_id').T.to_dict()
+            else:
+                report_dict = {}
+
+            await self.redis.set(report_key, json.dumps(report_dict))
+            logger.debug(f"Updated conversation report: {len(report_dict)} conversations")
         except Exception as e:
             logger.error(f"Failed to update conversation report: {e}", exc_info=True)
 

@@ -51,20 +51,19 @@ def mock_redis():
 @pytest.fixture
 def mock_cvm():
     """Create a mock ConversationModel with sample report."""
+    import pandas as pd
+
     cvm = Mock()
     cvm.insert = Mock()
-    # Sample conversation report data
-    cvm.get_conversation_report = Mock(return_value={
-        "conv1": {
-            "conversation": 10,
-            "analysis": 1,
-            "timestamp_max": 1704412800
-        },
-        "conv2": {
-            "conversation": 5,
-            "timestamp_max": 1704412900
-        }
-    })
+
+    report_data = {
+        'conversation_id': ['conv1', 'conv2'],
+        'conversation': [10, 5],
+        'analysis': [1, None],
+        'timestamp_max': [1704412800, 1704412900]
+    }
+    report_df = pd.DataFrame(report_data)
+    cvm.get_conversation_report = Mock(return_value=report_df)
     return cvm
 
 
@@ -95,13 +94,15 @@ async def test_update_conversation_report_success(mud_config, mock_redis, mock_c
 @pytest.mark.asyncio
 async def test_update_conversation_report_empty(mud_config, mock_redis, mock_cvm):
     """Test _update_conversation_report() with empty report."""
-    mock_cvm.get_conversation_report = Mock(return_value={})
+    import pandas as pd
+
+    empty_df = pd.DataFrame()
+    mock_cvm.get_conversation_report = Mock(return_value=empty_df)
     worker = MUDAgentWorker(mud_config, mock_redis)
     worker.cvm = mock_cvm
 
     await worker._update_conversation_report()
 
-    # Should still call Redis set even with empty dict
     expected_key = RedisKeys.agent_conversation_report(mud_config.agent_id)
     mock_redis.set.assert_called_once()
     call_args = mock_redis.set.call_args[0]
