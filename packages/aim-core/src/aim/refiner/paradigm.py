@@ -39,8 +39,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-CONFIG_DIR = Path(__file__).parent.parent.parent / "config" / "paradigm"
-
 # Map aspect names to scene builders
 SCENE_BUILDERS = {
     "librarian": build_librarian_scene,
@@ -72,13 +70,20 @@ class Paradigm:
     _tools_cache: dict = None
 
     @classmethod
-    def load(cls, name: str) -> "Paradigm":
+    def load(cls, name: str, paradigm_dir: Optional[Path] = None) -> "Paradigm":
         """
         Load paradigm from YAML config.
 
+        Args:
+            name: Name of the paradigm (without .yaml extension)
+            paradigm_dir: Directory containing paradigm files (defaults to config/paradigm/)
+
         Raises ValueError if config is missing or invalid.
         """
-        path = CONFIG_DIR / f"{name}.yaml"
+        if paradigm_dir is None:
+            paradigm_dir = Path("config/paradigm")
+
+        path = paradigm_dir / f"{name}.yaml"
         if not path.exists():
             raise ValueError(f"No config found for paradigm '{name}' at {path}")
 
@@ -118,12 +123,21 @@ class Paradigm:
         )
 
     @classmethod
-    def available(cls, exclude: Optional[list[str]] = None) -> list[str]:
-        """List available paradigm names from config directory."""
-        if not CONFIG_DIR.exists():
+    def available(cls, exclude: Optional[list[str]] = None, paradigm_dir: Optional[Path] = None) -> list[str]:
+        """
+        List available paradigm names from config directory.
+
+        Args:
+            exclude: List of paradigm names to exclude
+            paradigm_dir: Directory containing paradigm files (defaults to config/paradigm/)
+        """
+        if paradigm_dir is None:
+            paradigm_dir = Path("config/paradigm")
+
+        if not paradigm_dir.exists():
             return []
 
-        names = [p.stem for p in CONFIG_DIR.glob("*.yaml")]
+        names = [p.stem for p in paradigm_dir.glob("*.yaml")]
         if exclude:
             names = [n for n in names if n not in exclude]
         return sorted(names)
