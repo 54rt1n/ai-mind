@@ -47,6 +47,7 @@ def build_current_context(
     guidance: Optional[str] = None,
     coming_online: bool = False,
     include_events: bool = True,
+    include_format_guidance: bool = True,
 ) -> str:
     """Format current world state and pending events as user turn.
 
@@ -60,6 +61,8 @@ def build_current_context(
         coming_online: Whether this is the first turn (agent coming online).
         include_events: Whether to include pending events. Set to False for
             Phase 2 turns when events are already in conversation history.
+        include_format_guidance: Whether to include ESH format reminder. Set to
+            False for Phase 1 (decision) which expects JSON tool calls only.
 
     Returns:
         Formatted string containing room context, present entities,
@@ -88,8 +91,11 @@ def build_current_context(
         parts.append(f"\n[Link Guidance: {guidance}]")
 
     # Formatting reminder for the agent (use persona_id from session)
-    persona_name = session.persona_id if session.persona_id else "Agent"
-    parts.append(f"\n[~~ Link Format Guidance ~~]\n<think>...</think>\n[== {persona_name}'s Emotional State: <list of your +Emotions+> ==]\nBe sure to be expressive with details regarding what you are doing and saying.[/~~Link~~/]")
+    # Phase 1 (decision): No format guidance - expects JSON tool calls only
+    # Phase 2 (response): Include ESH format guidance for expressive responses
+    if include_format_guidance:
+        persona_name = session.persona_id if session.persona_id else "Agent"
+        parts.append(f"\n[~~ Link Format Guidance ~~]\n<think>...</think>\n[== {persona_name}'s Emotional State: <list of your +Emotions+> ==]\nBe sure to be expressive with details regarding what you are doing and saying.[/~~Link~~/]")
 
     return "\n".join(parts)
 

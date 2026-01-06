@@ -23,11 +23,17 @@ class LLMMixin:
     These methods are mixed into MUDAgentWorker in main.py.
     """
 
-    async def _call_llm(self: "MUDAgentWorker", chat_turns: list[dict[str, str]], max_retries: int = 3) -> str:
+    async def _call_llm(
+        self: "MUDAgentWorker",
+        chat_turns: list[dict[str, str]],
+        role: str = "default",
+        max_retries: int = 3
+    ) -> str:
         """Call the LLM - single attempt, let exceptions propagate.
 
         Args:
             chat_turns: List of chat turns (system/user/assistant messages).
+            role: Model role - "default", "chat", "tool", "thought", etc.
             max_retries: Ignored (kept for API compatibility).
 
         Returns:
@@ -37,12 +43,15 @@ class LLMMixin:
             Exception: If LLM call fails.
         """
         try:
+            # Get appropriate provider for role
+            provider = self.model_set.get_provider(role)
+
             chunks = []
-            for chunk in self._llm_provider.stream_turns(chat_turns, self.chat_config):
+            for chunk in provider.stream_turns(chat_turns, self.chat_config):
                 if chunk:
                     chunks.append(chunk)
             return "".join(chunks)
 
         except Exception as e:
-            logger.error(f"LLM call failed: {e}")
+            logger.error(f"LLM call failed (role={role}): {e}")
             raise

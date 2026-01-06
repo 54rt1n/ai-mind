@@ -18,14 +18,14 @@ from aim_mud_types import MUDAction
 from aim.dreamer.executor import extract_think_tags
 from aim.tool.loader import ToolLoader
 from aim.tool.formatting import ToolUser
-from ..adapter import build_current_context
-from ..session import MUDEvent, MUDTurn
-from ..utils import sanitize_response
-from .utils import _utc_now
+from ...adapter import build_current_context
+from ...session import MUDEvent, MUDTurn
+from ...utils import sanitize_response
+from ..utils import _utc_now
 
 
 if TYPE_CHECKING:
-    from .main import MUDAgentWorker, AbortRequestedException
+    from ..main import MUDAgentWorker, AbortRequestedException
 else:
     # Avoid circular import - import at runtime
     AbortRequestedException = None
@@ -282,10 +282,18 @@ class TurnsMixin:
                             targets.append(entity.name)
         return targets
 
-    async def _decide_action(self: "MUDAgentWorker", idle_mode: bool) -> tuple[Optional[str], dict, str, str, str]:
+    async def _decide_action(
+        self: "MUDAgentWorker",
+        idle_mode: bool,
+        role: str = "tool"
+    ) -> tuple[Optional[str], dict, str, str, str]:
         """Phase 1 decision: choose speak or move via tool call.
 
         Originally from worker.py lines 943-1114
+
+        Args:
+            idle_mode: Whether this is an idle/spontaneous action
+            role: Model role to use (defaults to "tool" for fast decisions)
 
         Returns:
             Tuple of (tool_name, args, raw_response, thinking, cleaned_text)
@@ -303,7 +311,7 @@ class TurnsMixin:
         last_thinking = ""
 
         for attempt in range(self.config.decision_max_retries):
-            response = await self._call_llm(turns)
+            response = await self._call_llm(turns, role=role)
             last_response = response
             logger.debug("Phase1 LLM response: %s...", response[:500])
             if logger.isEnabledFor(logging.DEBUG):
@@ -666,8 +674,9 @@ class TurnsMixin:
                 from .main import AbortRequestedException
                 raise AbortRequestedException("Turn aborted before decision")
 
+            # Phase 1: Decision (use tool role - fast)
             decision_tool, decision_args, decision_raw, decision_thinking, decision_cleaned = (
-                await self._decide_action(idle_mode=idle_mode)
+                await self._decide_action(idle_mode=idle_mode, role="tool")
             )
             # Phase 1 thinking captured for debugging, but not the raw JSON response
             if decision_thinking:
@@ -749,7 +758,8 @@ class TurnsMixin:
                         from .main import AbortRequestedException
                         raise AbortRequestedException("Turn aborted before response")
 
-                    response = await self._call_llm(chat_turns)
+                    # Phase 2: Response (use chat role - general chat model)
+                    response = await self._call_llm(chat_turns, role="chat")
                     raw_responses.append(response)
                     logger.debug(f"LLM response: {response[:500]}...")
                     if logger.isEnabledFor(logging.DEBUG):
@@ -931,7 +941,8 @@ class TurnsMixin:
                     from .main import AbortRequestedException
                     raise AbortRequestedException("Turn aborted before @agent action")
 
-                response = await self._call_llm(chat_turns)
+                # @agent uses chat role (general model)
+                response = await self._call_llm(chat_turns, role="chat")
                 raw_responses.append(response)
                 cleaned, think_content = extract_think_tags(response)
                 cleaned = sanitize_response(cleaned)

@@ -86,707 +86,573 @@ models:
     provider: local
     size: 0B
     category:
-      - conversation
-      - analysis
-      - thought
-      - functions
-      - completion
-      - vision
-      - analysis
-      - workspace
+      - instruct
+      - code
+      - base
+      - thinking
   - name: compatible
     architecture: compatible
     provider: compatible
     size: 0B
     category:
-      - conversation
-      - analysis
-      - thought
-      - workspace
+      - instruct
+      - thinking
   # OpenRouter models
   - name: meta-llama/llama-3.3-70b-instruct
     architecture: llama3.3
     provider: openrouter
     size: 70B
     category:
-      - conversation
-      - analysis
-      - thought
-      - workspace
+      - instruct
+      - thinking
   - name: qwen/qwen-2.5-72b-instruct
     architecture: qwen2.5
     provider: openrouter
     size: 72B
     category:
-      - conversation
-      - analysis
-      - thought
-      - workspace
+      - instruct
+      - thinking
   - name: google/gemini-2.0-flash-001
     architecture: gemini
     provider: openrouter
     size: 0B
     category:
-      - conversation
-      - analysis
-      - thought
-      - workspace
+      - instruct
+      - thinking
   - name: anthropic/claude-3.5-sonnet
     architecture: claude3
     provider: openrouter
     size: 0B
     category:
-      - conversation
-      - analysis
-      - thought
-      - workspace
+      - instruct
+      - thinking
+      - code
   - name: deepseek-ai/DeepSeek-V3-0324
     architecture: deepseekv3
     provider: featherless
     size: 671B
     category:
-      - conversation
-      - analysis
-      - thought
-      - workspace
+      - instruct
+      - thinking
   - name: deepseek-ai/DeepSeek-R1-0528
     architecture: deepseekv3
     provider: featherless
     size: 671B
     category:
-      - conversation
-      - thought
-      - analysis
-      - functions
-      - workspace
+      - instruct
+      - thinking
+      - code
   - name: moonshotai/Kimi-K2-Instruct-0905
     architecture: qwen2.5
     provider: featherless
     size: 32B
     category:
-      - conversation
-      - thought
-      - analysis
-      - functions
-      - workspace
+      - instruct
+      - thinking
+      - code
   - name: MiniMaxAI/MiniMax-M2
     architecture: deepseekv3
     provider: featherless
     size: 229B
     category:
-      - conversation
-      - analysis
-      - thought
-      - workspace
+      - instruct
+      - thinking
   - name: zai-org/GLM-4.7
     architecture: deepseekv3
     provider: featherless
     size: 357B
     category:
-      - conversation
-      - analysis
-      - thought
-      - workspace
+      - instruct
+      - thinking
   - name: zai-org/GLM-4.6
     architecture: deepseekv3
     provider: featherless
     size: 357B
     category:
-      - conversation
-      - analysis
-      - thought
-      - workspace
+      - instruct
+      - thinking
   - name: inclusionAI/Ling-1T
     architecture: deepseekv3
     provider: featherless
     size: 1T
     category:
-      - conversation
-      - analysis
-      - thought
-      - workspace
+      - instruct
+      - thinking
   - name: moonshotai/Kimi-K2-Instruct
     architecture: qwen2.5
     provider: featherless
     size: 32B
     category:
-      - conversation
-      - thought
-      - analysis
-      - functions
-      - workspace
+      - instruct
+      - thinking
+      - code
   - name: moonshotai/Kimi-K2-Thinking
     architecture: qwen2.5
     provider: featherless
     size: 32B
     category:
-      - conversation
-      - thought
-      - analysis
-      - functions
-      - workspace
+      - instruct
+      - thinking
+      - code
   - name: mistralai/Mistral-Large-Instruct-2411
     architecture: deepseekv3
     provider: featherless
     size: 123B
     category:
-      - conversation
-      - analysis
-      - thought
-      - workspace
+      - instruct
+      - thinking
   - name: roslein/Qwen3-32B-abliterated
     architecture: qwen3
     provider: featherless
     size: 32B
     category:
-      - conversation
-      - analysis
-      - thought
-      - workspace
+      - instruct
+      - thinking
   - name: miromind-ai/MiroThinker-32B-DPO-v0.1
     architecture: qwen3
     provider: featherless
     size: 32B
     category:
-      - conversation
-      - analysis
-      - thought
-      - workspace
+      - instruct
+      - thinking
   - name: miromind-ai/MiroThinker-32B-DPO-v0.2
     architecture: qwen3
     provider: featherless
     size: 32B
     category:
-      - conversation
-      - analysis
-      - thought
-      - workspace
+      - instruct
+      - thinking
   - name: QuixiAI/Ina-v11.1
     architecture: llama3
     provider: featherless
     size: 70B
     category:
-      - conversation
-      - analysis
-      - thought
-      - workspace
+      - instruct
+      - thinking
   - name: qihoo360/Light-IF-32B
     architecture: qwen3
     provider: featherless
     size: 32B
     category:
-      - conversation
-      - analysis
-      - thought
-      - workspace
+      - instruct
+      - thinking
   - name: MetaStoneTec/XBai-o4
     architecture: qwen3
     provider: featherless
     size: 32B
     category:
-      - conversation
-      - analysis
-      - thought
-      - workspace
+      - instruct
+      - thinking
   - name: google/gemma-3-27b-it
     architecture: gemma3
     provider: featherless
     size: 27B
     category:
-      - conversation
-      - analysis
-      - thought
-      - workspace
+      - instruct
+      - thinking
   - name: maldv/Eva-Mindlink-72b
     architecture: qwen2.5
     provider: featherless
     size: 72B
     category:
-      - conversation
-      - thought
-      - analysis
-      - functions
-      - workspace
+      - instruct
+      - thinking
+      - code
   - name: mlabonne/gemma-3-27b-it-abliterated-v2
     architecture: gemma3
     provider: featherless
     size: 27B
     category:
-      - conversation
-      - analysis
-      - thought
-      - workspace
+      - instruct
+      - thinking
   - name: THUDM/GLM-4-32B-0414
     architecture: glm4
     provider: featherless
     size: 32B
     category:
-      - conversation
-      - analysis
-      - thought
-      - workspace
+      - instruct
+      - thinking
   - name: NousResearch/Hermes-4-70B
     architecture: llama3.1
     provider: featherless
     size: 70B
     category:
-      - conversation
-      - analysis
-      - workspace
+      - instruct
   - name: nvidia/Llama-3.1-Nemotron-70B-Instruct-HF
     architecture: llama3.1
     provider: featherless
     size: 70B
     category:
-      - conversation
-      - analysis
-      - workspace
+      - instruct
   - name: LatitudeGames/Nova-70B-Llama-3.3
     architecture: qwen2.5
     provider: featherless
     size: 32B
     category:
-      - conversation
-      - analysis
-      - functions
+      - instruct
+      - code
   - name: agentica-org/DeepSWE-Preview
     architecture: qwen3
     provider: featherless
     size: 32B
     category:
-      - conversation
-      - thought
-      - analysis
-      - functions
-      - workspace
+      - instruct
+      - thinking
+      - code
   - name: ArliAI/QwQ-32B-ArliAI-RpR-v3
     architecture: qwen2.5
     provider: featherless
     size: 32B
     category:
-      - conversation
-      - thought
-      - analysis
-      - functions
-      - workspace
+      - instruct
+      - thinking
+      - code
   - name: trashpanda-org/QwQ-32B-Snowdrop-v0
     architecture: qwen2.5
     provider: featherless
     size: 32B
     category:
-      - conversation
-      - thought
-      - analysis
-      - functions
-      - workspace
+      - instruct
+      - thinking
+      - code
   - name: maldv/Loqwqtus2.5-32B-Instruct
     architecture: qwen2.5
     provider: featherless
     size: 32B
     category:
-      - conversation
-      - thought
-      - analysis
-      - functions
-      - workspace
+      - instruct
+      - thinking
+      - code
   - name: all-hands/openhands-lm-32b-v0.1
     architecture: qwen2.5
     provider: featherless
     size: 32B
     category:
-      - conversation
-      - thought
-      - analysis
-      - functions
-      - workspace
+      - instruct
+      - thinking
+      - code
   - name: maldv/Qwenstein2.5-32B-Instruct
     architecture: qwen2.5
     provider: featherless
     size: 32B
     category:
-      - conversation
-      - thought
-      - analysis
-      - functions
-      - workspace
+      - instruct
+      - thinking
+      - code
   - name: Qwen/QwQ-32B
     architecture: qwen2.5
     provider: featherless
     size: 32B
     category:
-      - conversation
-      - thought
-      - analysis
-      - functions
-      - workspace
+      - instruct
+      - thinking
+      - code
   - name: maldv/Qwentile2.5-32B-Instruct
     architecture: qwen2.5
     provider: featherless
     size: 32B
     category:
-      - conversation
-      - thought
-      - analysis
-      - functions
-      - workspace
+      - instruct
+      - thinking
+      - code
   - name: maldv/QReasoner2.5-32B-Instruct
     architecture: qwen2.5
     provider: featherless
     size: 32B
     category:
-      - conversation
-      - thought
-      - analysis
-      - functions
-      - workspace
+      - instruct
+      - thinking
+      - code
   - name: bespokelabs/Bespoke-Stratos-32B
     architecture: qwen2.5
     provider: featherless
     size: 32B
     category:
-      - conversation
-      - thought
-      - analysis
-      - functions
-      - workspace
+      - instruct
+      - thinking
+      - code
   - name: open-thoughts/OpenThinker-32B
     architecture: qwen2.5
     provider: featherless
     size: 32B
     category:
-      - conversation
-      - thought
-      - analysis
-      - functions
-      - workspace
+      - instruct
+      - thinking
+      - code
   - name: qihoo360/TinyR1-32B-Preview
     architecture: qwen2.5
     provider: featherless
     size: 32B
     category:
-      - conversation
-      - thought
-      - analysis
-      - functions
-      - workspace
+      - instruct
+      - thinking
+      - code
   - name: alpindale/WizardLM-2-8x22B
     architecture: mistral
     provider: featherless
     size: 8x22B
     category:
-      - conversation
-      - thought
-      - analysis
-      - functions
-      - workspace
+      - instruct
+      - thinking
+      - code
   - name: Delta-Vector/Hamanasu-Magnum-QwQ-32B
     architecture: qwen2.5
     provider: featherless
     size: 32B
     category:
-      - conversation
-      - thought
-      - analysis
-      - functions
-      - workspace
+      - instruct
+      - thinking
+      - code
   - name: maldv/praxis-bookwriter-qwen2.5-14b-sft
     architecture: qwen2.5
     provider: featherless
     size: 14B
     category:
-      - conversation
-      - thought
-      - analysis
-      - functions
-      - workspace
+      - instruct
+      - thinking
+      - code
   - name: maldv/praxis-bookwriter-llama3.1-8b-sft
     architecture: llama3
     provider: featherless
     size: 8B
     category:
-      - conversation
-      - thought
-      - analysis
-      - functions
-      - workspace
+      - instruct
+      - thinking
+      - code
   - name: open-r1/OlympicCoder-32B
     architecture: qwen2.5
     provider: featherless
     size: 32B
     category:
-      - conversation
-      - thought
-      - analysis
-      - functions
-      - workspace
+      - instruct
+      - thinking
+      - code
   - name: fluently-lm/FluentlyLM-Prinum
     architecture: qwen2.5
     provider: featherless
     size: 32B
     category:
-      - conversation
-      - thought
-      - analysis
-      - functions
-      - workspace
+      - instruct
+      - thinking
+      - code
   - name: prithivMLmods/Sombrero-QwQ-32B-Elite9
     architecture: qwen2.5
     provider: featherless
     size: 32B
     category:
-      - analysis
-      - functions
-      - workspace
+      - code
   - name: jdh-algo/Citrus1.0-llama-70B
     architecture: llama3.3
     provider: featherless
     size: 70B
     category:
-      - conversation
-      - analysis
-      - thought
-      - workspace
+      - instruct
+      - thinking
   - name: nvidia/AceInstruct-72B
     architecture: qwen2.5
     provider: featherless
     size: 72B
     category:
-      - conversation
-      - analysis
-      - thought
-      - workspace
+      - instruct
+      - thinking
   - name: ReadyArt/Forgotten-Safeword-70B-v5.0
     architecture: llama3.3
     provider: featherless
     size: 70B
     category:
-      - conversation
-      - thought
-      - analysis
-      - functions
-      - workspace
+      - instruct
+      - thinking
+      - code
   - name: Sao10K/72B-Qwen2.5-Kunou-v1
     architecture: qwen2.5
     provider: featherless
     size: 72B
     category:
-      - analysis
-      - conversation
-      - workspace
+      - instruct
   - name: Sao10K/L3.3-70B-Euryale-v2.3
     architecture: llama3.3
     provider: featherless
     size: 70B
     category:
-      - analysis
-      - conversation
+      - instruct
   - name: Doctor-Shotgun/L3.3-70B-Magnum-v4-SE
     architecture: llama3.3
     provider: featherless
     size: 70B
     category:
-      - conversation
-      - analysis
-      - thought
+      - instruct
+      - thinking
   - name: anthracite-org/magnum-v4-72b
     architecture: qwen2.5
     provider: featherless
     size: 72B
     category:
-      - conversation
-      - analysis
-      - thought
+      - instruct
+      - thinking
   - name: LatitudeGames/Wayfarer-Large-70B-Llama-3.3
     architecture: llama3.3
     provider: featherless
     size: 70B
     category:
-      - conversation
-      - analysis
-      - thought
+      - instruct
+      - thinking
   - name: allenai/Llama-3.1-Tulu-3-70B
     architecture: llama3.1
     provider: featherless
     size: 70B
     category:
-      - conversation
+      - instruct
   - name: Nexusflow/Athene-V2-Agent
     architecture: llama3.3
     provider: featherless
     size: 70B
     category:
-      - functions
+      - code
   - name: Qwen/Qwen2.5-Coder-32B-Instruct
     architecture: qwen2.5
     provider: featherless
     size: 32B
     category:
-      - thought
-      - functions
-      - workspace
+      - thinking
+      - code
   - name: darkc0de/XortronCriminalComputingConfig
     architecture: mistral
     provider: featherless
     size: 24B
     category:
-      - functions
-      - conversation
-      - analysis
-      - thought
-      - workspace
+      - code
+      - instruct
+      - thinking
   - name: mistralai/Mistral-Small-24B-Instruct-2501
     architecture: mistral
     provider: featherless
     size: 24B
     category:
-      - functions
-      - conversation
-      - analysis
-      - thought
-      - workspace
+      - code
+      - instruct
+      - thinking
   - name: mistralai/Mistral-Small-24B-Base-2501
     architecture: mistral
     provider: featherless
     size: 24B
     category:
-      - functions
-      - conversation
-      - analysis
-      - workspace
-      - completion
+      - code
+      - instruct
+      - base
   - name: unsloth/Mistral-Small-24B-Base-2501
     architecture: mistral
     provider: featherless
     size: 24B
     category:
-      - functions
-      - conversation
-      - analysis
-      - workspace
-      - completion
+      - code
+      - instruct
+      - base
   - name: meta-llama/Meta-Llama-3-70B
     architecture: llama3
     provider: featherless
     size: 70B
     category:
-      - completion
+      - base
   - name: empower-dev/llama3-empower-functions-large-v1.1
     architecture: llama3.3
     provider: featherless
     size: 70B
     category:
-      - functions
+      - code
   - name: meetkai/functionary-medium-v3.2
     architecture: llama3.3
     provider: featherless
     size: 70B
     category:
-      - functions
+      - code
   - name: gpt-4-turbo-preview
     architecture: gpt4
     provider: openai
     nsfw: false
     size: 1.8T
     category:
-      - conversation
-      - analysis
-      - thought
-      - functions
-      - workspace
+      - instruct
+      - thinking
+      - code
   - name: gpt-4-vision-preview
     architecture: gpt4
     provider: openai
     nsfw: false
     size: 1.8T
     category:
-      - vision
+      - instruct
   - name: gpt-4
     architecture: gpt4
     provider: openai
     nsfw: false
     size: 1.8T
     category:
-      - conversation
-      - analysis
-      - thought
-      - workspace
+      - instruct
+      - thinking
   - name: gpt-3.5-turbo
     architecture: gpt3.5
     provider: openai
     nsfw: false
     size: 175B
     category:
-      - conversation
+      - instruct
   - name: claude-3-opus
     architecture: claude3
     provider: anthropic
     nsfw: false
     size: 2.7T
     category:
-      - conversation
-      - analysis
-      - thought
-      - functions
+      - instruct
+      - thinking
+      - code
   - name: claude-3-5-sonnet
     architecture: claude3
     provider: anthropic
     nsfw: false
     size: 1.8T
     category:
-      - conversation
-      - analysis
-      - thought
-      - functions
-      - workspace
+      - instruct
+      - thinking
+      - code
   - name: claude-3-5-haiku
     architecture: claude3
     provider: anthropic
     nsfw: false
     size: 1.2T
     category:
-      - conversation
-      - analysis
-      - thought
+      - instruct
+      - thinking
   - name: mixtral-8x7b-32768
     architecture: mixtral
     provider: groq
     nsfw: false
     size: 47B
     category:
-      - conversation
-      - thought
-      - analysis
-      - workspace
+      - instruct
+      - thinking
   - name: gemini-1.5-flash
     architecture: gemini
     provider: google
     nsfw: false
     size: 1.5T
     category:
-      - conversation
-      - analysis
-      - thought
-      - workspace
+      - instruct
+      - thinking
   - name: gemini-1.5-pro
     architecture: gemini
     provider: google
     nsfw: false
     size: 1.5T
     category:
-      - conversation
-      - analysis
-      - thought
-      - workspace
+      - instruct
+      - thinking
   - name: Llama-4-Maverick-17B-128E-Instruct-FP8
     architecture: llama4
     provider: meta
     nsfw: false
     size: 2.2T
     category:
-      - conversation
-      - analysis
-      - thought
-      - workspace
-      - functions
-      - completion
-      - vision
+      - instruct
+      - thinking
+      - code
+      - base

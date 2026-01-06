@@ -154,6 +154,56 @@ class ToolUser:
 
         return xml
 
+    def get_tool_guidance(self) -> str:
+        """Generate OpenAI-style function signature guidance for user turns.
+
+        Returns:
+            Formatted tool guidance string with function signatures.
+        """
+        if not self.tools:
+            return ""
+
+        lines = []
+        for tool in self.tools:
+            # Build function signature
+            func_name = tool.function.name
+            params = []
+
+            for param_name, param_info in tool.function.parameters.properties.items():
+                param_type = param_info.get("type", "any")
+                is_required = param_name in tool.function.parameters.required
+
+                # Format: parameter_name: type (required/optional)
+                req_str = "required" if is_required else "optional"
+                params.append(f"  {param_name}: {param_type} ({req_str})")
+
+            # Build example
+            example_args = {}
+            for param_name, param_info in tool.function.parameters.properties.items():
+                if "enum" in param_info:
+                    example_args[param_name] = param_info["enum"][0]
+                elif param_info.get("type") == "number":
+                    example_args[param_name] = 0
+                elif param_info.get("type") == "integer":
+                    example_args[param_name] = 0
+                elif param_info.get("type") == "boolean":
+                    example_args[param_name] = True
+                else:
+                    example_args[param_name] = f"<{param_name}>"
+
+            example = {func_name: example_args}
+
+            # Format function block
+            lines.append(f"Function: {func_name}")
+            lines.append(f"Description: {tool.function.description}")
+            if params:
+                lines.append("Parameters:")
+                lines.extend(params)
+            lines.append(f"Example: {json.dumps(example)}")
+            lines.append("")  # Blank line between functions
+
+        return "\n".join(lines).rstrip()
+
     def process_response(self, response: str) -> ToolCallResult:
         """Process an LLM response into a validated tool call.
 

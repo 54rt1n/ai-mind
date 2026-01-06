@@ -104,7 +104,7 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
         # LLM and tool resources (loaded during start)
         # Store pre-loaded config if provided, otherwise will load in start()
         self.chat_config: Optional[ChatConfig] = chat_config
-        self._llm_provider: Optional[LLMProvider] = None
+        self.model_set = None  # ModelSet instance (initialized in _init_llm_provider)
         self.model_name: Optional[str] = None
         self.model = None
 
@@ -217,7 +217,11 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
         # Load agent profile state (last_event_id, etc.)
         await self._load_agent_profile()
 
-        # Announce worker presence
+        # Load world state (inventory and room pointer) for wakeup context
+        room_id, character_id = await self._load_agent_world_state()
+        await self._load_room_profile(room_id, character_id)
+
+        # Announce worker presence (now has world_state for mud_wakeup context)
         await self._announce_presence()
 
         logger.info(
@@ -241,7 +245,26 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
 
                 # Check for turn request assignment
                 turn_request = await self._get_turn_request()
-                if not turn_request or turn_request.get("status") != "assigned":
+
+                # If turn_request is missing, re-announce presence (Redis flush, expiration, etc.)
+                if not turn_request:
+                    logger.warning("turn_request missing, re-announcing presence")
+                    await self._announce_presence()
+                    await asyncio.sleep(self.config.turn_request_poll_interval)
+                    continue
+
+                # If not assigned, refresh heartbeat and wait
+                if turn_request.get("status") != "assigned":
+                    # Keep turn_request alive when ready but idle - refresh TTL and heartbeat
+                    if turn_request.get("status") == "ready":
+                        await self.redis.hset(
+                            self._turn_request_key(),
+                            mapping={"heartbeat_at": _utc_now().isoformat()},
+                        )
+                        await self.redis.expire(
+                            self._turn_request_key(),
+                            self.config.turn_request_ttl_seconds,
+                        )
                     await asyncio.sleep(self.config.turn_request_poll_interval)
                     continue
 
@@ -416,10 +439,16 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
         Originally from worker.py lines 365-373
 
         Sets the running flag to False, allowing the current turn
-        to complete before shutting down.
+        to complete before shutting down. Cleans up turn_request state.
         """
         logger.info("Stopping worker...")
         self.running = False
+
+        # Clean up turn_request so mediator knows we're offline
+        turn_request = await self._get_turn_request()
+        if turn_request:
+            await self.redis.delete(self._turn_request_key())
+            logger.info("Deleted turn_request on shutdown")
 
     async def _is_paused(self) -> bool:
         """Check if worker is paused via Redis flag.
@@ -433,9 +462,11 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
         return value == b"1"
 
     async def _announce_presence(self) -> None:
-        """Announce worker online with ready status.
+        """Announce worker online with ready status and wakeup message.
 
-        Clears any crashed status and sets worker to ready state.
+        Uses persona.mud_wakeup if available, otherwise falls back to
+        random wakeup message from persona.wakeup list. If mud_wakeup is
+        provided, room state context is passed for formatting.
         """
         turn_request = await self._get_turn_request()
 
@@ -449,7 +480,75 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
             status="ready",
             extra_fields={"status_reason": "Worker online"}
         )
-        logger.info(f"Worker {self.config.agent_id} announced as ready")
+
+        # Get wakeup message with room context
+        if self.persona.mud_wakeup and self.session and self.session.world_state:
+            # Use MUD-specific wakeup with room state context
+            world_state = self.session.world_state
+            room = world_state.room_state
+
+            # Build context for formatting
+            context = {
+                "room_name": room.name if room else "somewhere",
+                "room_description": room.description if room else "",
+                "persona_name": self.persona.name,
+                "full_name": self.persona.full_name,
+                "memory_count": 15,  # Placeholder for Active Memory count
+            }
+
+            # Add entities present (excluding self)
+            others = [e for e in world_state.entities_present if not e.is_self and e.entity_type in ("player", "ai", "npc")]
+            if others:
+                context["others_present"] = ", ".join(e.name for e in others)
+            else:
+                context["others_present"] = ""
+
+            # Add objects in room (excluding characters)
+            objects = [e for e in world_state.entities_present if e.entity_type not in ("player", "ai", "npc")]
+            if objects:
+                context["objects_present"] = ", ".join(e.name for e in objects)
+            else:
+                context["objects_present"] = ""
+
+            # Add inventory items
+            if world_state.inventory:
+                context["inventory"] = ", ".join(item.name for item in world_state.inventory)
+            else:
+                context["inventory"] = ""
+
+            # Build contextual details for think block
+            context_details_parts = []
+            if context["others_present"]:
+                context_details_parts.append(f"Others present: {context['others_present']}")
+            if context["objects_present"]:
+                context_details_parts.append(f"Objects here: {context['objects_present']}")
+            if context["inventory"]:
+                context_details_parts.append(f"I'm carrying: {context['inventory']}")
+
+            context["context_details"] = "\n\n".join(context_details_parts) if context_details_parts else "The space is mine alone."
+
+            # Format wakeup message with full context
+            try:
+                wakeup_msg = self.persona.mud_wakeup.format(**context)
+            except KeyError as e:
+                logger.warning(f"mud_wakeup template missing key {e}, using as-is")
+                wakeup_msg = self.persona.mud_wakeup
+        else:
+            # Fall back to random wakeup message (no room context)
+            wakeup_msg = self.persona.get_wakeup()
+
+        # Add wakeup to conversation history only if this is a fresh session
+        # This provides rich internal state for the agent's first actual response
+        entry_count = await self.conversation_manager.get_entry_count()
+        if entry_count == 0:
+            await self.conversation_manager.push_assistant_turn(
+                content=wakeup_msg,
+                think=None,  # think block is already in wakeup_msg
+                actions=[]
+            )
+            logger.info(f"Worker {self.config.agent_id} ready, seeded conversation with wakeup")
+        else:
+            logger.info(f"Worker {self.config.agent_id} ready (continuing existing conversation with {entry_count} entries)")
 
     async def _check_abort_requested(self) -> bool:
         """Check if current turn has abort requested.
@@ -626,33 +725,34 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
         return elapsed_since_action >= self.config.spontaneous_action_interval
 
     def _init_llm_provider(self) -> None:
-        """Initialize the LLM provider from configuration.
+        """Initialize the ModelSet with persona-level overrides.
 
         Originally from worker.py lines 779-805
 
-        Uses the model specified in ChatConfig (from .env DEFAULT_MODEL) to
-        create an appropriate LLMProvider instance via LanguageModelV2.
+        Creates a ModelSet that manages multiple LLM providers for different
+        task types (default, thought, tool) with persona-level model overrides.
         """
-        model_name = self.chat_config.default_model
-        if not model_name:
-            raise ValueError(
-                "No model specified. Set DEFAULT_MODEL in .env or provide --model argument."
-            )
+        from aim.llm.model_set import ModelSet
 
+        # Create ModelSet with persona overrides
+        self.model_set = ModelSet.from_config(
+            config=self.chat_config,
+            persona=self.persona
+        )
+
+        # Store default model info for logging/compatibility
+        self.model_name = self.model_set.default_model
         models = LanguageModelV2.index_models(self.chat_config)
-        model = models.get(model_name)
+        self.model = models.get(self.model_name)
 
-        if not model:
-            available = list(models.keys())[:5]
-            raise ValueError(
-                f"Model {model_name} not available. "
-                f"Available models: {available}..."
-            )
-
-        self._llm_provider = model.llm_factory(self.chat_config)
-        self.model_name = model_name
-        self.model = model
-        logger.info(f"Initialized LLM provider for model: {model_name}")
+        logger.info(
+            f"Initialized ModelSet for {self.persona.persona_id}: "
+            f"default={self.model_set.default_model}, "
+            f"chat={self.model_set.chat_model}, "
+            f"tool={self.model_set.tool_model}, "
+            f"thought={self.model_set.thought_model}, "
+            f"codex={self.model_set.codex_model}"
+        )
 
     def setup_signal_handlers(self) -> None:
         """Setup handlers for graceful shutdown.

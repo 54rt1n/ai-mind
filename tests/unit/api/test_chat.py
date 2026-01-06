@@ -26,7 +26,7 @@ def mock_model():
     model.name = "test-model"
     model.max_tokens = 4096
     model.max_output_tokens = 2048
-    model.category = [ModelCategory.CONVERSATION]
+    model.category = {ModelCategory.INSTRUCT}
     model.llm_factory = MagicMock()
     return model
 
@@ -37,6 +37,16 @@ def mock_llm_provider():
     provider = MagicMock()
     provider.stream_turns = MagicMock(return_value=iter(["Hello ", "from ", "AI"]))
     return provider
+
+
+@pytest.fixture
+def mock_persona():
+    """Create a mock persona."""
+    persona = MagicMock()
+    persona.get_wakeup.return_value = "Wake up message"
+    persona.xml_decorator = MagicMock(side_effect=lambda x, **kwargs: x)
+    persona.default_location = "Home"
+    return persona
 
 
 @pytest.fixture
@@ -59,7 +69,7 @@ def sample_chat_request():
 class TestChatModule:
     """Tests for ChatModule endpoints."""
 
-    def test_chat_completion_success(self, mock_chat_manager, mock_model, mock_llm_provider, sample_chat_request):
+    def test_chat_completion_success(self, mock_chat_manager, mock_model, mock_llm_provider, mock_persona, sample_chat_request):
         """Test successful chat completion."""
         with patch('aim_server.serverapi.ChatManager.from_config_with_roster', return_value=mock_chat_manager):
             with patch('aim.llm.models.LanguageModelV2.index_models', return_value={"test-model": mock_model}):
@@ -74,6 +84,7 @@ class TestChatModule:
 
                     with patch('aim.utils.turns.validate_turns'):
                         server = ServerApi()
+                        server.shared_roster.personas['Andi'] = mock_persona
                         client = TestClient(server.app)
 
                         response = client.post(
@@ -88,7 +99,7 @@ class TestChatModule:
                         assert data["choices"][0]["message"]["role"] == "assistant"
                         assert data["choices"][0]["message"]["content"] == "Hello from AI"
 
-    def test_chat_completion_with_stream(self, mock_chat_manager, mock_model, mock_llm_provider, sample_chat_request):
+    def test_chat_completion_with_stream(self, mock_chat_manager, mock_model, mock_llm_provider, mock_persona, sample_chat_request):
         """Test chat completion with streaming enabled."""
         sample_chat_request["stream"] = True
 
@@ -105,6 +116,7 @@ class TestChatModule:
 
                     with patch('aim.utils.turns.validate_turns'):
                         server = ServerApi()
+                        server.shared_roster.personas['Andi'] = mock_persona
                         client = TestClient(server.app)
 
                         response = client.post(
@@ -192,7 +204,7 @@ class TestChatModule:
                 assert response.status_code == 400
                 assert "No messages provided" in response.json()["detail"]
 
-    def test_chat_with_active_document(self, mock_chat_manager, mock_model, mock_llm_provider, sample_chat_request):
+    def test_chat_with_active_document(self, mock_chat_manager, mock_model, mock_llm_provider, mock_persona, sample_chat_request):
         """Test chat completion with active document in metadata."""
         sample_chat_request["metadata"]["active_document"] = "doc123"
 
@@ -209,6 +221,7 @@ class TestChatModule:
 
                     with patch('aim.utils.turns.validate_turns'):
                         server = ServerApi()
+                        server.shared_roster.personas['Andi'] = mock_persona
                         client = TestClient(server.app)
 
                         response = client.post(
@@ -221,25 +234,26 @@ class TestChatModule:
                         # Verify active_document was set on chat manager
                         assert mock_chat_manager.current_document == "doc123"
 
-    def test_chat_with_pinned_messages(self, mock_chat_manager, mock_model, mock_llm_provider, sample_chat_request):
+    def test_chat_with_pinned_messages(self, mock_chat_manager, mock_model, mock_llm_provider, mock_persona, sample_chat_request):
         """Test chat completion with pinned messages in metadata."""
         sample_chat_request["metadata"]["pinned_messages"] = ["msg1", "msg2"]
 
+        # Create the mock strategy with proper setup
+        mock_strategy = MagicMock()
+        mock_strategy.chat_turns_for = MagicMock(return_value=[
+            {"role": "user", "content": "Hello"}
+        ])
+        mock_strategy.clear_pinned = MagicMock()
+        mock_strategy.pin_message = MagicMock()
+
         with patch('aim_server.serverapi.ChatManager.from_config_with_roster', return_value=mock_chat_manager):
             with patch('aim.llm.models.LanguageModelV2.index_models', return_value={"test-model": mock_model}):
-                with patch('aim.chat.chat_strategy_for') as mock_strategy_factory:
-                    mock_strategy = MagicMock()
-                    mock_strategy.chat_turns_for = MagicMock(return_value=[
-                        {"role": "user", "content": "Hello"}
-                    ])
-                    mock_strategy.clear_pinned = MagicMock()
-                    mock_strategy.pin_message = MagicMock()
-                    mock_strategy_factory.return_value = mock_strategy
-
+                with patch('aim_server.modules.chat.route.chat_strategy_for', return_value=mock_strategy) as mock_strategy_factory:
                     mock_model.llm_factory.return_value = mock_llm_provider
 
                     with patch('aim.utils.turns.validate_turns'):
                         server = ServerApi()
+                        server.shared_roster.personas['Andi'] = mock_persona
                         client = TestClient(server.app)
 
                         response = client.post(
@@ -253,10 +267,25 @@ class TestChatModule:
                         mock_strategy.clear_pinned.assert_called_once()
                         assert mock_strategy.pin_message.call_count == 2
 
-    def test_get_models(self, mock_model):
+    def test_get_models(self):
         """Test get models endpoint."""
+        # Create a real LanguageModelV2 instance for serialization
+        from aim.llm.models import LanguageModelV2, ModelProvider, ModelCategory, SamplerConfig
+
+        real_model = LanguageModelV2(
+            name="test-model",
+            provider=ModelProvider.OPENAI,
+            architecture="transformer",
+            size="medium",
+            nsfw=False,
+            category={ModelCategory.INSTRUCT},
+            sampler=SamplerConfig(),
+            max_tokens=4096,
+            max_output_tokens=2048
+        )
+
         models = {
-            "test-model": mock_model,
+            "test-model": real_model,
         }
 
         with patch('aim_server.serverapi.ChatManager.from_config_with_roster'):
@@ -273,7 +302,7 @@ class TestChatModule:
                 # Models are serialized, so check count
                 assert len(data["models"]) >= 1
 
-    def test_lazy_cache_different_personas(self, mock_model, mock_llm_provider):
+    def test_lazy_cache_different_personas(self, mock_model, mock_llm_provider, mock_persona):
         """Test that different personas get different ChatManager instances."""
         with patch('aim_server.serverapi.ChatManager') as MockChatManager:
             mock_chat1 = MagicMock()
@@ -296,6 +325,8 @@ class TestChatModule:
 
                     with patch('aim.utils.turns.validate_turns'):
                         server = ServerApi()
+                        server.shared_roster.personas['Andi'] = mock_persona
+                        server.shared_roster.personas['Nova'] = mock_persona
                         client = TestClient(server.app)
 
                         # Request for Andi

@@ -143,12 +143,16 @@ export interface ChatModel {
     };
 }
 
+// Model categories returned by the server
+// These are task-based categories mapped from the capability-based ModelCategory enum
+// Server maps: BASE/INSTRUCT/CODE/THINKING/VISION → analysis/conversation/thought/functions/completion/workspace
 export interface ModelCategory {
-    analysis: string[];
-    conversation: string[];
-    thought: string[];
-    functions: string[];
-    completion: string[];
+    analysis: string[];      // CODE models - for code analysis and generation
+    conversation: string[];  // INSTRUCT models - for chat and conversation
+    thought: string[];       // THINKING models - for reasoning tasks
+    functions: string[];     // CODE models - for function calling
+    completion: string[];    // BASE or INSTRUCT models - for text completion
+    workspace: string[];     // INSTRUCT or CODE models - for workspace updates
 }
 
 export interface DocumentInfo {

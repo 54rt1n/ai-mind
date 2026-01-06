@@ -141,6 +141,34 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
 
         return conversation_results, insight_results, broad_results
 
+    def get_consciousness_head(self, formatter: XmlFormatter) -> XmlFormatter:
+        """Hook for subclasses to add content at the start of consciousness block.
+
+        Called after formatter creation but before PraxOS header.
+        Default implementation returns formatter unchanged.
+
+        Args:
+            formatter: XmlFormatter instance to extend
+
+        Returns:
+            Modified formatter
+        """
+        return formatter
+
+    def get_consciousness_tail(self, formatter: XmlFormatter) -> XmlFormatter:
+        """Hook for subclasses to add content at the end of consciousness block.
+
+        Called after memory count but before render().
+        Default implementation returns formatter unchanged.
+
+        Args:
+            formatter: XmlFormatter instance to extend
+
+        Returns:
+            Modified formatter
+        """
+        return formatter
+
     def get_conscious_memory(self, persona: Persona, query: Optional[str] = None, user_queries: list[str] = [], assistant_queries: list[str] = [], content_len: int = 0, thought_stream: list[str] = [], max_context_tokens: int = DEFAULT_MAX_CONTEXT, max_output_tokens: int = DEFAULT_MAX_OUTPUT) -> tuple[str, int]:
         """
         Retrieves the conscious memory content to be included in the chat response.
@@ -166,6 +194,9 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         seen_docs = set() # Keep track of doc_ids we've already included
 
         #logger.info(f"Initial Conscious Memory Length: {total_len}")
+
+        # Hook: Allow subclasses to add content at head
+        formatter = self.get_consciousness_head(formatter)
 
         formatter.add_element("PraxOS", content="--== PraxOS Conscious Memory **Online** ==--", nowrap=True, priority=3)
 
@@ -272,6 +303,16 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         scratch_tokens_estimate = self.count_tokens(self.scratch_pad or "")
         # Estimate tokens for thought_stream (if enabled and present)
         thought_stream_estimate = sum(self.count_tokens(t) for t in thought_stream) if thought_stream else 0
+        # Estimate tokens for head/tail hooks
+        # Create temporary formatter to get hook content for token counting
+        temp_formatter = XmlFormatter()
+        temp_formatter = self.get_consciousness_head(temp_formatter)
+        head_tokens_estimate = self.count_tokens(temp_formatter.render())
+
+        temp_formatter_tail = XmlFormatter()
+        temp_formatter_tail = self.get_consciousness_tail(temp_formatter_tail)
+        tail_tokens_estimate = self.count_tokens(temp_formatter_tail.render())
+
         available_tokens_for_dynamic_queries = (
             usable_context_tokens
             - current_tokens
@@ -279,9 +320,11 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
             - ws_tokens_estimate
             - scratch_tokens_estimate
             - thought_stream_estimate
+            - head_tokens_estimate  # NEW
+            - tail_tokens_estimate  # NEW
             - content_len  # External tokens: history, wakeup, user_input, etc.
         )
-        logger.debug(f"Token budget: max={usable_context_tokens}, current={current_tokens}, thoughts={thought_estimate_tokens}, ws={ws_tokens_estimate}, scratch={scratch_tokens_estimate}, stream={thought_stream_estimate}, external={content_len}, available={available_tokens_for_dynamic_queries}")
+        logger.debug(f"Token budget: max={usable_context_tokens}, current={current_tokens}, thoughts={thought_estimate_tokens}, ws={ws_tokens_estimate}, scratch={scratch_tokens_estimate}, stream={thought_stream_estimate}, head={head_tokens_estimate}, tail={tail_tokens_estimate}, external={content_len}, available={available_tokens_for_dynamic_queries}")
 
         if available_tokens_for_dynamic_queries > 50:  # Min threshold for dynamic querying
             # Define query sources
@@ -472,6 +515,9 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
 
         # Add memory count at the end
         formatter.add_element(self.hud_name, "Memory Count", content=str(len(seen_docs)), nowrap=True, priority=1)
+
+        # Hook: Allow subclasses to add content at tail
+        formatter = self.get_consciousness_tail(formatter)
 
         final_output = formatter.render()
         final_tokens = self.count_tokens(final_output)

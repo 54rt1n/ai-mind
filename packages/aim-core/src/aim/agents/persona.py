@@ -111,6 +111,12 @@ class Persona:
     include_date: bool = True
     user_timezone: Optional[str] = None
 
+    # MUD-specific wakeup message (optional)
+    mud_wakeup: Optional[str] = None
+
+    # Persona-level model overrides (optional)
+    models: Optional[dict[str, str]] = None
+
     def _xml_description(self, *base_path, xml: XmlFormatter, conversation_length: int = 0, show_time: bool = True, mood: Optional[str] = None,
                          disable_pif: bool = False, disable_guidance: bool = False) -> str:
         for k, v in self.attributes.items():
@@ -303,6 +309,15 @@ class Persona:
                 for outfit, tools in self.wardrobe_tools.items()
             }
         }
+
+        # Include mud_wakeup if present
+        if self.mud_wakeup:
+            result["mud_wakeup"] = self.mud_wakeup
+
+        # Include models if present
+        if self.models:
+            result["models"] = self.models
+
         return result
 
     @classmethod
@@ -313,7 +328,7 @@ class Persona:
             name: Tool.from_dict(**config) if isinstance(config, dict) else config
             for name, config in persona_tools_dict.items()
         }
-        
+
         # Convert wardrobe tools from dict to Tool objects
         wardrobe_tools_dict = data.get("wardrobe_tools", {})
         wardrobe_tools = {}
@@ -322,7 +337,15 @@ class Persona:
                 name: Tool.from_dict(**config) if isinstance(config, dict) else config
                 for name, config in tools.items()
             }
-        
+
+        # Handle mud_wakeup (optional string)
+        mud_wakeup = data.get("mud_wakeup")
+
+        # Handle models dict (optional)
+        models = data.get("models")
+        if models and not isinstance(models, dict):
+            raise ValueError(f"Persona models must be a dict, got {type(models)}")
+
         return cls(
             persona_id=data.get("persona_id", "Unknown"),
             persona_version=data.get("persona_version", "Unknown"),
@@ -343,7 +366,9 @@ class Persona:
             current_outfit=data.get("current_outfit", "default"),
             persona_tools=persona_tools,
             wardrobe_tools=wardrobe_tools,
-            user_timezone=user_timezone
+            user_timezone=user_timezone,
+            mud_wakeup=mud_wakeup,
+            models=models
         )
 
     @classmethod

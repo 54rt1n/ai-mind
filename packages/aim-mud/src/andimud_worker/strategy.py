@@ -26,6 +26,7 @@ from aim.chat.manager import ChatManager
 from aim.chat.strategy.xmlmemory import XMLMemoryTurnStrategy
 from aim.tool.formatting import ToolUser
 from aim.utils.tokens import count_tokens
+from aim.utils.xml import XmlFormatter
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,7 @@ class MUDDecisionStrategy:
             session,
             idle_mode=idle_mode,
             guidance=guidance,
+            include_format_guidance=False,  # Phase 1: JSON tool calls only, no ESH
         )
         turns.append({"role": "user", "content": user_content})
 
@@ -102,13 +104,11 @@ class MUDDecisionStrategy:
     def _build_decision_guidance(self, session: MUDSession) -> str:
         """Build guidance for Phase 1 tool selection.
 
-        Enumerates available options based on current world state:
-        - Valid move locations (room exits)
-        - Objects present in room
-        - Inventory items
-        - Valid give targets (players, AIs, NPCs)
-
-        Also provides JSON format instructions and examples.
+        Generates a structured tool use turn guidance with:
+        - Clear header indicating this is a tool use turn
+        - OpenAI-style function signatures from ToolUser
+        - Current world state context (exits, objects, inventory, targets)
+        - Contextual examples based on available options
 
         Args:
             session: Current MUD session with world state.
@@ -116,6 +116,23 @@ class MUDDecisionStrategy:
         Returns:
             Formatted guidance string for tool selection.
         """
+        parts = []
+
+        # Header
+        parts.append("[~~ Tool Guidance: Tool Use Turn ~~]")
+        parts.append("")
+        parts.append("You are in a tool use turn. Your response is going to be used to determine your next action.")
+        parts.append("Tool use involves you generating a JSON block like the following:")
+        parts.append("")
+
+        # Get tool signatures from ToolUser
+        if self.tool_user:
+            tool_guidance = self.tool_user.get_tool_guidance()
+            if tool_guidance:
+                parts.append(tool_guidance)
+                parts.append("")
+
+        # Extract current world state context
         exits: list[str] = []
         room_objects: list[str] = []
         present_targets: list[str] = []
@@ -154,41 +171,38 @@ class MUDDecisionStrategy:
                         if entity.name:
                             room_objects.append(entity.name)
 
-        # Build guidance lines
-        lines = [
-            "Return ONLY a JSON object calling exactly one tool. No extra text.",
-            'Use {"speak": {}} to respond - your response will be generated using your active memory.',
-            'Use {"speak": {"query": "<topic>"}} to focus your memory on a specific topic before responding.',
-            'Use {"wait": {}} to do nothing this turn (no action, no response).',
-            'Use {"move": {"location": "<exit>"}} to move - use the full exit name or number.',
-            'Use {"take": {"object": "<item>"}} to pick up an item.',
-            'Use {"drop": {"object": "<item>"}} to drop an item from inventory.',
-            'Use {"give": {"object": "<item>", "target": "<person>"}} to give an item.',
-        ]
-
-        # Add available options
+        # Add current context
+        parts.append("Current Context:")
         if exits:
-            lines.append(f"Valid move locations: {', '.join(exits)}")
+            parts.append(f"  Available exits: {', '.join(exits)}")
         if room_objects:
-            lines.append(f"Objects present: {', '.join(room_objects)}")
+            parts.append(f"  Objects present: {', '.join(room_objects)}")
         if inventory_items:
-            lines.append(f"Inventory: {', '.join(inventory_items)}")
+            parts.append(f"  Your inventory: {', '.join(inventory_items)}")
         if present_targets:
-            lines.append(f"Valid give targets: {', '.join(present_targets)}")
+            parts.append(f"  People present: {', '.join(present_targets)}")
+        if not any([exits, room_objects, inventory_items, present_targets]):
+            parts.append("  (No special options available)")
+        parts.append("")
 
-        # Add examples based on available options
-        if exits:
-            lines.append(f'Example move: {{"move": {{"location": "{exits[0]}"}}}}')
-        if room_objects:
-            lines.append(f'Example take: {{"take": {{"object": "{room_objects[0]}"}}}}')
-        if inventory_items:
-            lines.append(f'Example drop: {{"drop": {{"object": "{inventory_items[0]}"}}}}')
-        if inventory_items and present_targets:
-            lines.append(
-                f'Example give: {{"give": {{"object": "{inventory_items[0]}", "target": "{present_targets[0]}"}}}}'
-            )
+        # Add contextual examples
+        if exits or room_objects or inventory_items or present_targets:
+            parts.append("Contextual Examples:")
+            if exits:
+                parts.append(f'  Move: {{"move": {{"location": "{exits[0]}"}}}}')
+            if room_objects:
+                parts.append(f'  Take: {{"take": {{"object": "{room_objects[0]}"}}}}')
+            if inventory_items:
+                parts.append(f'  Drop: {{"drop": {{"object": "{inventory_items[0]}"}}}}')
+            if inventory_items and present_targets:
+                parts.append(f'  Give: {{"give": {{"object": "{inventory_items[0]}", "target": "{present_targets[0]}"}}}}')
+            parts.append("")
 
-        return "\n".join(lines)
+        parts.append("Just follow the instructions. Thanks!")
+        parts.append("")
+        parts.append("[/~~Tool Guidance~~/]")
+
+        return "\n".join(parts)
 
     def _build_agent_action_hints(self, session: MUDSession) -> list[str]:
         """Build dynamic hints for @agent actions based on current world state.
@@ -411,3 +425,27 @@ class MUDResponseStrategy(XMLMemoryTurnStrategy):
             return []
         entries = await self.conversation_manager.get_history(token_budget)
         return [{"role": e.role, "content": e.content} for e in entries]
+
+    def get_consciousness_tail(self, formatter: XmlFormatter) -> XmlFormatter:
+        """Add world state XML at end of consciousness block.
+
+        Renders the current world state (room description, entities, inventory)
+        at the PraxOS level (not nested under Active Memory) so the agent has
+        current context.
+
+        Args:
+            formatter: XmlFormatter instance to extend
+
+        Returns:
+            Modified formatter with world state added
+        """
+        # Only add if we have location context set
+        if self.chat.current_location and self.chat.current_location.strip():
+            formatter.add_element(
+                self.hud_name, "Current World State",
+                content=self.chat.current_location,
+                priority=1,
+                noindent=True
+            )
+
+        return formatter

@@ -61,14 +61,13 @@ class LLMProviderError(Exception):
         super().__init__(message)
 
 class ModelCategory(str, Enum):
-    """Model capability categories"""
-    ANALYSIS = "analysis"
-    CONVERSATION = "conversation"
-    COMPLETION = "completion"
-    FUNCTIONS = "functions"
-    THOUGHT = "thought"
-    VISION = "vision"
-    WORKSPACE = "workspace"
+    """Model capability categories (what a model CAN do)"""
+    BASE = "base"              # Base pretrained models
+    INSTRUCT = "instruct"      # Instruction-tuned models
+    CODE = "code"              # Code-specialized models
+    THINKING = "thinking"      # Trained with <think> tags (e.g., DeepSeek-R1)
+    VISION = "vision"          # Image understanding
+    OTHER = "other"            # Other capabilities
 
 @dataclass
 class SamplerConfig:

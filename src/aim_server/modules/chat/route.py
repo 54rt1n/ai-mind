@@ -62,25 +62,25 @@ class ModelClasses:
     @property
     def categories(self) -> dict[str, list[str]]:
         return {
-            "analysis": [m for m in self.analysis],
-            "conversation": [m for m in self.conversation],
-            "thought": [m for m in self.thought],
-            "vision": [m for m in self.vision],
-            "functions": [m for m in self.functions],
-            "completion": [m for m in self.completion],
-            "workspace": [m for m in self.workspace],
+            "analysis": self.analysis or [],
+            "conversation": self.conversation or [],
+            "thought": self.thought or [],
+            "vision": self.vision or [],
+            "functions": self.functions or [],
+            "completion": self.completion or [],
+            "workspace": self.workspace or [],
         }
 
     @classmethod
     def from_models(cls, models: list[LanguageModelV2]) -> 'ModelClasses':
         return cls(
-            analysis=[m.name for m in models if ModelCategory.ANALYSIS in m.category],
-            conversation=[m.name for m in models if ModelCategory.CONVERSATION in m.category],
-            thought=[m.name for m in models if ModelCategory.THOUGHT in m.category],
+            analysis=[m.name for m in models if ModelCategory.CODE in m.category],
+            conversation=[m.name for m in models if ModelCategory.INSTRUCT in m.category],
+            thought=[m.name for m in models if ModelCategory.THINKING in m.category],
             vision=[m.name for m in models if ModelCategory.VISION in m.category],
-            functions=[m.name for m in models if ModelCategory.FUNCTIONS in m.category],
-            completion=[m.name for m in models if ModelCategory.COMPLETION in m.category],
-            workspace=[m.name for m in models if ModelCategory.WORKSPACE in m.category],
+            functions=[m.name for m in models if ModelCategory.CODE in m.category],
+            completion=[m.name for m in models if ModelCategory.BASE in m.category or ModelCategory.INSTRUCT in m.category],
+            workspace=[m.name for m in models if ModelCategory.INSTRUCT in m.category or ModelCategory.CODE in m.category],
         )
 
 
@@ -140,7 +140,7 @@ class ChatModule:
             pass  # Non-critical, don't fail requests
 
         selected_model : LanguageModelV2 | None = self.models.get(request.model, None)
-        if selected_model is None or type(selected_model) is not LanguageModelV2:
+        if selected_model is None or not isinstance(selected_model, LanguageModelV2):
             raise HTTPException(status_code=400, detail=f"Invalid model: {request.model}")
 
         if len(request.messages) == 0:
