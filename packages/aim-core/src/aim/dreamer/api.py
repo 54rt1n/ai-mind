@@ -140,6 +140,7 @@ async def start_pipeline(
     guidance: Optional[str] = None,
     mood: Optional[str] = None,
     context_documents: Optional[list[dict]] = None,
+    cvm: Optional[ConversationModel] = None,
 ) -> str:
     """
     Start a new pipeline execution.
@@ -156,6 +157,10 @@ async def start_pipeline(
         query_text: Optional query for journaler/philosopher scenarios
         guidance: Optional guidance text
         mood: Optional persona mood
+        context_documents: Optional list of context documents to include
+        cvm: Optional pre-configured ConversationModel. If not provided, one will
+            be created using the resolved persona_id. MUD workers should pass their
+            own CVM to ensure correct persona isolation.
 
     Returns:
         pipeline_id for tracking
@@ -168,8 +173,7 @@ async def start_pipeline(
     scenario = load_scenario(scenario_name)
     scenario.compute_dependencies()
 
-    # 2. Load existing infrastructure
-    cvm = ConversationModel.from_config(config)
+    # 2. Load roster (CVM created after persona resolution)
     roster = Roster.from_config(config)
 
     # 3. Resolve persona_id - explicit > conversation > config
@@ -178,7 +182,9 @@ async def start_pipeline(
         if scenario.requires_conversation:
             if not conversation_id:
                 raise ValueError(f"Scenario '{scenario_name}' requires a conversation_id")
-            conv_df = cvm.index.search(
+            # Use provided CVM or create temporary one to look up conversation
+            lookup_cvm = cvm if cvm is not None else ConversationModel.from_config(config)
+            conv_df = lookup_cvm.index.search(
                 query_conversation_id=conversation_id,
                 query_document_type='conversation',
                 query_limit=1,
@@ -193,15 +199,27 @@ async def start_pipeline(
 
     persona = roster.personas[resolved_persona_id]
 
-    # 4. Resolve user_id - explicit > persona_id > config
+    # 4. Create CVM if not provided - uses resolved persona_id for correct memory isolation
+    if cvm is None:
+        # Build memory path from resolved persona_id
+        memory_path = f"memory/{resolved_persona_id}"
+        ConversationModel.maybe_init_folders(memory_path)
+        cvm = ConversationModel(
+            memory_path=memory_path,
+            embedding_model=config.embedding_model,
+            user_timezone=config.user_timezone,
+            embedding_device=config.embedding_device,
+        )
+
+    # 5. Resolve user_id - explicit > persona_id > config
     resolved_user_id = user_id or resolved_persona_id or config.user_id
 
-    # 5. Validate model exists
+    # 6. Validate model exists
     models = LanguageModelV2.index_models(config)
     if model_name not in models:
         raise ValueError(f"Model {model_name} not found in available models")
 
-    # 6. Initialize state - branch based on flow type
+    # 7. Initialize state - branch based on flow type
     pipeline_id = generate_pipeline_id()
 
     if scenario.flow == "dialogue":
@@ -1098,6 +1116,7 @@ async def restart_from_step(
     mood: Optional[str] = None,
     include_all_history: bool = False,
     same_branch: bool = False,
+    cvm: Optional[ConversationModel] = None,
 ) -> str:
     """
     Restart a scenario pipeline from a specific step using existing conversation data.
@@ -1126,6 +1145,8 @@ async def restart_from_step(
         include_all_history: If True, load entire conversation history (all branches)
             into context, not just the specified branch
         same_branch: If True, continue on the same branch instead of creating a new one
+        cvm: Optional pre-configured ConversationModel. If not provided, one will
+            be created using the resolved persona_id.
 
     Returns:
         pipeline_id for tracking the new pipeline
@@ -1134,12 +1155,14 @@ async def restart_from_step(
         ValueError: If scenario cannot be inferred or step not found
         FileNotFoundError: If scenario not found
     """
-    # 1. Load conversation model and history
-    cvm = ConversationModel.from_config(config)
+    # 1. Load roster (CVM created after persona resolution if not provided)
     roster = Roster.from_config(config)
 
+    # Use provided CVM or create temporary one for initial history lookup
+    lookup_cvm = cvm if cvm is not None else ConversationModel.from_config(config)
+
     # Get conversation history for this branch
-    history_df = cvm.get_conversation_history(conversation_id)
+    history_df = lookup_cvm.get_conversation_history(conversation_id)
 
     if history_df.empty:
         raise ValueError(f"Conversation {conversation_id} not found or empty")
@@ -1187,15 +1210,27 @@ async def restart_from_step(
 
     persona = roster.personas[resolved_persona_id]
 
-    # 5. Resolve user_id
+    # 5. Create CVM if not provided - uses resolved persona_id for correct memory isolation
+    if cvm is None:
+        # Build memory path from resolved persona_id
+        memory_path = f"memory/{resolved_persona_id}"
+        ConversationModel.maybe_init_folders(memory_path)
+        cvm = ConversationModel(
+            memory_path=memory_path,
+            embedding_model=config.embedding_model,
+            user_timezone=config.user_timezone,
+            embedding_device=config.embedding_device,
+        )
+
+    # 6. Resolve user_id
     resolved_user_id = user_id or resolved_persona_id or config.user_id
 
-    # 6. Validate model exists
+    # 7. Validate model exists
     models = LanguageModelV2.index_models(config)
     if model_name not in models:
         raise ValueError(f"Model {model_name} not found in available models")
 
-    # 7. Determine which steps to skip (completed steps before target)
+    # 8. Determine which steps to skip (completed steps before target)
     # Get execution order
     topo_order = scenario.topological_order()
     target_idx = topo_order.index(step_id)
@@ -1203,7 +1238,7 @@ async def restart_from_step(
     # Steps before target in topo order are "completed"
     completed_steps = topo_order[:target_idx]
 
-    # 8. Build context from existing documents
+    # 9. Build context from existing documents
     # Find doc_ids from branch that correspond to completed steps
     step_doc_ids = {}
     context_doc_ids = []
@@ -1238,7 +1273,7 @@ async def restart_from_step(
         conv_docs = branch_df[branch_df['document_type'] == 'conversation']['doc_id'].tolist()
         context_doc_ids = conv_docs + context_doc_ids
 
-    # 9. Create new pipeline state
+    # 10. Create new pipeline state
     pipeline_id = generate_pipeline_id()
     new_branch = branch if same_branch else cvm.get_next_branch(conversation_id)
 
@@ -1263,19 +1298,19 @@ async def restart_from_step(
         updated_at=datetime.now(timezone.utc),
     )
 
-    # 10. Run seed actions for any steps that need them
+    # 11. Run seed actions for any steps that need them
     state = await run_seed_actions(scenario, state, cvm)
 
-    # 11. Persist state to Redis
+    # 12. Persist state to Redis
     await state_store.save_state(state)
 
-    # 12. Initialize DAG with completed steps marked as complete
+    # 13. Initialize DAG with completed steps marked as complete
     await state_store.init_dag(pipeline_id, scenario)
 
     for completed_step in completed_steps:
         await state_store.set_step_status(pipeline_id, completed_step, StepStatus.COMPLETE)
 
-    # 13. Enqueue the target step (and any other ready steps)
+    # 14. Enqueue the target step (and any other ready steps)
     # Check if target step's dependencies are satisfied
     target_step_def = scenario.steps[step_id]
     deps_satisfied = all(dep in completed_steps for dep in target_step_def.depends_on)

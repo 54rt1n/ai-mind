@@ -39,6 +39,7 @@ from .events import EventsMixin
 from .llm import LLMMixin
 from .actions import ActionsMixin
 from .turns import TurnsMixin
+from .dreamer import DreamerMixin
 from .utils import _utc_now
 
 
@@ -53,7 +54,7 @@ class AbortRequestedException(Exception):
     pass
 
 
-class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMixin):
+class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMixin, DreamerMixin):
     """Worker that consumes events from Redis stream and processes them.
 
     Originally from worker.py lines 71-1887
@@ -333,9 +334,67 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
                         await self._set_turn_request_state(turn_id, "done")
                         self._last_turn_request_id = turn_id
                         continue
+                    if reason == "dream":
+                        # @dream command - run a dreamer pipeline
+                        scenario = turn_request.get("scenario", "")
+                        query = turn_request.get("query") or None
+                        guidance = turn_request.get("guidance") or None
+                        # Explicit conversation_id for analysis commands
+                        target_conversation_id = turn_request.get("conversation_id") or None
+
+                        if not scenario:
+                            logger.error("Dream turn missing scenario")
+                            await self._set_turn_request_state(
+                                turn_id, "fail", message="Dream turn missing scenario"
+                            )
+                            self._last_turn_request_id = turn_id
+                            continue
+
+                        logger.info(f"Processing dream turn: {scenario}")
+                        result = await self.process_dream_turn(
+                            scenario=scenario,
+                            query=query,
+                            guidance=guidance,
+                            triggered_by="manual",
+                            target_conversation_id=target_conversation_id,
+                        )
+
+                        if result.success:
+                            logger.info(
+                                f"Dream completed: {result.pipeline_id} "
+                                f"in {result.duration_seconds:.1f}s"
+                            )
+                            await self._set_turn_request_state(turn_id, "done")
+                        else:
+                            logger.error(f"Dream failed: {result.error}")
+                            await self._set_turn_request_state(
+                                turn_id, "fail", message=result.error
+                            )
+                        self._last_turn_request_id = turn_id
+                        continue
                     if reason == "idle":
                         events = []
                         saved_last_event_id = None
+
+                        # Check auto-dream triggers during idle
+                        dream_request = await self.check_auto_dream_triggers()
+                        if dream_request:
+                            logger.info(f"Auto-dream triggered: {dream_request.scenario}")
+                            result = await self.process_dream_turn(
+                                scenario=dream_request.scenario,
+                                query=dream_request.query,
+                                guidance=dream_request.guidance,
+                                triggered_by="auto",
+                            )
+                            if result.success:
+                                logger.info(
+                                    f"Auto-dream completed: {result.pipeline_id} "
+                                    f"in {result.duration_seconds:.1f}s"
+                                )
+                            else:
+                                logger.warning(f"Auto-dream failed: {result.error}")
+                            # Continue to process idle turn normally after dream
+                            # (or mark as done if dream consumed the turn)
                     else:
                         # Save event position before draining (for rollback on failure)
                         saved_last_event_id = self.session.last_event_id

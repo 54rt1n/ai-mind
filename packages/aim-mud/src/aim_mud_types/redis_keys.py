@@ -140,6 +140,29 @@ class RedisKeys:
         return f"mud:agent:{agent_id}:conversation"
 
     @staticmethod
+    def agent_dreamer(agent_id: str) -> str:
+        """Get the dreamer state key for a specific agent.
+
+        The dreamer state hash contains configuration and status
+        for the agent's dream processing system.
+
+        Hash fields:
+        - enabled: "true" | "false" - auto-dreaming on/off
+        - last_dream_at: ISO timestamp of last dream completion
+        - last_dream_scenario: name of last scenario run
+        - idle_threshold_seconds: seconds idle before auto-dream triggers (default: 3600)
+        - token_threshold: accumulated tokens before auto-dream triggers (default: 10000)
+        - pending_pipeline_id: if dream is in progress, the pipeline ID
+
+        Args:
+            agent_id: Unique identifier for the agent.
+
+        Returns:
+            Redis hash key for the agent's dreamer state.
+        """
+        return f"agent:{agent_id}:dreamer"
+
+    @staticmethod
     def format_stream_id(timestamp_ms: int, sequence: int = 0) -> str:
         """Format a Redis stream message ID.
 
