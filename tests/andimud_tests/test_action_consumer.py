@@ -1,4 +1,4 @@
-# tests/unit/mud/test_action_consumer.py
+# tests/andimud_tests/test_action_consumer.py
 """Tests for Evennia action consumer retry logic and stream trimming.
 
 These tests verify the retry decorator and stream trimming functionality
@@ -12,12 +12,11 @@ import redis
 
 
 # Import the retry decorator and ActionConsumer from the Evennia codebase
-# Note: This assumes the andimud directory structure is accessible
 import sys
 from pathlib import Path
 
 # Add andimud to path for imports
-andimud_path = Path(__file__).parent.parent.parent.parent.parent / "andimud" / "andimud"
+andimud_path = Path(__file__).parent.parent / "andimud" / "andimud"
 if andimud_path.exists():
     sys.path.insert(0, str(andimud_path.parent))
 

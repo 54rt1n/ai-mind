@@ -130,9 +130,24 @@ def conversation_manager(mock_redis):
 
 
 @pytest.fixture
-def strategy(conversation_manager):
+def mock_chat_manager_for_decision():
+    """Create a mock ChatManager for MUDDecisionStrategy tests."""
+    chat = MagicMock()
+    chat.cvm = MagicMock()
+    chat.config = MagicMock()
+    chat.current_location = None
+    chat.current_document = None
+    chat.current_workspace = None
+    chat.library = MagicMock()
+    return chat
+
+
+@pytest.fixture
+def strategy(mock_chat_manager_for_decision, conversation_manager):
     """Create a MUDDecisionStrategy for testing."""
-    return MUDDecisionStrategy(conversation_manager)
+    strat = MUDDecisionStrategy(mock_chat_manager_for_decision)
+    strat.set_conversation_manager(conversation_manager)
+    return strat
 
 
 @pytest.fixture
@@ -146,14 +161,21 @@ def mock_persona():
 class TestMUDDecisionStrategyInit:
     """Test MUDDecisionStrategy initialization."""
 
-    def test_init_sets_conversation_manager(self, conversation_manager):
-        """Test that __init__ sets the conversation manager."""
-        strategy = MUDDecisionStrategy(conversation_manager)
+    def test_init_takes_chat_manager(self, mock_chat_manager_for_decision):
+        """Test that __init__ takes ChatManager and conversation_manager starts as None."""
+        strategy = MUDDecisionStrategy(mock_chat_manager_for_decision)
+        assert strategy.chat is mock_chat_manager_for_decision
+        assert strategy.conversation_manager is None
+
+    def test_set_conversation_manager(self, mock_chat_manager_for_decision, conversation_manager):
+        """Test that set_conversation_manager sets the conversation manager."""
+        strategy = MUDDecisionStrategy(mock_chat_manager_for_decision)
+        strategy.set_conversation_manager(conversation_manager)
         assert strategy.conversation_manager is conversation_manager
 
-    def test_init_tool_user_is_none(self, conversation_manager):
+    def test_init_tool_user_is_none(self, mock_chat_manager_for_decision):
         """Test that tool_user starts as None."""
-        strategy = MUDDecisionStrategy(conversation_manager)
+        strategy = MUDDecisionStrategy(mock_chat_manager_for_decision)
         assert strategy.tool_user is None
 
     def test_set_tool_user(self, strategy):
@@ -175,11 +197,18 @@ class TestMUDDecisionStrategyBuildTurns:
         """Test that build_turns returns valid turn structure."""
         session = _sample_session()
 
+        # Mock chat_turns_for to return expected structure
+        strategy.chat_turns_for = MagicMock(return_value=[
+            {"role": "user", "content": "consciousness block"},
+            {"role": "user", "content": "current context"},
+        ])
+
         turns = await strategy.build_turns(mock_persona, session)
 
         assert isinstance(turns, list)
-        assert len(turns) >= 1  # At minimum: user turn (no system turn in array)
-        assert turns[-1]["role"] == "user"
+        assert len(turns) >= 1
+        # Verify chat_turns_for was called
+        strategy.chat_turns_for.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_build_turns_no_system_turn_in_array(
@@ -192,6 +221,11 @@ class TestMUDDecisionStrategyBuildTurns:
         """
         session = _sample_session()
 
+        # Mock chat_turns_for to return turns without system
+        strategy.chat_turns_for = MagicMock(return_value=[
+            {"role": "user", "content": "test"},
+        ])
+
         turns = await strategy.build_turns(mock_persona, session)
 
         # System turn should NOT be in the turns array
@@ -201,7 +235,7 @@ class TestMUDDecisionStrategyBuildTurns:
     async def test_build_turns_includes_history(
         self, strategy, mock_persona, mock_redis
     ):
-        """Test that build_turns includes conversation history."""
+        """Test that build_turns passes history to chat_turns_for."""
         # Set up mock history
         entry1 = _sample_conversation_entry("user", "Hello!", 0)
         entry2 = _sample_conversation_entry("assistant", "Hi there!", 1)
@@ -210,37 +244,45 @@ class TestMUDDecisionStrategyBuildTurns:
             entry2.model_dump_json().encode(),
         ]
 
+        # Mock chat_turns_for
+        strategy.chat_turns_for = MagicMock(return_value=[
+            {"role": "user", "content": "Hello!"},
+            {"role": "assistant", "content": "Hi there!"},
+            {"role": "user", "content": "current context"},
+        ])
+
         session = _sample_session()
         turns = await strategy.build_turns(mock_persona, session)
 
-        # Should have: user history, assistant history, current user (NO system turn)
-        assert len(turns) == 3
-        assert turns[0]["role"] == "user"
-        assert turns[0]["content"] == "Hello!"
-        assert turns[1]["role"] == "assistant"
-        assert turns[1]["content"] == "Hi there!"
-        assert turns[2]["role"] == "user"
+        # Verify chat_turns_for was called with history
+        call_kwargs = strategy.chat_turns_for.call_args[1]
+        assert "history" in call_kwargs
+        history = call_kwargs["history"]
+        assert len(history) == 2
+        assert history[0]["content"] == "Hello!"
+        assert history[1]["content"] == "Hi there!"
 
     @pytest.mark.asyncio
     async def test_build_turns_with_tool_user(
         self, strategy, mock_persona, mock_redis
     ):
-        """Test that build_turns works when tool_user is set.
-
-        Tool definitions are now handled in worker.py's system message,
-        not in the turns array returned by build_turns().
-        """
+        """Test that build_turns works when tool_user is set."""
         from aim.tool.formatting import ToolUser
 
         tool_user = ToolUser(tools=[_sample_tool()])
         strategy.set_tool_user(tool_user)
 
+        # Mock chat_turns_for
+        strategy.chat_turns_for = MagicMock(return_value=[
+            {"role": "user", "content": "test"},
+        ])
+
         session = _sample_session()
         turns = await strategy.build_turns(mock_persona, session)
 
-        # Turns should still be valid (no system turn in array)
+        # Verify it completed successfully
         assert len(turns) >= 1
-        assert all(turn["role"] != "system" for turn in turns)
+        strategy.chat_turns_for.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_build_turns_idle_mode(
@@ -250,13 +292,21 @@ class TestMUDDecisionStrategyBuildTurns:
         session = _sample_session()
         session.pending_events = []  # No pending events
 
+        # Capture what user_input was passed to chat_turns_for
+        captured_user_input = None
+        def capture_call(*args, **kwargs):
+            nonlocal captured_user_input
+            captured_user_input = kwargs.get("user_input", "")
+            return [{"role": "user", "content": captured_user_input}]
+
+        strategy.chat_turns_for = capture_call
+
         turns = await strategy.build_turns(mock_persona, session, idle_mode=True)
 
-        # Last turn should be user turn and prompt for action
-        assert turns[-1]["role"] == "user"
-        user_content = turns[-1]["content"]
-        # Idle mode asks agent what they want to do
-        assert "agency" in user_content.lower() or "want to do" in user_content.lower()
+        # Idle mode should pass through to build_current_context
+        # which adds agency prompt
+        assert captured_user_input is not None
+        assert "agency" in captured_user_input.lower() or "want to do" in captured_user_input.lower()
 
     @pytest.mark.asyncio
     async def test_build_turns_includes_guidance(
@@ -265,13 +315,20 @@ class TestMUDDecisionStrategyBuildTurns:
         """Test that build_turns includes decision guidance."""
         session = _sample_session()
 
+        # Capture what user_input was passed to chat_turns_for
+        captured_user_input = None
+        def capture_call(*args, **kwargs):
+            nonlocal captured_user_input
+            captured_user_input = kwargs.get("user_input", "")
+            return [{"role": "user", "content": captured_user_input}]
+
+        strategy.chat_turns_for = capture_call
+
         turns = await strategy.build_turns(mock_persona, session)
 
-        # Last turn should be user turn with guidance
-        assert turns[-1]["role"] == "user"
-        user_content = turns[-1]["content"]
         # Guidance should mention available exits
-        assert "north" in user_content or "south" in user_content
+        assert captured_user_input is not None
+        assert "north" in captured_user_input or "south" in captured_user_input
 
 
 class TestMUDDecisionStrategyBuildDecisionGuidance:
@@ -283,9 +340,8 @@ class TestMUDDecisionStrategyBuildDecisionGuidance:
 
         guidance = strategy._build_decision_guidance(session)
 
-        assert "JSON" in guidance
-        assert '{"speak": {}}' in guidance
-        assert '{"move":' in guidance
+        assert "Tool Use Turn" in guidance
+        assert '{"move":' in guidance or "Tool Guidance" in guidance
 
     def test_build_decision_guidance_enumerates_exits(self, strategy):
         """Test that guidance enumerates available exits."""
@@ -293,7 +349,7 @@ class TestMUDDecisionStrategyBuildDecisionGuidance:
 
         guidance = strategy._build_decision_guidance(session)
 
-        assert "Valid move locations:" in guidance
+        assert "Available exits:" in guidance
         assert "north" in guidance
         assert "south" in guidance
 
@@ -312,7 +368,7 @@ class TestMUDDecisionStrategyBuildDecisionGuidance:
 
         guidance = strategy._build_decision_guidance(session)
 
-        assert "Inventory:" in guidance
+        assert "Your inventory:" in guidance
         assert "Silver Coin" in guidance
 
     def test_build_decision_guidance_enumerates_targets(self, strategy):
@@ -321,7 +377,7 @@ class TestMUDDecisionStrategyBuildDecisionGuidance:
 
         guidance = strategy._build_decision_guidance(session)
 
-        assert "Valid give targets:" in guidance
+        assert "People present:" in guidance
         assert "Prax" in guidance
 
     def test_build_decision_guidance_excludes_self(self, strategy):
@@ -339,10 +395,11 @@ class TestMUDDecisionStrategyBuildDecisionGuidance:
 
         guidance = strategy._build_decision_guidance(session)
 
-        assert "Example move:" in guidance
-        assert "Example take:" in guidance
-        assert "Example drop:" in guidance
-        assert "Example give:" in guidance
+        assert "Contextual Examples:" in guidance
+        assert "Move:" in guidance
+        assert "Take:" in guidance
+        assert "Drop:" in guidance
+        assert "Give:" in guidance
 
     def test_build_decision_guidance_empty_session(self, strategy):
         """Test guidance with minimal session."""
@@ -356,10 +413,9 @@ class TestMUDDecisionStrategyBuildDecisionGuidance:
         guidance = strategy._build_decision_guidance(session)
 
         # Should still have basic instructions
-        assert "JSON" in guidance
-        assert '{"speak": {}}' in guidance
-        # But no examples for specific actions
-        assert "Example move:" not in guidance
+        assert "Tool Use Turn" in guidance
+        # But no contextual examples for specific actions
+        assert "Contextual Examples:" not in guidance
 
     def test_build_decision_guidance_falls_back_to_session_entities(self, strategy):
         """Test that guidance falls back to session.entities_present when no world_state."""

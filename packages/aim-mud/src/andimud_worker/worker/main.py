@@ -201,7 +201,8 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
         )
 
         # Initialize decision strategy
-        self._decision_strategy = MUDDecisionStrategy(self.conversation_manager)
+        self._decision_strategy = MUDDecisionStrategy(self._chat_manager)
+        self._decision_strategy.set_conversation_manager(self.conversation_manager)
         self._decision_strategy.set_tool_user(self._decision_tool_user)
 
         # Initialize response strategy
