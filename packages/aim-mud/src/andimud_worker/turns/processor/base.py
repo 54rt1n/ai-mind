@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING
 from aim_mud_types import MUDAction, MUDEvent, MUDTurn
 from aim_mud_types.helper import _utc_now
 
+from ...adapter import format_self_action_guidance
+
 if TYPE_CHECKING:
     from ...mixins.turns import TurnsMixin
 
@@ -93,7 +95,6 @@ class BaseTurnProcessor(ABC):
         self_actions: list[MUDEvent] = []
         if self.worker.session and self.worker.session.pending_self_actions:
             self_actions = self.worker.session.pending_self_actions.copy()
-            from ....adapter import format_self_action_guidance
             self._action_guidance = format_self_action_guidance(self_actions)
             logger.info(
                 f"Prepared action guidance for {len(self_actions)} self-actions"

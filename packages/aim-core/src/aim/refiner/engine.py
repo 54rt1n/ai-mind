@@ -18,6 +18,7 @@ import logging
 import random
 import time
 import uuid
+from dataclasses import replace
 from typing import Optional, TYPE_CHECKING
 
 from ..agents.persona import Persona
@@ -76,7 +77,6 @@ class ExplorationEngine:
 
         # Create a config copy with adequate max_tokens for thinking models
         # Thinking models need ~4096 tokens for <think> blocks + JSON response
-        from dataclasses import replace
         self.llm_config = replace(config, max_tokens=4096)
 
         # Load persona for prompts

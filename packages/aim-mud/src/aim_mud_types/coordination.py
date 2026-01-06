@@ -31,7 +31,7 @@ class TurnRequest(BaseModel):
 
     turn_id: str
     status: Literal["assigned", "in_progress", "done", "fail", "ready"] = "assigned"
-    reason: Literal["events", "idle", "dream", "agent", "choose", "flush", "clear", "new"] = "events"
+    reason: Literal["events", "idle", "dream", "agent", "choose", "flush", "clear", "new", "retry"] = "events"
     message: Optional[str] = None
     heartbeat_at: datetime = Field(default_factory=_utc_now)
     assigned_at: datetime = Field(default_factory=_utc_now)

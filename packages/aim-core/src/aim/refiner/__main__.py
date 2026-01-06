@@ -25,9 +25,11 @@ import asyncio
 import logging
 import random
 import sys
+from dataclasses import replace
 from typing import Optional
 
 from ..config import ChatConfig
+from ..llm.models import LanguageModelV2
 from ..conversation.model import ConversationModel
 from ..agents.persona import Persona
 from .context import ContextGatherer
@@ -91,9 +93,6 @@ async def run_exploration(args: argparse.Namespace) -> int:
 
     # Get LLM provider with adequate max_tokens for thinking models
     try:
-        from aim.llm.models import LanguageModelV2
-        from dataclasses import replace
-
         model_name = args.model or config.default_model
         if not model_name:
             print("No model specified and DEFAULT_MODEL not set in env", file=sys.stderr)

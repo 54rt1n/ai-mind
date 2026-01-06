@@ -6,6 +6,7 @@ Pure data access layer with no business logic or state.
 All methods take explicit parameters and return data.
 """
 
+import asyncio
 import logging
 from typing import Optional, TYPE_CHECKING
 
@@ -144,8 +145,6 @@ class TurnRequestMixin:
         Args:
             stop_event: asyncio.Event to signal when to stop heartbeating
         """
-        import asyncio
-
         try:
             while not stop_event.is_set():
                 await asyncio.sleep(self.config.turn_request_heartbeat_seconds)

@@ -5,7 +5,7 @@
 This module contains adapters for converting MUD types into chat turn format.
 """
 
-from .event import format_event, format_self_event
+from .event import format_event, format_self_event, format_self_action_guidance
 from .turn import format_turn_events, format_turn_response
 from .session import build_system_prompt, build_current_context, build_history_turns, MAX_RECENT_TURNS
 from .conversation import entries_to_chat_turns
@@ -13,6 +13,7 @@ from .conversation import entries_to_chat_turns
 __all__ = [
     "format_event",
     "format_self_event",
+    "format_self_action_guidance",
     "format_turn_events",
     "format_turn_response",
     "build_system_prompt",

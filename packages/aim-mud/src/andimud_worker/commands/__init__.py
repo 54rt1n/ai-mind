@@ -17,6 +17,7 @@ from .events import EventsCommand
 from .flush import FlushCommand
 from .idle import IdleCommand
 from .new_conversation import NewConversationCommand
+from .retry import RetryCommand
 
 __all__ = [
     "Command",
@@ -30,4 +31,5 @@ __all__ = [
     "FlushCommand",
     "IdleCommand",
     "NewConversationCommand",
+    "RetryCommand",
 ]

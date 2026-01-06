@@ -10,6 +10,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from aim.llm.models import LanguageModelV2
+from aim.llm.model_set import ModelSet
 
 if TYPE_CHECKING:
     from ..worker import MUDAgentWorker
@@ -32,8 +33,6 @@ class LLMMixin:
         Creates a ModelSet that manages multiple LLM providers for different
         task types (default, thought, tool) with persona-level model overrides.
         """
-        from aim.llm.model_set import ModelSet
-
         # Create ModelSet with persona overrides
         self.model_set = ModelSet.from_config(
             config=self.chat_config,

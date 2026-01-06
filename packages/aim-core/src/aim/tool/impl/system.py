@@ -4,6 +4,7 @@
 import os
 import subprocess
 import sys
+import tempfile
 from typing import Dict, Any, Optional
 from .base import ToolImplementation
 
@@ -64,8 +65,6 @@ class SystemTool(ToolImplementation):
             RuntimeError: If execution fails
         """
         # Create a temporary file for the code
-        import tempfile
-        
         try:
             with tempfile.NamedTemporaryFile(suffix='.py', mode='w', delete=False) as temp:
                 temp_path = temp.name

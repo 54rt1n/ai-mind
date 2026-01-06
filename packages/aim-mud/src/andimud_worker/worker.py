@@ -57,6 +57,7 @@ from .commands import (
     DreamCommand,
     IdleCommand,
     EventsCommand,
+    RetryCommand,
 )
 
 
@@ -146,6 +147,7 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
             DreamCommand(),
             IdleCommand(),
             EventsCommand(),
+            RetryCommand(),
         )
 
     async def start(self) -> None:

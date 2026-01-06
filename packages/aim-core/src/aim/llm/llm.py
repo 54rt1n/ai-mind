@@ -2,8 +2,10 @@
 # AI-Mind © 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
 
 from abc import ABC, abstractmethod
+import json
 import logging
 import time
+from pathlib import Path
 from typing import Dict, List, Optional, Generator
 
 import tiktoken
@@ -185,8 +187,6 @@ class OpenAIProvider(LLMProvider):
             try:
                 # Write all messages to trace file (after system message has been prepended)
                 if messages:
-                    import json
-                    from pathlib import Path
                     trace_path = Path("local/trace.txt")
                     trace_path.parent.mkdir(parents=True, exist_ok=True)
                     # Write the final messages array that will be sent to the API

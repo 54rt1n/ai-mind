@@ -479,8 +479,6 @@ class ToolValidator:
             return json.loads(response)
         except json.JSONDecodeError:
             # If that fails, try to find JSON block
-            import re
-
             json_pattern = r"\{[\s\S]*\}"
             match = re.search(json_pattern, response)
             if match:
