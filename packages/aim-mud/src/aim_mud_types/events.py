@@ -9,12 +9,7 @@ from pydantic import BaseModel, Field, field_serializer
 
 from .enums import EventType, ActorType
 from .world_state import WorldState
-
-
-def _utc_now() -> datetime:
-    """Return current UTC time as timezone-aware datetime."""
-    return datetime.now(timezone.utc)
-
+from .helper import _utc_now
 
 class MUDEvent(BaseModel):
     """A world event from the MUD.

@@ -11,7 +11,7 @@ Usage:
 See aim.app.mud.worker for full documentation.
 """
 
-from .worker import main
+from .utils import main
 
 if __name__ == "__main__":
     main()

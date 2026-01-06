@@ -6,7 +6,7 @@ import pytest
 from datetime import datetime, timezone
 from pydantic import ValidationError
 
-from andimud_worker.session import (
+from aim_mud_types import (
     EventType,
     ActorType,
     RoomState,

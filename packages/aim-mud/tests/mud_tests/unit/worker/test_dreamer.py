@@ -6,16 +6,16 @@ import pytest
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 from datetime import datetime, timezone
 
-from andimud_worker.dreamer_runner import (
+from andimud_worker.dreamer.runner import (
     DreamerRunner,
     DreamRequest,
     DreamResult,
     CONVERSATION_ANALYSIS_SCENARIOS,
 )
-from andimud_worker.worker.dreamer import DreamerMixin
+from andimud_worker.mixins.dreamer import DreamerMixin
 from andimud_worker.worker import MUDAgentWorker
 from andimud_worker.config import MUDConfig
-from andimud_worker.session import MUDSession
+from aim_mud_types import MUDSession
 from aim.config import ChatConfig
 from aim.dreamer.models import StepJob, StepStatus
 from aim_mud_types import RedisKeys
@@ -183,8 +183,8 @@ class TestDreamerRunnerInit:
 
     def test_initialization(self, chat_config, mock_cvm, mock_roster, mock_redis):
         """Test DreamerRunner initializes correctly."""
-        with patch("andimud_worker.dreamer_runner.StateStore") as mock_store_class:
-            with patch("andimud_worker.dreamer_runner.Scheduler") as mock_scheduler_class:
+        with patch("andimud_worker.dreamer.runner.StateStore") as mock_store_class:
+            with patch("andimud_worker.dreamer.runner.Scheduler") as mock_scheduler_class:
                 mock_store_class.return_value = AsyncMock()
                 mock_scheduler_class.return_value = AsyncMock()
 
@@ -214,8 +214,8 @@ class TestDreamerRunnerInit:
 
     def test_creates_agent_specific_keys(self, chat_config, mock_cvm, mock_roster, mock_redis):
         """Test that StateStore/Scheduler use agent-specific key prefix."""
-        with patch("andimud_worker.dreamer_runner.StateStore") as mock_store_class:
-            with patch("andimud_worker.dreamer_runner.Scheduler") as mock_scheduler_class:
+        with patch("andimud_worker.dreamer.runner.StateStore") as mock_store_class:
+            with patch("andimud_worker.dreamer.runner.Scheduler") as mock_scheduler_class:
                 mock_store = AsyncMock()
                 mock_scheduler = AsyncMock()
                 mock_scheduler.queue_key = ""
@@ -245,8 +245,8 @@ class TestDreamerRunnerGetConversationId:
         self, chat_config, mock_cvm, mock_roster, mock_redis
     ):
         """Test returns base_conversation_id for analysis_dialogue."""
-        with patch("andimud_worker.dreamer_runner.StateStore"):
-            with patch("andimud_worker.dreamer_runner.Scheduler"):
+        with patch("andimud_worker.dreamer.runner.StateStore"):
+            with patch("andimud_worker.dreamer.runner.Scheduler"):
                 runner = DreamerRunner(
                     config=chat_config,
                     cvm=mock_cvm,
@@ -265,8 +265,8 @@ class TestDreamerRunnerGetConversationId:
         self, chat_config, mock_cvm, mock_roster, mock_redis
     ):
         """Test returns base_conversation_id for summarizer."""
-        with patch("andimud_worker.dreamer_runner.StateStore"):
-            with patch("andimud_worker.dreamer_runner.Scheduler"):
+        with patch("andimud_worker.dreamer.runner.StateStore"):
+            with patch("andimud_worker.dreamer.runner.Scheduler"):
                 runner = DreamerRunner(
                     config=chat_config,
                     cvm=mock_cvm,
@@ -285,8 +285,8 @@ class TestDreamerRunnerGetConversationId:
         self, chat_config, mock_cvm, mock_roster, mock_redis
     ):
         """Test creates standalone conversation ID for journaler_dialogue."""
-        with patch("andimud_worker.dreamer_runner.StateStore"):
-            with patch("andimud_worker.dreamer_runner.Scheduler"):
+        with patch("andimud_worker.dreamer.runner.StateStore"):
+            with patch("andimud_worker.dreamer.runner.Scheduler"):
                 runner = DreamerRunner(
                     config=chat_config,
                     cvm=mock_cvm,
@@ -306,8 +306,8 @@ class TestDreamerRunnerGetConversationId:
         self, chat_config, mock_cvm, mock_roster, mock_redis
     ):
         """Test creates standalone conversation ID for daydream_dialogue."""
-        with patch("andimud_worker.dreamer_runner.StateStore"):
-            with patch("andimud_worker.dreamer_runner.Scheduler"):
+        with patch("andimud_worker.dreamer.runner.StateStore"):
+            with patch("andimud_worker.dreamer.runner.Scheduler"):
                 runner = DreamerRunner(
                     config=chat_config,
                     cvm=mock_cvm,
@@ -331,8 +331,8 @@ class TestDreamerRunnerRunDream:
         self, chat_config, mock_cvm, mock_roster, mock_redis
     ):
         """Test successful dream pipeline execution."""
-        with patch("andimud_worker.dreamer_runner.StateStore"):
-            with patch("andimud_worker.dreamer_runner.Scheduler"):
+        with patch("andimud_worker.dreamer.runner.StateStore"):
+            with patch("andimud_worker.dreamer.runner.Scheduler"):
                 runner = DreamerRunner(
                     config=chat_config,
                     cvm=mock_cvm,
@@ -343,7 +343,7 @@ class TestDreamerRunnerRunDream:
                 )
 
                 # Mock start_pipeline to return a pipeline ID
-                with patch("andimud_worker.dreamer_runner.start_pipeline") as mock_start:
+                with patch("andimud_worker.dreamer.runner.start_pipeline") as mock_start:
                     mock_start.return_value = "pipeline_123"
 
                     # Mock _execute_pipeline to complete successfully
@@ -371,8 +371,8 @@ class TestDreamerRunnerRunDream:
         self, chat_config, mock_cvm, mock_roster, mock_redis
     ):
         """Test dream execution passes query and guidance to start_pipeline."""
-        with patch("andimud_worker.dreamer_runner.StateStore"):
-            with patch("andimud_worker.dreamer_runner.Scheduler"):
+        with patch("andimud_worker.dreamer.runner.StateStore"):
+            with patch("andimud_worker.dreamer.runner.Scheduler"):
                 runner = DreamerRunner(
                     config=chat_config,
                     cvm=mock_cvm,
@@ -382,7 +382,7 @@ class TestDreamerRunnerRunDream:
                     persona_id="andi",
                 )
 
-                with patch("andimud_worker.dreamer_runner.start_pipeline") as mock_start:
+                with patch("andimud_worker.dreamer.runner.start_pipeline") as mock_start:
                     mock_start.return_value = "pipeline_456"
 
                     with patch.object(runner, "_execute_pipeline"):
@@ -402,8 +402,8 @@ class TestDreamerRunnerRunDream:
         self, chat_config, mock_cvm, mock_roster, mock_redis
     ):
         """Test dream execution handles pipeline failure gracefully."""
-        with patch("andimud_worker.dreamer_runner.StateStore"):
-            with patch("andimud_worker.dreamer_runner.Scheduler"):
+        with patch("andimud_worker.dreamer.runner.StateStore"):
+            with patch("andimud_worker.dreamer.runner.Scheduler"):
                 runner = DreamerRunner(
                     config=chat_config,
                     cvm=mock_cvm,
@@ -413,7 +413,7 @@ class TestDreamerRunnerRunDream:
                     persona_id="andi",
                 )
 
-                with patch("andimud_worker.dreamer_runner.start_pipeline") as mock_start:
+                with patch("andimud_worker.dreamer.runner.start_pipeline") as mock_start:
                     mock_start.side_effect = Exception("Pipeline startup failed")
 
                     request = DreamRequest(scenario="analysis_dialogue")
@@ -430,8 +430,8 @@ class TestDreamerRunnerRunDream:
         self, chat_config, mock_cvm, mock_roster, mock_redis
     ):
         """Test dream execution invokes heartbeat callback during execution."""
-        with patch("andimud_worker.dreamer_runner.StateStore"):
-            with patch("andimud_worker.dreamer_runner.Scheduler"):
+        with patch("andimud_worker.dreamer.runner.StateStore"):
+            with patch("andimud_worker.dreamer.runner.Scheduler"):
                 runner = DreamerRunner(
                     config=chat_config,
                     cvm=mock_cvm,
@@ -446,7 +446,7 @@ class TestDreamerRunnerRunDream:
                 async def heartbeat_callback():
                     heartbeat_calls.append(datetime.now(timezone.utc))
 
-                with patch("andimud_worker.dreamer_runner.start_pipeline") as mock_start:
+                with patch("andimud_worker.dreamer.runner.start_pipeline") as mock_start:
                     mock_start.return_value = "pipeline_789"
 
                     with patch.object(runner, "_execute_pipeline") as mock_execute:
@@ -470,8 +470,8 @@ class TestDreamerRunnerRunDream:
         self, chat_config, mock_cvm, mock_roster, mock_redis
     ):
         """Test analysis_dialogue uses base conversation_id."""
-        with patch("andimud_worker.dreamer_runner.StateStore"):
-            with patch("andimud_worker.dreamer_runner.Scheduler"):
+        with patch("andimud_worker.dreamer.runner.StateStore"):
+            with patch("andimud_worker.dreamer.runner.Scheduler"):
                 runner = DreamerRunner(
                     config=chat_config,
                     cvm=mock_cvm,
@@ -481,7 +481,7 @@ class TestDreamerRunnerRunDream:
                     persona_id="andi",
                 )
 
-                with patch("andimud_worker.dreamer_runner.start_pipeline") as mock_start:
+                with patch("andimud_worker.dreamer.runner.start_pipeline") as mock_start:
                     mock_start.return_value = "pipeline_abc"
 
                     with patch.object(runner, "_execute_pipeline"):
@@ -496,8 +496,8 @@ class TestDreamerRunnerRunDream:
         self, chat_config, mock_cvm, mock_roster, mock_redis
     ):
         """Test journaler_dialogue uses standalone conversation_id."""
-        with patch("andimud_worker.dreamer_runner.StateStore"):
-            with patch("andimud_worker.dreamer_runner.Scheduler"):
+        with patch("andimud_worker.dreamer.runner.StateStore"):
+            with patch("andimud_worker.dreamer.runner.Scheduler"):
                 runner = DreamerRunner(
                     config=chat_config,
                     cvm=mock_cvm,
@@ -507,7 +507,7 @@ class TestDreamerRunnerRunDream:
                     persona_id="andi",
                 )
 
-                with patch("andimud_worker.dreamer_runner.start_pipeline") as mock_start:
+                with patch("andimud_worker.dreamer.runner.start_pipeline") as mock_start:
                     mock_start.return_value = "pipeline_def"
 
                     with patch.object(runner, "_execute_pipeline"):
@@ -531,7 +531,7 @@ class TestDreamerMixinInit:
         worker.cvm = Mock()
         worker.roster = Mock()
 
-        with patch("andimud_worker.worker.dreamer.DreamerRunner") as mock_runner_class:
+        with patch("andimud_worker.mixins.dreamer.DreamerRunner") as mock_runner_class:
             mock_runner_class.return_value = Mock()
             worker._init_dreamer()
 
@@ -563,7 +563,7 @@ class TestDreamerMixinProcessDreamTurn:
 
         assert worker._dreamer_runner is None
 
-        with patch("andimud_worker.worker.dreamer.DreamerRunner") as mock_runner_class:
+        with patch("andimud_worker.mixins.dreamer.DreamerRunner") as mock_runner_class:
             mock_runner = Mock()
             mock_runner.run_dream = AsyncMock(return_value=DreamResult(
                 success=True,
@@ -588,7 +588,7 @@ class TestDreamerMixinProcessDreamTurn:
         worker.conversation_manager = Mock()
         worker.conversation_manager.conversation_id = "andimud_123_abc"
 
-        with patch("andimud_worker.worker.dreamer.DreamerRunner") as mock_runner_class:
+        with patch("andimud_worker.mixins.dreamer.DreamerRunner") as mock_runner_class:
             mock_runner = Mock()
             mock_runner.run_dream = AsyncMock(return_value=DreamResult(
                 success=True,
@@ -634,7 +634,7 @@ class TestDreamerMixinProcessDreamTurn:
         worker.conversation_manager = Mock()
         worker.conversation_manager.conversation_id = "andimud_123_abc"
 
-        with patch("andimud_worker.worker.dreamer.DreamerRunner") as mock_runner_class:
+        with patch("andimud_worker.mixins.dreamer.DreamerRunner") as mock_runner_class:
             mock_runner = Mock()
             mock_runner.run_dream = AsyncMock(return_value=DreamResult(
                 success=True,
@@ -682,7 +682,7 @@ class TestDreamerMixinProcessDreamTurn:
                 scenario="journaler_dialogue",
             )
 
-        with patch("andimud_worker.worker.dreamer.DreamerRunner") as mock_runner_class:
+        with patch("andimud_worker.mixins.dreamer.DreamerRunner") as mock_runner_class:
             mock_runner = Mock()
             mock_runner.run_dream = AsyncMock(side_effect=capture_heartbeat)
             mock_runner_class.return_value = mock_runner

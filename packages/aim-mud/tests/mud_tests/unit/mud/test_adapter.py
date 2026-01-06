@@ -14,9 +14,9 @@ from andimud_worker.adapter import (
     format_turn_response,
     entries_to_chat_turns,
 )
-from andimud_worker.conversation import MUDConversationEntry
+from aim_mud_types import MUDConversationEntry
 from aim.constants import DOC_MUD_WORLD, DOC_MUD_AGENT
-from andimud_worker.session import (
+from aim_mud_types import (
     EventType,
     RoomState,
     EntityState,

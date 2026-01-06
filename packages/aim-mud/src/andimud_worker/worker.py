@@ -1,0 +1,524 @@
+# aim/app/mud/worker/main.py
+# AI-Mind (C) 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
+"""Main worker class for the MUD agent worker.
+
+Contains the MUDAgentWorker class with main loop and lifecycle management.
+Extracted from worker.py lines 1-365, 374-620, 1870-1887
+"""
+
+import asyncio
+import contextlib
+from datetime import timedelta
+import logging
+import signal
+import warnings
+from typing import Optional
+import uuid
+
+import redis.asyncio as redis
+
+from aim.conversation.model import ConversationModel
+from aim.agents.roster import Roster
+from aim.chat.manager import ChatManager
+from aim.agents.persona import Persona
+from aim.config import ChatConfig
+from aim.llm.llm import LLMProvider
+
+from aim_mud_types import MUDAction, RedisKeys
+from aim_mud_types.helper import _utc_now
+
+from .config import MUDConfig
+from .exceptions import AbortRequestedException
+
+from .adapter import build_system_prompt
+from aim_mud_types import MUDSession
+from .conversation.storage import MUDMemoryRetriever
+from .conversation import MUDConversationManager
+from .conversation.memory import MUDDecisionStrategy, MUDResponseStrategy
+
+# Import mixins
+from .mixins.llm import LLMMixin
+from .mixins.turns import TurnsMixin
+from .mixins.dreamer import DreamerMixin
+from .mixins.datastore.profile import ProfileMixin
+from .mixins.datastore.events import EventsMixin
+from .mixins.datastore.actions import ActionsMixin
+from .mixins.datastore.state import StateMixin
+from .mixins.datastore.turn_request import TurnRequestMixin
+from .mixins.datastore.report import ReportMixin
+from .conversation.storage import generate_conversation_id
+from .commands import (
+    CommandRegistry,
+    FlushCommand,
+    ClearCommand,
+    NewConversationCommand,
+    AgentCommand,
+    ChooseCommand,
+    DreamCommand,
+    IdleCommand,
+    EventsCommand,
+)
+
+
+logger = logging.getLogger(__name__)
+
+
+class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMixin, DreamerMixin, StateMixin, TurnRequestMixin, ReportMixin):
+    """Worker that consumes events from Redis stream and processes them.
+
+    Follows the DreamerWorker pattern from aim/dreamer/worker.py.
+
+    Key design: Events are PUSHED by the mediator, not polled.
+    - Mediator filters events by room (agents only see their location)
+    - Mediator enriches events with room state (no separate REST call needed)
+    - Agent blocks on stream read until events arrive
+
+    Attributes:
+        config: MUD worker configuration.
+        redis: Async Redis client.
+        running: Whether the worker loop is active.
+        cvm: ConversationModel for memory operations.
+        roster: Roster of available personas.
+        persona: The persona for this agent.
+        session: Current MUD session state.
+    """
+
+    def __init__(
+        self,
+        config: MUDConfig,
+        redis_client: redis.Redis,
+        chat_config: Optional[ChatConfig] = None,
+    ):
+        """Initialize worker with configuration and Redis client.
+
+        Originally from worker.py lines 91-139
+
+        Args:
+            config: MUDConfig with agent identity and settings.
+            redis_client: Async Redis client for stream operations.
+            chat_config: Optional pre-loaded ChatConfig with API keys and paths.
+                If None, will be loaded from environment in start().
+        """
+        self.config = config
+        self.redis = redis_client
+        self.running = False
+
+        # Shared resources (loaded once, reused across turns)
+        self.cvm: Optional[ConversationModel] = None
+        self.roster: Optional[Roster] = None
+        self.persona: Optional[Persona] = None
+        self.session: Optional[MUDSession] = None
+
+        # LLM and tool resources (loaded during start)
+        # Store pre-loaded config if provided, otherwise will load in start()
+        self.chat_config: Optional[ChatConfig] = chat_config
+        self.model_set = None  # ModelSet instance (initialized in _init_llm_provider)
+        self.model_name: Optional[str] = None
+        self.model = None
+
+        # Memory helpers
+        self.memory_retriever: Optional[MUDMemoryRetriever] = None
+
+        # Conversation manager (Redis-backed conversation list)
+        self.conversation_manager: Optional[MUDConversationManager] = None
+
+        # Phase 1 decision strategy
+        self._decision_strategy: Optional[MUDDecisionStrategy] = None
+        self._agent_action_spec: Optional[dict] = None
+        self._chat_manager: Optional[ChatManager] = None
+
+        # Phase 2 response strategy
+        self._response_strategy: Optional[MUDResponseStrategy] = None
+
+        # Turn request tracking
+        self._last_turn_request_id: Optional[str] = None
+
+        # Event accumulation buffer
+        self.pending_events: list = []
+
+        # Command registry
+        self.command_registry = CommandRegistry.register(
+            FlushCommand(),
+            ClearCommand(),
+            NewConversationCommand(),
+            AgentCommand(),
+            ChooseCommand(),
+            DreamCommand(),
+            IdleCommand(),
+            EventsCommand(),
+        )
+
+    async def start(self) -> None:
+        """Start the worker loop.
+
+        Originally from worker.py lines 140-364
+
+        Initializes shared resources (CVM, Roster, Persona, Session) and
+        enters the main processing loop, consuming events from the agent's
+        stream until stopped.
+        """
+        logger.info(f"Starting MUD agent worker for {self.config.agent_id}")
+
+        # Initialize shared resources once
+        # Use pre-loaded ChatConfig if available, otherwise load from environment
+        # This follows the pattern from aim/app/dreamer/__main__.py
+        if self.chat_config is None:
+            self.chat_config = ChatConfig.from_env()
+
+        # Apply MUD-specific persona override (from_config derives memory path from persona_id)
+        # LLM settings (model, temperature, max_tokens) come from ChatConfig/.env
+        self.chat_config.persona_id = self.config.persona_id
+
+        self.cvm = ConversationModel.from_config(self.chat_config)
+        self.roster = Roster.from_config(self.chat_config)
+        self._chat_manager = ChatManager(self.cvm, self.chat_config, self.roster)
+        self.persona = self.roster.get_persona(self.config.persona_id)
+
+        # Initialize LLM provider
+        self._init_llm_provider()
+
+        # System message is built by strategy mixins (PhaseOneMixin, PhaseTwoMixin)
+        # Each strategy calls get_system_message(persona) in build_turns()
+        self.chat_config.system_message = ""  # Placeholder, strategies override this
+
+        self._init_agent_action_spec()
+
+        # Initialize session
+        self.session = MUDSession(
+            agent_id=self.config.agent_id,
+            persona_id=self.config.persona_id,
+            max_recent_turns=self.config.max_recent_turns,
+        )
+
+        # Initialize memory helpers
+        # Suppress deprecation warning - we intentionally use the deprecated class
+        # during the transition period; MUDResponseStrategy handles memory retrieval
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            self.memory_retriever = MUDMemoryRetriever(
+                cvm=self.cvm,
+                top_n=self.config.top_n_memories,
+            )
+
+        # Initialize conversation manager (Redis-backed conversation list)
+        self.conversation_manager = MUDConversationManager(
+            redis=self.redis,
+            agent_id=self.config.agent_id,
+            persona_id=self.config.persona_id,
+            max_tokens=self.config.conversation_max_tokens,
+        )
+
+        # Update conversation report cache
+        await self._update_conversation_report()
+
+        # Initialize decision strategy
+        self._decision_strategy = MUDDecisionStrategy(self._chat_manager)
+        self._decision_strategy.set_conversation_manager(self.conversation_manager)
+        # Phase 1 strategy loads its own tools
+        self._decision_strategy.init_tools(
+            tool_file=self.config.decision_tool_file,
+            tools_path=self.chat_config.tools_path,
+        )
+
+        # Initialize response strategy
+        self._response_strategy = MUDResponseStrategy(self._chat_manager)
+        self._response_strategy.set_conversation_manager(self.conversation_manager)
+
+        # Set running flag
+        self.running = True
+
+        # Setup signal handlers for graceful shutdown
+        self.setup_signal_handlers()
+
+        # Load agent profile state (last_event_id, etc.)
+        await self._load_agent_profile()
+
+        # Load world state (inventory and room pointer) for wakeup context
+        room_id, character_id = await self._load_agent_world_state()
+        await self._load_room_profile(room_id, character_id)
+
+        # Announce worker presence (now has world_state for mud_wakeup context)
+        await self._announce_presence()
+
+        logger.info(
+            f"Worker initialized. Listening on stream: {self.config.agent_stream}"
+        )
+        logger.info(f"Using model: {self.chat_config.default_model}")
+
+        # Main worker loop - blocks until events arrive (push model)
+        while self.running:
+            try:
+                # Check if paused
+                if await self._is_paused():
+                    logger.debug("Worker paused, sleeping...")
+                    await asyncio.sleep(1)
+                    continue
+
+                # Check for abort request
+                if await self._check_abort_requested():
+                    logger.info("Turn abort detected, clearing abort flag")
+                    continue
+
+                # Check for turn request assignment
+                turn_request = await self._get_turn_request()
+
+                # If turn_request is missing, re-announce presence (Redis flush, expiration, etc.)
+                if not turn_request:
+                    logger.warning("turn_request missing, re-announcing presence")
+                    await self._announce_presence()
+                    await asyncio.sleep(self.config.turn_request_poll_interval)
+                    continue
+
+                # If not assigned, refresh heartbeat and wait
+                if turn_request.get("status") != "assigned":
+                    # Keep turn_request alive when ready but idle - refresh TTL and heartbeat
+                    if turn_request.get("status") == "ready":
+                        await self.redis.hset(
+                            self._turn_request_key(),
+                            mapping={"heartbeat_at": _utc_now().isoformat()},
+                        )
+                        await self.redis.expire(
+                            self._turn_request_key(),
+                            self.config.turn_request_ttl_seconds,
+                        )
+                    await asyncio.sleep(self.config.turn_request_poll_interval)
+                    continue
+
+                turn_id = turn_request.get("turn_id") or uuid.uuid4().hex
+                reason = turn_request.get("reason", "events")
+
+                await self._set_turn_request_state(turn_id, "in_progress")
+                heartbeat_stop = asyncio.Event()
+                heartbeat_task = asyncio.create_task(
+                    self._heartbeat_turn_request(heartbeat_stop)
+                )
+
+                try:
+                    # Drain events into pending_events buffer for all turns
+                    self.pending_events = await self._drain_with_settle()
+
+                    # Execute command via registry
+                    logger.info(f"Executing command: {turn_request}")
+                    result = await self.command_registry.execute(self, **turn_request)
+
+                    # Handle flush_drain flag
+                    if result.flush_drain:
+                        self.pending_events = []
+
+                    # If command completed fully, set status and continue
+                    if result.complete:
+                        await self._set_turn_request_state(turn_id, result.status, message=result.message)
+                        self._last_turn_request_id = turn_id
+                        continue
+
+                    # Command returned complete=False, fall through to process_turn
+                    events = self.pending_events
+                    logger.info(
+                        "Processing assigned turn %s (%s) with %d events",
+                        turn_id,
+                        reason,
+                        len(events),
+                    )
+                    await self.process_turn(events)
+                    await self._set_turn_request_state(turn_id, "done")
+                    self._last_turn_request_id = turn_id
+                except AbortRequestedException:
+                    logger.info(f"Turn {turn_id} aborted by user request")
+                    await self._set_turn_request_state(turn_id, "aborted", message="Aborted by user")
+                except Exception as e:
+                    logger.error(f"Error during assigned turn {turn_id}: {e}", exc_info=True)
+
+                    # Get current attempt count
+                    turn_request = await self._get_turn_request()
+                    attempt_count = int(turn_request.get("attempt_count", 0)) + 1
+
+                    # Calculate next retry time with exponential backoff
+                    if attempt_count < self.config.llm_failure_max_attempts:
+                        backoff = min(
+                            self.config.llm_failure_backoff_base_seconds * (2 ** (attempt_count - 1)),
+                            self.config.llm_failure_backoff_max_seconds
+                        )
+                        next_attempt_at = (_utc_now() + timedelta(seconds=backoff)).isoformat()
+                        logger.info(
+                            f"Turn {turn_id} failed (attempt {attempt_count}/{self.config.llm_failure_max_attempts}), "
+                            f"will retry in {backoff}s"
+                        )
+                    else:
+                        next_attempt_at = ""  # Max attempts reached
+                        logger.error(f"Turn {turn_id} failed after {attempt_count} attempts, giving up")
+
+                    # Set failure state with retry metadata (use CAS to ensure we're updating the right turn)
+                    error_type = type(e).__name__
+                    await self._set_turn_request_state(
+                        turn_id,
+                        "fail",
+                        message=str(e),
+                        extra_fields={
+                            "attempt_count": str(attempt_count),
+                            "next_attempt_at": next_attempt_at,
+                            "status_reason": f"LLM call failed: {error_type}"
+                        },
+                        expected_turn_id=turn_id  # CAS: only update if turn_id matches
+                    )
+                finally:
+                    heartbeat_stop.set()
+                    heartbeat_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await heartbeat_task
+
+                    # After turn completes (success or abort), return to ready
+                    if turn_id:  # Only if we actually processed a turn
+                        turn_request = await self._get_turn_request()
+                        if turn_request:
+                            status = turn_request.get("status")
+                            # Transition to ready if we completed or aborted (not if failed)
+                            if status == "done":
+                                await self._set_turn_request_state(
+                                    str(uuid.uuid4()),
+                                    "ready",
+                                    extra_fields={"status_reason": "Turn completed"},
+                                    expected_turn_id=turn_id
+                                )
+                            elif status == "aborted":
+                                await self._set_turn_request_state(
+                                    str(uuid.uuid4()),
+                                    "ready",
+                                    extra_fields={"status_reason": "Turn aborted"},
+                                    expected_turn_id=turn_id
+                                )
+
+            except asyncio.CancelledError:
+                logger.info("Worker cancelled, shutting down...")
+                break
+            except Exception as e:
+                # Log error but continue processing
+                logger.error(f"Error in worker loop: {e}", exc_info=True)
+                continue
+
+        logger.info("Worker loop ended")
+
+    async def stop(self) -> None:
+        """Gracefully stop the worker.
+
+        Originally from worker.py lines 365-373
+
+        Sets the running flag to False, allowing the current turn
+        to complete before shutting down. Cleans up turn_request state.
+        """
+        logger.info("Stopping worker...")
+        self.running = False
+
+        # Clean up turn_request so mediator knows we're offline
+        turn_request = await self._get_turn_request()
+        if turn_request:
+            await self.redis.delete(self._turn_request_key())
+            logger.info("Deleted turn_request on shutdown")
+
+    async def _announce_presence(self) -> None:
+        """Announce worker online with ready status and wakeup message.
+
+        Uses persona.mud_wakeup if available, otherwise falls back to
+        random wakeup message from persona.wakeup list. If mud_wakeup is
+        provided, room state context is passed for formatting.
+        """
+        turn_request = await self._get_turn_request()
+
+        # Clear crashed status if present
+        if turn_request and turn_request.get("status") == "crashed":
+            logger.info("Clearing crashed status, worker is online")
+
+        # Set to ready
+        await self._set_turn_request_state(
+            turn_id=str(uuid.uuid4()),
+            status="ready",
+            extra_fields={"status_reason": "Worker online"}
+        )
+
+        # Get wakeup message with room context
+        if self.persona.mud_wakeup and self.session and self.session.world_state:
+            # Use MUD-specific wakeup with room state context
+            world_state = self.session.world_state
+            room = world_state.room_state
+
+            # Build context for formatting
+            context = {
+                "room_name": room.name if room else "somewhere",
+                "room_description": room.description if room else "",
+                "persona_name": self.persona.name,
+                "full_name": self.persona.full_name,
+                "memory_count": 15,  # Placeholder for Active Memory count
+            }
+
+            # Add entities present (excluding self)
+            others = [e for e in world_state.entities_present if not e.is_self and e.entity_type in ("player", "ai", "npc")]
+            if others:
+                context["others_present"] = ", ".join(e.name for e in others)
+            else:
+                context["others_present"] = ""
+
+            # Add objects in room (excluding characters)
+            objects = [e for e in world_state.entities_present if e.entity_type not in ("player", "ai", "npc")]
+            if objects:
+                context["objects_present"] = ", ".join(e.name for e in objects)
+            else:
+                context["objects_present"] = ""
+
+            # Add inventory items
+            if world_state.inventory:
+                context["inventory"] = ", ".join(item.name for item in world_state.inventory)
+            else:
+                context["inventory"] = ""
+
+            # Build contextual details for think block
+            context_details_parts = []
+            if context["others_present"]:
+                context_details_parts.append(f"Others present: {context['others_present']}")
+            if context["objects_present"]:
+                context_details_parts.append(f"Objects here: {context['objects_present']}")
+            if context["inventory"]:
+                context_details_parts.append(f"I'm carrying: {context['inventory']}")
+
+            context["context_details"] = "\n\n".join(context_details_parts) if context_details_parts else "The space is mine alone."
+
+            # Format wakeup message with full context
+            try:
+                wakeup_msg = self.persona.mud_wakeup.format(**context)
+            except KeyError as e:
+                logger.warning(f"mud_wakeup template missing key {e}, using as-is")
+                wakeup_msg = self.persona.mud_wakeup
+        else:
+            # Fall back to random wakeup message (no room context)
+            wakeup_msg = self.persona.get_wakeup()
+
+        # Add wakeup to conversation history only if this is a fresh session
+        # This provides rich internal state for the agent's first actual response
+        entry_count = await self.conversation_manager.get_entry_count()
+        if entry_count == 0:
+            await self.conversation_manager.push_assistant_turn(
+                content=wakeup_msg,
+                think=None,  # think block is already in wakeup_msg
+                actions=[]
+            )
+            logger.info(f"Worker {self.config.agent_id} ready, seeded conversation with wakeup")
+        else:
+            logger.info(f"Worker {self.config.agent_id} ready (continuing existing conversation with {entry_count} entries)")
+
+    def setup_signal_handlers(self) -> None:
+        """Setup handlers for graceful shutdown.
+
+        Originally from worker.py lines 1870-1887
+
+        Registers signal handlers for SIGINT and SIGTERM to trigger
+        graceful shutdown via stop().
+        """
+
+        def signal_handler(signum, frame):
+            """Handle shutdown signals."""
+            sig_name = signal.Signals(signum).name
+            logger.info(f"Received {sig_name}, shutting down gracefully...")
+            # Create task to stop the worker
+            asyncio.create_task(self.stop())
+
+        # Register handlers
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)

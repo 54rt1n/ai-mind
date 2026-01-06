@@ -6,10 +6,16 @@ import pytest
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from andimud_worker.strategy import MUDDecisionStrategy, MUDResponseStrategy
-from andimud_worker.conversation import MUDConversationEntry, MUDConversationManager
-from andimud_worker.session import MUDSession, RoomState, EntityState, WorldState
-from aim_mud_types import InventoryItem
+from andimud_worker.conversation.memory import MUDDecisionStrategy, MUDResponseStrategy
+from andimud_worker.conversation import MUDConversationManager
+from aim_mud_types import (
+    MUDConversationEntry,
+    MUDSession,
+    RoomState,
+    EntityState,
+    WorldState,
+    InventoryItem,
+)
 from aim.constants import DOC_MUD_WORLD, DOC_MUD_AGENT
 from aim.tool.dto import Tool, ToolFunction, ToolFunctionParameters
 

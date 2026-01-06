@@ -36,6 +36,7 @@ import uuid
 import redis.asyncio as redis
 
 from aim_mud_types import MUDEvent, EventType, RedisKeys
+from aim_mud_types.helper import _utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -96,11 +97,6 @@ COMMAND_TO_SCENARIO = {
     "critique": "critique_dialogue",
     "research": "researcher_dialogue",
 }
-
-
-def _utc_now() -> datetime:
-    """Return current UTC time as timezone-aware datetime."""
-    return datetime.now(timezone.utc)
 
 
 @dataclass

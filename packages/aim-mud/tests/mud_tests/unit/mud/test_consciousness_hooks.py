@@ -5,10 +5,9 @@
 import pytest
 from unittest.mock import MagicMock, AsyncMock
 
-from andimud_worker.strategy import MUDResponseStrategy
+from andimud_worker.conversation.memory import MUDResponseStrategy
 from andimud_worker.conversation import MUDConversationManager
-from andimud_worker.session import MUDSession, RoomState, EntityState, WorldState
-from aim_mud_types import InventoryItem
+from aim_mud_types import MUDSession, RoomState, EntityState, WorldState, InventoryItem
 from aim.utils.xml import XmlFormatter
 
 

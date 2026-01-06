@@ -13,12 +13,16 @@ Architecture:
 All events and actions flow through Redis streams using these shared types.
 """
 
+from .actions import MUDAction
+from .conversation import MUDConversationEntry
+from .coordination import TurnRequest, DreamerState
 from .enums import EventType, ActorType
+from .events import MUDEvent
+from .profile import AgentProfile, RoomProfile
+from .redis_keys import RedisKeys
+from .session import MUDTurn, MUDSession
 from .state import RoomState, EntityState
 from .world_state import WorldState, InventoryItem, WhoEntry
-from .events import MUDEvent
-from .actions import MUDAction
-from .redis_keys import RedisKeys
 
 __all__ = [
     # Enums
@@ -30,10 +34,21 @@ __all__ = [
     "WorldState",
     "InventoryItem",
     "WhoEntry",
+    # Conversation
+    "MUDConversationEntry",
+    # Session
+    "MUDTurn",
+    "MUDSession",
     # Events and Actions
     "MUDEvent",
     "MUDAction",
-    # Utilities
+    # Coordination
+    "TurnRequest",
+    "DreamerState",
+    # Profiles
+    "AgentProfile",
+    "RoomProfile",
+    # Redis Keys
     "RedisKeys",
 ]
 

@@ -8,13 +8,13 @@ from unittest.mock import MagicMock
 
 import pandas as pd
 
-from andimud_worker.memory import (
+from andimud_worker.conversation.storage import (
     MUDMemoryBucket,
     MUDMemoryPersister,
     MUDMemoryRetriever,
     generate_conversation_id,
 )
-from andimud_worker.session import MUDEvent, EventType
+from aim_mud_types import MUDEvent, EventType
 from aim.constants import DOC_MUD_WORLD, DOC_MUD_AGENT
 
 

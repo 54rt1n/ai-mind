@@ -1,0 +1,84 @@
+# aim/app/mud/worker/mixins/datastore/state.py
+# AI-Mind (C) 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
+"""Worker state checking methods.
+
+Handles pause state, abort requests, and spontaneous action triggers.
+Extracted from worker.py lines 537-809
+"""
+
+import logging
+from typing import TYPE_CHECKING
+
+from aim_mud_types.helper import _utc_now
+
+if TYPE_CHECKING:
+    from ...worker import MUDAgentWorker
+
+
+logger = logging.getLogger(__name__)
+
+
+class StateMixin:
+    """Mixin for worker state checking methods.
+
+    These methods are mixed into MUDAgentWorker in worker.py.
+    """
+
+    async def _is_paused(self: "MUDAgentWorker") -> bool:
+        """Check if worker is paused via Redis flag.
+
+        Originally from worker.py lines 537-546
+
+        Returns:
+            bool: True if paused, False if running.
+        """
+        value = await self.redis.get(self.config.pause_key)
+        return value == b"1"
+
+    async def _check_abort_requested(self: "MUDAgentWorker") -> bool:
+        """Check if current turn has abort requested.
+
+        Originally from worker.py lines 637-655
+
+        Returns:
+            bool: True if abort requested, False otherwise.
+        """
+        turn_request = await self._get_turn_request()
+        status = turn_request.get("status")
+        if status == "abort_requested":
+            # Clear the abort flag
+            await self._set_turn_request_state(
+                turn_request.get("turn_id", "unknown"),
+                "aborted",
+                message="Aborted by user request"
+            )
+            return True
+        return False
+
+    def _should_act_spontaneously(self: "MUDAgentWorker") -> bool:
+        """Determine if agent should act without new events.
+
+        Originally from worker.py lines 659-685
+
+        Checks time since last action against the spontaneous action interval.
+
+        Returns:
+            bool: True if spontaneous action should be triggered.
+        """
+        if self.session is None:
+            return False
+
+        if self.session.last_event_time is None:
+            # No events yet - don't trigger spontaneous action
+            return False
+
+        now = _utc_now()
+        elapsed_since_event = (now - self.session.last_event_time).total_seconds()
+        if elapsed_since_event < self.config.spontaneous_action_interval:
+            return False
+
+        if self.session.last_action_time is None:
+            return True
+
+        elapsed_since_action = (now - self.session.last_action_time).total_seconds()
+        return elapsed_since_action >= self.config.spontaneous_action_interval

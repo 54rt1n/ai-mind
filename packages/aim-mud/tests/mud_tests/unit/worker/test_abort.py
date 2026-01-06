@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 from andimud_worker.worker import MUDAgentWorker, AbortRequestedException
 from andimud_worker.config import MUDConfig
-from andimud_worker.session import MUDSession
+from aim_mud_types import MUDSession
 
 
 @pytest.fixture
