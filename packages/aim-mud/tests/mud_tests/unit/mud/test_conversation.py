@@ -214,6 +214,75 @@ class TestMUDConversationManagerPushUserTurn:
         assert entry2.sequence_no == 1
         assert entry1.conversation_id == entry2.conversation_id
 
+    @pytest.mark.asyncio
+    async def test_push_user_turn_formats_self_actions_first_person(self, conversation_manager, mock_redis):
+        """Test that self-actions are formatted in first person."""
+        # Regular event from another actor
+        regular_event = MUDEvent(
+            event_id="1",
+            event_type=EventType.SPEECH,
+            actor="Prax",
+            room_id="#123",
+            room_name="The Garden",
+            content="Hello there!",
+            timestamp=datetime.now(timezone.utc),
+        )
+
+        # Self-action: agent moved to a new room
+        self_movement = MUDEvent(
+            event_id="2",
+            event_type=EventType.MOVEMENT,
+            actor="Andi",
+            room_id="#124",
+            room_name="The Kitchen",
+            content="arrives from the garden",
+            timestamp=datetime.now(timezone.utc),
+            metadata={"is_self_action": True},
+        )
+
+        entry = await conversation_manager.push_user_turn(
+            events=[regular_event, self_movement],
+            room_id="#124",
+            room_name="The Kitchen",
+        )
+
+        # Regular event should be in third person
+        assert 'Prax says, "Hello there!"' in entry.content
+
+        # Self-action should be in first person
+        assert "You moved to The Kitchen" in entry.content
+
+        # Should NOT contain third-person self-action
+        assert "*You see Andi has arrived.*" not in entry.content
+
+    @pytest.mark.asyncio
+    async def test_push_user_turn_formats_self_object_actions(self, conversation_manager, mock_redis):
+        """Test that self object actions are formatted in first person."""
+        # Self-action: agent picked up an object
+        self_pickup = MUDEvent(
+            event_id="1",
+            event_type=EventType.OBJECT,
+            actor="Andi",
+            room_id="#123",
+            room_name="The Garden",
+            content="picks up a flower",
+            target="flower",
+            timestamp=datetime.now(timezone.utc),
+            metadata={"is_self_action": True},
+        )
+
+        entry = await conversation_manager.push_user_turn(
+            events=[self_pickup],
+            room_id="#123",
+            room_name="The Garden",
+        )
+
+        # Self-action should be in first person
+        assert "You picked up flower" in entry.content
+
+        # Should NOT contain third-person format
+        assert "*Andi picks up a flower*" not in entry.content
+
 
 class TestMUDConversationManagerPushAssistantTurn:
     """Test MUDConversationManager.push_assistant_turn method."""

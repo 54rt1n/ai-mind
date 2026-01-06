@@ -26,7 +26,7 @@ from redis.asyncio import Redis
 
 from aim_mud_types import MUDEvent, MUDAction, WorldState
 
-from .adapter import format_event
+from .adapter import format_event, format_self_event
 from aim.constants import DOC_MUD_WORLD, DOC_MUD_AGENT, LISTENER_ALL
 from aim.conversation.message import ConversationMessage
 from aim.utils.tokens import count_tokens
@@ -175,8 +175,17 @@ class MUDConversationManager:
         """
         # Format events as pure prose (CVM-ready, no XML wrapper)
         # Use \n\n delimiter for paragraph separation
+        # Self-actions are formatted in first person, others in third person
         if events:
-            content = "\n\n".join(format_event(event) for event in events)
+            formatted_parts = []
+            for event in events:
+                # Check if this is a self-action (from metadata flag)
+                is_self = event.metadata.get("is_self_action", False)
+                if is_self:
+                    formatted_parts.append(format_self_event(event))
+                else:
+                    formatted_parts.append(format_event(event))
+            content = "\n\n".join(formatted_parts)
         else:
             content = "[No events]"
 

@@ -29,7 +29,9 @@ class EventsMixin:
     These methods are mixed into MUDAgentWorker in main.py.
     """
 
-    async def drain_events(self: "MUDAgentWorker", timeout: float) -> list[MUDEvent]:
+    async def drain_events(
+        self: "MUDAgentWorker", timeout: float, accumulate_self_actions: bool = True
+    ) -> list[MUDEvent]:
         """Block until events arrive on agent's stream.
 
         Originally from worker.py lines 646-735
@@ -66,14 +68,33 @@ class EventsMixin:
                             raw_data = raw_data.decode("utf-8")
 
                         enriched = json.loads(raw_data)
+
+                        # Check for self-action flag (set by mediator for actor's own events)
+                        is_self_action = enriched.pop("is_self_action", False)
+
                         event = MUDEvent.from_dict(enriched)
                         event.event_id = msg_id
-                        events.append(event)
 
-                        logger.debug(
-                            f"Parsed event {msg_id}: {event.event_type.value} "
-                            f"from {event.actor}"
-                        )
+                        if is_self_action:
+                            # Mark in metadata so conversation manager can format in first person
+                            event.metadata["is_self_action"] = True
+                            # Store in session for guidance injection (don't process as regular event)
+                            # Skip accumulation for @agent turns (accumulate_self_actions=False)
+                            if accumulate_self_actions and self.session:
+                                self.session.pending_self_actions.append(event)
+                                logger.debug(
+                                    f"Stored self-action event {msg_id}: {event.event_type.value}"
+                                )
+                            else:
+                                logger.debug(
+                                    f"Skipped self-action event {msg_id}: {event.event_type.value}"
+                                )
+                        else:
+                            events.append(event)
+                            logger.debug(
+                                f"Parsed event {msg_id}: {event.event_type.value} "
+                                f"from {event.actor}"
+                            )
 
                     except (json.JSONDecodeError, KeyError, ValueError) as e:
                         logger.error(f"Failed to parse event {msg_id}: {e}")

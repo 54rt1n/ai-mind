@@ -58,6 +58,8 @@ class AgentTurnProcessor(BaseTurnProcessor):
         coming_online = await self.worker._is_fresh_session()
 
         # Build user input with current context and agent guidance
+        # Note: action_guidance intentionally omitted - agent turns are user-directed
+        # and don't need self-action context (handled by regular phased turns)
         user_input = build_current_context(
             self.worker.session,
             idle_mode=False,

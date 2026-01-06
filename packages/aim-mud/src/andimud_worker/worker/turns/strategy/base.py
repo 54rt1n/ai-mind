@@ -29,6 +29,8 @@ class BaseTurnProcessor(ABC):
     - setup_turn() and finalize_turn() are shared helpers
     """
 
+    _action_guidance: str = ""
+
     def __init__(self, worker: "TurnsMixin"):
         """Initialize processor with worker reference.
 
@@ -87,6 +89,19 @@ class BaseTurnProcessor(ABC):
             room_id = events[-1].room_id
         await self.worker._load_room_profile(room_id, character_id)
 
+        # Capture pending self-actions for both guidance and document inclusion
+        self._action_guidance = ""
+        self_actions: list[MUDEvent] = []
+        if self.worker.session and self.worker.session.pending_self_actions:
+            self_actions = self.worker.session.pending_self_actions.copy()
+            from ....adapter import format_self_action_guidance
+            self._action_guidance = format_self_action_guidance(self_actions)
+            logger.info(
+                f"Prepared action guidance for {len(self_actions)} self-actions"
+            )
+            # Clear pending self-actions (they will be presented this turn)
+            self.worker.session.pending_self_actions = []
+
         # Log event details for debugging
         for event in events:
             logger.info(
@@ -102,10 +117,14 @@ class BaseTurnProcessor(ABC):
             latest = events[-1]
             self.worker.session.last_event_time = latest.timestamp
 
+        # Combine self-actions with external events for mud-world document
+        # Self-actions go first (they happened before we received new events)
+        all_events_for_doc = self_actions + events
+
         # Push user turn to conversation list
-        if self.worker.conversation_manager and events:
+        if self.worker.conversation_manager and all_events_for_doc:
             await self.worker.conversation_manager.push_user_turn(
-                events=events,
+                events=all_events_for_doc,
                 world_state=self.worker.session.world_state,
                 room_id=self.worker.session.current_room.room_id if self.worker.session.current_room else None,
                 room_name=self.worker.session.current_room.name if self.worker.session.current_room else None,
@@ -159,3 +178,6 @@ class BaseTurnProcessor(ABC):
             f"Turn processed. Actions: {len(actions_taken)}. "
             f"Session now has {len(self.worker.session.recent_turns)} turns"
         )
+
+        # Clear action guidance (it has been consumed)
+        self._action_guidance = ""

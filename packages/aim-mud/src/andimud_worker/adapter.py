@@ -48,6 +48,7 @@ def build_current_context(
     coming_online: bool = False,
     include_events: bool = True,
     include_format_guidance: bool = True,
+    action_guidance: str = "",
 ) -> str:
     """Format current world state and pending events as user turn.
 
@@ -69,6 +70,11 @@ def build_current_context(
         pending events (if include_events=True), and optional idle guidance.
     """
     parts: list[str] = []
+
+    # Action guidance appears FIRST (results of agent's prior actions)
+    if action_guidance:
+        parts.append(action_guidance)
+        parts.append("")  # Blank line separator
 
     # Coming online guidance for fresh sessions
     if coming_online:
@@ -147,7 +153,7 @@ def _format_emote_with_quotes(actor: str, content: str) -> str:
         return f"*{actor}* {speech_part}"
 
 
-def format_event(event: MUDEvent) -> str:
+def format_event(event: MUDEvent, first_person: bool = False) -> str:
     """Format a single event for display.
 
     Converts a MUDEvent into a human-readable string representation
@@ -158,10 +164,14 @@ def format_event(event: MUDEvent) -> str:
 
     Args:
         event: The MUD event to format.
+        first_person: If True, format as first-person (for self-actions in documents).
 
     Returns:
         Formatted event string with appropriate prefix and structure.
     """
+    if first_person:
+        return format_self_event(event)
+
     if event.event_type == EventType.SPEECH:
         return f'{event.actor} says, "{event.content}"'
 
@@ -191,6 +201,93 @@ def format_event(event: MUDEvent) -> str:
     else:
         # Fallback for unknown event types
         return f"[{event.event_type.value}] {event.actor}: {event.content}"
+
+
+def format_self_event(event: MUDEvent) -> str:
+    """Format a self-action event in first person for action guidance.
+
+    Self-events are formatted as confirmations of actions the agent took,
+    e.g., "You moved to The Kitchen." instead of "*Andi arrives.*"
+
+    Args:
+        event: The self-action MUDEvent to format.
+
+    Returns:
+        First-person formatted action confirmation string.
+    """
+    if event.event_type == EventType.MOVEMENT:
+        # For movement, use room_name from event
+        room_name = event.room_name or event.metadata.get("room_name", "somewhere")
+        return f"You moved to {room_name}."
+
+    elif event.event_type == EventType.OBJECT:
+        content_lower = event.content.lower()
+        target = event.target or ""
+
+        if "pick" in content_lower or "get" in content_lower or "take" in content_lower:
+            obj = target or _extract_object_from_content(event.content)
+            container = event.metadata.get("container_name")
+            if container:
+                return f"You took {obj} from {container}."
+            return f"You picked up {obj}."
+
+        elif "drop" in content_lower:
+            obj = target or _extract_object_from_content(event.content)
+            return f"You dropped {obj}."
+
+        elif "give" in content_lower:
+            obj = target or "something"
+            recipient = event.metadata.get("target_name", "someone")
+            return f"You gave {obj} to {recipient}."
+
+        elif "put" in content_lower:
+            obj = target or "something"
+            container = event.metadata.get("container_name", "somewhere")
+            return f"You put {obj} in {container}."
+
+        else:
+            # Generic object manipulation - clean up the content
+            return f"You {event.content.lower().strip('*').strip()}"
+
+    elif event.event_type == EventType.EMOTE:
+        # Self-emotes: convert third person to first person acknowledgment
+        return f"You expressed: {event.content}"
+
+    else:
+        # Fallback for other self-events
+        return f"You: {event.content}"
+
+
+def _extract_object_from_content(content: str) -> str:
+    """Extract object name from event content string."""
+    # Remove asterisks and common action words
+    cleaned = content.strip("*").strip()
+    words = cleaned.split()
+    # Skip actor name and action verb, return rest
+    if len(words) > 2:
+        return " ".join(words[2:]).rstrip(".")
+    return "something"
+
+
+def format_self_action_guidance(self_actions: list[MUDEvent]) -> str:
+    """Format a list of self-actions as guidance block.
+
+    Args:
+        self_actions: List of self-action MUDEvent objects.
+
+    Returns:
+        Formatted guidance string with action confirmations,
+        or empty string if no self-actions.
+    """
+    if not self_actions:
+        return ""
+
+    lines = []
+    for event in self_actions:
+        formatted = format_self_event(event)
+        lines.append(f"[!! Action: {formatted} !!]")
+
+    return "\n".join(lines)
 
 
 def format_turn_events(turn: MUDTurn) -> str:

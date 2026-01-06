@@ -915,8 +915,8 @@ class TestMUDAgentWorkerStart:
 
             await worker.start()
 
-            # Verify drain_events was called
-            mock_drain.assert_called_once_with(timeout=0)
+            # Verify drain_events was called with accumulate_self_actions=False
+            mock_drain.assert_called_once_with(timeout=0, accumulate_self_actions=False)
 
             # Verify process_agent_turn was called with events and guidance
             mock_process_agent.assert_called_once_with(mock_events, "test guidance")
@@ -959,8 +959,8 @@ class TestMUDAgentWorkerStart:
         ), patch.object(
             worker, "_emit_actions", new=AsyncMock()
         ), patch.object(
-            worker, "process_agent_turn", new=AsyncMock()
-        ) as mock_process_agent, patch.object(
+            worker, "process_turn", new=AsyncMock()
+        ) as mock_process_turn, patch.object(
             worker, "drain_events", new=AsyncMock(return_value=mock_events)
         ) as mock_drain, patch.object(
             worker, "_get_turn_request", new=AsyncMock(return_value={
@@ -986,15 +986,15 @@ class TestMUDAgentWorkerStart:
             async def stop_after_first(*args, **kwargs):
                 worker.running = False
 
-            mock_process_agent.side_effect = stop_after_first
+            mock_process_turn.side_effect = stop_after_first
 
             await worker.start()
 
             # Verify drain_events was called
             mock_drain.assert_called_once_with(timeout=0)
 
-            # Verify process_agent_turn was called with events and guidance
-            mock_process_agent.assert_called_once_with(mock_events, "choose guidance")
+            # Verify process_turn was called with events and user_guidance
+            mock_process_turn.assert_called_once_with(mock_events, user_guidance="choose guidance")
 
             # Verify turn state was set to done
             assert mock_set_state.call_count >= 2

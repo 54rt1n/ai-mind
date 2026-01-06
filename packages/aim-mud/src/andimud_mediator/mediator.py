@@ -305,9 +305,13 @@ class MediatorService:
                 a for a in agents_to_notify if a in self.registered_agents
             ]
 
-        # Filter out self-events (actor shouldn't receive their own events)
+        # Identify self-agent but don't filter them out completely
         actor_agent_id = await self._agent_id_from_actor(event.room_id, event.actor_id)
-        if actor_agent_id:
+
+        # Separate self-agent from others (self-agent gets event but no turn assignment)
+        self_agent: Optional[str] = None
+        if actor_agent_id and actor_agent_id in agents_to_notify:
+            self_agent = actor_agent_id
             agents_to_notify = [a for a in agents_to_notify if a != actor_agent_id]
 
         # Filter out sleeping agents (they receive NO events while sleeping)
@@ -359,6 +363,28 @@ class MediatorService:
                 approximate=True,
             )
             logger.debug(f"Distributed event {msg_id} to {target_agent}")
+
+        # Push self-event to actor's stream (no turn assignment - just for awareness)
+        if self_agent:
+            # Check if self-agent is sleeping
+            self_agent_profile = await self.redis.hgetall(RedisKeys.agent_profile(self_agent))
+            is_sleeping_raw = self_agent_profile.get(b"is_sleeping") or self_agent_profile.get("is_sleeping")
+            is_self_sleeping = False
+            if is_sleeping_raw:
+                is_sleeping = is_sleeping_raw.decode() if isinstance(is_sleeping_raw, bytes) else is_sleeping_raw
+                is_self_sleeping = is_sleeping.lower() == "true"
+
+            if not is_self_sleeping:
+                enriched_self = enriched.copy()
+                enriched_self["is_self_action"] = True
+                stream_key = RedisKeys.agent_events(self_agent)
+                await self.redis.xadd(
+                    stream_key,
+                    {"data": json.dumps(enriched_self)},
+                    maxlen=self.config.agent_events_maxlen,
+                    approximate=True,
+                )
+                logger.debug(f"Pushed self-action event {msg_id} to {self_agent}")
 
         # Mark event as processed with the target agent
         await self._mark_event_processed(msg_id, [target_agent] if target_agent else [])

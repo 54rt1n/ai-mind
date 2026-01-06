@@ -241,6 +241,40 @@ class TestFormatEvent:
         result = format_event(event)
         assert result == "[System] Server maintenance in 5 minutes."
 
+    def test_format_event_first_person_movement(self):
+        """Test format_event with first_person=True delegates to format_self_event."""
+        event = MUDEvent(
+            event_type=EventType.MOVEMENT,
+            actor="Andi",
+            room_id="#123",
+            room_name="The Kitchen",
+            content="enters from the west",
+        )
+        # Third person (default)
+        result_third = format_event(event)
+        assert result_third == "*You see Andi has arrived.*"
+
+        # First person (delegates to format_self_event)
+        result_first = format_event(event, first_person=True)
+        assert result_first == "You moved to The Kitchen."
+
+    def test_format_event_first_person_object(self):
+        """Test format_event with first_person=True for object events."""
+        event = MUDEvent(
+            event_type=EventType.OBJECT,
+            actor="Andi",
+            room_id="#123",
+            target="golden key",
+            content="picks up a golden key",
+        )
+        # Third person (default)
+        result_third = format_event(event)
+        assert result_third == "*Andi picks up a golden key*"
+
+        # First person (delegates to format_self_event)
+        result_first = format_event(event, first_person=True)
+        assert result_first == "You picked up golden key."
+
 
 class TestFormatTurnEvents:
     """Tests for format_turn_events function."""

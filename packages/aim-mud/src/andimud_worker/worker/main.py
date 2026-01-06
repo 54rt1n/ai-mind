@@ -306,7 +306,8 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
                     if reason == "agent":
                         # Save event position before draining (for rollback on failure)
                         saved_last_event_id = self.session.last_event_id
-                        events = await self.drain_events(timeout=0)
+                        # Don't accumulate self-actions for @agent turns
+                        events = await self.drain_events(timeout=0, accumulate_self_actions=False)
                         guidance = turn_request.get("guidance", "")
                         logger.info(
                             "Processing @agent turn %s with %d events",
@@ -327,8 +328,8 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
                             turn_id,
                             len(events),
                         )
-                        # Use process_agent_turn for @choose (same as @agent)
-                        await self.process_agent_turn(events, guidance)
+                        # Use standard phased turn with user guidance
+                        await self.process_turn(events, user_guidance=guidance)
                         await self._set_turn_request_state(turn_id, "done")
                         self._last_turn_request_id = turn_id
                         continue

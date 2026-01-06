@@ -199,7 +199,9 @@ class TurnsMixin:
     async def _decide_action(
         self: "MUDAgentWorker",
         idle_mode: bool,
-        role: str = "tool"
+        role: str = "tool",
+        action_guidance: str = "",
+        user_guidance: str = "",
     ) -> tuple[Optional[str], dict, str, str, str]:
         """Phase 1 decision: choose speak or move via tool call.
 
@@ -208,6 +210,9 @@ class TurnsMixin:
         Args:
             idle_mode: Whether this is an idle/spontaneous action
             role: Model role to use (defaults to "tool" for fast decisions)
+            action_guidance: Optional guidance from prior action results to include
+                at the start of the user turn.
+            user_guidance: Optional guidance from user (@choose) to include.
 
         Returns:
             Tuple of (tool_name, args, raw_response, thinking, cleaned_text)
@@ -219,6 +224,8 @@ class TurnsMixin:
             persona=self.persona,
             session=self.session,
             idle_mode=idle_mode,
+            action_guidance=action_guidance,
+            user_guidance=user_guidance,
         )
         last_response = ""
         last_cleaned = ""
@@ -362,7 +369,7 @@ class TurnsMixin:
 
 
 
-    async def process_turn(self: "MUDAgentWorker", events: list[MUDEvent]) -> None:
+    async def process_turn(self: "MUDAgentWorker", events: list[MUDEvent], user_guidance: str = "") -> None:
         """Process a batch of events into a single agent turn.
 
         Two-phase strategy:
@@ -371,9 +378,11 @@ class TurnsMixin:
 
         Args:
             events: List of MUDEvent objects to process.
+            user_guidance: Optional guidance for the turn (used by @choose).
         """
         logger.info(f"Processing turn with {len(events)} events")
         processor = PhasedTurnProcessor(self)
+        processor.user_guidance = user_guidance
         await processor.execute(events)
 
     async def process_agent_turn(self: "MUDAgentWorker", events: list[MUDEvent], user_guidance: str) -> None:

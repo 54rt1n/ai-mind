@@ -37,6 +37,15 @@ class PhasedTurnProcessor(BaseTurnProcessor):
     - Validates emotional state header
     """
 
+    def __init__(self, worker: "TurnsMixin"):
+        """Initialize with worker and set user_guidance to empty string.
+
+        Args:
+            worker: MUDAgentWorker instance
+        """
+        super().__init__(worker)
+        self.user_guidance = ""
+
     async def _decide_action(self, events: list[MUDEvent]) -> tuple[list[MUDAction], str]:
         """Execute phased decision strategy.
 
@@ -58,7 +67,12 @@ class PhasedTurnProcessor(BaseTurnProcessor):
 
             # Phase 1: Decision (use tool role - fast)
             decision_tool, decision_args, decision_raw, decision_thinking, decision_cleaned = (
-                await self.worker._decide_action(idle_mode=idle_mode, role="tool")
+                await self.worker._decide_action(
+                    idle_mode=idle_mode,
+                    role="tool",
+                    action_guidance=self._action_guidance,
+                    user_guidance=self.user_guidance,
+                )
             )
             if decision_thinking:
                 thinking_parts.append(decision_thinking)
@@ -115,6 +129,7 @@ class PhasedTurnProcessor(BaseTurnProcessor):
                     guidance=None,
                     coming_online=coming_online,
                     include_events=False,
+                    action_guidance=self._action_guidance,
                 )
 
                 # Use response strategy for full context (consciousness + memory)

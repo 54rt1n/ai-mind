@@ -98,6 +98,7 @@ class MUDSession(BaseModel):
         current_room: Current room state (rebuilt each turn).
         entities_present: Entities in current room (rebuilt each turn).
         pending_events: Events waiting to be processed.
+        pending_self_actions: Self-action events drained but not yet presented as guidance.
         world_state: Latest enriched world snapshot.
         recent_turns: Rolling history of recent turns.
         last_event_id: Redis stream ID for resumption.
@@ -113,6 +114,7 @@ class MUDSession(BaseModel):
     current_room: Optional[RoomState] = None
     entities_present: list[EntityState] = Field(default_factory=list)
     pending_events: list[MUDEvent] = Field(default_factory=list)
+    pending_self_actions: list[MUDEvent] = Field(default_factory=list)
     world_state: Optional[WorldState] = None
 
     # Rolling history (persists, compressed over time)

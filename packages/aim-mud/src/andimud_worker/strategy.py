@@ -182,6 +182,8 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
         persona: Persona,
         session: MUDSession,
         idle_mode: bool = False,
+        action_guidance: str = "",
+        user_guidance: str = "",
     ) -> list[dict[str, str]]:
         """Build complete turn array for Phase 1 LLM inference.
 
@@ -199,6 +201,9 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
             persona: The agent's persona for system prompt generation.
             session: Current MUD session with world state.
             idle_mode: Whether this is a spontaneous (idle) turn.
+            action_guidance: Optional guidance from prior action results to include
+                at the start of the user turn.
+            user_guidance: Optional guidance from user (@choose) to include.
 
         Returns:
             List of chat turns ready for LLM inference.
@@ -211,11 +216,15 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
 
         # 2. Build user turn with decision guidance
         guidance = self._build_decision_guidance(session)
+        # Append user guidance if provided (@choose)
+        if user_guidance:
+            guidance = f"{guidance}\n\n[Link Guidance: {user_guidance}]"
         user_input = build_current_context(
             session,
             idle_mode=idle_mode,
             guidance=guidance,
             include_format_guidance=False,  # Phase 1: JSON tool calls only, no ESH
+            action_guidance=action_guidance,
         )
 
         # 3. Calculate content_len for token budgeting
