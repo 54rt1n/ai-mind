@@ -473,3 +473,78 @@ class MUDConversationManager:
         self._sequence_no = 0
         self._conversation_id = None
         logger.info(f"Cleared conversation list for agent {self.agent_id}")
+
+    def get_current_conversation_id(self) -> Optional[str]:
+        """Get the current conversation_id without creating one.
+
+        Returns:
+            Current conversation_id or None if not set.
+        """
+        return self._conversation_id
+
+    def set_conversation_id(self, conversation_id: str) -> None:
+        """Set the conversation_id for this manager.
+
+        Updates the instance variable. Does not re-tag existing entries.
+        Call retag_unsaved_entries() separately to update entries.
+
+        Args:
+            conversation_id: The new conversation_id to use.
+        """
+        self._conversation_id = conversation_id
+        logger.info(f"Set conversation_id to {conversation_id}")
+
+    async def retag_unsaved_entries(self, new_conversation_id: str) -> int:
+        """Re-tag all unsaved entries with new conversation_id and renumber from 0.
+
+        Only updates entries where saved=False. Saved entries remain in CVM
+        with their original conversation_id.
+
+        Args:
+            new_conversation_id: The conversation_id to apply.
+
+        Returns:
+            Number of entries re-tagged.
+        """
+        raw_entries = await self.redis.lrange(self.key, 0, -1)
+
+        if not raw_entries:
+            return 0
+
+        retagged = 0
+        new_sequence_no = 0
+        updated_entries = []
+
+        for raw in raw_entries:
+            if isinstance(raw, bytes):
+                raw = raw.decode("utf-8")
+
+            try:
+                entry = MUDConversationEntry.model_validate_json(raw)
+            except Exception as e:
+                logger.warning(f"Failed to parse entry for retag: {e}")
+                updated_entries.append(raw)  # Keep as-is
+                continue
+
+            # Only update unsaved entries
+            if not entry.saved:
+                entry.conversation_id = new_conversation_id
+                entry.sequence_no = new_sequence_no
+                new_sequence_no += 1
+                retagged += 1
+
+            updated_entries.append(entry.model_dump_json())
+
+        # Replace entire list atomically
+        if updated_entries:
+            pipe = self.redis.pipeline()
+            pipe.delete(self.key)
+            for entry_json in updated_entries:
+                pipe.rpush(self.key, entry_json)
+            await pipe.execute()
+
+        # Update internal sequence counter
+        self._sequence_no = new_sequence_no
+
+        logger.info(f"Re-tagged {retagged} unsaved entries with conversation_id: {new_conversation_id}")
+        return retagged

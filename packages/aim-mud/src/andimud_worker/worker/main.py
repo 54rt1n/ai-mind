@@ -201,6 +201,9 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
             max_tokens=self.config.conversation_max_tokens,
         )
 
+        # Update conversation report cache
+        await self._update_conversation_report()
+
         # Initialize decision strategy
         self._decision_strategy = MUDDecisionStrategy(self._chat_manager)
         self._decision_strategy.set_conversation_manager(self.conversation_manager)
@@ -286,6 +289,8 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
                         if self.conversation_manager:
                             flushed = await self.conversation_manager.flush_to_cvm(self.cvm)
                             logger.info(f"@write: Flushed {flushed} entries to CVM")
+                            # Update conversation report
+                            await self._update_conversation_report()
                             # Emote completion
                             action = MUDAction(tool="emote", args={"action": "feels more knowledgeable."})
                             await self._emit_actions([action])
@@ -301,6 +306,39 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
                             logger.info("@clear: Cleared conversation history")
                         else:
                             logger.warning("Clear requested but no conversation manager")
+                        await self._set_turn_request_state(turn_id, "done")
+                        self._last_turn_request_id = turn_id
+                        continue
+                    if reason == "new":
+                        # @new console command - set new conversation_id
+                        if self.conversation_manager:
+                            conversation_id = turn_request.get("conversation_id", "")
+
+                            if not conversation_id:
+                                # Generate new conversation_id
+                                from andimud_worker.memory import generate_conversation_id
+                                conversation_id = generate_conversation_id()
+
+                            # Re-tag unsaved entries and renumber
+                            retagged = await self.conversation_manager.retag_unsaved_entries(conversation_id)
+
+                            # Update instance variable for future entries
+                            self.conversation_manager.set_conversation_id(conversation_id)
+
+                            # Persist to agent profile
+                            await self._save_agent_profile()
+
+                            logger.info(f"@new: Set conversation_id to {conversation_id}, re-tagged {retagged} entries")
+
+                            # Emote completion
+                            action = MUDAction(
+                                tool="emote",
+                                args={"action": f"starts a new conversation thread: {conversation_id}"}
+                            )
+                            await self._emit_actions([action])
+                        else:
+                            logger.warning("New conversation requested but no conversation manager")
+
                         await self._set_turn_request_state(turn_id, "done")
                         self._last_turn_request_id = turn_id
                         continue
@@ -364,6 +402,8 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
                                 f"Dream completed: {result.pipeline_id} "
                                 f"in {result.duration_seconds:.1f}s"
                             )
+                            # Update conversation report
+                            await self._update_conversation_report()
                             await self._set_turn_request_state(turn_id, "done")
                         else:
                             logger.error(f"Dream failed: {result.error}")
@@ -391,6 +431,8 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
                                     f"Auto-dream completed: {result.pipeline_id} "
                                     f"in {result.duration_seconds:.1f}s"
                                 )
+                                # Update conversation report
+                                await self._update_conversation_report()
                             else:
                                 logger.warning(f"Auto-dream failed: {result.error}")
                             # Continue to process idle turn normally after dream
@@ -814,6 +856,23 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
             f"thought={self.model_set.thought_model}, "
             f"codex={self.model_set.codex_model}"
         )
+
+    async def _update_conversation_report(self) -> None:
+        """Generate conversation report and save to Redis.
+
+        Calls cvm.get_conversation_report() and stores result in Redis
+        for fast access by @list command.
+        """
+        try:
+            report = self.cvm.get_conversation_report()
+            report_key = RedisKeys.agent_conversation_report(self.config.agent_id)
+
+            # Store as JSON string
+            import json
+            await self.redis.set(report_key, json.dumps(report))
+            logger.debug(f"Updated conversation report: {len(report)} conversations")
+        except Exception as e:
+            logger.error(f"Failed to update conversation report: {e}", exc_info=True)
 
     def setup_signal_handlers(self) -> None:
         """Setup handlers for graceful shutdown.

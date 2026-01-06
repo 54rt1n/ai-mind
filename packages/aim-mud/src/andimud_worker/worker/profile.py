@@ -31,6 +31,24 @@ class ProfileMixin:
     These methods are mixed into MUDAgentWorker in main.py.
     """
 
+    async def _save_agent_profile(self: "MUDAgentWorker") -> None:
+        """Save agent profile state to Redis."""
+        key = RedisKeys.agent_profile(self.config.agent_id)
+
+        # Get current conversation_id from manager
+        conversation_id = None
+        if self.conversation_manager:
+            conversation_id = self.conversation_manager.get_current_conversation_id()
+
+        fields = {
+            "last_event_id": self.session.last_event_id or "",
+        }
+
+        if conversation_id:
+            fields["conversation_id"] = conversation_id
+
+        await self.redis.hset(key, mapping=fields)
+
     async def _load_agent_profile(self: "MUDAgentWorker") -> None:
         """Load agent profile state from Redis.
 
@@ -57,6 +75,12 @@ class ProfileMixin:
         last_event_id = decoded.get("last_event_id")
         if last_event_id:
             self.session.last_event_id = last_event_id
+
+        # Load conversation_id if available
+        conversation_id = decoded.get("conversation_id")
+        if conversation_id and self.conversation_manager:
+            self.conversation_manager.set_conversation_id(conversation_id)
+            logger.info(f"Loaded conversation_id: {conversation_id}")
 
     async def _load_agent_world_state(self: "MUDAgentWorker") -> tuple[Optional[str], Optional[str]]:
         """Load inventory and room pointer from agent profile.

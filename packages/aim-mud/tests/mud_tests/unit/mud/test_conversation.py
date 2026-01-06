@@ -56,6 +56,14 @@ def mock_redis():
     redis.lindex = AsyncMock(return_value=None)
     redis.lset = AsyncMock(return_value=True)
     redis.delete = AsyncMock(return_value=1)
+
+    # Mock pipeline for batch operations
+    pipe = AsyncMock()
+    pipe.delete = MagicMock(return_value=None)
+    pipe.rpush = MagicMock(return_value=None)
+    pipe.execute = AsyncMock(return_value=[1, 1, 1, 1])  # Mock return values for pipeline commands
+    redis.pipeline = MagicMock(return_value=pipe)
+
     return redis
 
 
@@ -698,3 +706,172 @@ class TestMUDConversationManagerGetTotalTokens:
         total = await conversation_manager.get_total_tokens()
 
         assert total == 0
+
+
+class TestMUDConversationManagerConversationID:
+    """Test MUDConversationManager conversation_id management methods."""
+
+    def test_get_current_conversation_id_before_creation(self, conversation_manager):
+        """Test that get_current_conversation_id returns None before creation."""
+        conv_id = conversation_manager.get_current_conversation_id()
+        assert conv_id is None
+
+    def test_get_current_conversation_id_after_creation(self, conversation_manager):
+        """Test that get_current_conversation_id returns ID after creation."""
+        # Create a conversation_id by calling _get_conversation_id
+        created_id = conversation_manager._get_conversation_id()
+
+        # get_current_conversation_id should return the same ID
+        current_id = conversation_manager.get_current_conversation_id()
+        assert current_id == created_id
+        assert current_id.startswith("andimud_")
+
+    def test_set_conversation_id(self, conversation_manager):
+        """Test that set_conversation_id updates the instance variable."""
+        new_id = "andimud_test_12345_abcdef"
+
+        conversation_manager.set_conversation_id(new_id)
+
+        current_id = conversation_manager.get_current_conversation_id()
+        assert current_id == new_id
+
+    @pytest.mark.asyncio
+    async def test_retag_unsaved_entries(self, conversation_manager, mock_redis):
+        """Test that retag_unsaved_entries updates unsaved entries."""
+        # Create a mix of saved and unsaved entries
+        entry1 = MUDConversationEntry(
+            role="user",
+            content="Unsaved message 1",
+            tokens=10,
+            document_type=DOC_MUD_WORLD,
+            conversation_id="old_conv_123",
+            sequence_no=0,
+            speaker_id="world",
+            saved=False,
+        )
+        entry2 = MUDConversationEntry(
+            role="assistant",
+            content="Saved message",
+            tokens=10,
+            document_type=DOC_MUD_AGENT,
+            conversation_id="old_conv_123",
+            sequence_no=1,
+            speaker_id="andi",
+            saved=True,
+            doc_id="doc-123",
+        )
+        entry3 = MUDConversationEntry(
+            role="user",
+            content="Unsaved message 2",
+            tokens=10,
+            document_type=DOC_MUD_WORLD,
+            conversation_id="old_conv_123",
+            sequence_no=2,
+            speaker_id="world",
+            saved=False,
+        )
+
+        mock_redis.lrange.return_value = [
+            entry1.model_dump_json().encode(),
+            entry2.model_dump_json().encode(),
+            entry3.model_dump_json().encode(),
+        ]
+
+        new_conv_id = "new_conv_456"
+        retagged = await conversation_manager.retag_unsaved_entries(new_conv_id)
+
+        # Should have retagged 2 unsaved entries
+        assert retagged == 2
+
+        # Verify pipeline operations: delete + 3 rpush
+        assert mock_redis.pipeline.called
+        pipe = mock_redis.pipeline.return_value
+        pipe.delete.assert_called_once()
+        assert pipe.rpush.call_count == 3
+
+        # Verify sequence counter was updated
+        assert conversation_manager._sequence_no == 2  # Two unsaved entries renumbered from 0
+
+    @pytest.mark.asyncio
+    async def test_retag_only_unsaved_entries(self, conversation_manager, mock_redis):
+        """Test that retag_unsaved_entries preserves saved entries unchanged."""
+        # Create entries with saved entry in the middle
+        entry1 = MUDConversationEntry(
+            role="user",
+            content="Unsaved 1",
+            tokens=10,
+            document_type=DOC_MUD_WORLD,
+            conversation_id="old_conv",
+            sequence_no=0,
+            speaker_id="world",
+            saved=False,
+        )
+        entry2 = MUDConversationEntry(
+            role="assistant",
+            content="Saved in CVM",
+            tokens=10,
+            document_type=DOC_MUD_AGENT,
+            conversation_id="old_conv",
+            sequence_no=1,
+            speaker_id="andi",
+            saved=True,
+            doc_id="doc-saved",
+        )
+        entry3 = MUDConversationEntry(
+            role="user",
+            content="Unsaved 2",
+            tokens=10,
+            document_type=DOC_MUD_WORLD,
+            conversation_id="old_conv",
+            sequence_no=2,
+            speaker_id="world",
+            saved=False,
+        )
+
+        mock_redis.lrange.return_value = [
+            entry1.model_dump_json().encode(),
+            entry2.model_dump_json().encode(),
+            entry3.model_dump_json().encode(),
+        ]
+
+        new_conv_id = "new_conv_xyz"
+        retagged = await conversation_manager.retag_unsaved_entries(new_conv_id)
+
+        assert retagged == 2
+
+        # Capture the rpush calls to verify entry contents
+        pipe = mock_redis.pipeline.return_value
+        rpush_calls = pipe.rpush.call_args_list
+
+        # Parse the updated entries
+        updated_entries = []
+        for call in rpush_calls:
+            entry_json = call[0][1]  # Second argument to rpush
+            updated_entries.append(MUDConversationEntry.model_validate_json(entry_json))
+
+        # First unsaved entry should be renumbered to 0 with new conv_id
+        assert updated_entries[0].conversation_id == new_conv_id
+        assert updated_entries[0].sequence_no == 0
+        assert updated_entries[0].saved is False
+
+        # Saved entry should be unchanged
+        assert updated_entries[1].conversation_id == "old_conv"
+        assert updated_entries[1].sequence_no == 1
+        assert updated_entries[1].saved is True
+        assert updated_entries[1].doc_id == "doc-saved"
+
+        # Second unsaved entry should be renumbered to 1 with new conv_id
+        assert updated_entries[2].conversation_id == new_conv_id
+        assert updated_entries[2].sequence_no == 1
+        assert updated_entries[2].saved is False
+
+    @pytest.mark.asyncio
+    async def test_retag_unsaved_entries_empty_list(self, conversation_manager, mock_redis):
+        """Test retag_unsaved_entries with empty list."""
+        mock_redis.lrange.return_value = []
+
+        retagged = await conversation_manager.retag_unsaved_entries("new_conv")
+
+        assert retagged == 0
+        # Pipeline should not be used
+        mock_redis.pipeline.assert_not_called()

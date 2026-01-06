@@ -163,6 +163,28 @@ class RedisKeys:
         return f"agent:{agent_id}:dreamer"
 
     @staticmethod
+    def agent_conversation_report(agent_id: str) -> str:
+        """Get the conversation report key for a specific agent.
+
+        The report contains conversation statistics generated
+        from the persona's ConversationModel, updated on worker
+        startup and after each CVM write/dreamer job.
+
+        Value format (JSON stored as string):
+        {
+          "conv1": {"conversation": 10, "analysis": 1, "timestamp_max": 1704412800},
+          "conv2": {"conversation": 5, "timestamp_max": 1704412900}
+        }
+
+        Args:
+            agent_id: Unique identifier for the agent.
+
+        Returns:
+            Redis key for the agent's conversation report.
+        """
+        return f"agent:{agent_id}:conversation_report"
+
+    @staticmethod
     def format_stream_id(timestamp_ms: int, sequence: int = 0) -> str:
         """Format a Redis stream message ID.
 
