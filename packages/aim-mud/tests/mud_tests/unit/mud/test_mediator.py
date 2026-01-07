@@ -12,12 +12,9 @@ import pytest
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, Mock, patch
 
-from andimud_mediator.mediator import (
-    MediatorService,
-    MediatorConfig,
-    run_mediator,
-    parse_args,
-)
+from andimud_mediator.service import MediatorService
+from andimud_mediator.config import MediatorConfig
+from andimud_mediator.main import run_mediator, parse_args
 from aim_mud_types import (
     MUDEvent,
     RedisKeys,
@@ -581,7 +578,7 @@ class TestRunMediator:
     async def test_run_mediator_registers_agents(self, mediator_config):
         """Test that run_mediator registers agents."""
         with patch("redis.asyncio.from_url") as mock_from_url, patch(
-            "andimud_mediator.mediator.MediatorService"
+            "andimud_mediator.main.MediatorService"
         ) as mock_service_class:
             mock_redis = AsyncMock()
             mock_from_url.return_value = mock_redis
@@ -684,6 +681,183 @@ class TestMediatorGracefulShutdown:
         await mediator.run_event_router()
 
         assert True  # Reached end without exception
+
+
+class TestMediatorPauseCheck:
+    """Test pause key checking in turn assignment."""
+
+    @pytest.mark.asyncio
+    async def test_maybe_assign_turn_skips_paused_agent(
+        self, mock_redis, mediator_config
+    ):
+        """Test that _maybe_assign_turn returns False for paused agents."""
+        mediator = MediatorService(mock_redis, mediator_config)
+
+        # Agent has valid turn_request (not offline)
+        mock_redis.hgetall = AsyncMock(
+            return_value={
+                b"turn_id": b"prev-turn-123",
+                b"status": b"ready",
+            }
+        )
+
+        # Agent is paused
+        async def get_side_effect(key):
+            if key == RedisKeys.agent_pause("andi"):
+                return b"1"
+            return None
+
+        mock_redis.get = AsyncMock(side_effect=get_side_effect)
+
+        result = await mediator._maybe_assign_turn("andi", reason="events")
+
+        assert result is False
+        # Should not attempt CAS (eval not called)
+        mock_redis.eval.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_maybe_assign_turn_allows_unpaused_agent(
+        self, mock_redis, mediator_config
+    ):
+        """Test that _maybe_assign_turn proceeds for unpaused agents."""
+        mediator = MediatorService(mock_redis, mediator_config)
+
+        # Agent has valid turn_request (not offline)
+        mock_redis.hgetall = AsyncMock(
+            return_value={
+                b"turn_id": b"prev-turn-123",
+                b"status": b"ready",
+            }
+        )
+
+        # Agent is NOT paused (key returns None)
+        async def get_side_effect(key):
+            if key == RedisKeys.agent_pause("andi"):
+                return None
+            return None
+
+        mock_redis.get = AsyncMock(side_effect=get_side_effect)
+
+        # CAS succeeds
+        mock_redis.eval = AsyncMock(return_value=1)
+
+        result = await mediator._maybe_assign_turn("andi", reason="events")
+
+        assert result is True
+        # Should attempt CAS
+        mock_redis.eval.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_maybe_assign_turn_allows_explicitly_unpaused_agent(
+        self, mock_redis, mediator_config
+    ):
+        """Test that _maybe_assign_turn proceeds when pause key is "0"."""
+        mediator = MediatorService(mock_redis, mediator_config)
+
+        # Agent has valid turn_request (not offline)
+        mock_redis.hgetall = AsyncMock(
+            return_value={
+                b"turn_id": b"prev-turn-123",
+                b"status": b"ready",
+            }
+        )
+
+        # Agent pause key is explicitly "0" (unpaused)
+        async def get_side_effect(key):
+            if key == RedisKeys.agent_pause("andi"):
+                return b"0"
+            return None
+
+        mock_redis.get = AsyncMock(side_effect=get_side_effect)
+
+        # CAS succeeds
+        mock_redis.eval = AsyncMock(return_value=1)
+
+        result = await mediator._maybe_assign_turn("andi", reason="events")
+
+        assert result is True
+        mock_redis.eval.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_process_event_respects_pause_via_turn_assignment(
+        self, mock_redis, mediator_config, sample_speech_event
+    ):
+        """Test that event processing doesn't assign turns to paused agents."""
+        mediator = MediatorService(mock_redis, mediator_config)
+        mediator.register_agent("andi")
+
+        # Room has andi in it
+        mock_redis.hget = AsyncMock(
+            return_value=json.dumps(
+                [
+                    {
+                        "entity_id": "#3",
+                        "name": "Andi",
+                        "entity_type": "ai",
+                        "agent_id": "andi",
+                    }
+                ]
+            ).encode("utf-8")
+        )
+
+        # Agent has valid turn_request
+        mock_redis.hgetall = AsyncMock(
+            return_value={
+                b"turn_id": b"prev-turn-123",
+                b"status": b"ready",
+            }
+        )
+
+        # Agent is paused
+        async def get_side_effect(key):
+            if key == RedisKeys.agent_pause("andi"):
+                return b"1"
+            return None
+
+        mock_redis.get = AsyncMock(side_effect=get_side_effect)
+
+        data = {b"data": json.dumps(sample_speech_event).encode()}
+        await mediator._process_event("1704096000000-0", data)
+
+        # Should NOT assign turn (eval not called)
+        mock_redis.eval.assert_not_called()
+
+        # Event should still be marked as processed
+        assert mock_redis.hset.call_count >= 1
+        hset_calls = [call[0] for call in mock_redis.hset.call_args_list]
+        assert any(RedisKeys.EVENTS_PROCESSED in call for call in hset_calls)
+
+    @pytest.mark.asyncio
+    async def test_check_agent_states_respects_pause_for_retries(
+        self, mock_redis, mediator_config
+    ):
+        """Test that retry turn assignment respects pause state."""
+        mediator = MediatorService(mock_redis, mediator_config)
+        mediator.register_agent("andi")
+
+        # Agent has failed turn ready to retry
+        past_time = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        mock_redis.hgetall = AsyncMock(
+            return_value={
+                b"turn_id": b"failed-turn-123",
+                b"status": b"fail",
+                b"next_attempt_at": past_time.isoformat().encode(),
+                b"attempt_count": b"1",
+            }
+        )
+
+        # Agent is paused
+        async def get_side_effect(key):
+            if key == RedisKeys.agent_pause("andi"):
+                return b"1"
+            return None
+
+        mock_redis.get = AsyncMock(side_effect=get_side_effect)
+
+        await mediator._check_agent_states()
+
+        # Should NOT assign retry turn
+        mock_redis.eval.assert_not_called()
 
 
 if __name__ == "__main__":

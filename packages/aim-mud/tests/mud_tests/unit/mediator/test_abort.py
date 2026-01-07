@@ -6,7 +6,8 @@ import pytest
 from unittest.mock import AsyncMock, Mock
 import json
 
-from andimud_mediator.mediator import MediatorService, MediatorConfig
+from andimud_mediator.service import MediatorService
+from andimud_mediator.config import MediatorConfig
 from aim_mud_types import RedisKeys
 
 

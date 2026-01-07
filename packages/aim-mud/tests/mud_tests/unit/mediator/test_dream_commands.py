@@ -20,9 +20,9 @@ import json
 import pytest
 from unittest.mock import AsyncMock, Mock
 
-from andimud_mediator.mediator import (
-    MediatorService,
-    MediatorConfig,
+from andimud_mediator.service import MediatorService
+from andimud_mediator.config import MediatorConfig
+from andimud_mediator.patterns import (
     ANALYZE_PATTERN,
     SUMMARY_PATTERN,
     JOURNAL_PATTERN,

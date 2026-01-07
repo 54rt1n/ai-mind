@@ -7,7 +7,7 @@ Makes the module executable via:
     python -m andimud_mediator [OPTIONS]
 """
 
-from .mediator import main
+from .main import main
 
 if __name__ == "__main__":
     main()
