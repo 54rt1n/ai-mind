@@ -296,6 +296,9 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
                 )
 
                 try:
+                    # SAVE pre-drain event position for potential rollback
+                    saved_event_id = self.session.last_event_id
+
                     # Drain events into pending_events buffer for all turns
                     self.pending_events = await self._drain_with_settle()
 
@@ -306,6 +309,7 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
                     # Handle flush_drain flag
                     if result.flush_drain:
                         self.pending_events = []
+                        saved_event_id = None  # Don't restore - events were consumed
 
                     # If command completed fully, set status and continue
                     if result.complete:
@@ -327,6 +331,7 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
                 except AbortRequestedException:
                     logger.info(f"Turn {turn_id} aborted by user request")
                     await self._set_turn_request_state(turn_id, "aborted", message="Aborted by user")
+                    await self._restore_event_position(saved_event_id)
                 except Exception as e:
                     logger.error(f"Error during assigned turn {turn_id}: {e}", exc_info=True)
 
@@ -362,6 +367,9 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
                         },
                         expected_turn_id=turn_id  # CAS: only update if turn_id matches
                     )
+
+                    # Restore event position so retry gets the same events
+                    await self._restore_event_position(saved_event_id)
                 finally:
                     heartbeat_stop.set()
                     heartbeat_task.cancel()

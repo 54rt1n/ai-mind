@@ -9,7 +9,7 @@ Extracted from worker.py lines 646-777
 import asyncio
 import json
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 import redis.asyncio as redis
 
@@ -185,3 +185,32 @@ class EventsMixin:
             await asyncio.sleep(settle_time)
 
         return all_events
+
+    async def _restore_event_position(
+        self: "MUDAgentWorker", saved_event_id: Optional[str]
+    ) -> None:
+        """Restore event stream position after failed processing.
+
+        Called when turn processing fails to reset stream position so
+        retry will receive the same events.
+
+        Args:
+            saved_event_id: Event ID to restore, or None to skip restoration
+        """
+        if saved_event_id is None:
+            logger.debug("Skipping event position restore (events were consumed)")
+            return
+
+        logger.info(
+            f"Restoring event position from {self.session.last_event_id} back to {saved_event_id}"
+        )
+
+        # Restore session state
+        self.session.last_event_id = saved_event_id
+
+        # Clear pending buffers - these events will be re-drained on retry
+        self.pending_events = []
+        self.session.pending_self_actions = []
+
+        # Persist the restored position to Redis
+        await self._update_agent_profile(last_event_id=saved_event_id)
