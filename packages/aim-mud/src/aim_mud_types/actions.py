@@ -67,19 +67,36 @@ class MUDAction(BaseModel):
 
         elif self.tool == "move":
             location = self.args.get("location")
-            if location:
-                return location
-            return self.args.get("direction", "")
+            if not location:
+                location = self.args.get("direction", "")
+            if not location:
+                return ""
+
+            mood = self.args.get("mood", "").strip()
+            if mood:
+                return f"{location}, {mood}"
+            return location
 
         elif self.tool == "get":
-            return f"get {self.args.get('object', '')}"
+            obj = self.args.get('object', '')
+            mood = self.args.get("mood", "").strip()
+            if mood:
+                return f"get {obj}, {mood}"
+            return f"get {obj}"
 
         elif self.tool == "drop":
-            return f"drop {self.args.get('object', '')}"
+            obj = self.args.get('object', '')
+            mood = self.args.get("mood", "").strip()
+            if mood:
+                return f"drop {obj}, {mood}"
+            return f"drop {obj}"
 
         elif self.tool == "give":
             obj = self.args.get("object", "")
             target = self.args.get("target", "")
+            mood = self.args.get("mood", "").strip()
+            if mood:
+                return f"give {obj} = {target}, {mood}"
             return f"give {obj} = {target}"
 
         elif self.tool == "use":

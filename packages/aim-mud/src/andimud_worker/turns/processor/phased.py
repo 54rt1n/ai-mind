@@ -112,6 +112,17 @@ class PhasedTurnProcessor(BaseTurnProcessor):
 
             elif decision_tool == "wait":
                 logger.info("Phase 1 decided to wait; no action this turn")
+                # Emit a subtle emote based on mood (if provided)
+                mood = decision_args.get("mood", "").strip()
+                if mood:
+                    emote_text = f"waits {mood}."
+                    logger.info(f"Wait emote with mood: {emote_text}")
+                else:
+                    emote_text = "waits quietly."
+                    logger.info("Wait emote with default mood")
+                action = MUDAction(tool="emote", args={"action": emote_text})
+                actions_taken.append(action)
+                await self.worker._emit_actions(actions_taken)
 
             elif decision_tool == "speak":
                 # Phase 2: full response turn with memory via response strategy

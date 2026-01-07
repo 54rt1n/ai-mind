@@ -23,11 +23,14 @@ functions:
         location:
           type: string
           description: Exit or destination name (must match an available exit)
+        mood:
+          type: string
+          description: Optional mood or manner of moving (e.g., "thoughtfully", "with purpose", "hesitantly")
       required:
         - location
       examples:
         - {move: {location: "north"}}
-        - {move: {location: "garden"}}
+        - {move: {location: "garden", mood: "with quiet purpose"}}
 
   - name: take
     description: Pick up an item from the current room
@@ -37,11 +40,14 @@ functions:
         object:
           type: string
           description: The name of the object to take
+        mood:
+          type: string
+          description: Optional mood or manner of taking (e.g., "carefully", "eagerly", "with reverence")
       required:
         - object
       examples:
         - {take: {object: "lantern"}}
-        - {take: {object: "silver key"}}
+        - {take: {object: "silver key", mood: "carefully"}}
 
   - name: drop
     description: Drop an item from your inventory into the room
@@ -51,10 +57,14 @@ functions:
         object:
           type: string
           description: The name of the object to drop
+        mood:
+          type: string
+          description: Optional mood or manner of dropping (e.g., "gently", "reluctantly", "with finality")
       required:
         - object
       examples:
         - {drop: {object: "lantern"}}
+        - {drop: {object: "sword", mood: "reluctantly"}}
 
   - name: give
     description: Give an item from your inventory to someone or put it in/on something
@@ -67,18 +77,26 @@ functions:
         target:
           type: string
           description: The name of the person or container to give/put it to
+        mood:
+          type: string
+          description: Optional mood or manner of giving (e.g., "warmly", "with affection", "gracefully")
       required:
         - object
         - target
       examples:
         - {give: {object: "flower", target: "Prax"}}
-        - {give: {object: "cup", target: "shelf"}}
+        - {give: {object: "cup", target: "shelf", mood: "gently"}}
 
   - name: wait
     description: Do nothing this turn (wait and observe)
     parameters:
       type: object
-      properties: {}
+      properties:
+        mood:
+          type: string
+          description: Optional mood or manner of waiting (e.g., "thoughtfully", "with curiosity", "in quiet reflection")
       required: []
       examples:
         - {wait: {}}
+        - {wait: {mood: "thoughtfully"}}
+        - {wait: {mood: "with gentle attention"}}
