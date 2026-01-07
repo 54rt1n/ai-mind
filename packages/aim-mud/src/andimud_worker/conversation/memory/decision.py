@@ -492,8 +492,8 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
         )
 
         # Add decision tools (ONLY for Phase 1)
-        if hasattr(self, '_tool_user') and self._tool_user:
-            xml = self._tool_user.xml_decorator(xml)
+        if hasattr(self, 'tool_user') and self.tool_user:
+            xml = self.tool_user.xml_decorator(xml)
 
         # Cache and return
         self._cached_system_message = xml.render()

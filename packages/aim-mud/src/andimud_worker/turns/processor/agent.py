@@ -36,7 +36,7 @@ class AgentTurnProcessor(BaseTurnProcessor):
     """Single-phase turn processing with agent guidance strategy.
 
     Skips decision phase entirely and provides full guidance upfront.
-    Single LLM call with CHAT role and agent action schema.
+    Single LLM call with TOOL role and agent action schema.
     All actions (speak, move, take, drop, give, describe) decided together.
     """
 
@@ -109,8 +109,8 @@ class AgentTurnProcessor(BaseTurnProcessor):
                 if await self.worker._check_abort_requested():
                     raise AbortRequestedException("Turn aborted before @agent action")
 
-                # @agent uses chat role (general model)
-                response = await self.worker._call_llm(chat_turns, role="chat")
+                # @agent uses tool role (tool model - structured actions)
+                response = await self.worker._call_llm(chat_turns, role="tool")
                 cleaned, think_content = extract_think_tags(response)
                 cleaned = sanitize_response(cleaned)
                 cleaned = cleaned.strip()

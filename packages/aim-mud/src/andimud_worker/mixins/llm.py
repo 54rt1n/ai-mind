@@ -75,6 +75,13 @@ class LLMMixin:
         try:
             # Get appropriate provider for role
             provider = self.model_set.get_provider(role)
+            model_name = self.model_set.get_model_name(role)
+
+            # Log which role→model mapping is being used
+            logger.debug(
+                f"LLM call using role='{role}' → model='{model_name}' "
+                f"for persona {self.persona.persona_id}"
+            )
 
             chunks = []
             for chunk in provider.stream_turns(chat_turns, self.chat_config):
