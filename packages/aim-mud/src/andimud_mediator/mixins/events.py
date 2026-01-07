@@ -5,7 +5,7 @@
 import asyncio
 import json
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from aim_mud_types import MUDEvent, RedisKeys
 from aim_mud_types.helper import _utc_now
@@ -15,6 +15,57 @@ logger = logging.getLogger(__name__)
 
 class EventsMixin:
     """Events mixin for the mediator service."""
+
+    async def load_last_event_id_from_hash(self) -> None:
+        """Load last processed event ID from processing hash."""
+        try:
+            # Get all processed event IDs
+            processed = await self.redis.hkeys(RedisKeys.EVENTS_PROCESSED)
+
+            if not processed:
+                logger.info("No processed events hash found, starting from 0")
+                self.last_event_id = "0"
+                return
+
+            # Decode and find maximum event ID
+            event_ids = []
+            for key in processed:
+                if isinstance(key, bytes):
+                    key = key.decode("utf-8")
+                event_ids.append(key)
+
+            # Event IDs are like "1704297296123-0" - max() works on string sort
+            max_id = max(event_ids)
+            self.last_event_id = max_id
+
+            logger.info(
+                "Loaded last_event_id from processed hash: %s (%d events in hash)",
+                self.last_event_id,
+                len(event_ids),
+            )
+        except Exception as e:
+            logger.error(f"Failed to load last_event_id from hash: {e}")
+            self.last_event_id = "0"
+
+    async def enrich_event(self, event: MUDEvent) -> dict[str, Any]:
+        """Add room state to event.
+
+        Currently a placeholder that returns the event with empty room_state.
+        Future implementation will query Evennia REST API for current room state.
+
+        Args:
+            event: The MUDEvent to enrich.
+
+        Returns:
+            Dictionary with event data and enrichment fields.
+        """
+        # Build base event dictionary
+        enriched = event.to_redis_dict()
+        enriched["id"] = event.event_id
+
+        # No enrichment when world_state is absent (worker pulls from agent profile)
+        enriched["enriched"] = False
+        return enriched
 
     async def run_event_router(self) -> None:
         """Read mud:events, filter by room, distribute to agents.

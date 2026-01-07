@@ -5,10 +5,10 @@
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Optional
 import uuid
 
-from aim_mud_types import MUDEvent, RedisKeys
+from aim_mud_types import RedisKeys
 from aim_mud_types.helper import _utc_now
 
 logger = logging.getLogger(__name__)
@@ -249,26 +249,6 @@ class AgentsMixin:
             if entity.get("entity_id") == actor_id:
                 return entity.get("agent_id")
         return None
-
-    async def enrich_event(self, event: MUDEvent) -> dict[str, Any]:
-        """Add room state to event.
-
-        Currently a placeholder that returns the event with empty room_state.
-        Future implementation will query Evennia REST API for current room state.
-
-        Args:
-            event: The MUDEvent to enrich.
-
-        Returns:
-            Dictionary with event data and enrichment fields.
-        """
-        # Build base event dictionary
-        enriched = event.to_redis_dict()
-        enriched["id"] = event.event_id
-
-        # No enrichment when world_state is absent (worker pulls from agent profile)
-        enriched["enriched"] = False
-        return enriched
 
     def register_agent(self, agent_id: str, initial_room: str = "") -> None:
         """Register an agent with the mediator.

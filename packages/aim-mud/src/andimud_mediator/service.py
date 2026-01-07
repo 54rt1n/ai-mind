@@ -95,7 +95,7 @@ class MediatorService(AgentsMixin, EventsMixin, DreamerMixin):
 
         self.running = True
         self.setup_signal_handlers()
-        await self._load_last_event_id_from_hash()
+        await self.load_last_event_id_from_hash()
 
         # Create event router task
         self._event_task = asyncio.create_task(
@@ -110,37 +110,6 @@ class MediatorService(AgentsMixin, EventsMixin, DreamerMixin):
             logger.info("Mediator task cancelled")
 
         logger.info("Mediator service stopped")
-
-    async def _load_last_event_id_from_hash(self) -> None:
-        """Load last processed event ID from processing hash."""
-        try:
-            # Get all processed event IDs
-            processed = await self.redis.hkeys(RedisKeys.EVENTS_PROCESSED)
-
-            if not processed:
-                logger.info("No processed events hash found, starting from 0")
-                self.last_event_id = "0"
-                return
-
-            # Decode and find maximum event ID
-            event_ids = []
-            for key in processed:
-                if isinstance(key, bytes):
-                    key = key.decode("utf-8")
-                event_ids.append(key)
-
-            # Event IDs are like "1704297296123-0" - max() works on string sort
-            max_id = max(event_ids)
-            self.last_event_id = max_id
-
-            logger.info(
-                "Loaded last_event_id from processed hash: %s (%d events in hash)",
-                self.last_event_id,
-                len(event_ids),
-            )
-        except Exception as e:
-            logger.error(f"Failed to load last_event_id from hash: {e}")
-            self.last_event_id = "0"
 
     async def stop(self) -> None:
         """Gracefully shutdown the mediator.
