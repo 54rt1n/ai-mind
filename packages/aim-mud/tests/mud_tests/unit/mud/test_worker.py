@@ -186,11 +186,17 @@ class TestMUDAgentWorkerCallLLM:
         worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
         worker.chat_config = MagicMock()
 
+        # Mock persona (required for logging)
+        mock_persona = MagicMock()
+        mock_persona.persona_id = "test_persona"
+        worker.persona = mock_persona
+
         # Mock ModelSet to return a mock provider
         mock_provider = MagicMock()
         mock_provider.stream_turns = MagicMock(return_value=iter(["Hello, ", "world!"]))
         mock_model_set = MagicMock()
         mock_model_set.get_provider = MagicMock(return_value=mock_provider)
+        mock_model_set.get_model_name = MagicMock(return_value="test-model")
         worker.model_set = mock_model_set
 
         result = await worker._call_llm([{"role": "user", "content": "Hi"}])
@@ -205,11 +211,17 @@ class TestMUDAgentWorkerCallLLM:
         worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
         worker.chat_config = MagicMock()
 
+        # Mock persona (required for logging)
+        mock_persona = MagicMock()
+        mock_persona.persona_id = "test_persona"
+        worker.persona = mock_persona
+
         # Mock ModelSet to return a mock provider that raises
         mock_provider = MagicMock()
         mock_provider.stream_turns = MagicMock(side_effect=ConnectionError("Connection reset"))
         mock_model_set = MagicMock()
         mock_model_set.get_provider = MagicMock(return_value=mock_provider)
+        mock_model_set.get_model_name = MagicMock(return_value="test-model")
         worker.model_set = mock_model_set
 
         with pytest.raises(ConnectionError, match="Connection reset"):
@@ -224,11 +236,17 @@ class TestMUDAgentWorkerCallLLM:
         worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
         worker.chat_config = MagicMock()
 
+        # Mock persona (required for logging)
+        mock_persona = MagicMock()
+        mock_persona.persona_id = "test_persona"
+        worker.persona = mock_persona
+
         # Mock ModelSet to return a mock provider that raises ValueError
         mock_provider = MagicMock()
         mock_provider.stream_turns = MagicMock(side_effect=ValueError("Invalid input"))
         mock_model_set = MagicMock()
         mock_model_set.get_provider = MagicMock(return_value=mock_provider)
+        mock_model_set.get_model_name = MagicMock(return_value="test-model")
         worker.model_set = mock_model_set
 
         with pytest.raises(ValueError, match="Invalid input"):
@@ -243,11 +261,17 @@ class TestMUDAgentWorkerCallLLM:
         worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
         worker.chat_config = MagicMock()
 
+        # Mock persona (required for logging)
+        mock_persona = MagicMock()
+        mock_persona.persona_id = "test_persona"
+        worker.persona = mock_persona
+
         # Mock ModelSet to return a mock provider that fails
         mock_provider = MagicMock()
         mock_provider.stream_turns = MagicMock(side_effect=ConnectionError("Network down"))
         mock_model_set = MagicMock()
         mock_model_set.get_provider = MagicMock(return_value=mock_provider)
+        mock_model_set.get_model_name = MagicMock(return_value="test-model")
         worker.model_set = mock_model_set
 
         with pytest.raises(ConnectionError, match="Network down"):
@@ -265,11 +289,17 @@ class TestMUDAgentWorkerCallLLM:
         worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
         worker.chat_config = MagicMock()
 
+        # Mock persona (required for logging)
+        mock_persona = MagicMock()
+        mock_persona.persona_id = "test_persona"
+        worker.persona = mock_persona
+
         # Mock ModelSet to return a mock provider that raises
         mock_provider = MagicMock()
         mock_provider.stream_turns = MagicMock(side_effect=RuntimeError("Test error"))
         mock_model_set = MagicMock()
         mock_model_set.get_provider = MagicMock(return_value=mock_provider)
+        mock_model_set.get_model_name = MagicMock(return_value="test-model")
         worker.model_set = mock_model_set
 
         with patch("andimud_worker.mixins.llm.logger") as mock_logger:
