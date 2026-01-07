@@ -172,7 +172,7 @@ def format_self_action_guidance(self_actions: list[MUDEvent]) -> str:
 
     lines = []
     for event in self_actions:
-        formatted = _format_self_event(event)
+        formatted = format_self_event(event)
         lines.append(f"[!! Action: {formatted} !!]")
 
     return "\n".join(lines)
