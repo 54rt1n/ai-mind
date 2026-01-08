@@ -2,6 +2,7 @@
 # AI-Mind (C) 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
 """MUD event model for world events."""
 
+import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -10,6 +11,8 @@ from pydantic import BaseModel, Field, field_serializer
 from .enums import EventType, ActorType
 from .world_state import WorldState
 from .helper import _utc_now
+
+logger = logging.getLogger(__name__)
 
 class MUDEvent(BaseModel):
     """A world event from the MUD.
@@ -80,8 +83,12 @@ class MUDEvent(BaseModel):
         # Parse timestamp if string
         timestamp = data.get("timestamp")
         if isinstance(timestamp, str):
-            # Handle both Z suffix and explicit offset
-            timestamp = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+            if timestamp:  # Non-empty string
+                # Handle both Z suffix and explicit offset
+                timestamp = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+            else:  # Empty string - log warning since this is always a data error
+                logger.warning("Event data contains empty timestamp string, defaulting to current time")
+                timestamp = _utc_now()
         elif timestamp is None:
             timestamp = _utc_now()
 

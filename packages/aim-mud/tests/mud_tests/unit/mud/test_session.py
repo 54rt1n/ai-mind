@@ -251,6 +251,51 @@ class TestMUDEvent:
         assert json_data["actor"] == "Andi"
         assert "timestamp" in json_data
 
+    def test_event_from_dict_empty_timestamp(self):
+        """Test MUDEvent.from_dict with empty timestamp string."""
+        data = {
+            "type": "speech",
+            "actor": "Prax",
+            "room_id": "#123",
+            "content": "Hello!",
+            "timestamp": "",  # Empty string
+        }
+        event = MUDEvent.from_dict(data)
+
+        # Should default to current time
+        assert event.timestamp is not None
+        assert isinstance(event.timestamp, datetime)
+
+    def test_event_from_dict_none_timestamp(self):
+        """Test MUDEvent.from_dict with None timestamp."""
+        data = {
+            "type": "speech",
+            "actor": "Prax",
+            "room_id": "#123",
+            "content": "Hello!",
+            "timestamp": None,
+        }
+        event = MUDEvent.from_dict(data)
+
+        # Should default to current time
+        assert event.timestamp is not None
+        assert isinstance(event.timestamp, datetime)
+
+    def test_event_from_dict_missing_timestamp(self):
+        """Test MUDEvent.from_dict with missing timestamp field."""
+        data = {
+            "type": "speech",
+            "actor": "Prax",
+            "room_id": "#123",
+            "content": "Hello!",
+            # No timestamp field at all
+        }
+        event = MUDEvent.from_dict(data)
+
+        # Should default to current time
+        assert event.timestamp is not None
+        assert isinstance(event.timestamp, datetime)
+
 
 class TestMUDAction:
     """Tests for MUDAction model."""
