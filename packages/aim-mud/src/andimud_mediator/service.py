@@ -84,6 +84,18 @@ class MediatorService(AgentsMixin, EventsMixin, DreamerMixin):
         # Task references for shutdown
         self._event_task: Optional[asyncio.Task] = None
 
+    async def _next_sequence_id(self) -> int:
+        """Get next global sequence ID for event/turn ordering.
+
+        Uses Redis INCR for atomic, globally unique sequence IDs that persist
+        across mediator restarts and work correctly with multiple mediator instances.
+
+        Returns:
+            Monotonically increasing integer for chronological ordering.
+        """
+        sequence_id = await self.redis.incr(RedisKeys.SEQUENCE_COUNTER)
+        return sequence_id
+
     async def start(self) -> None:
         """Start the event router task.
 

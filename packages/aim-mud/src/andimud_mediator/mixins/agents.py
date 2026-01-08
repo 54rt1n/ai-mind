@@ -114,6 +114,7 @@ class AgentsMixin:
         # Available: status is "ready" or "fail" past retry time
         # Create new turn assignment
         turn_id = str(uuid.uuid4())
+        turn_sequence_id = await self._next_sequence_id()
         assigned_at = _utc_now().isoformat()
         current_turn_id = current.get("turn_id", "")
 
@@ -144,6 +145,7 @@ class AgentsMixin:
             redis.call('HSET', key, 'heartbeat_at', ARGV[5])
             redis.call('HSET', key, 'deadline_ms', ARGV[6])
             redis.call('HSET', key, 'attempt_count', ARGV[7])
+            redis.call('HSET', key, 'sequence_id', ARGV[8])
 
             return 1  -- Success
         """
@@ -158,7 +160,8 @@ class AgentsMixin:
             reason,
             assigned_at,
             str(self.config.turn_request_ttl_seconds * 1000),
-            attempt_count
+            attempt_count,
+            str(turn_sequence_id)
         )
 
         if result == 1:
@@ -167,7 +170,7 @@ class AgentsMixin:
                 RedisKeys.agent_turn_request(agent_id),
                 self.config.turn_request_ttl_seconds
             )
-            logger.info(f"Assigned turn to {agent_id} (reason={reason}, attempt={attempt_count})")
+            logger.info(f"Assigned turn to {agent_id} (sequence_id={turn_sequence_id}, reason={reason}, attempt={attempt_count})")
             return True
         else:
             # CAS failed - state changed between check and assign

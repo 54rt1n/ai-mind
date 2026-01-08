@@ -32,6 +32,7 @@ def mock_redis():
     redis.xadd = AsyncMock(return_value=b"1704096000000-0")
     redis.expire = AsyncMock(return_value=True)
     redis.eval = AsyncMock(return_value=1)  # CAS success
+    redis.incr = AsyncMock(side_effect=lambda key: 1)  # Sequence counter
     return redis
 
 

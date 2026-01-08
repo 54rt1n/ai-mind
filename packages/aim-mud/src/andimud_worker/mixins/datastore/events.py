@@ -29,7 +29,7 @@ class EventsMixin:
     """
 
     async def drain_events(
-        self: "MUDAgentWorker", timeout: float, accumulate_self_actions: bool = True
+        self: "MUDAgentWorker", timeout: float, accumulate_self_actions: bool = True, max_sequence_id: Optional[int] = None
     ) -> list[MUDEvent]:
         """Block until events arrive on agent's stream.
 
@@ -43,7 +43,7 @@ class EventsMixin:
         Returns:
             List of MUDEvent objects parsed from the stream.
         """
-        events: list[MUDEvent] = []
+        events_unsorted: list[tuple[int, MUDEvent]] = []
         max_id = None
 
         def _parse_result(result) -> None:
@@ -68,11 +68,22 @@ class EventsMixin:
 
                         enriched = json.loads(raw_data)
 
+                        # Extract sequence_id for sorting
+                        sequence_id = enriched.get("sequence_id", 0)
+                        if sequence_id == 0:
+                            logger.warning(f"Event {msg_id} missing sequence_id")
+
+                        # Skip events with sequence_id >= max_sequence_id
+                        if max_sequence_id is not None and sequence_id >= max_sequence_id:
+                            logger.debug(f"Skipping event {msg_id} (seq={sequence_id} >= {max_sequence_id})")
+                            continue
+
                         # Check for self-action flag (set by mediator for actor's own events)
                         is_self_action = enriched.pop("is_self_action", False)
 
                         event = MUDEvent.from_dict(enriched)
                         event.event_id = msg_id
+                        event.metadata["sequence_id"] = sequence_id
 
                         if is_self_action:
                             # Mark in metadata so conversation manager can format in first person
@@ -82,16 +93,17 @@ class EventsMixin:
                             if accumulate_self_actions and self.session:
                                 self.session.pending_self_actions.append(event)
                                 logger.debug(
-                                    f"Stored self-action event {msg_id}: {event.event_type.value}"
+                                    f"Stored self-action event (seq={sequence_id}): {event.event_type.value}"
                                 )
                             else:
                                 logger.debug(
-                                    f"Skipped self-action event {msg_id}: {event.event_type.value}"
+                                    f"Skipped self-action event (seq={sequence_id}): {event.event_type.value}"
                                 )
                         else:
-                            events.append(event)
+                            # Append as tuple with sequence_id for sorting
+                            events_unsorted.append((sequence_id, event))
                             logger.debug(
-                                f"Parsed event {msg_id}: {event.event_type.value} "
+                                f"Parsed event (seq={sequence_id}): {event.event_type.value} "
                                 f"from {event.actor}"
                             )
 
@@ -139,9 +151,19 @@ class EventsMixin:
         if self.session and self.session.last_event_id:
             await self._update_agent_profile(last_event_id=self.session.last_event_id)
 
+        # Sort events by sequence_id to ensure chronological order
+        events_unsorted.sort(key=lambda x: x[0])
+        events = [event for _, event in events_unsorted]
+
+        if events:
+            logger.info(
+                f"Drained {len(events)} events, sorted by sequence_id: "
+                f"{[e.metadata.get('sequence_id', 0) for e in events]}"
+            )
+
         return events
 
-    async def _drain_with_settle(self: "MUDAgentWorker") -> list[MUDEvent]:
+    async def _drain_with_settle(self: "MUDAgentWorker", max_sequence_id: Optional[int] = None) -> list[MUDEvent]:
         """Drain events with settling delay for cascading events.
 
         Originally from worker.py lines 736-777
@@ -159,7 +181,7 @@ class EventsMixin:
         drain_count = 0
 
         while True:
-            events = await self.drain_events(timeout=0)
+            events = await self.drain_events(timeout=0, max_sequence_id=max_sequence_id)
             drain_count += 1
             if not events:
                 # No new events - cascade has settled

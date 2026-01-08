@@ -177,6 +177,11 @@ class EventsMixin:
         # Enrich event with room state
         enriched = await self.enrich_event(event)
 
+        # Assign sequence ID for chronological ordering
+        sequence_id = await self._next_sequence_id()
+        enriched["sequence_id"] = sequence_id
+        logger.debug(f"Event {msg_id} assigned sequence_id={sequence_id}")
+
         # Determine which agents should receive this event
         agents_to_notify = await self._agents_from_room_profile(event.room_id)
         if self.registered_agents:
@@ -212,61 +217,57 @@ class EventsMixin:
             await self._mark_event_processed(msg_id, [])
             return
 
-        # Round-robin: only assign turn to ONE available agent
-        # Only the agent who gets the turn (or is first in line if all busy)
-        # receives the event in their stream. This prevents multiple agents
-        # from responding to the same event.
-        assigned_agent: Optional[str] = None
-        first_candidate: Optional[str] = None
-        if agents_to_notify:
-            n = len(agents_to_notify)
-            for i in range(n):
-                candidate = agents_to_notify[(self._turn_index + i) % n]
-                if first_candidate is None:
-                    first_candidate = candidate
-                assigned = await self._maybe_assign_turn(candidate, reason="events")
-                if assigned:
-                    assigned_agent = candidate
-                    self._turn_index = (self._turn_index + i + 1) % n
-                    break
-
-        # Distribute event to the agent who got the turn, or if all are busy,
-        # to the first candidate (they'll process it when they finish).
-        target_agent = assigned_agent or first_candidate
-        if target_agent:
-            stream_key = RedisKeys.agent_events(target_agent)
+        # Phase 1: Distribute event to ALL agents in room (broadcast)
+        for agent_id in agents_to_notify:
+            stream_key = RedisKeys.agent_events(agent_id)
             await self.redis.xadd(
                 stream_key,
                 {"data": json.dumps(enriched)},
                 maxlen=self.config.agent_events_maxlen,
                 approximate=True,
             )
-            logger.debug(f"Distributed event {msg_id} to {target_agent}")
+            logger.debug(f"Distributed event {msg_id} (seq={sequence_id}) to {agent_id}")
 
-        # Push self-event to actor's stream (no turn assignment - just for awareness)
+        # Phase 2: Assign turn ONLY if no agents are currently processing
+        assigned_agent: Optional[str] = None
+
+        # Check if any agent is processing (prevents parallel execution)
+        any_processing = False
+        for agent_id in agents_to_notify:
+            turn_request = await self._get_turn_request(agent_id)
+            if turn_request and turn_request.get("status") == "in_progress":
+                any_processing = True
+                logger.debug(f"Agent {agent_id} is processing, blocking turn assignment")
+                break
+
+        if not any_processing and agents_to_notify:
+            # System idle - assign turn via round-robin
+            n = len(agents_to_notify)
+            for i in range(n):
+                candidate = agents_to_notify[(self._turn_index + i) % n]
+                assigned = await self._maybe_assign_turn(candidate, reason="events")
+                if assigned:
+                    assigned_agent = candidate
+                    self._turn_index = (self._turn_index + i + 1) % n
+                    logger.info(f"Assigned turn to {assigned_agent} for event {msg_id} (seq={sequence_id})")
+                    break
+        else:
+            if any_processing:
+                logger.debug(f"Event {msg_id} queued (agents busy, no turn assigned)")
+            else:
+                logger.debug(f"No agents ready for turn assignment")
+
+        # NOTE: Self-actions are NOT distributed by mediator
+        # The worker will write self-actions to its own stream after turn completes
+        # Mediator only distributes to OTHER agents (already handled above)
         if self_agent:
-            # Check if self-agent is sleeping
-            self_agent_profile = await self.redis.hgetall(RedisKeys.agent_profile(self_agent))
-            is_sleeping_raw = self_agent_profile.get(b"is_sleeping") or self_agent_profile.get("is_sleeping")
-            is_self_sleeping = False
-            if is_sleeping_raw:
-                is_sleeping = is_sleeping_raw.decode() if isinstance(is_sleeping_raw, bytes) else is_sleeping_raw
-                is_self_sleeping = is_sleeping.lower() == "true"
+            logger.debug(f"Event {msg_id} is self-action for {self_agent} (worker will handle)")
 
-            if not is_self_sleeping:
-                enriched_self = enriched.copy()
-                enriched_self["is_self_action"] = True
-                stream_key = RedisKeys.agent_events(self_agent)
-                await self.redis.xadd(
-                    stream_key,
-                    {"data": json.dumps(enriched_self)},
-                    maxlen=self.config.agent_events_maxlen,
-                    approximate=True,
-                )
-                logger.debug(f"Pushed self-action event {msg_id} to {self_agent}")
-
-        # Mark event as processed with the target agent
-        await self._mark_event_processed(msg_id, [target_agent] if target_agent else [])
+        # Mark event as processed with the assigned agent
+        await self._mark_event_processed(
+            msg_id,
+            [assigned_agent] if assigned_agent else []
+        )
 
     async def _mark_event_processed(
         self, msg_id: str, agents: list[str]

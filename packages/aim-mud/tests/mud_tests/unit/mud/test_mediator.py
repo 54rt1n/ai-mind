@@ -47,6 +47,7 @@ def mock_redis():
     redis.hdel = AsyncMock(return_value=0)
     redis.expire = AsyncMock(return_value=True)
     redis.eval = AsyncMock(return_value=1)  # Lua script success
+    redis.incr = AsyncMock(side_effect=lambda key: 1)  # Sequence counter
     redis.aclose = AsyncMock()
     return redis
 

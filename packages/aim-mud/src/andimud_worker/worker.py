@@ -9,6 +9,7 @@ Extracted from worker.py lines 1-365, 374-620, 1870-1887
 import asyncio
 import contextlib
 from datetime import timedelta
+import json
 import logging
 import signal
 import warnings
@@ -299,8 +300,17 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
                     # SAVE pre-drain event position for potential rollback
                     saved_event_id = self.session.last_event_id
 
-                    # Drain events into pending_events buffer for all turns
-                    self.pending_events = await self._drain_with_settle()
+                    # Get turn's sequence_id for filtering
+                    turn_sequence_id = turn_request.get("sequence_id")
+                    if not turn_sequence_id:
+                        logger.warning(f"Turn {turn_id} missing sequence_id, cannot filter drain")
+                        max_seq = None
+                    else:
+                        max_seq = int(turn_sequence_id)
+                        logger.debug(f"Draining events with sequence_id < {max_seq}")
+
+                    # Drain events into pending_events buffer, filtered by sequence_id
+                    self.pending_events = await self._drain_with_settle(max_sequence_id=max_seq)
 
                     # Execute command via registry
                     logger.info(f"Executing command: {turn_request}")
@@ -326,6 +336,30 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
                         len(events),
                     )
                     await self.process_turn(events)
+
+                    # Write self-actions to stream after turn completes
+                    await self._write_self_actions_to_stream(turn_id, turn_request)
+
+                    # CHECK: Did this turn include a speech event?
+                    has_speech = False
+                    if self.session and self.session.current_turn:
+                        for action in self.session.current_turn.actions_taken:
+                            if action.tool == "speak":
+                                has_speech = True
+                                logger.info(f"Turn {turn_id} included speech event, consuming drained events")
+                                break
+
+                    # CONDITIONAL CONSUMPTION: Only speech events advance last_event_id
+                    if not has_speech:
+                        # Non-speech turn: restore event position (events remain for next turn)
+                        logger.info(f"Turn {turn_id} was non-speech, restoring event position")
+                        await self._restore_event_position(saved_event_id)
+                        saved_event_id = None  # Prevent double-restore in exception handler
+                    else:
+                        # Speech turn: keep advanced last_event_id (events consumed)
+                        logger.info(f"Turn {turn_id} was speech, events consumed")
+                        saved_event_id = None  # Events consumed, don't restore on exception
+
                     await self._set_turn_request_state(turn_id, "done")
                     self._last_turn_request_id = turn_id
                 except AbortRequestedException:
@@ -369,7 +403,9 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
                     )
 
                     # Restore event position so retry gets the same events
-                    await self._restore_event_position(saved_event_id)
+                    # Only restore if saved_event_id is not None (not already restored)
+                    if saved_event_id:
+                        await self._restore_event_position(saved_event_id)
                 finally:
                     heartbeat_stop.set()
                     heartbeat_task.cancel()
@@ -512,6 +548,46 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
             logger.info(f"Worker {self.config.agent_id} ready, seeded conversation with wakeup")
         else:
             logger.info(f"Worker {self.config.agent_id} ready (continuing existing conversation with {entry_count} entries)")
+
+    async def _write_self_actions_to_stream(
+        self, turn_id: str, turn_request: dict[str, str]
+    ) -> None:
+        """Write self-actions to own event stream after turn completes.
+
+        Uses the turn's sequence_id to preserve chronological ordering
+        even if events arrive during processing.
+        """
+        if not self.session or not self.session.pending_self_actions:
+            return
+
+        turn_sequence_id = turn_request.get("sequence_id")
+        if not turn_sequence_id:
+            logger.warning(f"Turn {turn_id} missing sequence_id, cannot write self-actions")
+            return
+
+        sequence_id = int(turn_sequence_id)
+
+        for self_action in self.session.pending_self_actions:
+            # Convert to enriched dict
+            event_data = self_action.to_redis_dict()
+            event_data["sequence_id"] = sequence_id  # Use turn's sequence_id
+            event_data["is_self_action"] = True
+
+            # Write to own stream
+            stream_key = RedisKeys.agent_events(self.config.agent_id)
+            await self.redis.xadd(
+                stream_key,
+                {"data": json.dumps(event_data)},
+                maxlen=100,  # Match agent_events_maxlen
+                approximate=True,
+            )
+            logger.debug(
+                f"Wrote self-action to stream (seq={sequence_id}): "
+                f"{self_action.event_type.value}"
+            )
+
+        # Clear pending self-actions after writing
+        self.session.pending_self_actions = []
 
     def setup_signal_handlers(self) -> None:
         """Setup handlers for graceful shutdown.

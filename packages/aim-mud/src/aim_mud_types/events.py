@@ -41,6 +41,7 @@ class MUDEvent(BaseModel):
     """
 
     event_id: str = ""
+    sequence_id: Optional[int] = None
     event_type: EventType
     actor: str
     actor_id: str = ""
