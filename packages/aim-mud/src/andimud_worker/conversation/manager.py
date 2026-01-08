@@ -92,6 +92,18 @@ class MUDConversationManager:
             self._conversation_id = f"andimud_{ts}_{suffix}"
         return self._conversation_id
 
+    @property
+    def conversation_id(self) -> str:
+        """Get or create conversation_id.
+
+        Public property that provides natural access to the conversation_id.
+        Creates one lazily on first access if not already set.
+
+        Returns:
+            The conversation_id string.
+        """
+        return self._get_conversation_id()
+
     def _next_sequence_no(self) -> int:
         """Get and increment the sequence number.
 

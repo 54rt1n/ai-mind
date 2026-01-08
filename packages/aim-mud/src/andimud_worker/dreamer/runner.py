@@ -34,6 +34,7 @@ from aim.dreamer.scenario import load_scenario
 from aim.dreamer.executor import execute_step, create_message, RetryableError
 from aim.dreamer.dialogue.strategy import DialogueStrategy
 from aim.dreamer.dialogue.scenario import DialogueScenario
+from aim.llm.model_set import ModelSet
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +146,17 @@ class DreamerRunner:
         self.agent_id = agent_id
         self.persona_id = persona_id
 
+        # Initialize ModelSet for this persona
+        persona = self.roster.get_persona(self.persona_id)
+        self.model_set = ModelSet.from_config(config, persona)
+
+        logger.info(
+            f"DreamerRunner initialized for {persona_id}: "
+            f"default={self.model_set.default_model}, "
+            f"analysis={self.model_set.analysis_model}, "
+            f"codex={self.model_set.codex_model}"
+        )
+
         # Create StateStore/Scheduler with agent-specific key prefix
         # This isolates pipeline state from other agents and the main dreamer
         key_prefix = f"mud:dreamer:{agent_id}"
@@ -221,7 +233,7 @@ class DreamerRunner:
             pipeline_id = await start_pipeline(
                 scenario_name=request.scenario,
                 config=self.config,
-                model_name=self.config.model_name,
+                model_name=self.model_set.default_model,  # Use persona's default
                 state_store=self.state_store,
                 scheduler=self.scheduler,
                 conversation_id=target_conversation_id,
@@ -413,6 +425,7 @@ class DreamerRunner:
                 cvm=self.cvm,
                 persona=persona,
                 config=self.config,
+                model_set=self.model_set,
             )
 
             # Refresh heartbeat after LLM call
@@ -543,6 +556,7 @@ class DreamerRunner:
             persona=persona,
             config=self.config,
             cvm=self.cvm,
+            model_set=self.model_set,
         )
 
         # Set the state (already initialized)

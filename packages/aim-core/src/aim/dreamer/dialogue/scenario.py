@@ -4,9 +4,12 @@
 
 from dataclasses import replace
 from datetime import datetime
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 import logging
 import uuid
+
+if TYPE_CHECKING:
+    from aim.llm.model_set import ModelSet
 
 from .models import (
     DialogueState,
@@ -59,6 +62,7 @@ class DialogueScenario:
         strategy: DialogueStrategy,
         persona: Persona,
         config: ChatConfig,
+        model_set: "ModelSet",
         cvm: Optional[ConversationModel] = None,
     ):
         """
@@ -68,12 +72,14 @@ class DialogueScenario:
             strategy: The dialogue strategy to execute
             persona: The persona participating in the dialogue
             config: Chat configuration with model settings
+            model_set: ModelSet for persona-aware model selection
             cvm: Optional ConversationModel for memory queries and storage
         """
         self.strategy = strategy
         self.persona = persona
         self.config = config
         self.cvm = cvm
+        self.model_set = model_set
         self.state: Optional[DialogueState] = None
 
     def start(
@@ -714,20 +720,31 @@ class DialogueScenario:
         """
         Select appropriate model for the step.
 
+        Uses the same priority as executor.select_model_name for consistency.
+
         Args:
             step: Current step with config
 
         Returns:
             Model name to use
         """
+        # Priority: model_override > model_role > is_codex > is_thought > default
+
+        # Explicit model override (highest priority)
         if step.config.model_override:
             return step.config.model_override
 
+        # Model role from step definition
+        if step.config.model_role:
+            return self.model_set.get_model_name(step.config.model_role)
+
+        # Legacy flags for backward compatibility (DEPRECATED)
         if step.config.is_codex and self.state.codex_model:
             return self.state.codex_model
 
         if step.config.is_thought and self.state.thought_model:
             return self.state.thought_model
 
+        # Default
         return self.state.model
 

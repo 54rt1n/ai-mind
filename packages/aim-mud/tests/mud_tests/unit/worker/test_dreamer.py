@@ -15,62 +15,11 @@ from andimud_worker.dreamer.runner import (
 from andimud_worker.mixins.dreamer import DreamerMixin
 from andimud_worker.worker import MUDAgentWorker
 from andimud_worker.config import MUDConfig
+from andimud_worker.conversation import MUDConversationManager
 from aim_mud_types import MUDSession
 from aim.config import ChatConfig
 from aim.dreamer.models import StepJob, StepStatus
 from aim_mud_types import RedisKeys
-
-
-@pytest.fixture
-def chat_config():
-    """Create a test ChatConfig."""
-    config = ChatConfig()
-    config.llm_provider = "anthropic"
-    config.model_name = "claude-opus-4-5-20251101"
-    config.anthropic_api_key = "test-key"
-    return config
-
-
-@pytest.fixture
-def mud_config():
-    """Create a test MUD configuration."""
-    return MUDConfig(
-        agent_id="test_agent",
-        persona_id="test_persona",
-        redis_url="redis://localhost:6379",
-    )
-
-
-@pytest.fixture
-def mock_redis():
-    """Create a mock async Redis client."""
-    redis = AsyncMock()
-    redis.hgetall = AsyncMock(return_value={})
-    redis.hget = AsyncMock(return_value=None)
-    redis.hset = AsyncMock(return_value=1)
-    redis.get = AsyncMock(return_value=None)
-    redis.eval = AsyncMock(return_value=1)
-    redis.expire = AsyncMock(return_value=True)
-    redis.aclose = AsyncMock()
-    return redis
-
-
-@pytest.fixture
-def mock_cvm():
-    """Create a mock ConversationModel."""
-    cvm = Mock()
-    cvm.insert = Mock()
-    return cvm
-
-
-@pytest.fixture
-def mock_roster():
-    """Create a mock Roster with a test persona."""
-    roster = Mock()
-    persona = Mock()
-    persona.name = "Test Persona"
-    roster.personas = {"test_persona": persona}
-    return roster
 
 
 @pytest.fixture
@@ -181,7 +130,7 @@ class TestDreamResult:
 class TestDreamerRunnerInit:
     """Test DreamerRunner initialization."""
 
-    def test_initialization(self, chat_config, mock_cvm, mock_roster, mock_redis):
+    def test_initialization(self, test_config, test_cvm, test_roster, mock_redis):
         """Test DreamerRunner initializes correctly."""
         with patch("andimud_worker.dreamer.runner.StateStore") as mock_store_class:
             with patch("andimud_worker.dreamer.runner.Scheduler") as mock_scheduler_class:
@@ -189,17 +138,17 @@ class TestDreamerRunnerInit:
                 mock_scheduler_class.return_value = AsyncMock()
 
                 runner = DreamerRunner(
-                    config=chat_config,
-                    cvm=mock_cvm,
-                    roster=mock_roster,
+                    config=test_config,
+                    cvm=test_cvm,
+                    roster=test_roster,
                     redis_client=mock_redis,
                     agent_id="test_agent",
                     persona_id="test_persona",
                 )
 
-                assert runner.config == chat_config
-                assert runner.cvm == mock_cvm
-                assert runner.roster == mock_roster
+                assert runner.config == test_config
+                assert runner.cvm == test_cvm
+                assert runner.roster == test_roster
                 assert runner.redis == mock_redis
                 assert runner.agent_id == "test_agent"
                 assert runner.persona_id == "test_persona"
@@ -212,7 +161,7 @@ class TestDreamerRunnerInit:
                     key_prefix="mud:dreamer:test_agent"
                 )
 
-    def test_creates_agent_specific_keys(self, chat_config, mock_cvm, mock_roster, mock_redis):
+    def test_creates_agent_specific_keys(self, test_config, test_cvm, test_roster, mock_redis):
         """Test that StateStore/Scheduler use agent-specific key prefix."""
         with patch("andimud_worker.dreamer.runner.StateStore") as mock_store_class:
             with patch("andimud_worker.dreamer.runner.Scheduler") as mock_scheduler_class:
@@ -225,9 +174,9 @@ class TestDreamerRunnerInit:
                 mock_scheduler_class.return_value = mock_scheduler
 
                 runner = DreamerRunner(
-                    config=chat_config,
-                    cvm=mock_cvm,
-                    roster=mock_roster,
+                    config=test_config,
+                    cvm=test_cvm,
+                    roster=test_roster,
                     redis_client=mock_redis,
                     agent_id="andi",
                     persona_id="andi",
@@ -242,15 +191,15 @@ class TestDreamerRunnerGetConversationId:
     """Test DreamerRunner._get_conversation_id method."""
 
     def test_returns_base_id_for_analysis_scenarios(
-        self, chat_config, mock_cvm, mock_roster, mock_redis
+        self, test_config, test_cvm, test_roster, mock_redis
     ):
         """Test returns base_conversation_id for analysis_dialogue."""
         with patch("andimud_worker.dreamer.runner.StateStore"):
             with patch("andimud_worker.dreamer.runner.Scheduler"):
                 runner = DreamerRunner(
-                    config=chat_config,
-                    cvm=mock_cvm,
-                    roster=mock_roster,
+                    config=test_config,
+                    cvm=test_cvm,
+                    roster=test_roster,
                     redis_client=mock_redis,
                     agent_id="andi",
                     persona_id="andi",
@@ -262,15 +211,15 @@ class TestDreamerRunnerGetConversationId:
                 assert conversation_id == "andimud_123_abc"
 
     def test_returns_base_id_for_summarizer(
-        self, chat_config, mock_cvm, mock_roster, mock_redis
+        self, test_config, test_cvm, test_roster, mock_redis
     ):
         """Test returns base_conversation_id for summarizer."""
         with patch("andimud_worker.dreamer.runner.StateStore"):
             with patch("andimud_worker.dreamer.runner.Scheduler"):
                 runner = DreamerRunner(
-                    config=chat_config,
-                    cvm=mock_cvm,
-                    roster=mock_roster,
+                    config=test_config,
+                    cvm=test_cvm,
+                    roster=test_roster,
                     redis_client=mock_redis,
                     agent_id="andi",
                     persona_id="andi",
@@ -282,15 +231,15 @@ class TestDreamerRunnerGetConversationId:
                 assert conversation_id == "andimud_123_abc"
 
     def test_creates_standalone_id_for_journaler(
-        self, chat_config, mock_cvm, mock_roster, mock_redis
+        self, test_config, test_cvm, test_roster, mock_redis
     ):
         """Test creates standalone conversation ID for journaler_dialogue."""
         with patch("andimud_worker.dreamer.runner.StateStore"):
             with patch("andimud_worker.dreamer.runner.Scheduler"):
                 runner = DreamerRunner(
-                    config=chat_config,
-                    cvm=mock_cvm,
-                    roster=mock_roster,
+                    config=test_config,
+                    cvm=test_cvm,
+                    roster=test_roster,
                     redis_client=mock_redis,
                     agent_id="andi",
                     persona_id="andi",
@@ -303,15 +252,15 @@ class TestDreamerRunnerGetConversationId:
                 assert "andimud_123_abc" not in conversation_id
 
     def test_creates_standalone_id_for_daydream(
-        self, chat_config, mock_cvm, mock_roster, mock_redis
+        self, test_config, test_cvm, test_roster, mock_redis
     ):
         """Test creates standalone conversation ID for daydream_dialogue."""
         with patch("andimud_worker.dreamer.runner.StateStore"):
             with patch("andimud_worker.dreamer.runner.Scheduler"):
                 runner = DreamerRunner(
-                    config=chat_config,
-                    cvm=mock_cvm,
-                    roster=mock_roster,
+                    config=test_config,
+                    cvm=test_cvm,
+                    roster=test_roster,
                     redis_client=mock_redis,
                     agent_id="val",
                     persona_id="val",
@@ -328,15 +277,15 @@ class TestDreamerRunnerRunDream:
 
     @pytest.mark.asyncio
     async def test_successful_dream_execution(
-        self, chat_config, mock_cvm, mock_roster, mock_redis
+        self, test_config, test_cvm, test_roster, mock_redis
     ):
         """Test successful dream pipeline execution."""
         with patch("andimud_worker.dreamer.runner.StateStore"):
             with patch("andimud_worker.dreamer.runner.Scheduler"):
                 runner = DreamerRunner(
-                    config=chat_config,
-                    cvm=mock_cvm,
-                    roster=mock_roster,
+                    config=test_config,
+                    cvm=test_cvm,
+                    roster=test_roster,
                     redis_client=mock_redis,
                     agent_id="andi",
                     persona_id="andi",
@@ -364,19 +313,19 @@ class TestDreamerRunnerRunDream:
                 call_kwargs = mock_start.call_args[1]
                 assert call_kwargs["scenario_name"] == "journaler_dialogue"
                 assert call_kwargs["persona_id"] == "andi"
-                assert call_kwargs["cvm"] == mock_cvm
+                assert call_kwargs["cvm"] == test_cvm
 
     @pytest.mark.asyncio
     async def test_dream_execution_with_query_and_guidance(
-        self, chat_config, mock_cvm, mock_roster, mock_redis
+        self, test_config, test_cvm, test_roster, mock_redis
     ):
         """Test dream execution passes query and guidance to start_pipeline."""
         with patch("andimud_worker.dreamer.runner.StateStore"):
             with patch("andimud_worker.dreamer.runner.Scheduler"):
                 runner = DreamerRunner(
-                    config=chat_config,
-                    cvm=mock_cvm,
-                    roster=mock_roster,
+                    config=test_config,
+                    cvm=test_cvm,
+                    roster=test_roster,
                     redis_client=mock_redis,
                     agent_id="andi",
                     persona_id="andi",
@@ -399,15 +348,15 @@ class TestDreamerRunnerRunDream:
 
     @pytest.mark.asyncio
     async def test_dream_execution_handles_pipeline_failure(
-        self, chat_config, mock_cvm, mock_roster, mock_redis
+        self, test_config, test_cvm, test_roster, mock_redis
     ):
         """Test dream execution handles pipeline failure gracefully."""
         with patch("andimud_worker.dreamer.runner.StateStore"):
             with patch("andimud_worker.dreamer.runner.Scheduler"):
                 runner = DreamerRunner(
-                    config=chat_config,
-                    cvm=mock_cvm,
-                    roster=mock_roster,
+                    config=test_config,
+                    cvm=test_cvm,
+                    roster=test_roster,
                     redis_client=mock_redis,
                     agent_id="andi",
                     persona_id="andi",
@@ -427,15 +376,15 @@ class TestDreamerRunnerRunDream:
 
     @pytest.mark.asyncio
     async def test_dream_execution_invokes_heartbeat_callback(
-        self, chat_config, mock_cvm, mock_roster, mock_redis
+        self, test_config, test_cvm, test_roster, mock_redis
     ):
         """Test dream execution invokes heartbeat callback during execution."""
         with patch("andimud_worker.dreamer.runner.StateStore"):
             with patch("andimud_worker.dreamer.runner.Scheduler"):
                 runner = DreamerRunner(
-                    config=chat_config,
-                    cvm=mock_cvm,
-                    roster=mock_roster,
+                    config=test_config,
+                    cvm=test_cvm,
+                    roster=test_roster,
                     redis_client=mock_redis,
                     agent_id="andi",
                     persona_id="andi",
@@ -467,15 +416,15 @@ class TestDreamerRunnerRunDream:
 
     @pytest.mark.asyncio
     async def test_uses_base_conversation_id_for_analysis(
-        self, chat_config, mock_cvm, mock_roster, mock_redis
+        self, test_config, test_cvm, test_roster, mock_redis
     ):
         """Test analysis_dialogue uses base conversation_id."""
         with patch("andimud_worker.dreamer.runner.StateStore"):
             with patch("andimud_worker.dreamer.runner.Scheduler"):
                 runner = DreamerRunner(
-                    config=chat_config,
-                    cvm=mock_cvm,
-                    roster=mock_roster,
+                    config=test_config,
+                    cvm=test_cvm,
+                    roster=test_roster,
                     redis_client=mock_redis,
                     agent_id="andi",
                     persona_id="andi",
@@ -493,15 +442,15 @@ class TestDreamerRunnerRunDream:
 
     @pytest.mark.asyncio
     async def test_uses_standalone_conversation_id_for_journaler(
-        self, chat_config, mock_cvm, mock_roster, mock_redis
+        self, test_config, test_cvm, test_roster, mock_redis
     ):
         """Test journaler_dialogue uses standalone conversation_id."""
         with patch("andimud_worker.dreamer.runner.StateStore"):
             with patch("andimud_worker.dreamer.runner.Scheduler"):
                 runner = DreamerRunner(
-                    config=chat_config,
-                    cvm=mock_cvm,
-                    roster=mock_roster,
+                    config=test_config,
+                    cvm=test_cvm,
+                    roster=test_roster,
                     redis_client=mock_redis,
                     agent_id="andi",
                     persona_id="andi",
@@ -522,12 +471,12 @@ class TestDreamerMixinInit:
     """Test DreamerMixin._init_dreamer method."""
 
     @pytest.mark.asyncio
-    async def test_init_dreamer_creates_runner(self, mud_config, mock_redis, chat_config):
+    async def test_init_dreamer_creates_runner(self, test_mud_config, mock_redis, test_config):
         """Test _init_dreamer creates DreamerRunner correctly."""
-        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
+        worker = MUDAgentWorker(config=test_mud_config, redis_client=mock_redis)
 
         # Setup required attributes
-        worker.chat_config = chat_config
+        worker.chat_config = test_config
         worker.cvm = Mock()
         worker.roster = Mock()
 
@@ -537,7 +486,7 @@ class TestDreamerMixinInit:
 
             assert worker._dreamer_runner is not None
             mock_runner_class.assert_called_once_with(
-                config=chat_config,
+                config=test_config,
                 cvm=worker.cvm,
                 roster=worker.roster,
                 redis_client=mock_redis,
@@ -551,15 +500,14 @@ class TestDreamerMixinProcessDreamTurn:
 
     @pytest.mark.asyncio
     async def test_process_dream_turn_initializes_runner_if_needed(
-        self, mud_config, mock_redis, chat_config
+        self, test_mud_config, mock_redis, test_config, test_conversation_manager
     ):
         """Test process_dream_turn initializes runner on first call."""
-        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
-        worker.chat_config = chat_config
+        worker = MUDAgentWorker(config=test_mud_config, redis_client=mock_redis)
+        worker.chat_config = test_config
         worker.cvm = Mock()
         worker.roster = Mock()
-        worker.conversation_manager = Mock()
-        worker.conversation_manager.conversation_id = "andimud_123_abc"
+        worker.conversation_manager = test_conversation_manager
 
         assert worker._dreamer_runner is None
 
@@ -578,15 +526,14 @@ class TestDreamerMixinProcessDreamTurn:
 
     @pytest.mark.asyncio
     async def test_process_dream_turn_calls_runner_with_correct_params(
-        self, mud_config, mock_redis, chat_config
+        self, test_mud_config, mock_redis, test_config, test_conversation_manager
     ):
         """Test process_dream_turn calls DreamerRunner.run_dream with correct params."""
-        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
-        worker.chat_config = chat_config
+        worker = MUDAgentWorker(config=test_mud_config, redis_client=mock_redis)
+        worker.chat_config = test_config
         worker.cvm = Mock()
         worker.roster = Mock()
-        worker.conversation_manager = Mock()
-        worker.conversation_manager.conversation_id = "andimud_123_abc"
+        worker.conversation_manager = test_conversation_manager
 
         with patch("andimud_worker.mixins.dreamer.DreamerRunner") as mock_runner_class:
             mock_runner = Mock()
@@ -616,23 +563,22 @@ class TestDreamerMixinProcessDreamTurn:
             assert request.guidance == "Focus on emotions"
             assert request.triggered_by == "manual"
 
-            # Check conversation_id parameter
-            assert call_args[1] == "andimud_123_abc"
+            # Check conversation_id parameter - use real property
+            assert call_args[1] == test_conversation_manager.conversation_id
 
             # Check heartbeat callback is provided
             assert callable(call_args[2])
 
     @pytest.mark.asyncio
     async def test_process_dream_turn_updates_state_on_success(
-        self, mud_config, mock_redis, chat_config
+        self, test_mud_config, mock_redis, test_config, test_conversation_manager
     ):
         """Test process_dream_turn updates dreamer state on success."""
-        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
-        worker.chat_config = chat_config
+        worker = MUDAgentWorker(config=test_mud_config, redis_client=mock_redis)
+        worker.chat_config = test_config
         worker.cvm = Mock()
         worker.roster = Mock()
-        worker.conversation_manager = Mock()
-        worker.conversation_manager.conversation_id = "andimud_123_abc"
+        worker.conversation_manager = test_conversation_manager
 
         with patch("andimud_worker.mixins.dreamer.DreamerRunner") as mock_runner_class:
             mock_runner = Mock()
@@ -658,15 +604,14 @@ class TestDreamerMixinProcessDreamTurn:
 
     @pytest.mark.asyncio
     async def test_process_dream_turn_heartbeat_refreshes_ttl(
-        self, mud_config, mock_redis, chat_config
+        self, test_mud_config, mock_redis, test_config, test_conversation_manager
     ):
         """Test process_dream_turn heartbeat callback refreshes turn request TTL."""
-        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
-        worker.chat_config = chat_config
+        worker = MUDAgentWorker(config=test_mud_config, redis_client=mock_redis)
+        worker.chat_config = test_config
         worker.cvm = Mock()
         worker.roster = Mock()
-        worker.conversation_manager = Mock()
-        worker.conversation_manager.conversation_id = "andimud_123_abc"
+        worker.conversation_manager = test_conversation_manager
 
         heartbeat_callback = None
 
@@ -698,16 +643,16 @@ class TestDreamerMixinProcessDreamTurn:
             mock_redis.expire.assert_called()
             expire_call = mock_redis.expire.call_args
             assert "turn_request" in expire_call[0][0]
-            assert expire_call[0][1] == mud_config.turn_request_ttl_seconds
+            assert expire_call[0][1] == test_mud_config.turn_request_ttl_seconds
 
 
 class TestDreamerMixinUpdateDreamerState:
     """Test DreamerMixin._update_dreamer_state method."""
 
     @pytest.mark.asyncio
-    async def test_update_state_on_success(self, mud_config, mock_redis):
+    async def test_update_state_on_success(self, test_mud_config, mock_redis):
         """Test _update_dreamer_state updates correctly on success."""
-        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
+        worker = MUDAgentWorker(config=test_mud_config, redis_client=mock_redis)
 
         result = DreamResult(
             success=True,
@@ -727,9 +672,9 @@ class TestDreamerMixinUpdateDreamerState:
         assert mapping["pending_pipeline_id"] == ""
 
     @pytest.mark.asyncio
-    async def test_update_state_on_failure(self, mud_config, mock_redis):
+    async def test_update_state_on_failure(self, test_mud_config, mock_redis):
         """Test _update_dreamer_state clears pending_pipeline_id on failure."""
-        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
+        worker = MUDAgentWorker(config=test_mud_config, redis_client=mock_redis)
 
         result = DreamResult(
             success=False,
@@ -753,9 +698,9 @@ class TestDreamerMixinCheckAutoTriggers:
     """Test DreamerMixin.check_auto_dream_triggers method."""
 
     @pytest.mark.asyncio
-    async def test_returns_none_when_no_state(self, mud_config, mock_redis):
+    async def test_returns_none_when_no_state(self, test_mud_config, mock_redis):
         """Test returns None when dreamer state doesn't exist."""
-        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
+        worker = MUDAgentWorker(config=test_mud_config, redis_client=mock_redis)
         mock_redis.hgetall = AsyncMock(return_value={})
 
         result = await worker.check_auto_dream_triggers()
@@ -763,9 +708,9 @@ class TestDreamerMixinCheckAutoTriggers:
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_returns_none_when_disabled(self, mud_config, mock_redis):
+    async def test_returns_none_when_disabled(self, test_mud_config, mock_redis):
         """Test returns None when dreamer is disabled."""
-        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
+        worker = MUDAgentWorker(config=test_mud_config, redis_client=mock_redis)
         mock_redis.hgetall = AsyncMock(return_value={
             b"enabled": b"false",
             b"idle_threshold_seconds": b"3600",
@@ -778,10 +723,10 @@ class TestDreamerMixinCheckAutoTriggers:
 
     @pytest.mark.asyncio
     async def test_returns_none_when_idle_threshold_not_met(
-        self, mud_config, mock_redis
+        self, test_mud_config, mock_redis
     ):
         """Test returns None when not enough time has passed since last dream."""
-        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
+        worker = MUDAgentWorker(config=test_mud_config, redis_client=mock_redis)
 
         # Set last_dream_at to very recent (1 minute ago)
         recent_time = datetime.now(timezone.utc)
@@ -798,12 +743,15 @@ class TestDreamerMixinCheckAutoTriggers:
 
     @pytest.mark.asyncio
     async def test_returns_none_when_token_threshold_not_met(
-        self, mud_config, mock_redis
+        self, test_mud_config, mock_redis, test_conversation_manager
     ):
         """Test returns None when token threshold not met."""
-        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
-        worker.conversation_manager = Mock()
-        worker.conversation_manager.get_total_tokens = AsyncMock(return_value=5000)
+        worker = MUDAgentWorker(config=test_mud_config, redis_client=mock_redis)
+        worker.conversation_manager = test_conversation_manager
+
+        # Mock Redis lrange to return entries totaling 5000 tokens
+        # This simulates a conversation with low token count
+        mock_redis.lrange.return_value = []  # Empty conversation = 0 tokens
 
         # Set last_dream_at to long ago (2 hours)
         old_time = datetime.now(timezone.utc).replace(hour=datetime.now(timezone.utc).hour - 2)
@@ -820,12 +768,30 @@ class TestDreamerMixinCheckAutoTriggers:
 
     @pytest.mark.asyncio
     async def test_returns_request_when_triggers_met(
-        self, mud_config, mock_redis
+        self, test_mud_config, mock_redis, test_conversation_manager
     ):
         """Test returns DreamRequest when all triggers are met."""
-        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
-        worker.conversation_manager = Mock()
-        worker.conversation_manager.get_total_tokens = AsyncMock(return_value=15000)
+        from aim_mud_types import MUDConversationEntry
+        from aim.constants import DOC_MUD_WORLD
+
+        worker = MUDAgentWorker(config=test_mud_config, redis_client=mock_redis)
+        worker.conversation_manager = test_conversation_manager
+
+        # Mock Redis lrange to return entries totaling 15000 tokens
+        # Create test entries with known token counts
+        entries = [
+            MUDConversationEntry(
+                role="user",
+                content=f"Message {i}",
+                tokens=5000,
+                document_type=DOC_MUD_WORLD,
+                conversation_id="test",
+                sequence_no=i,
+                speaker_id="world",
+            )
+            for i in range(3)  # 3 entries x 5000 = 15000 tokens
+        ]
+        mock_redis.lrange.return_value = [e.model_dump_json().encode() for e in entries]
 
         # Set last_dream_at to long ago (2 hours)
         old_time = datetime.now(timezone.utc).replace(hour=datetime.now(timezone.utc).hour - 2)
@@ -833,7 +799,7 @@ class TestDreamerMixinCheckAutoTriggers:
             b"enabled": b"true",
             b"idle_threshold_seconds": b"3600",  # 1 hour (passed)
             b"last_dream_at": old_time.isoformat().encode(),
-            b"token_threshold": b"10000",  # 10000 tokens (passed)
+            b"token_threshold": b"10000",  # 10000 tokens (passed with 15000)
         })
 
         result = await worker.check_auto_dream_triggers()
@@ -844,12 +810,29 @@ class TestDreamerMixinCheckAutoTriggers:
 
     @pytest.mark.asyncio
     async def test_triggers_on_first_run_with_no_last_dream(
-        self, mud_config, mock_redis
+        self, test_mud_config, mock_redis, test_conversation_manager
     ):
         """Test triggers when last_dream_at is not set (first run)."""
-        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
-        worker.conversation_manager = Mock()
-        worker.conversation_manager.get_total_tokens = AsyncMock(return_value=15000)
+        from aim_mud_types import MUDConversationEntry
+        from aim.constants import DOC_MUD_WORLD
+
+        worker = MUDAgentWorker(config=test_mud_config, redis_client=mock_redis)
+        worker.conversation_manager = test_conversation_manager
+
+        # Mock Redis lrange to return entries totaling 15000 tokens
+        entries = [
+            MUDConversationEntry(
+                role="user",
+                content=f"Message {i}",
+                tokens=5000,
+                document_type=DOC_MUD_WORLD,
+                conversation_id="test",
+                sequence_no=i,
+                speaker_id="world",
+            )
+            for i in range(3)  # 3 entries x 5000 = 15000 tokens
+        ]
+        mock_redis.lrange.return_value = [e.model_dump_json().encode() for e in entries]
 
         mock_redis.hgetall = AsyncMock(return_value={
             b"enabled": b"true",
@@ -869,12 +852,29 @@ class TestDreamerMixinSelectAutoScenario:
 
     @pytest.mark.asyncio
     async def test_selects_analysis_for_high_token_count(
-        self, mud_config, mock_redis
+        self, test_mud_config, mock_redis, test_conversation_manager
     ):
         """Test selects analysis_dialogue for high token count."""
-        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
-        worker.conversation_manager = Mock()
-        worker.conversation_manager.get_total_tokens = AsyncMock(return_value=25000)
+        from aim_mud_types import MUDConversationEntry
+        from aim.constants import DOC_MUD_WORLD
+
+        worker = MUDAgentWorker(config=test_mud_config, redis_client=mock_redis)
+        worker.conversation_manager = test_conversation_manager
+
+        # Mock Redis lrange to return entries totaling 25000 tokens
+        entries = [
+            MUDConversationEntry(
+                role="user",
+                content=f"Message {i}",
+                tokens=5000,
+                document_type=DOC_MUD_WORLD,
+                conversation_id="test",
+                sequence_no=i,
+                speaker_id="world",
+            )
+            for i in range(5)  # 5 entries x 5000 = 25000 tokens
+        ]
+        mock_redis.lrange.return_value = [e.model_dump_json().encode() for e in entries]
 
         scenario = await worker._select_auto_dream_scenario()
 
@@ -882,12 +882,29 @@ class TestDreamerMixinSelectAutoScenario:
 
     @pytest.mark.asyncio
     async def test_selects_journaler_for_low_token_count(
-        self, mud_config, mock_redis
+        self, test_mud_config, mock_redis, test_conversation_manager
     ):
         """Test selects journaler_dialogue for low token count."""
-        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
-        worker.conversation_manager = Mock()
-        worker.conversation_manager.get_total_tokens = AsyncMock(return_value=15000)
+        from aim_mud_types import MUDConversationEntry
+        from aim.constants import DOC_MUD_WORLD
+
+        worker = MUDAgentWorker(config=test_mud_config, redis_client=mock_redis)
+        worker.conversation_manager = test_conversation_manager
+
+        # Mock Redis lrange to return entries totaling 15000 tokens
+        entries = [
+            MUDConversationEntry(
+                role="user",
+                content=f"Message {i}",
+                tokens=5000,
+                document_type=DOC_MUD_WORLD,
+                conversation_id="test",
+                sequence_no=i,
+                speaker_id="world",
+            )
+            for i in range(3)  # 3 entries x 5000 = 15000 tokens
+        ]
+        mock_redis.lrange.return_value = [e.model_dump_json().encode() for e in entries]
 
         scenario = await worker._select_auto_dream_scenario()
 
@@ -895,10 +912,10 @@ class TestDreamerMixinSelectAutoScenario:
 
     @pytest.mark.asyncio
     async def test_selects_journaler_when_no_conversation_manager(
-        self, mud_config, mock_redis
+        self, test_mud_config, mock_redis
     ):
-        """Test selects journaler_dialogue when conversation_manager is None."""
-        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
+        """Test selects journaler_dialogue when test_conversation_manager is None."""
+        worker = MUDAgentWorker(config=test_mud_config, redis_client=mock_redis)
         worker.conversation_manager = None
 
         scenario = await worker._select_auto_dream_scenario()
@@ -907,12 +924,29 @@ class TestDreamerMixinSelectAutoScenario:
 
     @pytest.mark.asyncio
     async def test_threshold_exactly_at_20000(
-        self, mud_config, mock_redis
+        self, test_mud_config, mock_redis, test_conversation_manager
     ):
         """Test behavior at exactly 20000 tokens (boundary condition)."""
-        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
-        worker.conversation_manager = Mock()
-        worker.conversation_manager.get_total_tokens = AsyncMock(return_value=20000)
+        from aim_mud_types import MUDConversationEntry
+        from aim.constants import DOC_MUD_WORLD
+
+        worker = MUDAgentWorker(config=test_mud_config, redis_client=mock_redis)
+        worker.conversation_manager = test_conversation_manager
+
+        # Mock Redis lrange to return entries totaling 20000 tokens
+        entries = [
+            MUDConversationEntry(
+                role="user",
+                content=f"Message {i}",
+                tokens=5000,
+                document_type=DOC_MUD_WORLD,
+                conversation_id="test",
+                sequence_no=i,
+                speaker_id="world",
+            )
+            for i in range(4)  # 4 entries x 5000 = 20000 tokens
+        ]
+        mock_redis.lrange.return_value = [e.model_dump_json().encode() for e in entries]
 
         scenario = await worker._select_auto_dream_scenario()
 
@@ -921,17 +955,79 @@ class TestDreamerMixinSelectAutoScenario:
 
     @pytest.mark.asyncio
     async def test_threshold_just_over_20000(
-        self, mud_config, mock_redis
+        self, test_mud_config, mock_redis, test_conversation_manager
     ):
         """Test behavior at 20001 tokens (just over threshold)."""
-        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
-        worker.conversation_manager = Mock()
-        worker.conversation_manager.get_total_tokens = AsyncMock(return_value=20001)
+        from aim_mud_types import MUDConversationEntry
+        from aim.constants import DOC_MUD_WORLD
+
+        worker = MUDAgentWorker(config=test_mud_config, redis_client=mock_redis)
+        worker.conversation_manager = test_conversation_manager
+
+        # Mock Redis lrange to return entries totaling 20001 tokens
+        entries = [
+            MUDConversationEntry(
+                role="user",
+                content="Message 0",
+                tokens=10000,
+                document_type=DOC_MUD_WORLD,
+                conversation_id="test",
+                sequence_no=0,
+                speaker_id="world",
+            ),
+            MUDConversationEntry(
+                role="user",
+                content="Message 1",
+                tokens=10001,
+                document_type=DOC_MUD_WORLD,
+                conversation_id="test",
+                sequence_no=1,
+                speaker_id="world",
+            ),
+        ]
+        mock_redis.lrange.return_value = [e.model_dump_json().encode() for e in entries]
 
         scenario = await worker._select_auto_dream_scenario()
 
         # Just over 20000 should select analysis
         assert scenario == "analysis_dialogue"
+
+
+def test_chatconfig_fixture_has_no_fake_attributes(test_config):
+    """Verify our test fixtures don't add nonexistent attributes to ChatConfig.
+
+    This test exists because we previously corrupted ChatConfig with fake
+    attributes (model_name) that don't exist on the real class, causing
+    production crashes. NEVER AGAIN.
+
+    Production crashed on 2026-01-08 because:
+    - Test fixture added config.model_name (FAKE attribute)
+    - Tests passed with fake data
+    - Production code used config.model_name at runner.py:224
+    - Production crashed: 'ChatConfig' object has no attribute 'model_name'
+
+    The correct attribute is default_model, not model_name.
+    """
+    # These are REAL attributes that should exist on ChatConfig
+    base_config = ChatConfig()
+    assert hasattr(base_config, 'default_model'), "ChatConfig should have default_model"
+    assert hasattr(base_config, 'thought_model'), "ChatConfig should have thought_model"
+    assert hasattr(base_config, 'codex_model'), "ChatConfig should have codex_model"
+
+    # This is a FAKE attribute that should NOT exist
+    assert not hasattr(base_config, 'model_name'), \
+        "ChatConfig should NOT have model_name - use default_model instead"
+
+    # Verify our fixture doesn't corrupt the object
+    # Fixture should only set attributes that exist on real ChatConfig
+    # Get all non-dunder attributes from both objects
+    real_attrs = {attr for attr in dir(base_config) if not attr.startswith('_')}
+    fixture_attrs = {attr for attr in dir(test_config) if not attr.startswith('_')}
+
+    # Find attributes that exist on fixture but not on real class
+    fake_attrs = fixture_attrs - real_attrs
+    assert fake_attrs == set(), \
+        f"Fixture adds fake attributes: {fake_attrs}. Use only real ChatConfig attributes."
 
 
 if __name__ == "__main__":

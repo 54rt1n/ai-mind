@@ -20,10 +20,11 @@ class StepConfig(BaseModel):
     """Step execution configuration."""
     max_tokens: int = 1024
     use_guidance: bool = False
-    is_thought: bool = False
-    is_codex: bool = False
+    is_thought: bool = False  # DEPRECATED: Use model_role="thought" instead
+    is_codex: bool = False    # DEPRECATED: Use model_role="codex" instead
     temperature: Optional[float] = None
     model_override: Optional[str] = None
+    model_role: Optional[str] = None  # Model role from ModelSet (analysis, codex, writing, thought, etc.)
 
 
 class StepOutput(BaseModel):

@@ -140,6 +140,7 @@ class DialogueStrategy:
                 is_codex=config_data.get('is_codex', False),
                 temperature=config_data.get('temperature'),
                 model_override=config_data.get('model_override'),
+                model_role=config_data.get('model_role'),
             )
 
             # Parse output

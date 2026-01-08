@@ -20,6 +20,7 @@ from .dialogue.scenario import DialogueScenario
 from ..config import ChatConfig
 from ..conversation.model import ConversationModel
 from ..agents.roster import Roster
+from ..llm.model_set import ModelSet
 
 
 class DreamerWorker:
@@ -218,6 +219,9 @@ class DreamerWorker:
                 )
                 return
 
+            # Create ModelSet for persona-aware model selection
+            model_set = ModelSet.from_config(self.config, persona)
+
             # 4. Execute step (standard flow)
             result, context_doc_ids, is_initial_context = await execute_step(
                 state=state,
@@ -226,6 +230,7 @@ class DreamerWorker:
                 cvm=self.cvm,
                 persona=persona,
                 config=self.config,
+                model_set=model_set,
             )
 
             # 5. Persist result to CVM immediately
@@ -322,11 +327,16 @@ class DreamerWorker:
 
         # Create DialogueStrategy and DialogueScenario
         strategy = DialogueStrategy.load(scenario.name)
+
+        # Create ModelSet for persona-aware model selection
+        model_set = ModelSet.from_config(self.config, persona)
+
         dialogue_scenario = DialogueScenario(
             strategy=strategy,
             persona=persona,
             config=self.config,
             cvm=self.cvm,
+            model_set=model_set,
         )
 
         # Set the state (already initialized)

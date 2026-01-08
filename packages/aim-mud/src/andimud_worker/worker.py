@@ -248,6 +248,19 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
         )
         logger.info(f"Using model: {self.chat_config.default_model}")
 
+        # Run the main worker loop
+        await self._run_main_loop()
+
+        logger.info("Worker loop ended")
+
+    async def _run_main_loop(self) -> None:
+        """Run the main worker loop.
+
+        Processes turn requests, drains events, executes turns, and handles
+        state transitions. This method assumes all initialization is complete.
+
+        Continues until self.running is set to False.
+        """
         # Main worker loop - blocks until events arrive (push model)
         while self.running:
             try:
@@ -342,8 +355,9 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
 
                     # CHECK: Did this turn include a speech event?
                     has_speech = False
-                    if self.session and self.session.current_turn:
-                        for action in self.session.current_turn.actions_taken:
+                    last_turn = self.session.get_last_turn() if self.session else None
+                    if last_turn:
+                        for action in last_turn.actions_taken:
                             if action.tool == "speak":
                                 has_speech = True
                                 logger.info(f"Turn {turn_id} included speech event, consuming drained events")
@@ -358,6 +372,12 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
                     else:
                         # Speech turn: keep advanced last_event_id (events consumed)
                         logger.info(f"Turn {turn_id} was speech, events consumed")
+
+                        # Persist the advanced event position ONLY for speech turns
+                        # This ensures events are consumed only when the agent actually spoke
+                        # Non-speech turns restore via _restore_event_position() which also persists
+                        await self._update_agent_profile(last_event_id=self.session.last_event_id)
+
                         saved_event_id = None  # Events consumed, don't restore on exception
 
                     await self._set_turn_request_state(turn_id, "done")
@@ -440,8 +460,6 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
                 # Log error but continue processing
                 logger.error(f"Error in worker loop: {e}", exc_info=True)
                 continue
-
-        logger.info("Worker loop ended")
 
     async def stop(self) -> None:
         """Gracefully stop the worker.

@@ -27,10 +27,21 @@ from aim.dreamer.models import (
 )
 
 
+@pytest.fixture
+def mock_model_set():
+    """Create a mock ModelSet for testing."""
+    model_set = MagicMock()
+    model_set.default_model = "default-model"
+    model_set.analysis_model = "analysis-model"
+    model_set.codex_model = "codex-model"
+    model_set.get_model_name = MagicMock(side_effect=lambda role: f"{role}-model")
+    return model_set
+
+
 class TestSelectModelName:
     """Test model selection logic."""
 
-    def test_analyst_scenario_codex_step_uses_codex_model(self):
+    def test_analyst_scenario_codex_step_uses_codex_model(self, mock_model_set):
         """Verify the analyst scenario's codex step has is_codex=True and uses codex_model.
 
         This is an integration test that loads the actual analyst.yaml scenario
@@ -63,12 +74,12 @@ class TestSelectModelName:
         )
 
         # Verify select_model_name returns the codex_model for this step
-        result = select_model_name(state, codex_step.config)
+        result = select_model_name(state, codex_step.config, mock_model_set)
         assert result == "codex-model", (
             f"Expected codex-model for codex step, got {result}"
         )
 
-    def test_analyst_codex_step_falls_back_when_codex_model_not_set(self):
+    def test_analyst_codex_step_falls_back_when_codex_model_not_set(self, mock_model_set):
         """Verify codex step falls back to default model when codex_model is not configured.
 
         This tests the common misconfiguration where is_codex=True in the scenario
@@ -95,12 +106,12 @@ class TestSelectModelName:
         )
 
         # Should fall back to default model
-        result = select_model_name(state, codex_step.config)
+        result = select_model_name(state, codex_step.config, mock_model_set)
         assert result == "default-model", (
             f"Expected default-model when codex_model is None, got {result}"
         )
 
-    def test_model_override_takes_precedence(self):
+    def test_model_override_takes_precedence(self, mock_model_set):
         """Model override should be used if set."""
         state = PipelineState(
             pipeline_id="test-123",
@@ -118,10 +129,10 @@ class TestSelectModelName:
 
         step_config = StepConfig(model_override="override-model")
 
-        result = select_model_name(state, step_config)
+        result = select_model_name(state, step_config, mock_model_set)
         assert result == "override-model"
 
-    def test_codex_model_when_is_codex(self):
+    def test_codex_model_when_is_codex(self, mock_model_set):
         """Codex model should be used when is_codex is True."""
         state = PipelineState(
             pipeline_id="test-123",
@@ -138,10 +149,10 @@ class TestSelectModelName:
 
         step_config = StepConfig(is_codex=True)
 
-        result = select_model_name(state, step_config)
+        result = select_model_name(state, step_config, mock_model_set)
         assert result == "codex-model"
 
-    def test_thought_model_when_is_thought(self):
+    def test_thought_model_when_is_thought(self, mock_model_set):
         """Thought model should be used when is_thought is True."""
         state = PipelineState(
             pipeline_id="test-123",
@@ -158,10 +169,10 @@ class TestSelectModelName:
 
         step_config = StepConfig(is_thought=True)
 
-        result = select_model_name(state, step_config)
+        result = select_model_name(state, step_config, mock_model_set)
         assert result == "thought-model"
 
-    def test_default_model_when_no_overrides(self):
+    def test_default_model_when_no_overrides(self, mock_model_set):
         """Default model should be used when no overrides are set."""
         state = PipelineState(
             pipeline_id="test-123",
@@ -177,10 +188,10 @@ class TestSelectModelName:
 
         step_config = StepConfig()
 
-        result = select_model_name(state, step_config)
+        result = select_model_name(state, step_config, mock_model_set)
         assert result == "default-model"
 
-    def test_codex_without_codex_model_falls_back_to_default(self):
+    def test_codex_without_codex_model_falls_back_to_default(self, mock_model_set):
         """When is_codex is True but no codex_model, fall back to default."""
         state = PipelineState(
             pipeline_id="test-123",
@@ -197,7 +208,7 @@ class TestSelectModelName:
 
         step_config = StepConfig(is_codex=True)
 
-        result = select_model_name(state, step_config)
+        result = select_model_name(state, step_config, mock_model_set)
         assert result == "default-model"
 
 
@@ -514,7 +525,7 @@ class TestExecuteStep:
     """Test full step execution (integration test with mocks)."""
 
     @pytest.mark.asyncio
-    async def test_execute_step_basic_flow(self):
+    async def test_execute_step_basic_flow(self, mock_model_set):
         """Test basic step execution flow."""
         from aim.config import ChatConfig
 
@@ -581,6 +592,7 @@ class TestExecuteStep:
                 cvm=mock_cvm,
                 persona=mock_persona,
                 config=mock_config,
+                model_set=mock_model_set,
             )
 
         # Verify result
@@ -593,7 +605,7 @@ class TestExecuteStep:
         assert isinstance(is_initial_context, bool)
 
     @pytest.mark.asyncio
-    async def test_execute_step_with_think_tags(self):
+    async def test_execute_step_with_think_tags(self, mock_model_set):
         """Test step execution with think tags in response."""
         from aim.config import ChatConfig
 
@@ -656,6 +668,7 @@ class TestExecuteStep:
                 cvm=mock_cvm,
                 persona=mock_persona,
                 config=mock_config,
+                model_set=mock_model_set,
             )
 
         assert result.response == "Visible response."
@@ -664,7 +677,7 @@ class TestExecuteStep:
         assert isinstance(is_initial_context, bool)
 
     @pytest.mark.asyncio
-    async def test_execute_step_with_memories(self):
+    async def test_execute_step_with_memories(self, mock_model_set):
         """Test step execution with memory query."""
         import pandas as pd
         from aim.config import ChatConfig
@@ -742,6 +755,7 @@ class TestExecuteStep:
                 cvm=mock_cvm,
                 persona=mock_persona,
                 config=mock_config,
+                model_set=mock_model_set,
             )
 
         # Verify memory query was called

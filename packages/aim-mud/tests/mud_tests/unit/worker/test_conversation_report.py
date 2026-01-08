@@ -4,58 +4,22 @@
 
 import pytest
 import json
-from unittest.mock import Mock, AsyncMock, patch
+from unittest.mock import Mock
 from datetime import datetime, timezone
 
 from andimud_worker.worker import MUDAgentWorker
-from andimud_worker.config import MUDConfig
-from aim.config import ChatConfig
 from aim_mud_types import RedisKeys
 
 
-@pytest.fixture
-def chat_config():
-    """Create a test ChatConfig."""
-    config = ChatConfig()
-    config.llm_provider = "anthropic"
-    config.model_name = "claude-opus-4-5-20251101"
-    config.anthropic_api_key = "test-key"
-    return config
-
-
-@pytest.fixture
-def mud_config():
-    """Create a test MUD configuration."""
-    return MUDConfig(
-        agent_id="test_agent",
-        persona_id="test_persona",
-        redis_url="redis://localhost:6379",
-    )
-
-
-@pytest.fixture
-def mock_redis():
-    """Create a mock async Redis client."""
-    redis = AsyncMock()
-    redis.hgetall = AsyncMock(return_value={})
-    redis.hget = AsyncMock(return_value=None)
-    redis.hset = AsyncMock(return_value=1)
-    redis.get = AsyncMock(return_value=None)
-    redis.set = AsyncMock(return_value=True)
-    redis.eval = AsyncMock(return_value=1)
-    redis.expire = AsyncMock(return_value=True)
-    redis.aclose = AsyncMock()
-    return redis
-
-
-@pytest.fixture
-def mock_cvm():
-    """Create a mock ConversationModel with sample report."""
+@pytest.mark.asyncio
+async def test_update_conversation_report_success(test_worker, test_cvm, mock_redis, monkeypatch):
+    """Test that _update_conversation_report() successfully caches report."""
     import pandas as pd
 
-    cvm = Mock()
-    cvm.insert = Mock()
+    # Use real worker and CVM, but monkeypatch get_conversation_report to return test data
+    test_worker.cvm = test_cvm
 
+    # Create sample report data
     report_data = {
         'conversation_id': ['conv1', 'conv2'],
         'conversation': [10, 5],
@@ -63,23 +27,17 @@ def mock_cvm():
         'timestamp_max': [1704412800, 1704412900]
     }
     report_df = pd.DataFrame(report_data)
-    cvm.get_conversation_report = Mock(return_value=report_df)
-    return cvm
 
+    # Monkeypatch the report method to return our test data
+    monkeypatch.setattr(test_cvm, 'get_conversation_report', Mock(return_value=report_df))
 
-@pytest.mark.asyncio
-async def test_update_conversation_report_success(mud_config, mock_redis, mock_cvm):
-    """Test that _update_conversation_report() successfully caches report."""
-    worker = MUDAgentWorker(mud_config, mock_redis)
-    worker.cvm = mock_cvm
-
-    await worker._update_conversation_report()
+    await test_worker._update_conversation_report()
 
     # Verify report was fetched from CVM
-    mock_cvm.get_conversation_report.assert_called_once()
+    test_cvm.get_conversation_report.assert_called_once()
 
     # Verify report was stored in Redis
-    expected_key = RedisKeys.agent_conversation_report(mud_config.agent_id)
+    expected_key = RedisKeys.agent_conversation_report(test_worker.config.agent_id)
     mock_redis.set.assert_called_once()
     call_args = mock_redis.set.call_args[0]
     assert call_args[0] == expected_key
@@ -92,18 +50,18 @@ async def test_update_conversation_report_success(mud_config, mock_redis, mock_c
 
 
 @pytest.mark.asyncio
-async def test_update_conversation_report_empty(mud_config, mock_redis, mock_cvm):
+async def test_update_conversation_report_empty(test_worker, test_cvm, mock_redis, monkeypatch):
     """Test _update_conversation_report() with empty report."""
     import pandas as pd
 
+    test_worker.cvm = test_cvm
+
     empty_df = pd.DataFrame()
-    mock_cvm.get_conversation_report = Mock(return_value=empty_df)
-    worker = MUDAgentWorker(mud_config, mock_redis)
-    worker.cvm = mock_cvm
+    monkeypatch.setattr(test_cvm, 'get_conversation_report', Mock(return_value=empty_df))
 
-    await worker._update_conversation_report()
+    await test_worker._update_conversation_report()
 
-    expected_key = RedisKeys.agent_conversation_report(mud_config.agent_id)
+    expected_key = RedisKeys.agent_conversation_report(test_worker.config.agent_id)
     mock_redis.set.assert_called_once()
     call_args = mock_redis.set.call_args[0]
     assert call_args[0] == expected_key
@@ -111,14 +69,14 @@ async def test_update_conversation_report_empty(mud_config, mock_redis, mock_cvm
 
 
 @pytest.mark.asyncio
-async def test_update_conversation_report_error(mud_config, mock_redis, mock_cvm, caplog):
+async def test_update_conversation_report_error(test_worker, test_cvm, mock_redis, monkeypatch, caplog):
     """Test _update_conversation_report() handles errors gracefully."""
-    mock_cvm.get_conversation_report = Mock(side_effect=Exception("Database error"))
-    worker = MUDAgentWorker(mud_config, mock_redis)
-    worker.cvm = mock_cvm
+    test_worker.cvm = test_cvm
+
+    monkeypatch.setattr(test_cvm, 'get_conversation_report', Mock(side_effect=Exception("Database error")))
 
     # Should not raise exception
-    await worker._update_conversation_report()
+    await test_worker._update_conversation_report()
 
     # Should log error
     assert "Failed to update conversation report" in caplog.text
@@ -129,21 +87,31 @@ async def test_update_conversation_report_error(mud_config, mock_redis, mock_cvm
 
 
 @pytest.mark.asyncio
-async def test_conversation_report_updates_called_correctly(mud_config, mock_redis, mock_cvm):
+async def test_conversation_report_updates_called_correctly(test_worker, test_cvm, mock_redis, monkeypatch):
     """Test that _update_conversation_report can be called multiple times."""
-    worker = MUDAgentWorker(mud_config, mock_redis)
-    worker.cvm = mock_cvm
+    import pandas as pd
+
+    test_worker.cvm = test_cvm
+
+    report_data = {
+        'conversation_id': ['conv1', 'conv2'],
+        'conversation': [10, 5],
+        'analysis': [1, None],
+        'timestamp_max': [1704412800, 1704412900]
+    }
+    report_df = pd.DataFrame(report_data)
+    monkeypatch.setattr(test_cvm, 'get_conversation_report', Mock(return_value=report_df))
 
     # Call multiple times to simulate startup, flush, and dream
-    await worker._update_conversation_report()
-    await worker._update_conversation_report()
-    await worker._update_conversation_report()
+    await test_worker._update_conversation_report()
+    await test_worker._update_conversation_report()
+    await test_worker._update_conversation_report()
 
     # Verify report was fetched from CVM three times
-    assert mock_cvm.get_conversation_report.call_count == 3
+    assert test_cvm.get_conversation_report.call_count == 3
 
     # Verify report was stored in Redis three times
-    expected_key = RedisKeys.agent_conversation_report(mud_config.agent_id)
+    expected_key = RedisKeys.agent_conversation_report(test_worker.config.agent_id)
     assert mock_redis.set.call_count == 3
 
     # Verify all calls used the same key

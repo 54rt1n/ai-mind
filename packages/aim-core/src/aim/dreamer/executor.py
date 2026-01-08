@@ -4,9 +4,12 @@
 
 from dataclasses import replace
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 import logging
 import re
+
+if TYPE_CHECKING:
+    from aim.llm.model_set import ModelSet
 
 logger = logging.getLogger(__name__)
 
@@ -27,32 +30,44 @@ class RetryableError(Exception):
     pass
 
 
-def select_model_name(state: PipelineState, step_config: StepConfig) -> str:
+def select_model_name(
+    state: PipelineState,
+    step_config: StepConfig,
+    model_set: "ModelSet"
+) -> str:
     """
-    Select the appropriate model based on step configuration.
+    Select the appropriate model based on step configuration and persona's ModelSet.
 
     Priority order:
-    1. model_override if set
-    2. codex_model if is_codex and codex_model is set
-    3. thought_model if is_thought and thought_model is set
-    4. state.model (default)
+    1. step_config.model_override (explicit override string)
+    2. step_config.model_role (role name resolved via ModelSet)
+    3. Legacy is_codex/is_thought flags (DEPRECATED, for backward compatibility)
+    4. state.model (pipeline default)
 
     Args:
         state: Current pipeline state with model configuration
         step_config: Step configuration with model preferences
+        model_set: ModelSet for resolving roles to model names
 
     Returns:
         Model name to use for this step
     """
+    # Explicit model override (highest priority)
     if step_config.model_override:
         return step_config.model_override
 
+    # Model role from step definition
+    if step_config.model_role:
+        return model_set.get_model_name(step_config.model_role)
+
+    # Legacy flags for backward compatibility (DEPRECATED)
     if step_config.is_codex and state.codex_model:
         return state.codex_model
 
     if step_config.is_thought and state.thought_model:
         return state.thought_model
 
+    # Pipeline default
     return state.model
 
 
@@ -333,6 +348,7 @@ async def execute_step(
     cvm: ConversationModel,
     persona: Persona,
     config: ChatConfig,
+    model_set: "ModelSet",
 ) -> tuple[StepResult, list[str], bool]:
     """
     Execute a single pipeline step.
@@ -357,6 +373,7 @@ async def execute_step(
         cvm: ConversationModel for memory queries
         persona: Persona for context
         config: ChatConfig for LLM access
+        model_set: ModelSet for persona-aware model selection
 
     Returns:
         Tuple of (StepResult, context_doc_ids, is_initial_context):
@@ -398,7 +415,7 @@ async def execute_step(
     prior_outputs, context_doc_ids, is_initial_context = load_prior_outputs(state, step_def, cvm)
 
     # 5. Select model
-    model_name = select_model_name(state, step_def.config)
+    model_name = select_model_name(state, step_def.config, model_set)
     models = LanguageModelV2.index_models(config)
     model = models.get(model_name)
     if not model:

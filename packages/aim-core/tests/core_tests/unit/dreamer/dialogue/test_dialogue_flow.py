@@ -96,6 +96,17 @@ def persona(coder_aspect, librarian_aspect):
 
 
 @pytest.fixture
+def mock_model_set():
+    """Create a mock ModelSet for testing."""
+    model_set = MagicMock()
+    model_set.default_model = "gpt-4"
+    model_set.analysis_model = "gpt-4"
+    model_set.codex_model = "gpt-4"
+    model_set.get_model_name = MagicMock(side_effect=lambda role: f"{role}-model")
+    return model_set
+
+
+@pytest.fixture
 def chat_config():
     """Create a real ChatConfig fixture."""
     return ChatConfig(
@@ -289,14 +300,14 @@ class TestDialogueStrategy:
 class TestDialogueScenarioTurnBuilding:
     """Tests for turn building with role flipping."""
 
-    def test_empty_turns_initial_step(self, temp_strategy_file, persona, chat_config):
+    def test_empty_turns_initial_step(self, temp_strategy_file, persona, chat_config, mock_model_set):
         """Test turn building for the first step (no prior turns).
 
         For aspect steps (like step1), guidance is NOT included in their final turn.
         Guidance from aspect steps shapes the NEXT persona's response, not the aspect's own response.
         """
         strategy = DialogueStrategy.from_yaml(temp_strategy_file)
-        scenario = DialogueScenario(strategy, persona, chat_config, cvm=None)
+        scenario = DialogueScenario(strategy, persona, chat_config, mock_model_set, cvm=None)
         scenario.start(user_id="test_user")
 
         step = strategy.get_step("step1")
@@ -325,7 +336,7 @@ class TestDialogueScenarioTurnBuilding:
         # Guidance is included in Output Guidance section
         assert "Output Guidance" in turns[0]["content"]
 
-    def test_role_flipping_aspect_to_persona(self, temp_strategy_file, persona, chat_config):
+    def test_role_flipping_aspect_to_persona(self, temp_strategy_file, persona, chat_config, mock_model_set):
         """Test that aspect turn becomes 'user' when persona is speaking.
 
         For persona steps with prior turns:
@@ -334,7 +345,7 @@ class TestDialogueScenarioTurnBuilding:
         - Current step's guidance is appended to guide the persona's response
         """
         strategy = DialogueStrategy.from_yaml(temp_strategy_file)
-        scenario = DialogueScenario(strategy, persona, chat_config, cvm=None)
+        scenario = DialogueScenario(strategy, persona, chat_config, mock_model_set, cvm=None)
         scenario.start(user_id="test_user")
 
         # Simulate step1 completed (aspect spoke)
@@ -375,7 +386,7 @@ class TestDialogueScenarioTurnBuilding:
         assert "Output Guidance" in turns[0]["content"]
         assert "Begin with 'Response:'" in turns[0]["content"]
 
-    def test_role_flipping_persona_to_aspect(self, temp_strategy_file, persona, chat_config):
+    def test_role_flipping_persona_to_aspect(self, temp_strategy_file, persona, chat_config, mock_model_set):
         """Test that persona turn becomes 'user' when aspect is speaking.
 
         For aspect steps with prior turns:
@@ -386,7 +397,7 @@ class TestDialogueScenarioTurnBuilding:
         - Aspect steps add a final prompt turn (no guidance in it)
         """
         strategy = DialogueStrategy.from_yaml(temp_strategy_file)
-        scenario = DialogueScenario(strategy, persona, chat_config, cvm=None)
+        scenario = DialogueScenario(strategy, persona, chat_config, mock_model_set, cvm=None)
         scenario.start(user_id="test_user")
 
         # Simulate step1 (aspect) and step2 (persona) completed
@@ -440,10 +451,10 @@ class TestDialogueScenarioTurnBuilding:
         assert "continue to the next task" in turns[1]["content"]  # Guidance content appended
         assert "Output Guidance" in turns[1]["content"]  # Guidance section present
 
-    def test_full_alternation_pattern(self, temp_strategy_file, persona, chat_config):
+    def test_full_alternation_pattern(self, temp_strategy_file, persona, chat_config, mock_model_set):
         """Test the full alternation pattern over 4 steps."""
         strategy = DialogueStrategy.from_yaml(temp_strategy_file)
-        scenario = DialogueScenario(strategy, persona, chat_config, cvm=None)
+        scenario = DialogueScenario(strategy, persona, chat_config, mock_model_set, cvm=None)
         scenario.start(user_id="test_user")
 
         # Simulate all 4 steps
@@ -490,10 +501,10 @@ class TestDialogueScenarioTurnBuilding:
 class TestDialogueScenarioSystemPrompts:
     """Tests for system prompt switching based on speaker."""
 
-    def test_persona_system_prompt(self, temp_strategy_file, persona, chat_config):
+    def test_persona_system_prompt(self, temp_strategy_file, persona, chat_config, mock_model_set):
         """Test that persona speaker uses persona.system_prompt()."""
         strategy = DialogueStrategy.from_yaml(temp_strategy_file)
-        scenario = DialogueScenario(strategy, persona, chat_config, cvm=None)
+        scenario = DialogueScenario(strategy, persona, chat_config, mock_model_set, cvm=None)
         scenario.start(user_id="test_user")
 
         step2 = strategy.get_step("step2")  # Persona speaker
@@ -503,10 +514,10 @@ class TestDialogueScenarioSystemPrompts:
         assert "Andi Lumina" in system_prompt
         assert "Active Memory Enabled" in system_prompt
 
-    def test_aspect_system_prompt(self, temp_strategy_file, persona, chat_config):
+    def test_aspect_system_prompt(self, temp_strategy_file, persona, chat_config, mock_model_set):
         """Test that aspect speaker uses custom aspect system prompt."""
         strategy = DialogueStrategy.from_yaml(temp_strategy_file)
-        scenario = DialogueScenario(strategy, persona, chat_config, cvm=None)
+        scenario = DialogueScenario(strategy, persona, chat_config, mock_model_set, cvm=None)
         scenario.start(user_id="test_user")
 
         step1 = strategy.get_step("step1")  # Aspect speaker (coder)
@@ -527,10 +538,10 @@ class TestDialogueScenarioExecution:
     """End-to-end tests for dialogue scenario execution."""
 
     @pytest.mark.asyncio
-    async def test_execute_single_step(self, temp_strategy_file, persona, chat_config, mock_llm_provider):
+    async def test_execute_single_step(self, temp_strategy_file, persona, chat_config, mock_model_set, mock_llm_provider):
         """Test executing a single step."""
         strategy = DialogueStrategy.from_yaml(temp_strategy_file)
-        scenario = DialogueScenario(strategy, persona, chat_config, cvm=None)
+        scenario = DialogueScenario(strategy, persona, chat_config, mock_model_set, cvm=None)
         scenario.start(user_id="test_user")
 
         # Mock only external services (LLM provider, Redis)
@@ -557,10 +568,10 @@ class TestDialogueScenarioExecution:
         assert "step1" in scenario.state.completed_steps
 
     @pytest.mark.asyncio
-    async def test_execute_multiple_steps_alternating(self, temp_strategy_file, persona, chat_config):
+    async def test_execute_multiple_steps_alternating(self, temp_strategy_file, persona, chat_config, mock_model_set):
         """Test executing multiple steps with alternating speakers."""
         strategy = DialogueStrategy.from_yaml(temp_strategy_file)
-        scenario = DialogueScenario(strategy, persona, chat_config, cvm=None)
+        scenario = DialogueScenario(strategy, persona, chat_config, mock_model_set, cvm=None)
         scenario.start(user_id="test_user")
 
         # Create a provider that tracks calls
@@ -617,10 +628,10 @@ class TestDialogueScenarioExecution:
         assert "completed" in turn4.content
 
     @pytest.mark.asyncio
-    async def test_run_full_dialogue(self, temp_strategy_file, persona, chat_config):
+    async def test_run_full_dialogue(self, temp_strategy_file, persona, chat_config, mock_model_set):
         """Test running the full dialogue with run() method."""
         strategy = DialogueStrategy.from_yaml(temp_strategy_file)
-        scenario = DialogueScenario(strategy, persona, chat_config, cvm=None)
+        scenario = DialogueScenario(strategy, persona, chat_config, mock_model_set, cvm=None)
         scenario.start(user_id="test_user")
 
         call_count = [0]
@@ -670,7 +681,7 @@ class TestDialogueScenarioExecution:
 class TestSceneAndGuidanceHandling:
     """Tests for scene persistence and guidance fall-off."""
 
-    def test_scene_prepended_to_first_prior_turn(self, temp_strategy_file, persona, chat_config):
+    def test_scene_prepended_to_first_prior_turn(self, temp_strategy_file, persona, chat_config, mock_model_set):
         """Test that scene is prepended to the first prior turn, not a separate turn.
 
         For persona steps with prior turns:
@@ -679,7 +690,7 @@ class TestSceneAndGuidanceHandling:
         - Guidance from prior step is appended to the prior turn
         """
         strategy = DialogueStrategy.from_yaml(temp_strategy_file)
-        scenario = DialogueScenario(strategy, persona, chat_config, cvm=None)
+        scenario = DialogueScenario(strategy, persona, chat_config, mock_model_set, cvm=None)
         scenario.start(user_id="test_user")
 
         # Add some prior turns
@@ -717,7 +728,7 @@ class TestSceneAndGuidanceHandling:
         assert "observe Andi" in first_turn["content"]  # Dynamic scene
         assert "Prior content" in first_turn["content"]
 
-    def test_guidance_from_current_step_appended_to_prior_turn(self, temp_strategy_file, persona, chat_config):
+    def test_guidance_from_current_step_appended_to_prior_turn(self, temp_strategy_file, persona, chat_config, mock_model_set):
         """Test that guidance from the current step is appended to the prior turn.
 
         The new behavior:
@@ -725,7 +736,7 @@ class TestSceneAndGuidanceHandling:
         - This shapes the current speaker's (persona's) response
         """
         strategy = DialogueStrategy.from_yaml(temp_strategy_file)
-        scenario = DialogueScenario(strategy, persona, chat_config, cvm=None)
+        scenario = DialogueScenario(strategy, persona, chat_config, mock_model_set, cvm=None)
         scenario.start(user_id="test_user")
 
         # Add step1 (aspect) turn
@@ -759,7 +770,7 @@ class TestSceneAndGuidanceHandling:
         assert "[~~ Output Guidance ~~]" in turns[0]["content"]
         assert "Begin with 'Response:'" in turns[0]["content"]  # step2's guidance
 
-    def test_aspect_steps_guidance_in_final_turn(self, temp_strategy_file, persona, chat_config):
+    def test_aspect_steps_guidance_in_final_turn(self, temp_strategy_file, persona, chat_config, mock_model_set):
         """Test that aspect steps include guidance in their final turn.
 
         With prompt/guidance consolidation:
@@ -767,7 +778,7 @@ class TestSceneAndGuidanceHandling:
         - The guidance shapes the current step's response
         """
         strategy = DialogueStrategy.from_yaml(temp_strategy_file)
-        scenario = DialogueScenario(strategy, persona, chat_config, cvm=None)
+        scenario = DialogueScenario(strategy, persona, chat_config, mock_model_set, cvm=None)
         scenario.start(user_id="test_user")
 
         # Build turns for step1 (aspect speaking first, no prior turns)

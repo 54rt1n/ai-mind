@@ -148,8 +148,12 @@ class EventsMixin:
                 break
             min_id = f"({last_msg_id}"
 
-        if self.session and self.session.last_event_id:
-            await self._update_agent_profile(last_event_id=self.session.last_event_id)
+        # NOTE: Do NOT persist last_event_id here. Persistence happens after the speech
+        # check determines whether events should be consumed:
+        # - Speech turn: persisted in worker.py after speech check confirms speech
+        # - Non-speech turn: persisted via _restore_event_position() (rollback)
+        # - Exception: persisted via _restore_event_position() in exception handler
+        # This ensures events are never lost if the worker crashes during processing.
 
         # Sort events by sequence_id to ensure chronological order
         events_unsorted.sort(key=lambda x: x[0])
@@ -211,10 +215,15 @@ class EventsMixin:
     async def _restore_event_position(
         self: "MUDAgentWorker", saved_event_id: Optional[str]
     ) -> None:
-        """Restore event stream position after failed processing.
+        """Restore event stream position for non-speech turns or failed processing.
 
-        Called when turn processing fails to reset stream position so
-        retry will receive the same events.
+        Called when turn processing fails or when events should not be consumed
+        (non-speech turns). Rolls back the in-memory event position to the saved
+        position so the next drain will receive the same events.
+
+        Redis persistence is NOT needed here because Redis never advanced during
+        drain - it only advances in memory. Redis persistence only happens after
+        speech check confirms a speech action occurred.
 
         Args:
             saved_event_id: Event ID to restore, or None to skip restoration
@@ -227,12 +236,10 @@ class EventsMixin:
             f"Restoring event position from {self.session.last_event_id} back to {saved_event_id}"
         )
 
-        # Restore session state
+        # Rollback in-memory session state
+        # Redis already has the correct position (it was never advanced during drain)
         self.session.last_event_id = saved_event_id
 
-        # Clear pending buffers - these events will be re-drained on retry
+        # Clear pending buffers - these events will be re-drained on next turn
         self.pending_events = []
         self.session.pending_self_actions = []
-
-        # Persist the restored position to Redis
-        await self._update_agent_profile(last_event_id=saved_event_id)

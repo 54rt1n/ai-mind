@@ -104,7 +104,11 @@ class TestEventPositionRestoreOnException:
     async def test_event_position_restored_on_exception(
         self, worker_with_session, sample_events
     ):
-        """Test that event position is restored when process_turn raises exception."""
+        """Test that event position is restored when process_turn raises exception.
+
+        After the fix, _restore_event_position only rolls back in memory -
+        it does NOT persist to Redis.
+        """
         worker = worker_with_session
 
         # Set up initial state
@@ -130,11 +134,13 @@ class TestEventPositionRestoreOnException:
             saved_id = "0"
             await worker._restore_event_position(saved_id)
 
-            # Assert position restored
+            # Assert position restored IN MEMORY
             assert worker.session.last_event_id == "0"
             assert worker.pending_events == []
             assert worker.session.pending_self_actions == []
-            mock_update.assert_called_once_with(last_event_id="0")
+
+            # CRITICAL: Redis persistence NOT called (this is the fix)
+            mock_update.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_event_position_restored_in_worker_loop_on_exception(
@@ -366,7 +372,11 @@ class TestRestoreWithZeroEventId:
 
     @pytest.mark.asyncio
     async def test_restore_with_zero_event_id(self, worker_with_session, sample_events):
-        """Test that restoration works correctly when restoring to '0'."""
+        """Test that restoration works correctly when restoring to '0'.
+
+        After the fix, _restore_event_position only rolls back in memory -
+        it does NOT persist to Redis.
+        """
         worker = worker_with_session
 
         # Start at "0"
@@ -392,17 +402,24 @@ class TestRestoreWithZeroEventId:
             # Simulate failure and restore
             await worker._restore_event_position(saved_id)
 
-            # Assert restored to "0"
+            # Assert restored to "0" IN MEMORY
             assert worker.session.last_event_id == "0"
-            mock_update.assert_called_once_with(last_event_id="0")
+
+            # CRITICAL: Redis persistence NOT called (this is the fix)
+            mock_update.assert_not_called()
 
 
-class TestRestoreUpdatesRedis:
-    """Test that restoration updates Redis profile."""
+class TestRestoreDoesNotUpdateRedis:
+    """Test that restoration does NOT update Redis profile (fix validation)."""
 
     @pytest.mark.asyncio
-    async def test_restore_updates_redis_profile(self, worker_with_session):
-        """Test that _restore_event_position calls _update_agent_profile with saved ID."""
+    async def test_restore_does_not_update_redis_profile(self, worker_with_session):
+        """Test that _restore_event_position does NOT call _update_agent_profile.
+
+        After the fix, _restore_event_position only rolls back in memory -
+        it does NOT persist to Redis. Redis persistence only happens for
+        confirmed speech turns.
+        """
         worker = worker_with_session
 
         # Set up state
@@ -416,8 +433,11 @@ class TestRestoreUpdatesRedis:
             # Restore to earlier position
             await worker._restore_event_position("150-0")
 
-            # Assert Redis update called with correct ID
-            mock_update.assert_called_once_with(last_event_id="150-0")
+            # Assert position rolled back IN MEMORY
+            assert worker.session.last_event_id == "150-0"
+
+            # CRITICAL: Redis persistence NOT called (this is the fix)
+            mock_update.assert_not_called()
 
 
 class TestRestoreSkipsWhenSavedIdNone:
