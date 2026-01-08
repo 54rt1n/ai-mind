@@ -13,6 +13,7 @@ from andimud_worker.adapter import (
     format_turn_events,
     format_turn_response,
     entries_to_chat_turns,
+    format_self_action_guidance,
 )
 from aim_mud_types import MUDConversationEntry
 from aim.constants import DOC_MUD_WORLD, DOC_MUD_AGENT
@@ -24,6 +25,8 @@ from aim_mud_types import (
     MUDAction,
     MUDTurn,
     MUDSession,
+    WorldState,
+    InventoryItem,
 )
 from aim.agents.persona import Persona
 
@@ -645,3 +648,270 @@ class TestEntriesToChatTurns:
         assert result[0]["content"] == "First message"
         assert result[1]["content"] == "Second message"
         assert result[2]["content"] == "Third message"
+
+
+class TestFormatSelfActionGuidance:
+    """Tests for format_self_action_guidance function with enhanced formatting."""
+
+    def test_empty_actions(self):
+        """Test with no self-actions returns empty string."""
+        result = format_self_action_guidance([])
+        assert result == ""
+
+    def test_single_movement_action(self):
+        """Test single movement action produces enhanced format."""
+        event = MUDEvent(
+            event_type=EventType.MOVEMENT,
+            actor="Andi",
+            room_id="#124",
+            room_name="The Kitchen",
+            content="enters from the south",
+        )
+        result = format_self_action_guidance([event])
+
+        # Check for visual separators
+        assert "═" * 60 in result
+        # Check for header
+        assert "!! IMPORTANT: YOUR RECENT ACTION !!" in result
+        # Check for action type
+        assert "Action Type: MOVEMENT" in result
+        # Check for explicit location statement
+        assert "You just moved to: The Kitchen" in result
+        # Check for current location
+        assert "CURRENT LOCATION: The Kitchen" in result
+        # Check for contextual reminder
+        assert "This is your new location" in result
+        assert "physically moved" in result
+
+    def test_single_object_pickup_action_no_inventory(self):
+        """Test single object pickup with no inventory information."""
+        event = MUDEvent(
+            event_type=EventType.OBJECT,
+            actor="Andi",
+            room_id="#123",
+            target="Golden Key",
+            content="picks up a Golden Key",
+        )
+        result = format_self_action_guidance([event])
+
+        # Check for visual separators
+        assert "═" * 60 in result
+        # Check for header
+        assert "!! IMPORTANT: YOUR RECENT ACTION !!" in result
+        # Check for action type
+        assert "Action Type: OBJECT INTERACTION" in result
+        # Check for explicit action statement
+        assert "You picked up: Golden Key" in result
+        # Check for inventory (should be "none" without world_state)
+        assert "CURRENT INVENTORY: none" in result
+
+    def test_single_object_pickup_action_with_inventory(self):
+        """Test single object pickup with inventory information."""
+        event = MUDEvent(
+            event_type=EventType.OBJECT,
+            actor="Andi",
+            room_id="#123",
+            target="Golden Key",
+            content="picks up a Golden Key",
+        )
+        world_state = WorldState(
+            inventory=[
+                InventoryItem(name="Silver Coin"),
+                InventoryItem(name="Golden Key"),
+            ]
+        )
+        result = format_self_action_guidance([event], world_state=world_state)
+
+        # Check for current inventory
+        assert "CURRENT INVENTORY: Silver Coin, Golden Key" in result
+
+    def test_single_object_drop_action(self):
+        """Test single object drop action."""
+        event = MUDEvent(
+            event_type=EventType.OBJECT,
+            actor="Andi",
+            room_id="#123",
+            target="Silver Coin",
+            content="drops a Silver Coin",
+        )
+        world_state = WorldState(inventory=[InventoryItem(name="Golden Key")])
+        result = format_self_action_guidance([event], world_state=world_state)
+
+        assert "You dropped: Silver Coin" in result
+        assert "CURRENT INVENTORY: Golden Key" in result
+
+    def test_single_object_give_action(self):
+        """Test single object give action."""
+        event = MUDEvent(
+            event_type=EventType.OBJECT,
+            actor="Andi",
+            room_id="#123",
+            target="Silver Coin",
+            content="gives a Silver Coin to Prax",
+            metadata={"target_name": "Prax"},
+        )
+        result = format_self_action_guidance([event])
+
+        assert "You gave Silver Coin to Prax" in result
+        assert "CURRENT INVENTORY: none" in result
+
+    def test_single_object_put_action(self):
+        """Test single object put action."""
+        event = MUDEvent(
+            event_type=EventType.OBJECT,
+            actor="Andi",
+            room_id="#123",
+            target="Silver Coin",
+            content="puts a Silver Coin in the chest",
+            metadata={"container_name": "chest"},
+        )
+        result = format_self_action_guidance([event])
+
+        assert "You put Silver Coin in chest" in result
+        assert "CURRENT INVENTORY: none" in result
+
+    def test_single_emote_action(self):
+        """Test single emote action."""
+        event = MUDEvent(
+            event_type=EventType.EMOTE,
+            actor="Andi",
+            room_id="#123",
+            content="smiles warmly",
+        )
+        result = format_self_action_guidance([event])
+
+        assert "Action Type: EMOTE" in result
+        assert "You expressed: smiles warmly" in result
+
+    def test_multiple_actions_movement_and_object(self):
+        """Test multiple actions with both movement and object interaction."""
+        event1 = MUDEvent(
+            event_type=EventType.MOVEMENT,
+            actor="Andi",
+            room_id="#124",
+            room_name="The Kitchen",
+            content="enters from the south",
+        )
+        event2 = MUDEvent(
+            event_type=EventType.OBJECT,
+            actor="Andi",
+            room_id="#124",
+            target="Golden Key",
+            content="picks up a Golden Key",
+        )
+        world_state = WorldState(inventory=[InventoryItem(name="Golden Key")])
+        result = format_self_action_guidance([event1, event2], world_state=world_state)
+
+        # Check for plural header
+        assert "!! IMPORTANT: YOUR RECENT ACTIONS !!" in result
+        # Check for numbered list
+        assert "1. MOVEMENT: You moved to The Kitchen" in result
+        assert "→ Current Location: The Kitchen" in result
+        assert "2. OBJECT: You picked up Golden Key" in result
+        assert "→ Current Inventory: Golden Key" in result
+        # Check for summary
+        assert "You have taken multiple actions" in result
+        assert "Your location and inventory" in result
+        assert "have changed" in result
+        assert "You are now in The Kitchen" in result
+        assert "Carrying: Golden Key" in result
+
+    def test_multiple_actions_only_movement(self):
+        """Test multiple movement actions."""
+        event1 = MUDEvent(
+            event_type=EventType.MOVEMENT,
+            actor="Andi",
+            room_id="#124",
+            room_name="The Kitchen",
+            content="enters from the south",
+        )
+        event2 = MUDEvent(
+            event_type=EventType.MOVEMENT,
+            actor="Andi",
+            room_id="#125",
+            room_name="The Parlor",
+            content="enters from the west",
+        )
+        result = format_self_action_guidance([event1, event2])
+
+        assert "1. MOVEMENT: You moved to The Kitchen" in result
+        assert "2. MOVEMENT: You moved to The Parlor" in result
+        assert "You have moved between multiple locations" in result
+        assert "You are now in The Parlor" in result
+
+    def test_multiple_actions_only_objects(self):
+        """Test multiple object interaction actions."""
+        event1 = MUDEvent(
+            event_type=EventType.OBJECT,
+            actor="Andi",
+            room_id="#123",
+            target="Golden Key",
+            content="picks up a Golden Key",
+        )
+        event2 = MUDEvent(
+            event_type=EventType.OBJECT,
+            actor="Andi",
+            room_id="#123",
+            target="Silver Coin",
+            content="picks up a Silver Coin",
+        )
+        world_state = WorldState(
+            inventory=[
+                InventoryItem(name="Golden Key"),
+                InventoryItem(name="Silver Coin"),
+            ]
+        )
+        result = format_self_action_guidance([event1, event2], world_state=world_state)
+
+        assert "1. OBJECT: You picked up Golden Key" in result
+        assert "2. OBJECT: You picked up Silver Coin" in result
+        assert "You have performed multiple object interactions" in result
+        assert "Carrying: Golden Key, Silver Coin" in result
+
+    def test_visual_separator_length(self):
+        """Test that visual separator is exactly 60 characters."""
+        event = MUDEvent(
+            event_type=EventType.MOVEMENT,
+            actor="Andi",
+            room_id="#124",
+            room_name="The Kitchen",
+            content="enters from the south",
+        )
+        result = format_self_action_guidance([event])
+
+        # Extract the separator line
+        lines = result.split("\n")
+        separator_line = lines[0]
+        assert len(separator_line) == 60
+        assert separator_line == "═" * 60
+
+    def test_movement_with_metadata_room_name(self):
+        """Test movement action using room_name from metadata."""
+        event = MUDEvent(
+            event_type=EventType.MOVEMENT,
+            actor="Andi",
+            room_id="#124",
+            content="enters from the south",
+            metadata={"room_name": "The Ballroom"},
+        )
+        result = format_self_action_guidance([event])
+
+        # Should use room_name from metadata if room_name field is None
+        assert "The Ballroom" in result
+
+    def test_object_with_container_metadata(self):
+        """Test object action with container in metadata."""
+        event = MUDEvent(
+            event_type=EventType.OBJECT,
+            actor="Andi",
+            room_id="#123",
+            target="Silver Coin",
+            content="gets a Silver Coin from the chest",
+            metadata={"container_name": "chest"},
+        )
+        result = format_self_action_guidance([event])
+
+        # Should extract container from metadata
+        # Note: This tests the "take" action which doesn't show container in summary
+        # but the metadata is available
+        assert "You picked up: Silver Coin" in result

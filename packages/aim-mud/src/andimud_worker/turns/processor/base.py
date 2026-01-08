@@ -95,7 +95,9 @@ class BaseTurnProcessor(ABC):
         self_actions: list[MUDEvent] = []
         if self.worker.session and self.worker.session.pending_self_actions:
             self_actions = self.worker.session.pending_self_actions.copy()
-            self._action_guidance = format_self_action_guidance(self_actions)
+            self._action_guidance = format_self_action_guidance(
+                self_actions, world_state=self.worker.session.world_state
+            )
             logger.info(
                 f"Prepared action guidance for {len(self_actions)} self-actions"
             )

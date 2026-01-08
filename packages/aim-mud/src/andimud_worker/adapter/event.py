@@ -157,23 +157,205 @@ def _extract_object_from_content(content: str) -> str:
     return "something"
 
 
-def format_self_action_guidance(self_actions: list[MUDEvent]) -> str:
-    """Format a list of self-actions as guidance block.
+def format_self_action_guidance(self_actions: list[MUDEvent], world_state=None) -> str:
+    """Format a list of self-actions as an enhanced guidance block.
+
+    Creates a visually prominent notification box for self-actions with:
+    - Clear visual separators
+    - Action type labels
+    - Explicit state confirmations (location/inventory)
+    - Contextual reminders
 
     Args:
         self_actions: List of self-action MUDEvent objects.
+        world_state: Optional WorldState for current inventory information.
 
     Returns:
-        Formatted guidance string with action confirmations,
+        Formatted guidance string with enhanced action confirmations,
         or empty string if no self-actions.
     """
     if not self_actions:
         return ""
 
-    lines = []
-    for event in self_actions:
-        formatted = format_self_event(event)
-        lines.append(f"[!! Action: {formatted} !!]")
+    separator = "═" * 60
 
-    return "\n".join(lines)
+    # Single action
+    if len(self_actions) == 1:
+        event = self_actions[0]
+        formatted = format_self_event(event)
+
+        lines = [
+            separator,
+            "!! IMPORTANT: YOUR RECENT ACTION !!",
+            separator,
+            ""
+        ]
+
+        # Add action type and details
+        if event.event_type == EventType.MOVEMENT:
+            room_name = event.room_name or event.metadata.get("room_name", "somewhere")
+            lines.extend([
+                "Action Type: MOVEMENT",
+                "",
+                f"You just moved to: {room_name}",
+                "",
+                f"CURRENT LOCATION: {room_name}",
+                "",
+                "This is your new location. You have physically moved and are now",
+                "in a different room than before.",
+            ])
+
+        elif event.event_type == EventType.OBJECT:
+            content_lower = event.content.lower()
+            target = event.target or _extract_object_from_content(event.content)
+
+            lines.extend([
+                "Action Type: OBJECT INTERACTION",
+                "",
+            ])
+
+            if "pick" in content_lower or "get" in content_lower or "take" in content_lower:
+                lines.append(f"You picked up: {target}")
+                lines.append("")
+                inventory_summary = _get_current_inventory_summary(world_state)
+                lines.append(f"CURRENT INVENTORY: {inventory_summary}")
+            elif "drop" in content_lower:
+                lines.append(f"You dropped: {target}")
+                lines.append("")
+                inventory_summary = _get_current_inventory_summary(world_state)
+                lines.append(f"CURRENT INVENTORY: {inventory_summary}")
+            elif "give" in content_lower:
+                recipient = event.metadata.get("target_name", "someone")
+                lines.append(f"You gave {target} to {recipient}")
+                lines.append("")
+                inventory_summary = _get_current_inventory_summary(world_state)
+                lines.append(f"CURRENT INVENTORY: {inventory_summary}")
+            elif "put" in content_lower:
+                container = event.metadata.get("container_name", "somewhere")
+                lines.append(f"You put {target} in {container}")
+                lines.append("")
+                inventory_summary = _get_current_inventory_summary(world_state)
+                lines.append(f"CURRENT INVENTORY: {inventory_summary}")
+            else:
+                lines.append(formatted)
+
+        elif event.event_type == EventType.EMOTE:
+            lines.extend([
+                "Action Type: EMOTE",
+                "",
+                formatted,
+            ])
+
+        else:
+            lines.extend([
+                f"Action Type: {event.event_type.value.upper()}",
+                "",
+                formatted,
+            ])
+
+        lines.extend([
+            "",
+            separator,
+        ])
+
+        return "\n".join(lines)
+
+    # Multiple actions
+    else:
+        lines = [
+            separator,
+            "!! IMPORTANT: YOUR RECENT ACTIONS !!",
+            separator,
+            ""
+        ]
+
+        # Track state changes
+        movement_occurred = False
+        object_interaction = False
+        final_location = None
+
+        for idx, event in enumerate(self_actions, 1):
+            formatted = format_self_event(event)
+
+            if event.event_type == EventType.MOVEMENT:
+                movement_occurred = True
+                room_name = event.room_name or event.metadata.get("room_name", "somewhere")
+                final_location = room_name
+                lines.append(f"{idx}. MOVEMENT: You moved to {room_name}")
+                lines.append(f"   → Current Location: {room_name}")
+
+            elif event.event_type == EventType.OBJECT:
+                object_interaction = True
+                target = event.target or _extract_object_from_content(event.content)
+                content_lower = event.content.lower()
+
+                if "pick" in content_lower or "get" in content_lower or "take" in content_lower:
+                    lines.append(f"{idx}. OBJECT: You picked up {target}")
+                elif "drop" in content_lower:
+                    lines.append(f"{idx}. OBJECT: You dropped {target}")
+                elif "give" in content_lower:
+                    recipient = event.metadata.get("target_name", "someone")
+                    lines.append(f"{idx}. OBJECT: You gave {target} to {recipient}")
+                elif "put" in content_lower:
+                    container = event.metadata.get("container_name", "somewhere")
+                    lines.append(f"{idx}. OBJECT: You put {target} in {container}")
+                else:
+                    lines.append(f"{idx}. OBJECT: {formatted}")
+
+                inventory_summary = _get_current_inventory_summary(world_state)
+                lines.append(f"   → Current Inventory: {inventory_summary}")
+
+            elif event.event_type == EventType.EMOTE:
+                lines.append(f"{idx}. EMOTE: {formatted}")
+
+            else:
+                lines.append(f"{idx}. {event.event_type.value.upper()}: {formatted}")
+
+            lines.append("")
+
+        # Summary line
+        summary_parts = []
+        if movement_occurred and object_interaction:
+            summary_parts.append("You have taken multiple actions. Your location and inventory")
+            summary_parts.append("have changed.")
+            if final_location:
+                inventory_summary = _get_current_inventory_summary(world_state)
+                summary_parts.append(f"You are now in {final_location}.")
+                if inventory_summary != "none":
+                    summary_parts.append(f"Carrying: {inventory_summary}")
+        elif movement_occurred:
+            summary_parts.append("You have moved between multiple locations.")
+            if final_location:
+                summary_parts.append(f"You are now in {final_location}.")
+        elif object_interaction:
+            summary_parts.append("You have performed multiple object interactions.")
+            inventory_summary = _get_current_inventory_summary(world_state)
+            if inventory_summary != "none":
+                summary_parts.append(f"Carrying: {inventory_summary}")
+        else:
+            summary_parts.append(f"You have taken {len(self_actions)} actions.")
+
+        lines.append(" ".join(summary_parts))
+        lines.extend([
+            "",
+            separator,
+        ])
+
+        return "\n".join(lines)
+
+
+def _get_current_inventory_summary(world_state) -> str:
+    """Get a summary of current inventory items.
+
+    Args:
+        world_state: Optional WorldState object containing inventory.
+
+    Returns:
+        Comma-separated list of item names, or "none" if empty.
+    """
+    if not world_state or not hasattr(world_state, 'inventory') or not world_state.inventory:
+        return "none"
+
+    item_names = [item.name for item in world_state.inventory]
+    return ", ".join(item_names)
 

@@ -106,9 +106,12 @@ class TestTurnProcessor:
         # Verify that action guidance was set
         assert processor._action_guidance != ""
 
-        # Verify guidance contains formatted self-actions
-        assert "[!! Action: You moved to The Kitchen. !!]" in processor._action_guidance
-        assert "[!! Action: You picked up golden key. !!]" in processor._action_guidance
+        # Verify guidance contains enhanced formatted self-actions
+        guidance = processor._action_guidance
+        assert "!! IMPORTANT: YOUR RECENT ACTIONS !!" in guidance
+        assert "1. MOVEMENT: You moved to The Kitchen" in guidance
+        assert "2. OBJECT: You picked up golden key" in guidance
+        assert "Current Location: The Kitchen" in guidance
 
         # Verify pending_self_actions was cleared
         assert mock_worker.session.pending_self_actions == []
@@ -175,8 +178,10 @@ class TestTurnProcessor:
 
         await processor.setup_turn([])
 
-        # Verify all action types are formatted
+        # Verify all action types are formatted with enhanced format
         guidance = processor._action_guidance
-        assert "You moved to The Garden." in guidance
-        assert "You dropped silver key." in guidance
-        assert "You expressed: smiles warmly" in guidance
+        assert "!! IMPORTANT: YOUR RECENT ACTIONS !!" in guidance
+        assert "1. MOVEMENT: You moved to The Garden" in guidance
+        assert "2. OBJECT: You dropped silver key" in guidance
+        assert "3. EMOTE: You expressed: smiles warmly" in guidance
+        assert "Current Location: The Garden" in guidance
