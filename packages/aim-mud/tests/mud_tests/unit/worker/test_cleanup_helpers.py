@@ -19,8 +19,9 @@ class TestHeartbeatTurnRequest:
 
     @pytest.mark.asyncio
     async def test_heartbeat_refreshes_ttl_periodically(self, test_worker):
-        """Test that heartbeat refreshes TTL and timestamp periodically."""
+        """Test that heartbeat refreshes TTL and timestamp periodically when TTL>0."""
         # Arrange
+        test_worker.config.turn_request_ttl_seconds = 120  # Enable TTL
         stop_event = asyncio.Event()
         test_worker.redis.expire = AsyncMock()
         test_worker.redis.hset = AsyncMock()
@@ -194,6 +195,7 @@ class TestSetTurnRequestStateTransitions:
     async def test_cas_success_with_matching_turn_id(self, test_worker):
         """Test that CAS succeeds when turn_id matches."""
         # Arrange
+        test_worker.config.turn_request_ttl_seconds = 120  # Enable TTL
         test_worker.redis.eval = AsyncMock(return_value=1)  # CAS success
         test_worker.redis.expire = AsyncMock()
 

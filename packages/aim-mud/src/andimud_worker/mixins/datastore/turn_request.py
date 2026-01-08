@@ -132,8 +132,9 @@ class TurnRequestMixin:
         )
 
         if result == 1:
-            # Success - also update TTL
-            await self.redis.expire(key, self.config.turn_request_ttl_seconds)
+            # Success - conditionally update TTL (0 = no TTL)
+            if self.config.turn_request_ttl_seconds > 0:
+                await self.redis.expire(key, self.config.turn_request_ttl_seconds)
             return True
         else:
             logger.warning(f"CAS failed: expected turn_id {expected_turn_id}, update aborted")
@@ -150,10 +151,12 @@ class TurnRequestMixin:
                 await asyncio.sleep(self.config.turn_request_heartbeat_seconds)
                 if stop_event.is_set():
                     break
-                await self.redis.expire(
-                    self._turn_request_key(),
-                    self.config.turn_request_ttl_seconds,
-                )
+                # Only set TTL if configured (0 = no TTL)
+                if self.config.turn_request_ttl_seconds > 0:
+                    await self.redis.expire(
+                        self._turn_request_key(),
+                        self.config.turn_request_ttl_seconds,
+                    )
                 await self.redis.hset(
                     self._turn_request_key(),
                     mapping={"heartbeat_at": _utc_now().isoformat()},

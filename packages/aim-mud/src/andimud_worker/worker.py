@@ -293,10 +293,12 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
                             self._turn_request_key(),
                             mapping={"heartbeat_at": _utc_now().isoformat()},
                         )
-                        await self.redis.expire(
-                            self._turn_request_key(),
-                            self.config.turn_request_ttl_seconds,
-                        )
+                        # Only set TTL if configured (0 = no TTL)
+                        if self.config.turn_request_ttl_seconds > 0:
+                            await self.redis.expire(
+                                self._turn_request_key(),
+                                self.config.turn_request_ttl_seconds,
+                            )
                     await asyncio.sleep(self.config.turn_request_poll_interval)
                     continue
 
@@ -481,22 +483,93 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
     async def _announce_presence(self) -> None:
         """Announce worker online with ready status and wakeup message.
 
+        Implements startup recovery logic:
+        - Branch 1: No turn_request → create with status="ready"
+        - Branch 2: Problem states (in_progress/crashed/assigned/abort_requested) → convert to "fail" with recovery
+        - Branch 3: Normal states (ready/done/fail) → update heartbeat only
+
         Uses persona.mud_wakeup if available, otherwise falls back to
         random wakeup message from persona.wakeup list. If mud_wakeup is
         provided, room state context is passed for formatting.
         """
         turn_request = await self._get_turn_request()
 
-        # Clear crashed status if present
-        if turn_request and turn_request.get("status") == "crashed":
-            logger.info("Clearing crashed status, worker is online")
+        # Branch 1: No turn_request → create with status="ready"
+        if not turn_request:
+            logger.info("No turn_request found, creating fresh ready state")
+            await self._set_turn_request_state(
+                turn_id=str(uuid.uuid4()),
+                status="ready",
+                extra_fields={"status_reason": "Worker online (fresh start)"}
+            )
 
-        # Set to ready
-        await self._set_turn_request_state(
-            turn_id=str(uuid.uuid4()),
-            status="ready",
-            extra_fields={"status_reason": "Worker online"}
-        )
+        # Branch 2: Problem states → convert to "fail" with recovery logic
+        elif turn_request.get("status") in ("in_progress", "crashed", "assigned", "abort_requested"):
+            status = turn_request.get("status")
+            turn_id = turn_request.get("turn_id", str(uuid.uuid4()))
+
+            logger.warning(f"Startup recovery: found turn_request in problem state '{status}', converting to fail")
+
+            # Get current attempt count or default to 0
+            attempt_count = int(turn_request.get("attempt_count", "0"))
+
+            # Increment attempt count for this recovery
+            attempt_count += 1
+
+            # Check if we've exhausted max attempts
+            if attempt_count >= self.config.llm_failure_max_attempts:
+                # Max attempts reached - set fail state with no retry
+                logger.error(
+                    f"Turn {turn_id} abandoned after {attempt_count} attempts (startup recovery)"
+                )
+                await self._set_turn_request_state(
+                    turn_id,
+                    "fail",
+                    message=f"Abandoned after {attempt_count} attempts (startup recovery from {status})",
+                    extra_fields={
+                        "attempt_count": str(attempt_count),
+                        "next_attempt_at": "",  # Empty = no retry
+                        "status_reason": f"Max attempts reached during startup recovery from {status}"
+                    }
+                )
+            else:
+                # Calculate backoff with exponential backoff
+                backoff = min(
+                    self.config.llm_failure_backoff_base_seconds * (2 ** (attempt_count - 1)),
+                    self.config.llm_failure_backoff_max_seconds
+                )
+
+                # ALWAYS set next_attempt_at (never leave empty unless max attempts)
+                next_attempt_at = (_utc_now() + timedelta(seconds=backoff)).isoformat()
+
+                logger.info(
+                    f"Turn {turn_id} marked fail (attempt {attempt_count}/{self.config.llm_failure_max_attempts}), "
+                    f"will retry in {backoff}s (startup recovery from {status})"
+                )
+
+                await self._set_turn_request_state(
+                    turn_id,
+                    "fail",
+                    message=f"Worker restart during {status} state",
+                    extra_fields={
+                        "attempt_count": str(attempt_count),
+                        "next_attempt_at": next_attempt_at,
+                        "status_reason": f"Startup recovery from {status}"
+                    }
+                )
+
+        # Branch 3: Normal states (ready/done/fail) → update heartbeat only
+        else:
+            status = turn_request.get("status")
+            turn_id = turn_request.get("turn_id", str(uuid.uuid4()))
+
+            logger.info(f"Startup: turn_request in normal state '{status}', updating heartbeat")
+
+            # Update heartbeat timestamp to indicate worker is alive
+            await self.redis.hset(
+                self._turn_request_key(),
+                mapping={"heartbeat_at": _utc_now().isoformat()}
+            )
 
         # Get wakeup message with room context
         if self.persona.mud_wakeup and self.session and self.session.world_state:

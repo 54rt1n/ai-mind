@@ -165,11 +165,12 @@ class AgentsMixin:
         )
 
         if result == 1:
-            # CAS succeeded - set TTL
-            await self.redis.expire(
-                RedisKeys.agent_turn_request(agent_id),
-                self.config.turn_request_ttl_seconds
-            )
+            # CAS succeeded - conditionally set TTL (0 = no TTL)
+            if self.config.turn_request_ttl_seconds > 0:
+                await self.redis.expire(
+                    RedisKeys.agent_turn_request(agent_id),
+                    self.config.turn_request_ttl_seconds
+                )
             logger.info(f"Assigned turn to {agent_id} (sequence_id={turn_sequence_id}, reason={reason}, attempt={attempt_count})")
             return True
         else:

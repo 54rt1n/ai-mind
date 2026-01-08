@@ -52,6 +52,7 @@ class TestSetTurnRequestState:
     async def test_set_turn_request_state_basic(self, test_worker):
         """Test setting turn request state uses Lua script CAS."""
         # Arrange
+        test_worker.config.turn_request_ttl_seconds = 120  # Enable TTL for this test
         test_worker.redis.eval = AsyncMock(return_value=1)  # CAS success
         test_worker.redis.expire = AsyncMock()
 
@@ -104,8 +105,9 @@ class TestSetTurnRequestState:
 
     @pytest.mark.asyncio
     async def test_set_turn_request_state_sets_ttl(self, test_worker):
-        """Test that state updates refresh TTL."""
+        """Test that state updates refresh TTL when TTL>0."""
         # Arrange
+        test_worker.config.turn_request_ttl_seconds = 120  # Enable TTL
         test_worker.redis.eval = AsyncMock(return_value=1)
         test_worker.redis.expire = AsyncMock()
 
