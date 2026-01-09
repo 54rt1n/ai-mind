@@ -23,10 +23,9 @@ class TestHeartbeatTurnRequest:
         # Arrange
         test_worker.config.turn_request_ttl_seconds = 120  # Enable TTL
         stop_event = asyncio.Event()
-        test_worker.redis.expire = AsyncMock()
-        test_worker.redis.hset = AsyncMock()
-        test_worker.redis.exists = AsyncMock(return_value=True)  # Key exists
+        test_worker.redis.eval = AsyncMock(return_value=1)  # Success
         test_worker.config.turn_request_heartbeat_seconds = 0.01  # Fast for testing
+        test_worker.running = True  # Worker is running
 
         # Act - start heartbeat and let it run for a few cycles
         heartbeat_task = asyncio.create_task(
@@ -36,24 +35,25 @@ class TestHeartbeatTurnRequest:
         stop_event.set()
         await heartbeat_task
 
-        # Assert - should have called expire and hset multiple times
-        assert test_worker.redis.expire.call_count >= 2
-        assert test_worker.redis.hset.call_count >= 2
+        # Assert - should have called eval (atomic_heartbeat_update) multiple times
+        assert test_worker.redis.eval.call_count >= 2
 
-        # Verify expire called with correct key and TTL
-        call_args = test_worker.redis.expire.call_args
-        assert call_args[0][0] == test_worker._turn_request_key()
-        assert call_args[0][1] == test_worker.config.turn_request_ttl_seconds
+        # Verify eval called with correct Lua script pattern and TTL argument
+        call_args = test_worker.redis.eval.call_args[0]
+        lua_script = call_args[0]
+        assert "HSET" in lua_script  # Should contain heartbeat update
+        assert "EXPIRE" in lua_script  # Should contain TTL refresh
+        # TTL argument should be "120" (last positional arg)
+        assert call_args[4] == "120"
 
     @pytest.mark.asyncio
     async def test_heartbeat_stops_on_event_signal(self, test_worker):
         """Test that heartbeat stops immediately when stop_event is set."""
         # Arrange
         stop_event = asyncio.Event()
-        test_worker.redis.expire = AsyncMock()
-        test_worker.redis.hset = AsyncMock()
-        test_worker.redis.exists = AsyncMock(return_value=True)  # Key exists
+        test_worker.redis.eval = AsyncMock(return_value=1)  # Success
         test_worker.config.turn_request_heartbeat_seconds = 0.01
+        test_worker.running = True  # Worker is running
 
         # Act - start and immediately stop
         heartbeat_task = asyncio.create_task(
@@ -63,17 +63,16 @@ class TestHeartbeatTurnRequest:
         await heartbeat_task
 
         # Assert - should have minimal calls (0-1)
-        assert test_worker.redis.expire.call_count <= 1
+        assert test_worker.redis.eval.call_count <= 1
 
     @pytest.mark.asyncio
     async def test_heartbeat_handles_cancellation(self, test_worker):
         """Test that heartbeat handles cancellation gracefully."""
         # Arrange
         stop_event = asyncio.Event()
-        test_worker.redis.expire = AsyncMock()
-        test_worker.redis.hset = AsyncMock()
-        test_worker.redis.exists = AsyncMock(return_value=True)  # Key exists
+        test_worker.redis.eval = AsyncMock(return_value=1)  # Success
         test_worker.config.turn_request_heartbeat_seconds = 1.0
+        test_worker.running = True  # Worker is running
 
         # Act - cancel task during heartbeat
         heartbeat_task = asyncio.create_task(
@@ -374,10 +373,9 @@ class TestHeartbeatCleanup:
         """Test that heartbeat task is cancelled when turn processing fails."""
         # Arrange
         heartbeat_stop = asyncio.Event()
-        test_worker.redis.expire = AsyncMock()
-        test_worker.redis.hset = AsyncMock()
-        test_worker.redis.exists = AsyncMock(return_value=True)  # Key exists
+        test_worker.redis.eval = AsyncMock(return_value=1)  # Success
         test_worker.config.turn_request_heartbeat_seconds = 0.01
+        test_worker.running = True  # Worker is running
 
         heartbeat_task = asyncio.create_task(
             test_worker._heartbeat_turn_request(heartbeat_stop)
@@ -403,10 +401,9 @@ class TestHeartbeatCleanup:
         """Test that heartbeat task is stopped when turn completes successfully."""
         # Arrange
         heartbeat_stop = asyncio.Event()
-        test_worker.redis.expire = AsyncMock()
-        test_worker.redis.hset = AsyncMock()
-        test_worker.redis.exists = AsyncMock(return_value=True)  # Key exists
+        test_worker.redis.eval = AsyncMock(return_value=1)  # Success
         test_worker.config.turn_request_heartbeat_seconds = 0.01
+        test_worker.running = True  # Worker is running
 
         heartbeat_task = asyncio.create_task(
             test_worker._heartbeat_turn_request(heartbeat_stop)

@@ -294,18 +294,18 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
                 if turn_request.status != TurnRequestStatus.ASSIGNED:
                     # Keep turn_request alive when ready but idle - refresh TTL and heartbeat
                     if turn_request.status == TurnRequestStatus.READY:
-                        # Guard against shutdown race - only update if key exists
-                        if await self.redis.exists(self._turn_request_key()):
-                            await self.redis.hset(
-                                self._turn_request_key(),
-                                mapping={"heartbeat_at": _utc_now().isoformat()},
+                        # Atomic heartbeat update with validation
+                        result = await self.atomic_heartbeat_update(update_ttl=True)
+
+                        if result == -1:
+                            # Corrupted hash detected - recreate with fresh READY state
+                            logger.warning("Idle heartbeat detected corrupted hash, recreating state")
+                            await self._set_turn_request_state(
+                                turn_id=str(uuid.uuid4()),
+                                status=TurnRequestStatus.READY,
+                                extra_fields={"status_reason": "Recovered from corrupted hash during idle"}
                             )
-                        # Only set TTL if configured (0 = no TTL)
-                        if self.config.turn_request_ttl_seconds > 0:
-                            await self.redis.expire(
-                                self._turn_request_key(),
-                                self.config.turn_request_ttl_seconds,
-                            )
+
                     await asyncio.sleep(self.config.turn_request_poll_interval)
                     continue
 
@@ -589,11 +589,17 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
             else:
                 logger.info(f"Startup: turn_request in normal state '{status}', updating heartbeat")
 
-                # Update heartbeat timestamp to indicate worker is alive
-                await self.redis.hset(
-                    self._turn_request_key(),
-                    mapping={"heartbeat_at": _utc_now().isoformat()}
-                )
+                # Atomic heartbeat update with validation (no TTL update at startup)
+                result = await self.atomic_heartbeat_update(update_ttl=False)
+
+                if result == -1:
+                    # Corrupted hash detected during atomic update - recreate with fresh state
+                    logger.warning("Startup: atomic update detected corrupted hash, recreating state")
+                    await self._set_turn_request_state(
+                        turn_id=str(uuid.uuid4()),
+                        status=TurnRequestStatus.READY,
+                        extra_fields={"status_reason": "Recovered from corrupted hash during startup"}
+                    )
 
         # Get wakeup message with room context
         if self.persona.mud_wakeup and self.session and self.session.world_state:
@@ -697,8 +703,8 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
             """Handle shutdown signals."""
             sig_name = signal.Signals(signum).name
             logger.info(f"Received {sig_name}, shutting down gracefully...")
-            # Create task to stop the worker
-            asyncio.create_task(self.stop())
+            # Set flag to stop the worker - safe from any context
+            self.running = False
 
         # Register handlers
         signal.signal(signal.SIGINT, signal_handler)

@@ -105,11 +105,12 @@ class TestTTLRemoval:
 
     @pytest.mark.asyncio
     async def test_heartbeat_no_ttl(self, worker_with_no_ttl):
-        """When TTL=0, heartbeat should NOT call expire()."""
+        """When TTL=0, heartbeat should NOT set TTL (empty TTL arg in Lua script)."""
         import asyncio
 
-        # Mock exists to return 1 so heartbeat enters update block
-        worker_with_no_ttl.redis.exists.return_value = 1
+        # Mock eval to return success
+        worker_with_no_ttl.redis.eval = AsyncMock(return_value=1)
+        worker_with_no_ttl.running = True  # Worker is running
 
         # Set up an initial turn_request in Redis
         turn_id = str(uuid.uuid4())
@@ -139,18 +140,20 @@ class TestTTLRemoval:
         except asyncio.CancelledError:
             pass
 
-        # Verify expire was NOT called (TTL is 0)
-        worker_with_no_ttl.redis.expire.assert_not_called()
-        # But hset (for heartbeat timestamp update) should have been called
-        assert worker_with_no_ttl.redis.hset.called
+        # Verify eval was called with empty TTL argument (5th positional arg)
+        assert worker_with_no_ttl.redis.eval.called
+        call_args = worker_with_no_ttl.redis.eval.call_args[0]
+        # TTL arg should be empty string when TTL is 0
+        assert call_args[4] == ""
 
     @pytest.mark.asyncio
     async def test_heartbeat_with_ttl(self, worker_with_ttl):
-        """When TTL>0, heartbeat should call expire()."""
+        """When TTL>0, heartbeat should set TTL via Lua script."""
         import asyncio
 
-        # Mock exists to return 1 so heartbeat enters update block
-        worker_with_ttl.redis.exists.return_value = 1
+        # Mock eval to return success
+        worker_with_ttl.redis.eval = AsyncMock(return_value=1)
+        worker_with_ttl.running = True  # Worker is running
 
         # Set up an initial turn_request in Redis
         turn_id = str(uuid.uuid4())
@@ -180,10 +183,15 @@ class TestTTLRemoval:
         except asyncio.CancelledError:
             pass
 
-        # Verify hset (for heartbeat timestamp update) was called
-        assert worker_with_ttl.redis.hset.called
-        # And expire was called (for TTL)
-        assert worker_with_ttl.redis.expire.called
+        # Verify eval was called with TTL argument (5th positional arg)
+        assert worker_with_ttl.redis.eval.called
+        call_args = worker_with_ttl.redis.eval.call_args[0]
+        # TTL arg should be "120" when TTL is 120
+        assert call_args[4] == "120"
+        # TTL is now set inside Lua script, not via separate expire() call
+        # The Lua script contains EXPIRE command when TTL arg is non-empty
+        lua_script = call_args[0]
+        assert "EXPIRE" in lua_script
 
 
 class TestStartupRecoveryBranch1:
@@ -445,56 +453,62 @@ class TestStartupRecoveryBranch3:
 
     @pytest.mark.asyncio
     async def test_ready_state_updates_heartbeat(self, worker_with_no_ttl, mock_redis_with_expire):
-        """When status='ready', only update heartbeat."""
+        """When status='ready', only update heartbeat via atomic update."""
         turn_id = str(uuid.uuid4())
         mock_redis_with_expire.hgetall.return_value = {
             b"turn_id": turn_id.encode(),
             b"status": b"ready",
         }
+        mock_redis_with_expire.eval = AsyncMock(return_value=1)  # Success
         worker_with_no_ttl.session = None
 
         await worker_with_no_ttl._announce_presence()
 
-        # Verify hset was called (for heartbeat update)
-        assert mock_redis_with_expire.hset.called
-        hset_call = mock_redis_with_expire.hset.call_args
+        # Verify eval was called (for atomic heartbeat update)
+        assert mock_redis_with_expire.eval.called
+        call_args = mock_redis_with_expire.eval.call_args[0]
 
-        # Verify heartbeat_at was set
-        mapping = hset_call[1].get("mapping", {})
-        assert "heartbeat_at" in mapping
-        # Verify it's a valid ISO timestamp
-        datetime.fromisoformat(mapping["heartbeat_at"])
+        # Verify it's the atomic heartbeat update Lua script
+        lua_script = call_args[0]
+        assert "HSET" in lua_script
+        assert "heartbeat_at" in lua_script
+
+        # Verify heartbeat_at argument (3rd positional arg) is a valid ISO timestamp
+        heartbeat_at = call_args[3]
+        datetime.fromisoformat(heartbeat_at)
 
     @pytest.mark.asyncio
     async def test_done_state_updates_heartbeat(self, worker_with_no_ttl, mock_redis_with_expire):
-        """When status='done', only update heartbeat."""
+        """When status='done', only update heartbeat via atomic update."""
         turn_id = str(uuid.uuid4())
         mock_redis_with_expire.hgetall.return_value = {
             b"turn_id": turn_id.encode(),
             b"status": b"done",
         }
+        mock_redis_with_expire.eval = AsyncMock(return_value=1)  # Success
         worker_with_no_ttl.session = None
 
         await worker_with_no_ttl._announce_presence()
 
-        # Verify hset was called for heartbeat
-        assert mock_redis_with_expire.hset.called
+        # Verify eval was called (for atomic heartbeat update)
+        assert mock_redis_with_expire.eval.called
 
     @pytest.mark.asyncio
     async def test_fail_state_updates_heartbeat(self, worker_with_no_ttl, mock_redis_with_expire):
-        """When status='fail', only update heartbeat."""
+        """When status='fail', only update heartbeat via atomic update."""
         turn_id = str(uuid.uuid4())
         mock_redis_with_expire.hgetall.return_value = {
             b"turn_id": turn_id.encode(),
             b"status": b"fail",
             b"next_attempt_at": (_utc_now() + timedelta(seconds=60)).isoformat(),
         }
+        mock_redis_with_expire.eval = AsyncMock(return_value=1)  # Success
         worker_with_no_ttl.session = None
 
         await worker_with_no_ttl._announce_presence()
 
-        # Verify hset was called for heartbeat
-        assert mock_redis_with_expire.hset.called
+        # Verify eval was called (for atomic heartbeat update)
+        assert mock_redis_with_expire.eval.called
 
     @pytest.mark.asyncio
     async def test_normal_state_logs_info(self, worker_with_no_ttl, mock_redis_with_expire, caplog):
@@ -507,6 +521,7 @@ class TestStartupRecoveryBranch3:
             b"turn_id": turn_id.encode(),
             b"status": b"ready",
         }
+        mock_redis_with_expire.eval = AsyncMock(return_value=1)  # Success
         worker_with_no_ttl.session = None
 
         await worker_with_no_ttl._announce_presence()

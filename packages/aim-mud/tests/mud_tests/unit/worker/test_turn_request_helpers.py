@@ -205,3 +205,89 @@ class TestCheckAbortRequested:
         # Assert
         assert result is False
         test_worker._set_turn_request_state.assert_not_called()
+
+
+class TestAtomicHeartbeatUpdate:
+    """Tests for atomic_heartbeat_update() method."""
+
+    @pytest.mark.asyncio
+    async def test_atomic_heartbeat_success_with_ttl(self, test_worker):
+        """Test successful atomic heartbeat update with TTL refresh."""
+        # Arrange
+        test_worker.config.turn_request_ttl_seconds = 120
+        test_worker.redis.eval = AsyncMock(return_value=1)  # Success
+
+        # Act
+        result = await test_worker.atomic_heartbeat_update(update_ttl=True)
+
+        # Assert
+        assert result == 1
+        test_worker.redis.eval.assert_called_once()
+        # Verify Lua script was called with TTL argument
+        call_args = test_worker.redis.eval.call_args[0]
+        # Arguments: lua_script, num_keys, key, heartbeat_at, ttl_arg
+        # TTL arg should be "120" (5th positional arg, index 4)
+        assert call_args[4] == "120"
+
+    @pytest.mark.asyncio
+    async def test_atomic_heartbeat_success_without_ttl(self, test_worker):
+        """Test successful atomic heartbeat update without TTL refresh."""
+        # Arrange
+        test_worker.config.turn_request_ttl_seconds = 120
+        test_worker.redis.eval = AsyncMock(return_value=1)  # Success
+
+        # Act
+        result = await test_worker.atomic_heartbeat_update(update_ttl=False)
+
+        # Assert
+        assert result == 1
+        test_worker.redis.eval.assert_called_once()
+        # Verify Lua script was called with empty TTL argument
+        call_args = test_worker.redis.eval.call_args[0]
+        # Arguments: lua_script, num_keys, key, heartbeat_at, ttl_arg
+        # TTL arg should be empty string (5th positional arg, index 4)
+        assert call_args[4] == ""
+
+    @pytest.mark.asyncio
+    async def test_atomic_heartbeat_key_missing(self, test_worker):
+        """Test atomic heartbeat when key doesn't exist (normal during shutdown)."""
+        # Arrange
+        test_worker.redis.eval = AsyncMock(return_value=0)  # Key missing
+
+        # Act
+        result = await test_worker.atomic_heartbeat_update(update_ttl=True)
+
+        # Assert
+        assert result == 0
+        test_worker.redis.eval.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_atomic_heartbeat_corrupted_hash(self, test_worker):
+        """Test atomic heartbeat detects corrupted hash (missing required fields)."""
+        # Arrange
+        test_worker.redis.eval = AsyncMock(return_value=-1)  # Corrupted
+
+        # Act
+        result = await test_worker.atomic_heartbeat_update(update_ttl=True)
+
+        # Assert
+        assert result == -1
+        test_worker.redis.eval.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_atomic_heartbeat_respects_ttl_zero(self, test_worker):
+        """Test atomic heartbeat with TTL=0 doesn't set expiration."""
+        # Arrange
+        test_worker.config.turn_request_ttl_seconds = 0  # No TTL
+        test_worker.redis.eval = AsyncMock(return_value=1)
+
+        # Act
+        result = await test_worker.atomic_heartbeat_update(update_ttl=True)
+
+        # Assert
+        assert result == 1
+        # Verify TTL argument is empty string
+        call_args = test_worker.redis.eval.call_args[0]
+        # Arguments: lua_script, num_keys, key, heartbeat_at, ttl_arg
+        # TTL arg should be empty string (5th positional arg, index 4)
+        assert call_args[4] == ""

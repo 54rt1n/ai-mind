@@ -126,6 +126,75 @@ class TurnRequestMixin:
             logger.warning(f"CAS failed: expected turn_id {expected_turn_id}, update aborted")
             return False
 
+    async def atomic_heartbeat_update(
+        self: "MUDAgentWorker",
+        update_ttl: bool = True,
+    ) -> int:
+        """Atomically update heartbeat timestamp with validation.
+
+        Uses Lua script to atomically:
+        1. Check key exists
+        2. Verify required fields (status, turn_id) are present
+        3. Update heartbeat_at timestamp
+        4. Optionally refresh TTL
+
+        This prevents TOCTOU race conditions where the key could be deleted
+        between EXISTS check and HSET write, which would create a partial hash.
+
+        Args:
+            update_ttl: If True, refresh TTL after updating heartbeat
+
+        Returns:
+            1: Success - heartbeat updated
+            0: Key doesn't exist (normal during shutdown)
+            -1: Key corrupted (missing required fields)
+        """
+        key = RedisKeys.agent_turn_request(self.config.agent_id)
+
+        # Lua script for atomic heartbeat update with validation
+        lua_script = """
+            local key = KEYS[1]
+            local heartbeat_at = ARGV[1]
+            local ttl = ARGV[2]
+
+            -- Check key exists
+            if redis.call('EXISTS', key) == 0 then
+                return 0
+            end
+
+            -- Verify required fields to detect corruption
+            local status = redis.call('HGET', key, 'status')
+            local turn_id = redis.call('HGET', key, 'turn_id')
+
+            if not status or not turn_id then
+                return -1  -- Corrupted hash
+            end
+
+            -- Update heartbeat
+            redis.call('HSET', key, 'heartbeat_at', heartbeat_at)
+
+            -- Optional TTL refresh
+            if ttl ~= "" then
+                redis.call('EXPIRE', key, tonumber(ttl))
+            end
+
+            return 1
+        """
+
+        # Build arguments
+        ttl_arg = str(self.config.turn_request_ttl_seconds) if update_ttl and self.config.turn_request_ttl_seconds > 0 else ""
+
+        # Execute atomic update
+        result = await self.redis.eval(
+            lua_script,
+            1,  # number of keys
+            key,
+            _utc_now().isoformat(),
+            ttl_arg
+        )
+
+        return result
+
     async def _heartbeat_turn_request(self: "MUDAgentWorker", stop_event) -> None:
         """Refresh the turn request TTL while processing a turn.
 
@@ -137,21 +206,24 @@ class TurnRequestMixin:
                 await asyncio.sleep(self.config.turn_request_heartbeat_seconds)
                 if stop_event.is_set():
                     break
-                # Guard against turn completion - only update if key still exists
-                if await self.redis.exists(self._turn_request_key()):
-                    # Only set TTL if configured (0 = no TTL)
-                    if self.config.turn_request_ttl_seconds > 0:
-                        await self.redis.expire(
-                            self._turn_request_key(),
-                            self.config.turn_request_ttl_seconds,
-                        )
-                    await self.redis.hset(
-                        self._turn_request_key(),
-                        mapping={"heartbeat_at": _utc_now().isoformat()},
-                    )
-                else:
-                    # Turn completed or corrupted, stop heartbeating
+
+                # Check running flag before updating
+                if not self.running:
+                    logger.debug("Worker shutting down, stopping heartbeat")
+                    return
+
+                # Atomic heartbeat update with validation
+                result = await self.atomic_heartbeat_update(update_ttl=True)
+
+                if result == 0:
+                    # Key doesn't exist (turn completed or deleted during shutdown)
                     logger.debug("Turn completed or key missing, stopping heartbeat")
                     return
+                elif result == -1:
+                    # Corrupted hash - should not happen during turn processing
+                    logger.error("Heartbeat detected corrupted turn_request hash, stopping")
+                    return
+                # result == 1: success, continue heartbeating
+
         except asyncio.CancelledError:
             return
