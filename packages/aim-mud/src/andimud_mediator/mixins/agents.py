@@ -83,6 +83,9 @@ class AgentsMixin:
                 logger.error(f"Error checking state for {agent_id}: {e}", exc_info=True)
                 continue
 
+        # Check for auto-analysis trigger
+        await self._check_auto_analysis_trigger()
+
     async def _maybe_assign_turn(self, agent_id: str, reason: "str | TurnReason" = TurnReason.EVENTS) -> bool:
         """Assign turn if agent is available (including ready to retry).
 
@@ -286,3 +289,209 @@ class AgentsMixin:
         """
         self.registered_agents.discard(agent_id)
         logger.info(f"Unregistered agent {agent_id}")
+
+    async def _check_auto_analysis_trigger(self) -> None:
+        """Check if we should trigger auto-analysis.
+
+        Conditions checked:
+        1. Auto-analysis enabled in config
+        2. Mediator not paused
+        3. Cooldown period has elapsed since last check
+        4. All non-sleeping agents are idle (ready/done/fail status, not in backoff)
+        5. Idle threshold duration reached
+
+        If all conditions met, triggers conversation scanning.
+        Sleeping agents are excluded from idle detection but CAN receive analysis tasks.
+        """
+        if not self.config.auto_analysis_enabled:
+            return
+
+        # Don't trigger auto-analysis if mediator is paused
+        if await self._is_paused():
+            return
+
+        now = _utc_now()
+
+        # Check cooldown
+        elapsed = (now - self._last_auto_analysis_check).total_seconds()
+        if elapsed < self.config.auto_analysis_cooldown_seconds:
+            return
+
+        # Check if ALL agents are idle (and not sleeping)
+        all_idle = True
+        for agent_id in self.registered_agents:
+            # Check if agent is sleeping
+            agent_profile = await self.redis.hgetall(RedisKeys.agent_profile(agent_id))
+            is_sleeping_raw = agent_profile.get(b"is_sleeping") or agent_profile.get("is_sleeping")
+            if is_sleeping_raw:
+                is_sleeping = is_sleeping_raw.decode() if isinstance(is_sleeping_raw, bytes) else is_sleeping_raw
+                if is_sleeping.lower() == "true":
+                    # Skip sleeping agents - they should not trigger auto-analysis
+                    continue
+
+            turn_request = await self._get_turn_request(agent_id)
+            if not turn_request:
+                all_idle = False
+                break
+
+            status = turn_request.status
+            if status in (TurnRequestStatus.ASSIGNED, TurnRequestStatus.IN_PROGRESS, TurnRequestStatus.ABORT_REQUESTED):
+                all_idle = False
+                break
+
+            # Check if failed turn is still in backoff period
+            if status == TurnRequestStatus.FAIL:
+                next_attempt_at_str = turn_request.next_attempt_at
+                if next_attempt_at_str:
+                    try:
+                        next_attempt_at = datetime.fromisoformat(next_attempt_at_str)
+                        if datetime.now(timezone.utc) < next_attempt_at:
+                            all_idle = False
+                            break
+                    except (ValueError, TypeError):
+                        # Invalid timestamp, treat as idle
+                        pass
+
+        if not all_idle:
+            # Reset idle timer if system not fully idle
+            self._auto_analysis_idle_start = None
+            return
+
+        # Track idle duration
+        if self._auto_analysis_idle_start is None:
+            self._auto_analysis_idle_start = now
+            logger.debug("Auto-analysis: system idle detected, starting timer")
+            return
+
+        idle_duration = (now - self._auto_analysis_idle_start).total_seconds()
+        if idle_duration < self.config.auto_analysis_idle_seconds:
+            logger.debug(
+                f"Auto-analysis: system idle for {idle_duration:.0f}s "
+                f"(threshold: {self.config.auto_analysis_idle_seconds}s)"
+            )
+            return
+
+        # Threshold reached!
+        logger.info(f"Auto-analysis: triggered after {idle_duration:.0f}s idle")
+        self._last_auto_analysis_check = now
+        self._auto_analysis_idle_start = None  # Reset for next cycle
+
+        await self._scan_for_unanalyzed_conversations()
+
+    async def _scan_for_unanalyzed_conversations(self) -> None:
+        """Scan agents for conversations needing analysis.
+
+        Uses round-robin to assign analysis to ONE agent per trigger.
+        Tries agents in order starting from self._turn_index until one
+        successfully receives an assignment.
+
+        Uses existing turn assignment infrastructure via _handle_analysis_command().
+        """
+        # Convert set to list for indexing
+        agents_list = list(self.registered_agents)
+        if not agents_list:
+            logger.debug("Auto-analysis: no registered agents")
+            return
+
+        n = len(agents_list)
+        assigned_agent = None
+
+        # Try each agent in round-robin order
+        for i in range(n):
+            agent_id = agents_list[(self._turn_index + i) % n]
+
+            try:
+                # Load cached conversation report from Redis
+                report_key = RedisKeys.agent_conversation_report(agent_id)
+                report_json = await self.redis.get(report_key)
+
+                if not report_json:
+                    logger.debug(f"Auto-analysis: no conversation report for {agent_id}")
+                    continue
+
+                if isinstance(report_json, bytes):
+                    report_json = report_json.decode("utf-8")
+
+                report = json.loads(report_json)
+
+                if not isinstance(report, dict):
+                    logger.warning(
+                        f"Auto-analysis: invalid report format for {agent_id} "
+                        f"(expected dict, got {type(report).__name__})"
+                    )
+                    continue
+
+                # Find unanalyzed conversations
+                # Document types come from conversation report structure:
+                # - "mud-world": documents from world events (user turns)
+                # - "mud-agent": documents from agent actions (assistant turns)
+                # - "analysis": analysis documents created by analysis_dialogue scenario
+                # These column names come from ConversationModel.get_conversation_report()
+                unanalyzed = []
+                for conversation_id, doc_counts in report.items():
+                    if not isinstance(doc_counts, dict):
+                        logger.warning(
+                            f"Auto-analysis: invalid doc_counts for {conversation_id} in {agent_id}"
+                        )
+                        continue
+
+                    has_mud_docs = (
+                        doc_counts.get("mud-world", 0) > 0
+                        or doc_counts.get("mud-agent", 0) > 0
+                    )
+                    has_analysis = doc_counts.get("analysis", 0) > 0
+
+                    if has_mud_docs and not has_analysis:
+                        timestamp = doc_counts.get("timestamp_max", "")
+                        unanalyzed.append((conversation_id, timestamp))
+
+                if not unanalyzed:
+                    logger.debug(f"Auto-analysis: no unanalyzed conversations for {agent_id}")
+                    continue
+
+                # Sort by timestamp (oldest first)
+                unanalyzed.sort(key=lambda x: x[1])
+                conversation_id, timestamp = unanalyzed[0]
+
+                logger.info(
+                    f"Auto-analysis: found {len(unanalyzed)} unanalyzed conversation(s) "
+                    f"for {agent_id}, triggering analysis for oldest: {conversation_id}"
+                )
+
+                # TODO - Phase 4: Implement self-turns where agents can initiate
+                # their own processing without explicit conversation targets. This
+                # will enable agents to autonomously explore topics, reflect on
+                # recent experiences, or pursue creative initiatives during idle time.
+                # Note: Self-turns should respect sleeping state (no self-turns for
+                # sleeping agents), but analysis tasks are allowed for sleeping agents.
+
+                # Assign analysis turn using existing infrastructure
+                success = await self._handle_analysis_command(
+                    agent_id=agent_id,
+                    scenario="analysis_dialogue",
+                    conversation_id=conversation_id,
+                    guidance=None,
+                )
+
+                if success:
+                    assigned_agent = agent_id
+                    self._turn_index = (self._turn_index + i + 1) % n
+                    logger.info(
+                        f"Auto-analysis: assigned analysis to {agent_id} "
+                        f"(round-robin index updated to {self._turn_index})"
+                    )
+                    break  # Stop after first successful assignment
+                else:
+                    logger.debug(
+                        f"Auto-analysis: {agent_id} unavailable, trying next agent"
+                    )
+
+            except Exception as e:
+                logger.error(
+                    f"Auto-analysis: error scanning {agent_id}: {e}",
+                    exc_info=True
+                )
+                continue
+
+        if not assigned_agent:
+            logger.debug("Auto-analysis: no agents had unanalyzed conversations or were available")

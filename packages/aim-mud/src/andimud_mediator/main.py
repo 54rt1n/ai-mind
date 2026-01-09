@@ -87,6 +87,23 @@ Examples:
         default=None,
         help=f"Event poll timeout in seconds (default: {MediatorConfig.event_poll_timeout})",
     )
+    parser.add_argument(
+        "--disable-auto-analysis",
+        action="store_true",
+        help="Disable semi-autonomous analysis mode (enabled by default)"
+    )
+    parser.add_argument(
+        "--auto-analysis-idle-seconds",
+        type=int,
+        default=300,
+        help="Seconds of idle time before triggering auto-analysis (default: 300)"
+    )
+    parser.add_argument(
+        "--auto-analysis-cooldown-seconds",
+        type=int,
+        default=60,
+        help="Cooldown seconds between auto-analysis checks (default: 60)"
+    )
     return parser.parse_args()
 
 
@@ -116,6 +133,9 @@ def main() -> None:
     config_kwargs = {"redis_url": args.redis_url}
     if args.event_timeout is not None:
         config_kwargs["event_poll_timeout"] = args.event_timeout
+    config_kwargs["auto_analysis_enabled"] = not args.disable_auto_analysis
+    config_kwargs["auto_analysis_idle_seconds"] = args.auto_analysis_idle_seconds
+    config_kwargs["auto_analysis_cooldown_seconds"] = args.auto_analysis_cooldown_seconds
     config = MediatorConfig(**config_kwargs)
 
     logger.info(f"Redis URL: {config.redis_url}")

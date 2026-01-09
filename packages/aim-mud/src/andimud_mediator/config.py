@@ -28,3 +28,7 @@ class MediatorConfig:
     # Event processing hash
     events_processed_hash_max: int = 10000  # Max entries to keep in hash
     events_processed_cleanup_interval: int = 86400  # Seconds between cleanups (24h)
+    # Semi-autonomous analysis mode
+    auto_analysis_enabled: bool = True
+    auto_analysis_idle_seconds: int = 300  # 5 minutes default
+    auto_analysis_cooldown_seconds: int = 60  # Prevent rapid re-triggering

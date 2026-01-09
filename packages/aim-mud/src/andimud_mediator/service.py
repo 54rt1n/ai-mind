@@ -25,11 +25,13 @@ Usage:
 import asyncio
 import logging
 import signal
+from datetime import datetime
 from typing import Optional
 
 import redis.asyncio as redis
 
 from aim_mud_types import RedisKeys
+from aim_mud_types.helper import _utc_now
 
 from .config import MediatorConfig
 from .mixins.agents import AgentsMixin
@@ -83,6 +85,10 @@ class MediatorService(AgentsMixin, EventsMixin, DreamerMixin):
 
         # Task references for shutdown
         self._event_task: Optional[asyncio.Task] = None
+
+        # Auto-analysis state tracking
+        self._last_auto_analysis_check: datetime = _utc_now()
+        self._auto_analysis_idle_start: Optional[datetime] = None
 
     async def _next_sequence_id(self) -> int:
         """Get next global sequence ID for event/turn ordering.
