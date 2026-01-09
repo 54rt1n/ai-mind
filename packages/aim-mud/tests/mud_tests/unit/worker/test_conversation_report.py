@@ -4,7 +4,7 @@
 
 import pytest
 import json
-from unittest.mock import Mock
+from unittest.mock import Mock, AsyncMock
 from datetime import datetime, timezone
 
 from andimud_worker.worker import MUDAgentWorker
@@ -31,6 +31,11 @@ async def test_update_conversation_report_success(test_worker, test_cvm, mock_re
     # Monkeypatch the report method to return our test data
     monkeypatch.setattr(test_cvm, 'get_conversation_report', Mock(return_value=report_df))
 
+    # Track redis.set calls by wrapping it with AsyncMock
+    original_set = mock_redis.set
+    set_mock = AsyncMock(side_effect=original_set)
+    mock_redis.set = set_mock
+
     await test_worker._update_conversation_report()
 
     # Verify report was fetched from CVM
@@ -38,8 +43,8 @@ async def test_update_conversation_report_success(test_worker, test_cvm, mock_re
 
     # Verify report was stored in Redis
     expected_key = RedisKeys.agent_conversation_report(test_worker.config.agent_id)
-    mock_redis.set.assert_called_once()
-    call_args = mock_redis.set.call_args[0]
+    set_mock.assert_called_once()
+    call_args = set_mock.call_args[0]
     assert call_args[0] == expected_key
 
     # Verify JSON serialization
@@ -59,11 +64,16 @@ async def test_update_conversation_report_empty(test_worker, test_cvm, mock_redi
     empty_df = pd.DataFrame()
     monkeypatch.setattr(test_cvm, 'get_conversation_report', Mock(return_value=empty_df))
 
+    # Track redis.set calls by wrapping it with AsyncMock
+    original_set = mock_redis.set
+    set_mock = AsyncMock(side_effect=original_set)
+    mock_redis.set = set_mock
+
     await test_worker._update_conversation_report()
 
     expected_key = RedisKeys.agent_conversation_report(test_worker.config.agent_id)
-    mock_redis.set.assert_called_once()
-    call_args = mock_redis.set.call_args[0]
+    set_mock.assert_called_once()
+    call_args = set_mock.call_args[0]
     assert call_args[0] == expected_key
     assert json.loads(call_args[1]) == {}
 
@@ -75,6 +85,11 @@ async def test_update_conversation_report_error(test_worker, test_cvm, mock_redi
 
     monkeypatch.setattr(test_cvm, 'get_conversation_report', Mock(side_effect=Exception("Database error")))
 
+    # Track redis.set calls by wrapping it with AsyncMock
+    original_set = mock_redis.set
+    set_mock = AsyncMock(side_effect=original_set)
+    mock_redis.set = set_mock
+
     # Should not raise exception
     await test_worker._update_conversation_report()
 
@@ -83,7 +98,7 @@ async def test_update_conversation_report_error(test_worker, test_cvm, mock_redi
     assert "Database error" in caplog.text
 
     # Should not call Redis set
-    mock_redis.set.assert_not_called()
+    set_mock.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -102,6 +117,11 @@ async def test_conversation_report_updates_called_correctly(test_worker, test_cv
     report_df = pd.DataFrame(report_data)
     monkeypatch.setattr(test_cvm, 'get_conversation_report', Mock(return_value=report_df))
 
+    # Track redis.set calls by wrapping it with AsyncMock
+    original_set = mock_redis.set
+    set_mock = AsyncMock(side_effect=original_set)
+    mock_redis.set = set_mock
+
     # Call multiple times to simulate startup, flush, and dream
     await test_worker._update_conversation_report()
     await test_worker._update_conversation_report()
@@ -112,8 +132,8 @@ async def test_conversation_report_updates_called_correctly(test_worker, test_cv
 
     # Verify report was stored in Redis three times
     expected_key = RedisKeys.agent_conversation_report(test_worker.config.agent_id)
-    assert mock_redis.set.call_count == 3
+    assert set_mock.call_count == 3
 
     # Verify all calls used the same key
-    for call in mock_redis.set.call_args_list:
+    for call in set_mock.call_args_list:
         assert call[0][0] == expected_key

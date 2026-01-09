@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 from datetime import datetime, timezone
 
 from aim_mud_types.helper import _utc_now
+from aim_mud_types.coordination import MUDTurnRequest
 
 
 class TestGetTurnRequest:
@@ -14,12 +15,12 @@ class TestGetTurnRequest:
 
     @pytest.mark.asyncio
     async def test_get_turn_request_returns_dict(self, test_worker):
-        """Test that _get_turn_request() returns dict from Redis."""
+        """Test that _get_turn_request() returns MUDTurnRequest object from Redis."""
         # Arrange
         expected = {
             b"status": b"ready",
-            b"turn_id": b"",
-            b"reason": b"",
+            b"turn_id": b"turn123",
+            b"reason": b"events",
             b"heartbeat_at": _utc_now().isoformat().encode(),
         }
         test_worker.redis.hgetall = AsyncMock(return_value=expected)
@@ -28,13 +29,14 @@ class TestGetTurnRequest:
         result = await test_worker._get_turn_request()
 
         # Assert
-        assert result["status"] == "ready"
-        assert result["turn_id"] == ""
+        assert result is not None
+        assert result.status == "ready"
+        assert result.turn_id == "turn123"
         assert test_worker.redis.hgetall.called
 
     @pytest.mark.asyncio
     async def test_get_turn_request_handles_missing_key(self, test_worker):
-        """Test that _get_turn_request() returns empty dict if key missing."""
+        """Test that _get_turn_request() returns None if key missing."""
         # Arrange
         test_worker.redis.hgetall = AsyncMock(return_value={})
 
@@ -42,7 +44,7 @@ class TestGetTurnRequest:
         result = await test_worker._get_turn_request()
 
         # Assert
-        assert result == {}
+        assert result is None
 
 
 class TestSetTurnRequestState:
@@ -170,10 +172,10 @@ class TestCheckAbortRequested:
     async def test_check_abort_clears_flag_when_set(self, test_worker):
         """Test that abort status triggers state transition."""
         # Arrange
-        turn_request = {
-            "status": "abort_requested",
-            "turn_id": "turn123",
-        }
+        turn_request = MUDTurnRequest(
+            status="abort_requested",
+            turn_id="turn123",
+        )
         test_worker._get_turn_request = AsyncMock(return_value=turn_request)
         test_worker._set_turn_request_state = AsyncMock(return_value=True)
 
@@ -190,10 +192,10 @@ class TestCheckAbortRequested:
     async def test_check_abort_returns_false_when_not_set(self, test_worker):
         """Test that check returns False when status is not abort_requested."""
         # Arrange
-        turn_request = {
-            "status": "ready",
-            "turn_id": "",
-        }
+        turn_request = MUDTurnRequest(
+            status="ready",
+            turn_id="",
+        )
         test_worker._get_turn_request = AsyncMock(return_value=turn_request)
         test_worker._set_turn_request_state = AsyncMock()
 

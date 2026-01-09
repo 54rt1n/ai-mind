@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Optional
 
 import yaml
 
-from aim_mud_types import MUDAction
+from aim_mud_types import MUDAction, MUDTurnRequest
 from aim.utils.think import extract_think_tags
 from ..adapter import build_current_context
 from aim_mud_types import MUDEvent, MUDTurn
@@ -318,7 +318,7 @@ class TurnsMixin:
         total = await self.conversation_manager.get_total_tokens()
         return total == 0
 
-    async def process_turn(self: "MUDAgentWorker", events: list[MUDEvent], user_guidance: str = "") -> None:
+    async def process_turn(self: "MUDAgentWorker", turn_request: MUDTurnRequest, events: list[MUDEvent], user_guidance: str = "") -> None:
         """Process a batch of events into a single agent turn.
 
         Two-phase strategy:
@@ -326,25 +326,27 @@ class TurnsMixin:
         Phase 2: Response with CHAT role (only if Phase 1 decided to speak)
 
         Args:
+            turn_request: MUDTurnRequest with sequence_id and attempt_count.
             events: List of MUDEvent objects to process.
             user_guidance: Optional guidance for the turn (used by @choose).
         """
         logger.info(f"Processing turn with {len(events)} events")
         processor = PhasedTurnProcessor(self)
         processor.user_guidance = user_guidance
-        await processor.execute(events)
+        await processor.execute(turn_request, events)
 
-    async def process_agent_turn(self: "MUDAgentWorker", events: list[MUDEvent], user_guidance: str) -> None:
+    async def process_agent_turn(self: "MUDAgentWorker", turn_request: MUDTurnRequest, events: list[MUDEvent], user_guidance: str) -> None:
         """Process a guided @agent turn using mud_agent.yaml action schema.
 
         Single-phase strategy: direct action with full guidance,
         skip decision phase entirely.
 
         Args:
+            turn_request: MUDTurnRequest with sequence_id and attempt_count.
             events: List of events to process
             user_guidance: Optional guidance for the agent
         """
         logger.info(f"Processing @agent turn with {len(events)} events")
         processor = AgentTurnProcessor(self)
         processor.user_guidance = user_guidance
-        await processor.execute(events)
+        await processor.execute(turn_request, events)

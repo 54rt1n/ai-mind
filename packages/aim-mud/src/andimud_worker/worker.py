@@ -25,7 +25,7 @@ from aim.agents.persona import Persona
 from aim.config import ChatConfig
 from aim.llm.llm import LLMProvider
 
-from aim_mud_types import MUDAction, RedisKeys
+from aim_mud_types import MUDAction, MUDTurnRequest, RedisKeys, TurnRequestStatus, TurnReason
 from aim_mud_types.helper import _utc_now
 
 from .config import MUDConfig
@@ -291,9 +291,9 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
                     continue
 
                 # If not assigned, refresh heartbeat and wait
-                if turn_request.get("status") != "assigned":
+                if turn_request.status != TurnRequestStatus.ASSIGNED:
                     # Keep turn_request alive when ready but idle - refresh TTL and heartbeat
-                    if turn_request.get("status") == "ready":
+                    if turn_request.status == TurnRequestStatus.READY:
                         # Guard against shutdown race - only update if key exists
                         if await self.redis.exists(self._turn_request_key()):
                             await self.redis.hset(
@@ -309,10 +309,10 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
                     await asyncio.sleep(self.config.turn_request_poll_interval)
                     continue
 
-                turn_id = turn_request.get("turn_id") or uuid.uuid4().hex
-                reason = turn_request.get("reason", "events")
+                turn_id = turn_request.turn_id
+                reason = turn_request.reason
 
-                await self._set_turn_request_state(turn_id, "in_progress")
+                await self._set_turn_request_state(turn_id, TurnRequestStatus.IN_PROGRESS)
                 heartbeat_stop = asyncio.Event()
                 heartbeat_task = asyncio.create_task(
                     self._heartbeat_turn_request(heartbeat_stop)
@@ -323,20 +323,19 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
                     saved_event_id = self.session.last_event_id
 
                     # Get turn's sequence_id for filtering
-                    turn_sequence_id = turn_request.get("sequence_id")
-                    if not turn_sequence_id:
+                    if not turn_request.sequence_id:
                         logger.warning(f"Turn {turn_id} missing sequence_id, cannot filter drain")
                         max_seq = None
                     else:
-                        max_seq = int(turn_sequence_id)
+                        max_seq = turn_request.sequence_id
                         logger.debug(f"Draining events with sequence_id < {max_seq}")
 
                     # Drain events into pending_events buffer, filtered by sequence_id
                     self.pending_events = await self._drain_with_settle(max_sequence_id=max_seq)
 
                     # Execute command via registry
-                    logger.info(f"Executing command: {turn_request}")
-                    result = await self.command_registry.execute(self, **turn_request)
+                    logger.info(f"Executing command: {turn_request.model_dump()}")
+                    result = await self.command_registry.execute(self, **turn_request.model_dump())
 
                     # Handle flush_drain flag
                     if result.flush_drain:
@@ -357,10 +356,7 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
                         reason,
                         len(events),
                     )
-                    await self.process_turn(events)
-
-                    # Write self-actions to stream after turn completes
-                    await self._write_self_actions_to_stream(turn_id, turn_request)
+                    await self.process_turn(turn_request, events)
 
                     # CHECK: Did this turn include a speech event?
                     has_speech = False
@@ -389,18 +385,18 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
 
                         saved_event_id = None  # Events consumed, don't restore on exception
 
-                    await self._set_turn_request_state(turn_id, "done")
+                    await self._set_turn_request_state(turn_id, TurnRequestStatus.DONE)
                     self._last_turn_request_id = turn_id
                 except AbortRequestedException:
                     logger.info(f"Turn {turn_id} aborted by user request")
-                    await self._set_turn_request_state(turn_id, "aborted", message="Aborted by user")
+                    await self._set_turn_request_state(turn_id, TurnRequestStatus.ABORTED, message="Aborted by user")
                     await self._restore_event_position(saved_event_id)
                 except Exception as e:
                     logger.error(f"Error during assigned turn {turn_id}: {e}", exc_info=True)
 
                     # Get current attempt count
                     turn_request = await self._get_turn_request()
-                    attempt_count = int(turn_request.get("attempt_count", 0)) + 1
+                    attempt_count = turn_request.attempt_count + 1 if turn_request else 1
 
                     # Calculate next retry time with exponential backoff
                     if attempt_count < self.config.llm_failure_max_attempts:
@@ -421,7 +417,7 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
                     error_type = type(e).__name__
                     await self._set_turn_request_state(
                         turn_id,
-                        "fail",
+                        TurnRequestStatus.FAIL,
                         message=str(e),
                         extra_fields={
                             "attempt_count": str(attempt_count),
@@ -445,19 +441,19 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
                     if turn_id:  # Only if we actually processed a turn
                         turn_request = await self._get_turn_request()
                         if turn_request:
-                            status = turn_request.get("status")
+                            status = turn_request.status
                             # Transition to ready if we completed or aborted (not if failed)
-                            if status == "done":
+                            if status == TurnRequestStatus.DONE:
                                 await self._set_turn_request_state(
                                     str(uuid.uuid4()),
-                                    "ready",
+                                    TurnRequestStatus.READY,
                                     extra_fields={"status_reason": "Turn completed"},
                                     expected_turn_id=turn_id
                                 )
-                            elif status == "aborted":
+                            elif status == TurnRequestStatus.ABORTED:
                                 await self._set_turn_request_state(
                                     str(uuid.uuid4()),
-                                    "ready",
+                                    TurnRequestStatus.READY,
                                     extra_fields={"status_reason": "Turn aborted"},
                                     expected_turn_id=turn_id
                                 )
@@ -501,8 +497,8 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
         """Announce worker online with ready status and wakeup message.
 
         Implements startup recovery logic:
-        - Branch 1: No turn_request → create with status="ready"
-        - Branch 2: Problem states (in_progress/crashed/assigned/abort_requested) → convert to "fail" with recovery
+        - Branch 1: No turn_request → create with status=READY
+        - Branch 2: Problem states (in_progress/crashed/assigned/abort_requested) → convert to FAIL with recovery
         - Branch 3: Normal states (ready/done/fail) → update heartbeat only
 
         Uses persona.mud_wakeup if available, otherwise falls back to
@@ -511,24 +507,24 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
         """
         turn_request = await self._get_turn_request()
 
-        # Branch 1: No turn_request → create with status="ready"
+        # Branch 1: No turn_request → create with status=READY
         if not turn_request:
             logger.info("No turn_request found, creating fresh ready state")
             await self._set_turn_request_state(
                 turn_id=str(uuid.uuid4()),
-                status="ready",
+                status=TurnRequestStatus.READY,
                 extra_fields={"status_reason": "Worker online (fresh start)"}
             )
 
-        # Branch 2: Problem states → convert to "fail" with recovery logic
-        elif turn_request.get("status") in ("in_progress", "crashed", "assigned", "abort_requested"):
-            status = turn_request.get("status")
-            turn_id = turn_request.get("turn_id", str(uuid.uuid4()))
+        # Branch 2: Problem states → convert to FAIL with recovery logic
+        elif turn_request.status in (TurnRequestStatus.IN_PROGRESS, TurnRequestStatus.CRASHED, TurnRequestStatus.ASSIGNED, TurnRequestStatus.ABORT_REQUESTED):
+            status = turn_request.status
+            turn_id = turn_request.turn_id
 
             logger.warning(f"Startup recovery: found turn_request in problem state '{status}', converting to fail")
 
             # Get current attempt count or default to 0
-            attempt_count = int(turn_request.get("attempt_count", "0"))
+            attempt_count = turn_request.attempt_count
 
             # Increment attempt count for this recovery
             attempt_count += 1
@@ -541,7 +537,7 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
                 )
                 await self._set_turn_request_state(
                     turn_id,
-                    "fail",
+                    TurnRequestStatus.FAIL,
                     message=f"Abandoned after {attempt_count} attempts (startup recovery from {status})",
                     extra_fields={
                         "attempt_count": str(attempt_count),
@@ -566,7 +562,7 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
 
                 await self._set_turn_request_state(
                     turn_id,
-                    "fail",
+                    TurnRequestStatus.FAIL,
                     message=f"Worker restart during {status} state",
                     extra_fields={
                         "attempt_count": str(attempt_count),
@@ -577,17 +573,17 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
 
         # Branch 3: Normal states (ready/done/fail) → update heartbeat or fix corruption
         else:
-            status = turn_request.get("status")
-            turn_id = turn_request.get("turn_id", str(uuid.uuid4()))
+            status = turn_request.status
+            turn_id = turn_request.turn_id
 
             # Detect corrupted hash (missing status field)
-            if status is None:
+            if not status:
                 logger.error(
                     "Startup: turn_request corrupted (status is None), recreating with fresh state"
                 )
                 await self._set_turn_request_state(
                     turn_id=str(uuid.uuid4()),
-                    status="ready",
+                    status=TurnRequestStatus.READY,
                     extra_fields={"status_reason": "Recovered from corrupted state during startup"}
                 )
             else:
@@ -668,45 +664,25 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
         else:
             logger.info(f"Worker {self.config.agent_id} ready (continuing existing conversation with {entry_count} entries)")
 
-    async def _write_self_actions_to_stream(
-        self, turn_id: str, turn_request: dict[str, str]
-    ) -> None:
-        """Write self-actions to own event stream after turn completes.
+    async def _write_self_event(self, event: "MUDEvent") -> None:
+        """Write self-action event to own stream immediately.
 
-        Uses the turn's sequence_id to preserve chronological ordering
-        even if events arrive during processing.
+        Args:
+            event: Self-action MUDEvent to write.
         """
-        if not self.session or not self.session.pending_self_actions:
-            return
+        from aim_mud_types import MUDEvent
 
-        turn_sequence_id = turn_request.get("sequence_id")
-        if not turn_sequence_id:
-            logger.warning(f"Turn {turn_id} missing sequence_id, cannot write self-actions")
-            return
-
-        sequence_id = int(turn_sequence_id)
-
-        for self_action in self.session.pending_self_actions:
-            # Convert to enriched dict
-            event_data = self_action.to_redis_dict()
-            event_data["sequence_id"] = sequence_id  # Use turn's sequence_id
-            event_data["is_self_action"] = True
-
-            # Write to own stream
-            stream_key = RedisKeys.agent_events(self.config.agent_id)
-            await self.redis.xadd(
-                stream_key,
-                {"data": json.dumps(event_data)},
-                maxlen=100,  # Match agent_events_maxlen
-                approximate=True,
-            )
-            logger.debug(
-                f"Wrote self-action to stream (seq={sequence_id}): "
-                f"{self_action.event_type.value}"
-            )
-
-        # Clear pending self-actions after writing
-        self.session.pending_self_actions = []
+        event_data = event.to_redis_dict()
+        stream_key = RedisKeys.agent_events(self.config.agent_id)
+        await self.redis.xadd(
+            stream_key,
+            {"data": json.dumps(event_data)},
+            maxlen=100,
+            approximate=True,
+        )
+        logger.info(
+            f"Wrote self-event: {event.event_type.value} (seq={event.sequence_id})"
+        )
 
     def setup_signal_handlers(self) -> None:
         """Setup handlers for graceful shutdown.

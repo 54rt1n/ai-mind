@@ -9,6 +9,7 @@ import json
 from andimud_mediator.service import MediatorService
 from andimud_mediator.config import MediatorConfig
 from aim_mud_types import RedisKeys
+from aim_mud_types.helper import _utc_now
 
 
 @pytest.fixture
@@ -49,7 +50,9 @@ class TestMediatorMaybeAssignTurn:
         # Mock turn_request with abort_requested status
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"abort_requested",
-            b"turn_id": b"abort_turn_123"
+            b"turn_id": b"abort_turn_123",
+            b"reason": b"events",
+            b"heartbeat_at": _utc_now().isoformat().encode(),
         })
 
         result = await mediator._maybe_assign_turn("test_agent", reason="events")
@@ -68,7 +71,9 @@ class TestMediatorMaybeAssignTurn:
         # Mock turn_request with assigned status
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"assigned",
-            b"turn_id": b"current_turn_456"
+            b"turn_id": b"current_turn_456",
+            b"reason": b"events",
+            b"heartbeat_at": _utc_now().isoformat().encode(),
         })
 
         result = await mediator._maybe_assign_turn("test_agent", reason="events")
@@ -87,7 +92,9 @@ class TestMediatorMaybeAssignTurn:
         # Mock turn_request with in_progress status
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"in_progress",
-            b"turn_id": b"active_turn_789"
+            b"turn_id": b"active_turn_789",
+            b"reason": b"events",
+            b"heartbeat_at": _utc_now().isoformat().encode(),
         })
 
         result = await mediator._maybe_assign_turn("test_agent", reason="events")
@@ -106,7 +113,9 @@ class TestMediatorMaybeAssignTurn:
         # Mock turn_request with ready status (worker completed turn and returned to ready)
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"ready",
-            b"turn_id": b"previous_turn"
+            b"turn_id": b"previous_turn",
+            b"reason": b"events",
+            b"heartbeat_at": _utc_now().isoformat().encode(),
         })
 
         result = await mediator._maybe_assign_turn("test_agent", reason="events")
@@ -133,7 +142,9 @@ class TestMediatorMaybeAssignTurn:
         # Mock turn_request with done status (worker hasn't transitioned to ready yet)
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"done",
-            b"turn_id": b"completed_turn"
+            b"turn_id": b"completed_turn",
+            b"reason": b"events",
+            b"heartbeat_at": _utc_now().isoformat().encode(),
         })
 
         result = await mediator._maybe_assign_turn("test_agent", reason="events")
@@ -166,7 +177,9 @@ class TestMediatorMaybeAssignTurn:
         # Mock turn_request with string keys
         mock_redis.hgetall = AsyncMock(return_value={
             "status": "abort_requested",
-            "turn_id": "abort_turn_str"
+            "turn_id": "abort_turn_str",
+            "reason": "events",
+            "heartbeat_at": _utc_now().isoformat(),
         })
 
         result = await mediator._maybe_assign_turn("test_agent", reason="events")
@@ -200,7 +213,9 @@ class TestMediatorAbortEventProcessing:
         # Mock turn_request with abort_requested status
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"abort_requested",
-            b"turn_id": b"abort_turn"
+            b"turn_id": b"abort_turn",
+            b"reason": b"events",
+            b"heartbeat_at": _utc_now().isoformat().encode(),
         })
 
         sample_event = {
@@ -253,7 +268,9 @@ class TestMediatorAbortEventProcessing:
         # Mock turn_request with ready status (worker completed abort and returned to ready)
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"ready",
-            b"turn_id": b"old_abort_turn"
+            b"turn_id": b"old_abort_turn",
+            b"reason": b"events",
+            b"heartbeat_at": _utc_now().isoformat().encode(),
         })
 
         sample_event = {

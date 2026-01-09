@@ -9,7 +9,7 @@ from pathlib import Path
 from aim.tool.loader import ToolLoader
 from aim.tool.formatting import ToolUser
 from aim.utils.xml import XmlFormatter
-from aim_mud_types import MUDAction
+from aim_mud_types import MUDAction, MUDEvent, MUDTurnRequest
 from aim.utils.think import extract_think_tags
 from ...adapter import build_current_context
 from aim_mud_types import MUDEvent
@@ -61,10 +61,11 @@ class AgentTurnProcessor(BaseTurnProcessor):
         xml = self._tool_helper.decorate_xml(xml)
         return xml.render()
 
-    async def _decide_action(self, events: list[MUDEvent]) -> tuple[list[MUDAction], str]:
+    async def _decide_action(self, turn_request: MUDTurnRequest, events: list[MUDEvent]) -> tuple[list[MUDAction], str]:
         """Execute agent-guided decision strategy.
 
         Args:
+            turn_request: Current turn request with sequence_id
             events: List of events to process
 
         Returns:

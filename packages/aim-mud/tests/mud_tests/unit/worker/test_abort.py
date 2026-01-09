@@ -8,7 +8,8 @@ from datetime import datetime, timezone
 
 from andimud_worker.worker import MUDAgentWorker, AbortRequestedException
 from andimud_worker.config import MUDConfig
-from aim_mud_types import MUDSession
+from aim_mud_types import MUDSession, MUDTurnRequest
+from aim_mud_types.helper import _utc_now
 
 
 @pytest.fixture
@@ -49,7 +50,9 @@ class TestCheckAbortRequested:
         # Mock turn_request with abort_requested status
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"abort_requested",
-            b"turn_id": b"test_turn_123"
+            b"turn_id": b"test_turn_123",
+            b"reason": b"events",
+            b"heartbeat_at": _utc_now().isoformat().encode(),
         })
 
         result = await worker._check_abort_requested()
@@ -72,7 +75,9 @@ class TestCheckAbortRequested:
         # Mock turn_request with in_progress status
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"in_progress",
-            b"turn_id": b"test_turn_456"
+            b"turn_id": b"test_turn_456",
+            b"reason": b"events",
+            b"heartbeat_at": _utc_now().isoformat().encode(),
         })
 
         result = await worker._check_abort_requested()
@@ -90,7 +95,9 @@ class TestCheckAbortRequested:
         # Mock turn_request with assigned status
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"assigned",
-            b"turn_id": b"test_turn_789"
+            b"turn_id": b"test_turn_789",
+            b"reason": b"events",
+            b"heartbeat_at": _utc_now().isoformat().encode(),
         })
 
         result = await worker._check_abort_requested()
@@ -123,7 +130,9 @@ class TestCheckAbortRequested:
         # Mock turn_request with string keys
         mock_redis.hgetall = AsyncMock(return_value={
             "status": "abort_requested",
-            "turn_id": "test_turn_abc"
+            "turn_id": "test_turn_abc",
+            "reason": "events",
+            "heartbeat_at": _utc_now().isoformat(),
         })
 
         result = await worker._check_abort_requested()
@@ -142,31 +151,19 @@ class TestWorkerAbortInLoop:
         worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
         worker.session = MUDSession(agent_id="test", persona_id="test")
 
-        # Track calls to _check_abort_requested
-        original_check_abort = worker._check_abort_requested
-        check_abort_calls = []
+        # Mock turn_request with abort_requested status
+        mock_redis.hgetall = AsyncMock(return_value={
+            b"status": b"abort_requested",
+            b"turn_id": b"abort_turn",
+            b"reason": b"events",
+            b"heartbeat_at": _utc_now().isoformat().encode(),
+        })
 
-        async def track_check_abort():
-            result = await original_check_abort()
-            check_abort_calls.append(result)
-            return result
-
-        with patch.object(worker, "_check_abort_requested", side_effect=track_check_abort):
-            # Simulate abort_requested status on first check
-            call_count = [0]
-
-            async def mock_get_turn_request():
-                call_count[0] += 1
-                if call_count[0] == 1:
-                    return {"status": "abort_requested", "turn_id": "abort_turn"}
-                return {"status": "aborted", "turn_id": "abort_turn"}
-
-            with patch.object(worker, "_get_turn_request", side_effect=mock_get_turn_request):
-                result = await worker._check_abort_requested()
+        result = await worker._check_abort_requested()
 
         assert result is True
-        # Verify state transition happened
-        assert check_abort_calls[0] is True
+        # Verify state transition to "aborted" was called
+        mock_redis.eval.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_worker_rollback_on_abort(
@@ -217,7 +214,9 @@ class TestWorkerAbortEmote:
         # Simulate abort
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"abort_requested",
-            b"turn_id": b"abort_turn"
+            b"turn_id": b"abort_turn",
+            b"reason": b"events",
+            b"heartbeat_at": _utc_now().isoformat().encode(),
         })
 
         # In the actual worker, when abort is detected, it should call:

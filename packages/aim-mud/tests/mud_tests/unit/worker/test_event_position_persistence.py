@@ -120,11 +120,18 @@ class TestDrainDoesNotPersist:
         initialized_worker._update_agent_profile.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_drain_with_settle_does_not_persist(self, initialized_worker, mock_redis, sample_events_data):
+    async def test_drain_with_settle_does_not_persist(self, initialized_worker, mock_redis, sample_events_data, monkeypatch):
         """Test that _drain_with_settle() also does not persist to Redis.
 
         Validates the full settling flow respects the no-persistence rule.
         """
+        # Mock asyncio.sleep to avoid actual delays
+        import asyncio
+        original_sleep = asyncio.sleep
+        async def mock_sleep(seconds):
+            await original_sleep(0)
+        monkeypatch.setattr(asyncio, 'sleep', mock_sleep)
+
         # Arrange: Mock Redis for settle behavior
         mock_redis.xinfo_stream.side_effect = [
             {"last-generated-id": "2-0"},  # First drain
@@ -318,10 +325,13 @@ class TestNonSpeechTurnDoesNotPersist:
 
     @pytest.mark.asyncio
     async def test_restore_clears_pending_buffers(self, initialized_worker):
-        """Test that _restore_event_position() clears pending event buffers."""
+        """Test that _restore_event_position() clears pending event buffers.
+
+        Note: pending_self_actions has been removed from MUDSession.
+        This test now only validates pending_events clearing.
+        """
         # Arrange: Populate pending buffers
         initialized_worker.pending_events = ["event1", "event2"]
-        initialized_worker.session.pending_self_actions = ["action1"]
         saved_event_id = "1-0"
         initialized_worker.session.last_event_id = "2-0"
 
@@ -330,7 +340,6 @@ class TestNonSpeechTurnDoesNotPersist:
 
         # Assert: Buffers cleared
         assert initialized_worker.pending_events == []
-        assert initialized_worker.session.pending_self_actions == []
         assert initialized_worker.session.last_event_id == "1-0"
 
         # CRITICAL: No Redis persistence
@@ -420,7 +429,8 @@ class TestCrashSimulation:
         5. Events available for re-drain
         """
         # Phase 1: Initial state in Redis
-        mock_redis.hget.return_value = b"1-0"  # Redis has old position
+        from unittest.mock import AsyncMock
+        mock_redis.hget = AsyncMock(return_value=b"1-0")  # Redis has old position
 
         # Simulate loading from Redis (like _load_agent_profile does)
         redis_event_id = await mock_redis.hget("agent:test_agent:profile", "last_event_id")
@@ -490,9 +500,11 @@ class TestCrashSimulation:
         5. Restart → Redis has "2-0", events consumed
         """
         # Phase 1: Initial state
-        mock_redis.hget.return_value = b"1-0"
+        from unittest.mock import AsyncMock
+        mock_redis.hget = AsyncMock(return_value=b"1-0")
         redis_event_id = await mock_redis.hget("agent:test_agent:profile", "last_event_id")
-        initialized_worker.session.last_event_id = redis_event_id.decode("utf-8")
+        if redis_event_id:
+            initialized_worker.session.last_event_id = redis_event_id.decode("utf-8")
 
         # Phase 2: Drain and process speech turn
         mock_redis.xinfo_stream.return_value = {"last-generated-id": "2-0"}

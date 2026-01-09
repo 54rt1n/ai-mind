@@ -5,7 +5,7 @@
 import logging
 from typing import TYPE_CHECKING
 
-from aim_mud_types import MUDAction
+from aim_mud_types import MUDAction, TurnRequestStatus
 from .base import Command
 from .result import CommandResult
 
@@ -51,6 +51,6 @@ class FlushCommand(Command):
             complete=True,
             flush_drain=False,
             saved_event_id=None,
-            status="done",
+            status=TurnRequestStatus.DONE,
             message="Conversation flushed to memory"
         )

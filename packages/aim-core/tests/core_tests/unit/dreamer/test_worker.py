@@ -20,6 +20,44 @@ from aim.dreamer.models import (
     ScenarioContext,
 )
 from aim.config import ChatConfig
+from aim.agents.persona import Persona
+
+
+@pytest.fixture
+def test_chat_config():
+    """Real ChatConfig for testing."""
+    return ChatConfig(
+        default_model="gpt-4",
+        max_tokens=4096,
+        temperature=0.7,
+    )
+
+
+@pytest.fixture
+def real_test_persona():
+    """Real Persona from dict (not Mock)."""
+    persona_data = {
+        "persona_id": "assistant",
+        "chat_strategy": "xmlmemory",
+        "name": "Assistant",
+        "full_name": "Test Assistant",
+        "notes": "Test persona",
+        "aspects": {},
+        "attributes": {"sex": "neutral"},
+        "features": {},
+        "wakeup": ["Online"],
+        "base_thoughts": [],
+        "pif": {},
+        "nshot": {},
+        "default_location": "Test",
+        "wardrobe": {"default": {}},
+        "current_outfit": "default",
+        "persona_tools": {},
+        "wardrobe_tools": {},
+        "system_header": "You are a helpful assistant",
+        "models": {},
+    }
+    return Persona.from_dict(persona_data)
 
 
 class TestDreamerWorkerInit:
@@ -141,9 +179,8 @@ class TestDreamerWorkerProcessJob:
         mock_state_store.release_lock.assert_called_once_with("test-123", "step-1")
 
     @pytest.mark.asyncio
-    async def test_process_job_happy_path(self):
+    async def test_process_job_happy_path(self, test_chat_config, real_test_persona):
         """Test successful job processing through the full pipeline."""
-        mock_config = Mock(spec=ChatConfig)
         mock_state_store = AsyncMock()
         mock_scheduler = AsyncMock()
 
@@ -187,6 +224,8 @@ class TestDreamerWorkerProcessJob:
 
         # Setup mocks
         mock_state_store.acquire_lock = AsyncMock(return_value=True)
+        mock_state_store.get_step_status = AsyncMock(return_value=None)  # Not complete or failed
+        mock_state_store.set_step_status = AsyncMock()
         mock_state_store.get_state_type = AsyncMock(return_value='pipeline')
         mock_state_store.load_state = AsyncMock(return_value=state)
         mock_state_store.save_state = AsyncMock()
@@ -199,7 +238,7 @@ class TestDreamerWorkerProcessJob:
 
         # Setup worker with mocked resources
         worker = DreamerWorker(
-            config=mock_config,
+            config=test_chat_config,
             state_store=mock_state_store,
             scheduler=mock_scheduler,
         )
@@ -208,9 +247,9 @@ class TestDreamerWorkerProcessJob:
         mock_cvm.insert = Mock()
         worker.cvm = mock_cvm
 
+        # Use REAL Persona from fixture
         mock_roster = Mock()
-        mock_persona = Mock()
-        mock_roster.personas = {"assistant": mock_persona}
+        mock_roster.personas = {"assistant": real_test_persona}
         worker.roster = mock_roster
 
 
@@ -335,9 +374,8 @@ class TestDreamerWorkerProcessJob:
         mock_state_store.release_lock.assert_called_once_with("test-123", "step-1")
 
     @pytest.mark.asyncio
-    async def test_process_job_with_retryable_error(self):
+    async def test_process_job_with_retryable_error(self, test_chat_config, real_test_persona):
         """Test that RetryableError causes job to be requeued with backoff."""
-        mock_config = Mock(spec=ChatConfig)
         mock_state_store = AsyncMock()
         mock_scheduler = AsyncMock()
 
@@ -369,6 +407,9 @@ class TestDreamerWorkerProcessJob:
         )
 
         mock_state_store.acquire_lock = AsyncMock(return_value=True)
+        mock_state_store.get_step_status = AsyncMock(return_value=None)
+        mock_state_store.set_step_status = AsyncMock()
+        mock_state_store.get_state_type = AsyncMock(return_value='pipeline')
         mock_state_store.load_state = AsyncMock(return_value=state)
         mock_state_store.release_lock = AsyncMock()
 
@@ -376,14 +417,13 @@ class TestDreamerWorkerProcessJob:
         mock_scheduler.requeue_step = AsyncMock()
 
         worker = DreamerWorker(
-            config=mock_config,
+            config=test_chat_config,
             state_store=mock_state_store,
             scheduler=mock_scheduler,
         )
 
         mock_roster = Mock()
-        mock_persona = Mock()
-        mock_roster.personas = {"assistant": mock_persona}
+        mock_roster.personas = {"assistant": real_test_persona}
         worker.roster = mock_roster
         worker.cvm = Mock()
 
@@ -415,9 +455,8 @@ class TestDreamerWorkerProcessJob:
         mock_state_store.release_lock.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_process_job_mark_failed_on_max_retries(self):
+    async def test_process_job_mark_failed_on_max_retries(self, test_chat_config, real_test_persona):
         """Test that job is marked failed after max retries exceeded."""
-        mock_config = Mock(spec=ChatConfig)
         mock_state_store = AsyncMock()
         mock_scheduler = AsyncMock()
 
@@ -449,6 +488,9 @@ class TestDreamerWorkerProcessJob:
         )
 
         mock_state_store.acquire_lock = AsyncMock(return_value=True)
+        mock_state_store.get_step_status = AsyncMock(return_value=None)
+        mock_state_store.set_step_status = AsyncMock()
+        mock_state_store.get_state_type = AsyncMock(return_value='pipeline')
         mock_state_store.load_state = AsyncMock(return_value=state)
         mock_state_store.release_lock = AsyncMock()
 
@@ -456,14 +498,13 @@ class TestDreamerWorkerProcessJob:
         mock_scheduler.mark_failed = AsyncMock()
 
         worker = DreamerWorker(
-            config=mock_config,
+            config=test_chat_config,
             state_store=mock_state_store,
             scheduler=mock_scheduler,
         )
 
         mock_roster = Mock()
-        mock_persona = Mock()
-        mock_roster.personas = {"assistant": mock_persona}
+        mock_roster.personas = {"assistant": real_test_persona}
         worker.roster = mock_roster
         worker.cvm = Mock()
 

@@ -15,7 +15,7 @@ All events and actions flow through Redis streams using these shared types.
 
 from .actions import MUDAction
 from .conversation import MUDConversationEntry
-from .coordination import TurnRequest, DreamerState
+from .coordination import MUDTurnRequest, DreamerState, TurnRequestStatus, TurnReason
 from .enums import EventType, ActorType
 from .events import MUDEvent
 from .profile import AgentProfile, RoomProfile
@@ -28,6 +28,8 @@ __all__ = [
     # Enums
     "EventType",
     "ActorType",
+    "TurnRequestStatus",
+    "TurnReason",
     # State
     "RoomState",
     "EntityState",
@@ -43,7 +45,7 @@ __all__ = [
     "MUDEvent",
     "MUDAction",
     # Coordination
-    "TurnRequest",
+    "MUDTurnRequest",
     "DreamerState",
     # Profiles
     "AgentProfile",

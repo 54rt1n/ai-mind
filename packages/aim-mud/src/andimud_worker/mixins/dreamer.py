@@ -177,14 +177,22 @@ class DreamerMixin:
         if not state:
             return None
 
+        # Helper to get value from state dict (handles both bytes and string keys)
+        def get_state(field: str, default: str = "") -> str:
+            # Try bytes key first (real Redis), then string key (tests)
+            value = state.get(field.encode(), state.get(field, default.encode()))
+            if isinstance(value, bytes):
+                return value.decode()
+            return str(value) if value else default
+
         # Check if dreamer is enabled
-        enabled = state.get(b"enabled", b"false").decode() == "true"
+        enabled = get_state("enabled", "false") == "true"
         if not enabled:
             return None
 
         # Check idle time threshold
-        last_dream_at = state.get(b"last_dream_at", b"").decode()
-        idle_threshold = int(state.get(b"idle_threshold_seconds", b"3600").decode())
+        last_dream_at = get_state("last_dream_at", "")
+        idle_threshold = int(get_state("idle_threshold_seconds", "3600"))
 
         if last_dream_at:
             last = datetime.fromisoformat(last_dream_at)
@@ -193,7 +201,7 @@ class DreamerMixin:
                 return None
 
         # Check token accumulation
-        token_threshold = int(state.get(b"token_threshold", b"10000").decode())
+        token_threshold = int(get_state("token_threshold", "10000"))
         if self.conversation_manager:
             tokens = await self.conversation_manager.get_total_tokens()
             if tokens < token_threshold:
@@ -213,10 +221,14 @@ class DreamerMixin:
         """Select appropriate scenario for automatic dream.
 
         Logic:
-        - If conversation has many tokens (>20000): analysis_dialogue
-          (time to consolidate and analyze accumulated experience)
-        - Otherwise: journaler_dialogue
-          (regular journaling to process recent events)
+        - If conversation has many tokens (>20000): summarizer
+          (lightweight 5-step pipeline to efficiently consolidate large memory)
+        - Otherwise: analysis_dialogue
+          (thorough 20-step analysis when context is manageable)
+
+        Note: journaler_dialogue is NEVER auto-triggered. That scenario is
+        reserved for rare, life-changing moments that Andi manually chooses
+        with the @journal command.
 
         Returns:
             Name of scenario to run
@@ -224,5 +236,5 @@ class DreamerMixin:
         if self.conversation_manager:
             tokens = await self.conversation_manager.get_total_tokens()
             if tokens > 20000:
-                return "analysis_dialogue"
-        return "journaler_dialogue"
+                return "summarizer"
+        return "analysis_dialogue"

@@ -13,7 +13,8 @@ from andimud_worker.worker import MUDAgentWorker
 from andimud_worker.config import MUDConfig
 from andimud_worker.exceptions import AbortRequestedException
 from andimud_worker.commands.result import CommandResult
-from aim_mud_types import MUDSession, MUDEvent, EventType, ActorType
+from aim_mud_types import MUDSession, MUDEvent, EventType, ActorType, RoomState
+from aim_mud_types.coordination import MUDTurnRequest
 
 
 @pytest.fixture
@@ -59,16 +60,21 @@ def mock_redis():
 
 
 @pytest.fixture
-def worker_with_session(mud_config, mock_redis):
+def test_room():
+    """Create a test room state."""
+    return RoomState(room_id="#123", name="Test Room")
+
+
+@pytest.fixture
+def worker_with_session(mud_config, mock_redis, test_room):
     """Create a worker with initialized session."""
     worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
     worker.session = MUDSession(
         agent_id="test_agent",
         persona_id="test_persona",
-        room_id="#123",
         last_event_id="0",
         pending_events=[],
-        pending_self_actions=[],
+        current_room=test_room,
     )
     worker.pending_events = []
     return worker
@@ -137,7 +143,7 @@ class TestEventPositionRestoreOnException:
             # Assert position restored IN MEMORY
             assert worker.session.last_event_id == "0"
             assert worker.pending_events == []
-            assert worker.session.pending_self_actions == []
+            # pending_self_actions has been removed - no need to check it
 
             # CRITICAL: Redis persistence NOT called (this is the fix)
             mock_update.assert_not_called()
@@ -150,12 +156,17 @@ class TestEventPositionRestoreOnException:
         worker = worker_with_session
 
         # Mock turn request
-        turn_request = {
-            "turn_id": "turn_123",
-            "reason": "events",
-            "attempt_count": "0",
+        turn_request = MUDTurnRequest(
+            turn_id="turn_123",
+            reason="events",
+            attempt_count=0,
+        )
+        mock_redis.hgetall.return_value = {
+            b"turn_id": b"turn_123",
+            b"reason": b"events",
+            b"attempt_count": b"0",
+            b"status": b"assigned",
         }
-        mock_redis.hgetall.return_value = turn_request
 
         # Track state changes
         state_changes = []
@@ -201,7 +212,7 @@ class TestEventPositionRestoreOnException:
                 worker.pending_events = await worker._drain_with_settle()
 
                 # Execute command (returns incomplete, so falls through)
-                result = await worker.command_registry.execute(worker, **turn_request)
+                result = await worker.command_registry.execute(worker, **turn_request.model_dump())
 
                 # Try to process turn (raises exception)
                 await worker.process_turn(worker.pending_events)
@@ -212,7 +223,7 @@ class TestEventPositionRestoreOnException:
             # Assert position was restored to original
             assert worker.session.last_event_id == original_id
             assert worker.pending_events == []
-            assert worker.session.pending_self_actions == []
+            # pending_self_actions has been removed - no need to check it
 
 
 class TestEventPositionRestoreOnAbort:
@@ -255,7 +266,7 @@ class TestEventPositionRestoreOnAbort:
             # Assert position was restored
             assert worker.session.last_event_id == original_id
             assert worker.pending_events == []
-            assert worker.session.pending_self_actions == []
+            # pending_self_actions has been removed - no need to check it
 
 
 class TestEventPositionNotRestoredOnSuccess:
@@ -350,20 +361,18 @@ class TestRestoreClearsPendingBuffers:
     async def test_restore_clears_pending_self_actions(
         self, worker_with_session, sample_events
     ):
-        """Test that both pending_events and pending_self_actions are cleared on restore."""
+        """Test that pending_events is cleared on restore."""
         worker = worker_with_session
 
-        # Populate both buffers
+        # Populate pending events
         worker.pending_events = sample_events.copy()
-        worker.session.pending_self_actions = [sample_events[0]]
         worker.session.last_event_id = "100-0"
 
         # Restore to earlier position
         await worker._restore_event_position("50-0")
 
-        # Assert both buffers cleared
+        # Assert buffer cleared
         assert worker.pending_events == []
-        assert worker.session.pending_self_actions == []
         assert worker.session.last_event_id == "50-0"
 
 
@@ -425,7 +434,6 @@ class TestRestoreDoesNotUpdateRedis:
         # Set up state
         worker.session.last_event_id = "200-0"
         worker.pending_events = []
-        worker.session.pending_self_actions = []
 
         with patch.object(
             worker, "_update_agent_profile", new_callable=AsyncMock

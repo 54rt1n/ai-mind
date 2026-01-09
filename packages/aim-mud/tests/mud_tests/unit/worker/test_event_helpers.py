@@ -39,10 +39,9 @@ class TestRestoreEventPosition:
 
     @pytest.mark.asyncio
     async def test_restore_clears_pending_buffers(self, initialized_worker):
-        """Test that restore clears pending event and action buffers."""
+        """Test that restore clears pending event buffers."""
         # Arrange
         initialized_worker.pending_events = ["event1", "event2"]
-        initialized_worker.session.pending_self_actions = ["action1"]
         initialized_worker._update_agent_profile = AsyncMock()
         saved_id = "old-id"
 
@@ -51,7 +50,6 @@ class TestRestoreEventPosition:
 
         # Assert
         assert initialized_worker.pending_events == []
-        assert initialized_worker.session.pending_self_actions == []
 
     @pytest.mark.asyncio
     async def test_restore_does_not_persist_to_redis(self, initialized_worker):
@@ -113,11 +111,18 @@ class TestDrainWithSettle:
         mock_redis.xinfo_stream.assert_called()  # Verify Redis was accessed
 
     @pytest.mark.asyncio
-    async def test_drain_returns_events_from_single_batch(self, initialized_worker, mock_redis):
+    async def test_drain_returns_events_from_single_batch(self, initialized_worker, mock_redis, monkeypatch):
         """Test _drain_with_settle returns events from single batch."""
+        import asyncio
         import json
         from unittest.mock import AsyncMock
         from aim_mud_types import EventType, ActorType
+
+        # Mock asyncio.sleep to avoid actual delays
+        original_sleep = asyncio.sleep
+        async def mock_sleep(seconds):
+            await original_sleep(0)
+        monkeypatch.setattr(asyncio, 'sleep', mock_sleep)
 
         # Mock Redis stream responses (external service)
         mock_redis.xinfo_stream.return_value = {"last-generated-id": "1-1"}
@@ -162,11 +167,18 @@ class TestDrainWithSettle:
         assert result[1].actor == "Player2"
 
     @pytest.mark.asyncio
-    async def test_drain_accumulates_events_from_multiple_batches(self, initialized_worker, mock_redis):
+    async def test_drain_accumulates_events_from_multiple_batches(self, initialized_worker, mock_redis, monkeypatch):
         """Test _drain_with_settle accumulates events across multiple drains."""
+        import asyncio
         import json
         from unittest.mock import AsyncMock
         from aim_mud_types import EventType, ActorType
+
+        # Mock asyncio.sleep to avoid actual delays
+        original_sleep = asyncio.sleep
+        async def mock_sleep(seconds):
+            await original_sleep(0)
+        monkeypatch.setattr(asyncio, 'sleep', mock_sleep)
 
         # Mock Redis stream responses for multiple drains
         event1_data = {
@@ -230,11 +242,18 @@ class TestDrainWithSettle:
         assert result[2].content == "How are you?"
 
     @pytest.mark.asyncio
-    async def test_drain_respects_max_sequence_id(self, initialized_worker, mock_redis):
+    async def test_drain_respects_max_sequence_id(self, initialized_worker, mock_redis, monkeypatch):
         """Test _drain_with_settle passes max_sequence_id to drain_events."""
+        import asyncio
         import json
         from unittest.mock import AsyncMock
         from aim_mud_types import EventType, ActorType
+
+        # Mock asyncio.sleep to avoid actual delays
+        original_sleep = asyncio.sleep
+        async def mock_sleep(seconds):
+            await original_sleep(0)
+        monkeypatch.setattr(asyncio, 'sleep', mock_sleep)
 
         # Mock Redis with events that have different sequence_ids
         event1_data = {

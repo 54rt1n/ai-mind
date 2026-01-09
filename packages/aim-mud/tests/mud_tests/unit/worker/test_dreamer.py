@@ -617,14 +617,11 @@ class TestDreamerMixinProcessDreamTurn:
 
             await worker.process_dream_turn(scenario="analysis_dialogue")
 
-            # Verify state was updated
-            mock_redis.hset.assert_called()
-            call_args = mock_redis.hset.call_args
-            assert call_args[0][0] == RedisKeys.agent_dreamer("test_agent")
-            mapping = call_args[1]["mapping"]
-            assert "last_dream_at" in mapping
-            assert mapping["last_dream_scenario"] == "analysis_dialogue"
-            assert mapping["pending_pipeline_id"] == ""
+            # Verify state was updated by checking the actual redis hash
+            dreamer_state = await mock_redis.hgetall(RedisKeys.agent_dreamer("test_agent"))
+            assert "last_dream_at" in dreamer_state
+            assert dreamer_state["last_dream_scenario"] == "analysis_dialogue"
+            assert dreamer_state["pending_pipeline_id"] == ""
 
     @pytest.mark.asyncio
     async def test_process_dream_turn_heartbeat_refreshes_ttl(
@@ -687,13 +684,11 @@ class TestDreamerMixinUpdateDreamerState:
 
         await worker._update_dreamer_state(result)
 
-        mock_redis.hset.assert_called_once()
-        call_args = mock_redis.hset.call_args
-        assert call_args[0][0] == RedisKeys.agent_dreamer("test_agent")
-        mapping = call_args[1]["mapping"]
-        assert "last_dream_at" in mapping
-        assert mapping["last_dream_scenario"] == "journaler_dialogue"
-        assert mapping["pending_pipeline_id"] == ""
+        # Verify state was updated by checking the actual redis hash
+        dreamer_state = await mock_redis.hgetall(RedisKeys.agent_dreamer("test_agent"))
+        assert "last_dream_at" in dreamer_state
+        assert dreamer_state["last_dream_scenario"] == "journaler_dialogue"
+        assert dreamer_state["pending_pipeline_id"] == ""
 
     @pytest.mark.asyncio
     async def test_update_state_on_failure(self, test_mud_config, mock_redis):
@@ -709,13 +704,12 @@ class TestDreamerMixinUpdateDreamerState:
 
         await worker._update_dreamer_state(result)
 
-        mock_redis.hset.assert_called_once()
-        call_args = mock_redis.hset.call_args
-        mapping = call_args[1]["mapping"]
+        # Verify state was updated by checking the actual redis hash
+        dreamer_state = await mock_redis.hgetall(RedisKeys.agent_dreamer("test_agent"))
         # On failure, only pending_pipeline_id is cleared
-        assert mapping["pending_pipeline_id"] == ""
-        assert "last_dream_at" not in mapping
-        assert "last_dream_scenario" not in mapping
+        assert dreamer_state["pending_pipeline_id"] == ""
+        assert "last_dream_at" not in dreamer_state
+        assert "last_dream_scenario" not in dreamer_state
 
 
 class TestDreamerMixinCheckAutoTriggers:
@@ -815,16 +809,28 @@ class TestDreamerMixinCheckAutoTriggers:
             )
             for i in range(3)  # 3 entries x 5000 = 15000 tokens
         ]
-        mock_redis.lrange.return_value = [e.model_dump_json().encode() for e in entries]
 
+        # Set up the functional mock's lrange to return the entries
+        conversation_key = RedisKeys.agent_conversation(test_mud_config.agent_id)
+        async def mock_lrange_impl(key, start, stop):
+            if key == conversation_key:
+                return [e.model_dump_json().encode() for e in entries]
+            return []
+        mock_redis.lrange = mock_lrange_impl
+
+        # Set up the functional mock's hash storage for dreamer state
         # Set last_dream_at to long ago (2 hours)
         old_time = datetime.now(timezone.utc).replace(hour=datetime.now(timezone.utc).hour - 2)
-        mock_redis.hgetall = AsyncMock(return_value={
-            b"enabled": b"true",
-            b"idle_threshold_seconds": b"3600",  # 1 hour (passed)
-            b"last_dream_at": old_time.isoformat().encode(),
-            b"token_threshold": b"10000",  # 10000 tokens (passed with 15000)
-        })
+        dreamer_key = RedisKeys.agent_dreamer(test_mud_config.agent_id)
+        await mock_redis.hset(
+            dreamer_key,
+            mapping={
+                "enabled": "true",
+                "idle_threshold_seconds": "3600",  # 1 hour (passed)
+                "last_dream_at": old_time.isoformat(),
+                "token_threshold": "10000",  # 10000 tokens (passed with 15000)
+            }
+        )
 
         result = await worker.check_auto_dream_triggers()
 
@@ -856,14 +862,26 @@ class TestDreamerMixinCheckAutoTriggers:
             )
             for i in range(3)  # 3 entries x 5000 = 15000 tokens
         ]
-        mock_redis.lrange.return_value = [e.model_dump_json().encode() for e in entries]
 
-        mock_redis.hgetall = AsyncMock(return_value={
-            b"enabled": b"true",
-            b"idle_threshold_seconds": b"3600",
-            b"token_threshold": b"10000",
-            # No last_dream_at - first run
-        })
+        # Set up the functional mock's lrange to return the entries
+        conversation_key = RedisKeys.agent_conversation(test_mud_config.agent_id)
+        async def mock_lrange_impl(key, start, stop):
+            if key == conversation_key:
+                return [e.model_dump_json().encode() for e in entries]
+            return []
+        mock_redis.lrange = mock_lrange_impl
+
+        # Set up the functional mock's hash storage for dreamer state (no last_dream_at)
+        dreamer_key = RedisKeys.agent_dreamer(test_mud_config.agent_id)
+        await mock_redis.hset(
+            dreamer_key,
+            mapping={
+                "enabled": "true",
+                "idle_threshold_seconds": "3600",
+                "token_threshold": "10000",
+                # No last_dream_at - first run
+            }
+        )
 
         result = await worker.check_auto_dream_triggers()
 
@@ -875,40 +893,37 @@ class TestDreamerMixinSelectAutoScenario:
     """Test DreamerMixin._select_auto_dream_scenario method."""
 
     @pytest.mark.asyncio
-    async def test_selects_analysis_for_high_token_count(
+    async def test_selects_summarizer_for_high_token_count(
         self, test_mud_config, mock_redis, test_conversation_manager
     ):
-        """Test selects analysis_dialogue for high token count."""
+        """Test selects summarizer for high token count (>20k).
+
+        When conversation has many tokens, use summarizer (lightweight 5-step
+        pipeline) to efficiently consolidate large accumulated memory.
+        """
         from aim_mud_types import MUDConversationEntry
         from aim.constants import DOC_MUD_WORLD
+        from unittest.mock import AsyncMock
 
         worker = MUDAgentWorker(config=test_mud_config, redis_client=mock_redis)
         worker.conversation_manager = test_conversation_manager
 
-        # Mock Redis lrange to return entries totaling 25000 tokens
-        entries = [
-            MUDConversationEntry(
-                role="user",
-                content=f"Message {i}",
-                tokens=5000,
-                document_type=DOC_MUD_WORLD,
-                conversation_id="test",
-                sequence_no=i,
-                speaker_id="world",
-            )
-            for i in range(5)  # 5 entries x 5000 = 25000 tokens
-        ]
-        mock_redis.lrange.return_value = [e.model_dump_json().encode() for e in entries]
+        # Mock get_total_tokens directly to return high token count
+        test_conversation_manager.get_total_tokens = AsyncMock(return_value=25000)
 
         scenario = await worker._select_auto_dream_scenario()
 
-        assert scenario == "analysis_dialogue"
+        assert scenario == "summarizer"
 
     @pytest.mark.asyncio
-    async def test_selects_journaler_for_low_token_count(
+    async def test_selects_analysis_for_low_token_count(
         self, test_mud_config, mock_redis, test_conversation_manager
     ):
-        """Test selects journaler_dialogue for low token count."""
+        """Test selects analysis_dialogue for low token count (<20k).
+
+        When conversation has manageable token count, use analysis_dialogue
+        (thorough 20-step analysis) to deeply process recent events.
+        """
         from aim_mud_types import MUDConversationEntry
         from aim.constants import DOC_MUD_WORLD
 
@@ -932,25 +947,32 @@ class TestDreamerMixinSelectAutoScenario:
 
         scenario = await worker._select_auto_dream_scenario()
 
-        assert scenario == "journaler_dialogue"
+        assert scenario == "analysis_dialogue"
 
     @pytest.mark.asyncio
-    async def test_selects_journaler_when_no_conversation_manager(
+    async def test_selects_analysis_when_no_conversation_manager(
         self, test_mud_config, mock_redis
     ):
-        """Test selects journaler_dialogue when test_conversation_manager is None."""
+        """Test selects analysis_dialogue when conversation_manager is None.
+
+        When conversation_manager is None (edge case), default to analysis_dialogue.
+        """
         worker = MUDAgentWorker(config=test_mud_config, redis_client=mock_redis)
         worker.conversation_manager = None
 
         scenario = await worker._select_auto_dream_scenario()
 
-        assert scenario == "journaler_dialogue"
+        assert scenario == "analysis_dialogue"
 
     @pytest.mark.asyncio
     async def test_threshold_exactly_at_20000(
         self, test_mud_config, mock_redis, test_conversation_manager
     ):
-        """Test behavior at exactly 20000 tokens (boundary condition)."""
+        """Test behavior at exactly 20000 tokens (boundary condition).
+
+        At exactly 20000, should select analysis_dialogue (not > 20000).
+        Only values GREATER than 20000 trigger summarizer.
+        """
         from aim_mud_types import MUDConversationEntry
         from aim.constants import DOC_MUD_WORLD
 
@@ -974,47 +996,29 @@ class TestDreamerMixinSelectAutoScenario:
 
         scenario = await worker._select_auto_dream_scenario()
 
-        # At exactly 20000, should select journaler (not > 20000)
-        assert scenario == "journaler_dialogue"
+        # At exactly 20000, should select analysis (not > 20000)
+        assert scenario == "analysis_dialogue"
 
     @pytest.mark.asyncio
     async def test_threshold_just_over_20000(
         self, test_mud_config, mock_redis, test_conversation_manager
     ):
-        """Test behavior at 20001 tokens (just over threshold)."""
-        from aim_mud_types import MUDConversationEntry
-        from aim.constants import DOC_MUD_WORLD
+        """Test behavior at 20001 tokens (just over threshold).
+
+        Just over 20000 should select summarizer (lightweight consolidation).
+        """
+        from unittest.mock import AsyncMock
 
         worker = MUDAgentWorker(config=test_mud_config, redis_client=mock_redis)
         worker.conversation_manager = test_conversation_manager
 
-        # Mock Redis lrange to return entries totaling 20001 tokens
-        entries = [
-            MUDConversationEntry(
-                role="user",
-                content="Message 0",
-                tokens=10000,
-                document_type=DOC_MUD_WORLD,
-                conversation_id="test",
-                sequence_no=0,
-                speaker_id="world",
-            ),
-            MUDConversationEntry(
-                role="user",
-                content="Message 1",
-                tokens=10001,
-                document_type=DOC_MUD_WORLD,
-                conversation_id="test",
-                sequence_no=1,
-                speaker_id="world",
-            ),
-        ]
-        mock_redis.lrange.return_value = [e.model_dump_json().encode() for e in entries]
+        # Mock get_total_tokens directly to return 20001 tokens
+        test_conversation_manager.get_total_tokens = AsyncMock(return_value=20001)
 
         scenario = await worker._select_auto_dream_scenario()
 
-        # Just over 20000 should select analysis
-        assert scenario == "analysis_dialogue"
+        # Just over 20000 should select summarizer
+        assert scenario == "summarizer"
 
 
 def test_chatconfig_fixture_has_no_fake_attributes(test_config):

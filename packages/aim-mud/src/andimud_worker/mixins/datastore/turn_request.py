@@ -8,10 +8,10 @@ All methods take explicit parameters and return data.
 
 import asyncio
 import logging
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING, Union
 
 from ...config import MUDConfig
-from aim_mud_types import RedisKeys
+from aim_mud_types import RedisKeys, MUDTurnRequest, TurnRequestStatus
 from aim_mud_types.helper import _utc_now
 
 if TYPE_CHECKING:
@@ -27,33 +27,18 @@ class TurnRequestMixin:
         """Return the Redis key for this agent's turn request."""
         return RedisKeys.agent_turn_request(self.config.agent_id)
 
-    async def _get_turn_request(self: "MUDAgentWorker") -> dict[str, str]:
+    async def _get_turn_request(self: "MUDAgentWorker") -> Optional[MUDTurnRequest]:
         """Fetch the current turn request hash from Redis (private method)."""
         return await self.get_turn_request()
 
-    async def get_turn_request(self: "MUDAgentWorker") -> dict[str, str]:
+    async def get_turn_request(self: "MUDAgentWorker") -> Optional[MUDTurnRequest]:
         """Fetch the current turn request hash from Redis."""
-        key = RedisKeys.agent_turn_request(self.config.agent_id)
-        data = await self.redis.hgetall(key)
-
-        if not data:
-            return {}
-
-        # Decode bytes to strings
-        result: dict[str, str] = {}
-        for k, v in data.items():
-            if isinstance(k, bytes):
-                k = k.decode("utf-8")
-            if isinstance(v, bytes):
-                v = v.decode("utf-8")
-            result[str(k)] = str(v)
-
-        return result
+        return await MUDTurnRequest.from_redis(self.redis, self.config.agent_id)
 
     async def _set_turn_request_state(
         self: "MUDAgentWorker",
         turn_id: str,
-        status: str,
+        status: Union[str, TurnRequestStatus],
         message: Optional[str] = None,
         extra_fields: Optional[dict] = None,
         expected_turn_id: Optional[str] = None,
@@ -64,7 +49,7 @@ class TurnRequestMixin:
     async def set_turn_request_state(
         self: "MUDAgentWorker",
         turn_id: str,
-        status: str,
+        status: Union[str, TurnRequestStatus],
         message: Optional[str] = None,
         extra_fields: Optional[dict] = None,
         expected_turn_id: Optional[str] = None,
@@ -76,7 +61,7 @@ class TurnRequestMixin:
 
         Args:
             turn_id: Turn ID to set
-            status: New status ("assigned", "in_progress", "done", "fail")
+            status: New status (TurnRequestStatus enum or string)
             message: Optional status message
             extra_fields: Optional additional fields to set
             expected_turn_id: If provided, only update if current turn_id matches (CAS)
@@ -109,10 +94,11 @@ class TurnRequestMixin:
             return 1  -- Success
         """
 
-        # Build field updates
+        # Build field updates (convert enum to string value for Redis)
+        status_str = status.value if isinstance(status, TurnRequestStatus) else status
         fields = [
             "turn_id", turn_id,
-            "status", status,
+            "status", status_str,
             "heartbeat_at", _utc_now().isoformat()
         ]
         if message:

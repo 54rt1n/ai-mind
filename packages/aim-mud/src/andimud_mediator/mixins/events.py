@@ -7,7 +7,7 @@ import json
 import logging
 from typing import Any, Optional
 
-from aim_mud_types import MUDEvent, RedisKeys
+from aim_mud_types import MUDEvent, RedisKeys, TurnReason, TurnRequestStatus
 from aim_mud_types.helper import _utc_now
 
 logger = logging.getLogger(__name__)
@@ -235,7 +235,7 @@ class EventsMixin:
         any_processing = False
         for agent_id in agents_to_notify:
             turn_request = await self._get_turn_request(agent_id)
-            if turn_request and turn_request.get("status") == "in_progress":
+            if turn_request and turn_request.status == TurnRequestStatus.IN_PROGRESS:
                 any_processing = True
                 logger.debug(f"Agent {agent_id} is processing, blocking turn assignment")
                 break
@@ -245,7 +245,7 @@ class EventsMixin:
             n = len(agents_to_notify)
             for i in range(n):
                 candidate = agents_to_notify[(self._turn_index + i) % n]
-                assigned = await self._maybe_assign_turn(candidate, reason="events")
+                assigned = await self._maybe_assign_turn(candidate, reason=TurnReason.EVENTS)
                 if assigned:
                     assigned_agent = candidate
                     self._turn_index = (self._turn_index + i + 1) % n

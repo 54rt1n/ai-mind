@@ -88,17 +88,11 @@ class EventsMixin:
                         if is_self_action:
                             # Mark in metadata so conversation manager can format in first person
                             event.metadata["is_self_action"] = True
-                            # Store in session for guidance injection (don't process as regular event)
-                            # Skip accumulation for @agent turns (accumulate_self_actions=False)
-                            if accumulate_self_actions and self.session:
-                                self.session.pending_self_actions.append(event)
-                                logger.debug(
-                                    f"Stored self-action event (seq={sequence_id}): {event.event_type.value}"
-                                )
-                            else:
-                                logger.debug(
-                                    f"Skipped self-action event (seq={sequence_id}): {event.event_type.value}"
-                                )
+                            logger.debug(
+                                f"Received self-action event (seq={sequence_id}): {event.event_type.value}"
+                            )
+                            # Self-events are now treated as regular events (guidance is pre-formatted)
+                            events_unsorted.append((sequence_id, event))
                         else:
                             # Append as tuple with sequence_id for sorting
                             events_unsorted.append((sequence_id, event))
@@ -242,4 +236,3 @@ class EventsMixin:
 
         # Clear pending buffers - these events will be re-drained on next turn
         self.pending_events = []
-        self.session.pending_self_actions = []

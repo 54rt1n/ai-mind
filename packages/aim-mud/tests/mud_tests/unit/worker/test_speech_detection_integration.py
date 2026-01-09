@@ -256,10 +256,10 @@ class TestSpeechDetectionIntegration:
             await test_worker.process_turn(sample_events)
         except RuntimeError:
             # Simulate exception handler restoring position (lines 406-409)
+            # Note: pending_self_actions has been removed from MUDSession
             if saved_event_id:
                 test_worker.session.last_event_id = saved_event_id
                 test_worker.pending_events = []
-                test_worker.session.pending_self_actions = []
 
         # Assert
         assert test_worker.session.last_event_id == "event-0", (

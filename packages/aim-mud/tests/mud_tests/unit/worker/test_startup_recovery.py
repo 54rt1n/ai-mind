@@ -108,6 +108,17 @@ class TestTTLRemoval:
         """When TTL=0, heartbeat should NOT call expire()."""
         import asyncio
 
+        # Mock exists to return 1 so heartbeat enters update block
+        worker_with_no_ttl.redis.exists.return_value = 1
+
+        # Set up an initial turn_request in Redis
+        turn_id = str(uuid.uuid4())
+        worker_with_no_ttl.redis.hgetall.return_value = {
+            b"turn_id": turn_id.encode(),
+            b"status": b"ready",
+            b"heartbeat_at": _utc_now().isoformat().encode(),
+        }
+
         # Use a shorter heartbeat interval for testing
         worker_with_no_ttl.config.turn_request_heartbeat_seconds = 0.05
         stop_event = asyncio.Event()
@@ -128,15 +139,26 @@ class TestTTLRemoval:
         except asyncio.CancelledError:
             pass
 
-        # Verify expire was NOT called
+        # Verify expire was NOT called (TTL is 0)
         worker_with_no_ttl.redis.expire.assert_not_called()
-        # But hset (for heartbeat timestamp) should have been called
+        # But hset (for heartbeat timestamp update) should have been called
         assert worker_with_no_ttl.redis.hset.called
 
     @pytest.mark.asyncio
     async def test_heartbeat_with_ttl(self, worker_with_ttl):
         """When TTL>0, heartbeat should call expire()."""
         import asyncio
+
+        # Mock exists to return 1 so heartbeat enters update block
+        worker_with_ttl.redis.exists.return_value = 1
+
+        # Set up an initial turn_request in Redis
+        turn_id = str(uuid.uuid4())
+        worker_with_ttl.redis.hgetall.return_value = {
+            b"turn_id": turn_id.encode(),
+            b"status": b"ready",
+            b"heartbeat_at": _utc_now().isoformat().encode(),
+        }
 
         # Use a shorter heartbeat interval for testing
         worker_with_ttl.config.turn_request_heartbeat_seconds = 0.05
@@ -158,7 +180,9 @@ class TestTTLRemoval:
         except asyncio.CancelledError:
             pass
 
-        # Verify expire was called
+        # Verify hset (for heartbeat timestamp update) was called
+        assert worker_with_ttl.redis.hset.called
+        # And expire was called (for TTL)
         assert worker_with_ttl.redis.expire.called
 
 
@@ -412,8 +436,8 @@ class TestStartupRecoveryBranch2:
 
         await worker_with_no_ttl._announce_presence()
 
-        # Verify warning log
-        assert "Startup recovery: found turn_request in problem state 'crashed'" in caplog.text
+        # Verify warning log (status now shows as enum representation)
+        assert "Startup recovery: found turn_request in problem state 'TurnRequestStatus.CRASHED'" in caplog.text
 
 
 class TestStartupRecoveryBranch3:
@@ -487,8 +511,8 @@ class TestStartupRecoveryBranch3:
 
         await worker_with_no_ttl._announce_presence()
 
-        # Verify info log
-        assert "Startup: turn_request in normal state 'ready'" in caplog.text
+        # Verify info log (status now shows as enum representation)
+        assert "Startup: turn_request in normal state 'TurnRequestStatus.READY'" in caplog.text
 
 
 class TestStartupRecoveryEdgeCases:

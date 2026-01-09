@@ -5,6 +5,7 @@
 import logging
 from typing import TYPE_CHECKING
 
+from aim_mud_types import MUDTurnRequest, TurnRequestStatus
 from .base import Command
 from .result import CommandResult
 
@@ -30,13 +31,16 @@ class AgentCommand(Command):
 
         Args:
             worker: MUDAgentWorker instance
-            **kwargs: Contains turn_id, guidance
+            **kwargs: Contains turn_id, guidance, sequence_id, attempt_count, etc.
 
         Returns:
             CommandResult with complete=True, flush_drain=True
         """
         turn_id = kwargs.get("turn_id", "unknown")
         guidance = kwargs.get("guidance", "")
+
+        # Construct MUDTurnRequest from kwargs
+        turn_request = MUDTurnRequest.model_validate(kwargs)
 
         # Worker has already drained events into worker.pending_events
         events = worker.pending_events
@@ -46,7 +50,7 @@ class AgentCommand(Command):
             turn_id,
             len(events),
         )
-        await worker.process_agent_turn(events, guidance)
+        await worker.process_agent_turn(turn_request, events, guidance)
 
         # Agent turns are memory palace actions, outside MUD world
         # Events are environmental context only, don't flush drain
@@ -54,6 +58,6 @@ class AgentCommand(Command):
             complete=True,
             flush_drain=False,
             saved_event_id=None,
-            status="done",
+            status=TurnRequestStatus.DONE,
             message="Agent turn processed"
         )

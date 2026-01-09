@@ -56,10 +56,13 @@ class TestCheckAbortRequested:
     @pytest.mark.asyncio
     async def test_returns_true_when_abort_requested(self, test_worker, mock_redis):
         """Test returns True and clears flag when abort_requested."""
+        from aim_mud_types.helper import _utc_now
         # _get_turn_request returns abort_requested status
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"abort_requested",
             b"turn_id": b"test_turn_123",
+            b"reason": b"events",
+            b"heartbeat_at": _utc_now().isoformat().encode(),
         })
 
         # Track state transitions
@@ -79,9 +82,12 @@ class TestCheckAbortRequested:
     @pytest.mark.asyncio
     async def test_returns_false_when_not_abort_requested(self, test_worker, mock_redis):
         """Test returns False when status is not abort_requested."""
+        from aim_mud_types.helper import _utc_now
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"ready",
             b"turn_id": b"test_turn_456",
+            b"reason": b"events",
+            b"heartbeat_at": _utc_now().isoformat().encode(),
         })
 
         test_worker._set_turn_request_state = AsyncMock()
@@ -94,10 +100,15 @@ class TestCheckAbortRequested:
 
     @pytest.mark.asyncio
     async def test_handles_missing_turn_id(self, test_worker, mock_redis):
-        """Test handles abort_requested with missing turn_id."""
+        """Test handles abort_requested with missing turn_id (should fail validation)."""
+        from aim_mud_types.helper import _utc_now
+        # Missing turn_id will cause MUDTurnRequest validation to fail
+        # from_redis will return None in this case
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"abort_requested",
-            # No turn_id
+            b"reason": b"events",
+            b"heartbeat_at": _utc_now().isoformat().encode(),
+            # No turn_id - will cause validation failure
         })
 
         state_changes = []
@@ -108,9 +119,11 @@ class TestCheckAbortRequested:
 
         result = await test_worker._check_abort_requested()
 
-        assert result is True
-        # Should use "unknown" as fallback turn_id
-        assert state_changes[0][0] == "unknown"
+        # With MUDTurnRequest validation, missing turn_id causes from_redis to return None
+        # So _check_abort_requested should return False (no valid turn request)
+        assert result is False
+        # Should NOT attempt state transition when turn_request is None
+        assert len(state_changes) == 0
 
 
 class TestShouldActSpontaneously:

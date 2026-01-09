@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Optional
 import uuid
 
-from aim_mud_types import RedisKeys
+from aim_mud_types import RedisKeys, MUDTurnRequest, TurnRequestStatus, TurnReason
 from aim_mud_types.helper import _utc_now
 
 logger = logging.getLogger(__name__)
@@ -30,34 +30,32 @@ class AgentsMixin:
                 if not turn_request:
                     continue
 
-                status = turn_request.get("status")
+                status = turn_request.status
 
                 # Case 1: Failed turn ready to retry
-                if status == "fail":
-                    next_attempt_at_str = turn_request.get("next_attempt_at", "")
-                    if next_attempt_at_str:
-                        next_attempt_at = datetime.fromisoformat(next_attempt_at_str)
+                if status == TurnRequestStatus.FAIL:
+                    if turn_request.next_attempt_at:
+                        next_attempt_at = datetime.fromisoformat(turn_request.next_attempt_at)
                         if datetime.now(timezone.utc) >= next_attempt_at:
                             logger.info(f"Retrying failed turn for {agent_id}")
-                            await self._maybe_assign_turn(agent_id, reason="retry")
+                            await self._maybe_assign_turn(agent_id, reason=TurnReason.RETRY)
 
                 # Case 2: Stale heartbeat (worker crashed)
-                elif status == "in_progress":
-                    heartbeat_at_str = turn_request.get("heartbeat_at", "")
-                    if heartbeat_at_str:
-                        heartbeat_at = datetime.fromisoformat(heartbeat_at_str)
-                        stale_seconds = (datetime.now(timezone.utc) - heartbeat_at).total_seconds()
+                elif status == TurnRequestStatus.IN_PROGRESS:
+                    if turn_request.heartbeat_at:
+                        stale_seconds = (datetime.now(timezone.utc) - turn_request.heartbeat_at).total_seconds()
                         if stale_seconds > 300:  # 5 minutes
                             stale_duration = f"{int(stale_seconds // 60)}m{int(stale_seconds % 60)}s"
 
                             # Mark as crashed - use Lua script to prevent partial hash creation
                             lua_script = """
                                 local key = KEYS[1]
-                                local status_reason = ARGV[1]
+                                local status_value = ARGV[1]
+                                local status_reason = ARGV[2]
 
                                 -- Only mark crashed if turn_request exists
                                 if redis.call('EXISTS', key) == 1 then
-                                    redis.call('HSET', key, 'status', 'crashed')
+                                    redis.call('HSET', key, 'status', status_value)
                                     redis.call('HSET', key, 'status_reason', status_reason)
                                     return 1
                                 else
@@ -69,6 +67,7 @@ class AgentsMixin:
                                 lua_script,
                                 1,  # number of keys
                                 RedisKeys.agent_turn_request(agent_id),
+                                TurnRequestStatus.CRASHED.value,
                                 f"Heartbeat stale for {stale_duration}"
                             )
 
@@ -84,7 +83,7 @@ class AgentsMixin:
                 logger.error(f"Error checking state for {agent_id}: {e}", exc_info=True)
                 continue
 
-    async def _maybe_assign_turn(self, agent_id: str, reason: str = "events") -> bool:
+    async def _maybe_assign_turn(self, agent_id: str, reason: "str | TurnReason" = TurnReason.EVENTS) -> bool:
         """Assign turn if agent is available (including ready to retry).
 
         Checks agent availability:
@@ -111,22 +110,21 @@ class AgentsMixin:
             logger.debug(f"Agent {agent_id} paused, not assigning turn")
             return False
 
-        status = current.get("status")
+        status = current.status
 
         # Block crashed workers
-        if status == "crashed":
+        if status == TurnRequestStatus.CRASHED:
             logger.debug(f"Agent {agent_id} crashed, not assigning")
             return False
 
         # Block if actively processing or being aborted
-        if status in ("assigned", "in_progress", "abort_requested"):
+        if status in (TurnRequestStatus.ASSIGNED, TurnRequestStatus.IN_PROGRESS, TurnRequestStatus.ABORT_REQUESTED):
             return False
 
         # Check if failed turn ready to retry
-        if status == "fail":
-            next_attempt_at_str = current.get("next_attempt_at", "")
-            if next_attempt_at_str:
-                next_attempt_at = datetime.fromisoformat(next_attempt_at_str)
+        if status == TurnRequestStatus.FAIL:
+            if current.next_attempt_at:
+                next_attempt_at = datetime.fromisoformat(current.next_attempt_at)
                 if datetime.now(timezone.utc) < next_attempt_at:
                     # Still in backoff period
                     return False
@@ -137,12 +135,15 @@ class AgentsMixin:
         turn_id = str(uuid.uuid4())
         turn_sequence_id = await self._next_sequence_id()
         assigned_at = _utc_now().isoformat()
-        current_turn_id = current.get("turn_id", "")
+        current_turn_id = current.turn_id
 
         # Preserve attempt_count if retrying a failed turn
         attempt_count = "0"
-        if status == "fail":
-            attempt_count = current.get("attempt_count", "0")
+        if status == TurnRequestStatus.FAIL:
+            attempt_count = str(current.attempt_count)
+
+        # Convert reason to string value for Lua script
+        reason_str = reason.value if isinstance(reason, TurnReason) else reason
 
         # Use CAS pattern to atomically assign if state hasn't changed
         lua_script = """
@@ -160,13 +161,13 @@ class AgentsMixin:
 
             -- Atomically assign turn
             redis.call('HSET', key, 'turn_id', ARGV[3])
-            redis.call('HSET', key, 'status', 'assigned')
-            redis.call('HSET', key, 'reason', ARGV[4])
-            redis.call('HSET', key, 'assigned_at', ARGV[5])
-            redis.call('HSET', key, 'heartbeat_at', ARGV[5])
-            redis.call('HSET', key, 'deadline_ms', ARGV[6])
-            redis.call('HSET', key, 'attempt_count', ARGV[7])
-            redis.call('HSET', key, 'sequence_id', ARGV[8])
+            redis.call('HSET', key, 'status', ARGV[4])
+            redis.call('HSET', key, 'reason', ARGV[5])
+            redis.call('HSET', key, 'assigned_at', ARGV[6])
+            redis.call('HSET', key, 'heartbeat_at', ARGV[6])
+            redis.call('HSET', key, 'deadline_ms', ARGV[7])
+            redis.call('HSET', key, 'attempt_count', ARGV[8])
+            redis.call('HSET', key, 'sequence_id', ARGV[9])
 
             return 1  -- Success
         """
@@ -176,9 +177,10 @@ class AgentsMixin:
             1,  # number of keys
             RedisKeys.agent_turn_request(agent_id),
             current_turn_id or "",
-            status,
+            status.value if isinstance(status, TurnRequestStatus) else status,
             turn_id,
-            reason,
+            TurnRequestStatus.ASSIGNED.value,
+            reason_str,
             assigned_at,
             str(self.config.turn_request_ttl_seconds * 1000),
             attempt_count,
@@ -192,27 +194,16 @@ class AgentsMixin:
                     RedisKeys.agent_turn_request(agent_id),
                     self.config.turn_request_ttl_seconds
                 )
-            logger.info(f"Assigned turn to {agent_id} (sequence_id={turn_sequence_id}, reason={reason}, attempt={attempt_count})")
+            logger.info(f"Assigned turn to {agent_id} (sequence_id={turn_sequence_id}, reason={reason_str}, attempt={attempt_count})")
             return True
         else:
             # CAS failed - state changed between check and assign
             logger.debug(f"CAS failed for {agent_id}, state changed during assignment")
             return False
 
-    async def _get_turn_request(self, agent_id: str) -> dict[str, str]:
+    async def _get_turn_request(self, agent_id: str) -> Optional[MUDTurnRequest]:
         """Fetch the current turn request hash for an agent."""
-        key = RedisKeys.agent_turn_request(agent_id)
-        data = await self.redis.hgetall(key)
-        if not data:
-            return {}
-        result: dict[str, str] = {}
-        for k, v in data.items():
-            if isinstance(k, bytes):
-                k = k.decode("utf-8")
-            if isinstance(v, bytes):
-                v = v.decode("utf-8")
-            result[str(k)] = str(v)
-        return result
+        return await MUDTurnRequest.from_redis(self.redis, agent_id)
 
     async def _agents_from_room_profile(self, room_id: str) -> list[str]:
         """Lookup agent_ids present in a room profile."""

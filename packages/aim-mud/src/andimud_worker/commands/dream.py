@@ -5,6 +5,7 @@
 import logging
 from typing import TYPE_CHECKING
 
+from aim_mud_types import TurnRequestStatus
 from .base import Command
 from .result import CommandResult
 
@@ -33,7 +34,7 @@ class DreamCommand(Command):
             **kwargs: Contains turn_id, scenario, query, guidance, conversation_id
 
         Returns:
-            CommandResult with complete=True, status="done" or "fail"
+            CommandResult with complete=True, status=TurnRequestStatus.DONE or "fail"
         """
         turn_id = kwargs.get("turn_id", "unknown")
         scenario = kwargs.get("scenario", "")
@@ -48,7 +49,7 @@ class DreamCommand(Command):
                 complete=True,
                 flush_drain=False,
                 saved_event_id=None,
-                status="fail",
+                status=TurnRequestStatus.FAIL,
                 message="Dream turn missing scenario"
             )
 
@@ -73,7 +74,7 @@ class DreamCommand(Command):
                 complete=True,
                 flush_drain=False,
                 saved_event_id=None,
-                status="done",
+                status=TurnRequestStatus.DONE,
                 message=f"Dream completed: {scenario}"
             )
         else:
@@ -82,6 +83,6 @@ class DreamCommand(Command):
                 complete=True,
                 flush_drain=False,
                 saved_event_id=None,
-                status="fail",
+                status=TurnRequestStatus.FAIL,
                 message=result.error or "Dream failed"
             )

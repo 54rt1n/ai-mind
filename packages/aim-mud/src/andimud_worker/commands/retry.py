@@ -5,6 +5,7 @@
 import logging
 from typing import TYPE_CHECKING
 
+from aim_mud_types import TurnRequestStatus
 from .base import Command
 from .result import CommandResult
 
@@ -54,6 +55,6 @@ class RetryCommand(Command):
             complete=False,
             flush_drain=False,
             saved_event_id=None,
-            status="in_progress",
+            status=TurnRequestStatus.IN_PROGRESS,
             message=f"Retry attempt {attempt_count}"
         )

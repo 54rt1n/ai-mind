@@ -16,6 +16,34 @@ from aim.dreamer.dialogue.models import DialogueState, DialogueTurn
 from aim.dreamer.dialogue.strategy import DialogueStrategy
 from aim.dreamer.dialogue.scenario import DialogueScenario
 from aim.config import ChatConfig
+from aim.agents.persona import Persona
+
+
+@pytest.fixture
+def real_test_persona():
+    """Real Persona from dict (not Mock)."""
+    persona_data = {
+        "persona_id": "Andi",
+        "chat_strategy": "xmlmemory",
+        "name": "Andi",
+        "full_name": "Andi Valentine",
+        "notes": "Test persona",
+        "aspects": {},
+        "attributes": {"sex": "female"},
+        "features": {},
+        "wakeup": ["Online"],
+        "base_thoughts": [],
+        "pif": {},
+        "nshot": {},
+        "default_location": "Test",
+        "wardrobe": {"default": {}},
+        "current_outfit": "default",
+        "persona_tools": {},
+        "wardrobe_tools": {},
+        "system_header": "You are Andi",
+        "models": {},
+    }
+    return Persona.from_dict(persona_data)
 
 
 @pytest.fixture
@@ -40,17 +68,12 @@ def state_store(mock_redis):
 
 @pytest.fixture
 def mock_config():
-    """Create mock ChatConfig."""
-    config = Mock(spec=ChatConfig)
-    config.default_model = "test-model"
-    config.thought_model = None
-    config.codex_model = None
-    config.guidance = None
-    config.persona_mood = None
-    config.persona_id = "Andi"
-    config.user_id = "user"
-    config.temperature = 0.7
-    return config
+    """Create REAL ChatConfig (not Mock)."""
+    return ChatConfig(
+        default_model="test-model",
+        max_tokens=4096,
+        temperature=0.7,
+    )
 
 
 @pytest.fixture
@@ -216,7 +239,7 @@ class TestWorkerDialogueRouting:
                 assert call_args[0][1] == mock_scenario  # Second arg is scenario
 
     @pytest.mark.asyncio
-    async def test_worker_routes_to_standard_handler_for_pipeline_state(self, mock_config):
+    async def test_worker_routes_to_standard_handler_for_pipeline_state(self, mock_config, real_test_persona):
         """Worker detects pipeline state and uses standard execute_step."""
         mock_state_store = AsyncMock()
         mock_scheduler = AsyncMock()
@@ -270,9 +293,8 @@ class TestWorkerDialogueRouting:
         )
 
         # Setup roster and CVM
-        mock_persona = Mock()
         mock_roster = Mock()
-        mock_roster.personas = {"Andi": mock_persona}
+        mock_roster.personas = {"Andi": real_test_persona}
         worker.roster = mock_roster
         worker.cvm = Mock()
         worker.cvm.insert = Mock()

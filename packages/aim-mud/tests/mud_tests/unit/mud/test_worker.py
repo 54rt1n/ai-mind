@@ -15,6 +15,8 @@ from aim_mud_types import (
     MUDSession,
     MUDEvent,
     MUDTurn,
+    MUDTurnRequest,
+    TurnRequestStatus,
     RoomState,
     EntityState,
     EventType,
@@ -680,7 +682,13 @@ class TestMUDAgentWorkerProcessTurn:
     @pytest.mark.asyncio
     async def test_process_turn_empty_events(self, fully_mocked_worker):
         """Test process_turn with no events."""
-        await fully_mocked_worker.process_turn([])
+        turn_request = MUDTurnRequest(
+            turn_id="test-turn-1",
+            status=TurnRequestStatus.ASSIGNED,
+            sequence_id=1,
+        )
+
+        await fully_mocked_worker.process_turn(turn_request, [])
 
         assert len(fully_mocked_worker.session.recent_turns) == 1
         assert len(fully_mocked_worker.session.pending_events) == 0
@@ -692,7 +700,13 @@ class TestMUDAgentWorkerProcessTurn:
         """Test process_turn updates session context from events."""
         event = MUDEvent.from_dict(sample_event_data)
 
-        await fully_mocked_worker.process_turn([event])
+        turn_request = MUDTurnRequest(
+            turn_id="test-turn-2",
+            status=TurnRequestStatus.ASSIGNED,
+            sequence_id=1,
+        )
+
+        await fully_mocked_worker.process_turn(turn_request, [event])
 
         # Verify session was updated
         assert len(fully_mocked_worker.session.recent_turns) == 1
@@ -708,7 +722,13 @@ class TestMUDAgentWorkerProcessTurn:
         """Test process_turn adds a turn record to session history."""
         event = MUDEvent.from_dict(sample_event_data)
 
-        await fully_mocked_worker.process_turn([event])
+        turn_request = MUDTurnRequest(
+            turn_id="test-turn-3",
+            status=TurnRequestStatus.ASSIGNED,
+            sequence_id=1,
+        )
+
+        await fully_mocked_worker.process_turn(turn_request, [event])
 
         turn = fully_mocked_worker.session.recent_turns[0]
         assert len(turn.events_received) == 1
@@ -726,7 +746,13 @@ class TestMUDAgentWorkerProcessTurn:
         # Pre-populate pending events
         fully_mocked_worker.session.pending_events = [event]
 
-        await fully_mocked_worker.process_turn([event])
+        turn_request = MUDTurnRequest(
+            turn_id="test-turn-4",
+            status=TurnRequestStatus.ASSIGNED,
+            sequence_id=1,
+        )
+
+        await fully_mocked_worker.process_turn(turn_request, [event])
 
         assert len(fully_mocked_worker.session.pending_events) == 0
 

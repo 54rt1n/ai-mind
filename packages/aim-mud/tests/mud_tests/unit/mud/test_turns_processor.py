@@ -19,7 +19,7 @@ def mock_worker():
     """Create a mock worker with minimal session setup."""
     worker = MagicMock()
 
-    # Create session with pending_self_actions
+    # Create session without pending_self_actions (removed field)
     worker.session = MUDSession(
         agent_id="andi",
         persona_id="andi",
@@ -38,24 +38,6 @@ def mock_worker():
             ),
         ],
         pending_events=[],
-        pending_self_actions=[
-            MUDEvent(
-                event_id="1704096000000-0",
-                event_type=EventType.MOVEMENT,
-                actor="Andi",
-                room_id="#123",
-                room_name="The Kitchen",
-                content="enters from the west",
-            ),
-            MUDEvent(
-                event_id="1704096000001-0",
-                event_type=EventType.OBJECT,
-                actor="Andi",
-                room_id="#123",
-                target="golden key",
-                content="picks up a golden key",
-            ),
-        ],
     )
 
     # Mock async methods
@@ -68,22 +50,19 @@ def mock_worker():
 
 
 class TestTurnProcessor:
-    """Tests for BaseTurnProcessor.setup_turn() with self-action events."""
+    """Tests for BaseTurnProcessor.setup_turn() basic functionality."""
 
     @pytest.mark.asyncio
     async def test_setup_turn_with_self_actions(self, mock_worker):
-        """Test setup_turn() formats self-action guidance without NameError.
+        """Test setup_turn() updates session and pushes user turn.
 
-        This test exposes the bug where format_self_action_guidance() calls
-        _format_self_event() (with underscore) instead of format_self_event()
-        (without underscore).
-
-        Before fix: NameError: name '_format_self_event' is not defined
-        After fix: Action guidance is properly formatted
+        Note: pending_self_actions has been removed. Self-action guidance
+        is now generated during turn processing via _create_event() in
+        PhasedTurnProcessor, not during setup.
         """
         # Create a concrete processor subclass for testing
         class TestProcessor(BaseTurnProcessor):
-            async def _decide_action(self, events):
+            async def _decide_action(self, turn_request, events):
                 return [], ""
 
         processor = TestProcessor(mock_worker)
@@ -94,36 +73,28 @@ class TestTurnProcessor:
                 event_id="1704096000002-0",
                 event_type=EventType.SPEECH,
                 actor="Prax",
+                actor_id="prax_id",
                 room_id="#123",
                 room_name="The Kitchen",
                 content="Hello, Andi!",
             ),
         ]
 
-        # This should NOT raise NameError
+        # Should complete without error
         await processor.setup_turn(events)
 
-        # Verify that action guidance was set
-        assert processor._action_guidance != ""
+        # Verify session was updated
+        assert mock_worker.session.pending_events == events
+        assert mock_worker.session.last_event_time == events[-1].timestamp
 
-        # Verify guidance contains enhanced formatted self-actions
-        guidance = processor._action_guidance
-        assert "!! IMPORTANT: YOUR RECENT ACTIONS !!" in guidance
-        assert "1. MOVEMENT: You moved to The Kitchen" in guidance
-        assert "2. OBJECT: You picked up golden key" in guidance
-        assert "Current Location: The Kitchen" in guidance
-
-        # Verify pending_self_actions was cleared
-        assert mock_worker.session.pending_self_actions == []
+        # Verify push_user_turn was called
+        mock_worker.conversation_manager.push_user_turn.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_setup_turn_without_self_actions(self, mock_worker):
-        """Test setup_turn() with no pending self-actions."""
-        # Clear pending_self_actions
-        mock_worker.session.pending_self_actions = []
-
+        """Test setup_turn() with regular events."""
         class TestProcessor(BaseTurnProcessor):
-            async def _decide_action(self, events):
+            async def _decide_action(self, turn_request, events):
                 return [], ""
 
         processor = TestProcessor(mock_worker)
@@ -133,6 +104,7 @@ class TestTurnProcessor:
                 event_id="1704096000002-0",
                 event_type=EventType.SPEECH,
                 actor="Prax",
+                actor_id="prax_id",
                 room_id="#123",
                 content="Hello!",
             ),
@@ -140,48 +112,41 @@ class TestTurnProcessor:
 
         await processor.setup_turn(events)
 
-        # Verify action guidance is empty
-        assert processor._action_guidance == ""
+        # Verify session updated correctly
+        assert mock_worker.session.pending_events == events
 
     @pytest.mark.asyncio
     async def test_setup_turn_with_various_self_action_types(self, mock_worker):
-        """Test setup_turn() with different self-action event types."""
-        # Set up various self-action types
-        mock_worker.session.pending_self_actions = [
+        """Test setup_turn() handles different event types correctly."""
+        class TestProcessor(BaseTurnProcessor):
+            async def _decide_action(self, turn_request, events):
+                return [], ""
+
+        processor = TestProcessor(mock_worker)
+
+        # Mix of different event types
+        events = [
             MUDEvent(
+                event_id="1704096000000-0",
                 event_type=EventType.MOVEMENT,
-                actor="Andi",
+                actor="Prax",
+                actor_id="prax_id",
                 room_id="#123",
                 room_name="The Garden",
-                content="moves to the garden",
+                content="arrives from the north",
             ),
             MUDEvent(
-                event_type=EventType.OBJECT,
-                actor="Andi",
-                room_id="#123",
-                target="silver key",
-                content="drops a silver key",
-            ),
-            MUDEvent(
+                event_id="1704096000001-0",
                 event_type=EventType.EMOTE,
-                actor="Andi",
+                actor="Nova",
+                actor_id="nova_id",
                 room_id="#123",
                 content="smiles warmly",
             ),
         ]
 
-        class TestProcessor(BaseTurnProcessor):
-            async def _decide_action(self, events):
-                return [], ""
+        await processor.setup_turn(events)
 
-        processor = TestProcessor(mock_worker)
-
-        await processor.setup_turn([])
-
-        # Verify all action types are formatted with enhanced format
-        guidance = processor._action_guidance
-        assert "!! IMPORTANT: YOUR RECENT ACTIONS !!" in guidance
-        assert "1. MOVEMENT: You moved to The Garden" in guidance
-        assert "2. OBJECT: You dropped silver key" in guidance
-        assert "3. EMOTE: You expressed: smiles warmly" in guidance
-        assert "Current Location: The Garden" in guidance
+        # Verify all events were stored
+        assert len(mock_worker.session.pending_events) == 2
+        assert mock_worker.session.pending_events == events

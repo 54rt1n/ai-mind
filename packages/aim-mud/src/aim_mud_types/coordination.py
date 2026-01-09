@@ -3,14 +3,44 @@
 """Coordination and control structures stored in Redis."""
 
 from datetime import datetime
-from typing import Optional, Literal
+from enum import Enum
+from typing import Optional, TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
 from .helper import _utc_now
+from .redis_keys import RedisKeys
+
+if TYPE_CHECKING:
+    import redis.asyncio as redis
 
 
-class TurnRequest(BaseModel):
+class TurnRequestStatus(str, Enum):
+    """Turn request status values."""
+    ASSIGNED = "assigned"
+    IN_PROGRESS = "in_progress"
+    DONE = "done"
+    FAIL = "fail"
+    READY = "ready"
+    CRASHED = "crashed"
+    ABORTED = "aborted"
+    ABORT_REQUESTED = "abort_requested"
+
+
+class TurnReason(str, Enum):
+    """Reason for turn assignment."""
+    EVENTS = "events"
+    IDLE = "idle"
+    DREAM = "dream"
+    AGENT = "agent"
+    CHOOSE = "choose"
+    FLUSH = "flush"
+    CLEAR = "clear"
+    NEW = "new"
+    RETRY = "retry"
+
+
+class MUDTurnRequest(BaseModel):
     """Turn request coordination structure.
 
     Stored in `agent:{id}:turn_request` Redis hash.
@@ -23,6 +53,8 @@ class TurnRequest(BaseModel):
         message: Optional status message
         heartbeat_at: Last heartbeat from worker
         assigned_at: When turn was assigned by mediator
+        sequence_id: Event sequence ID for chronological ordering
+        attempt_count: Number of retry attempts for this turn
         scenario: For dream turns, the scenario to run
         query: For dream turns, optional query text
         guidance: Optional guidance text
@@ -30,17 +62,56 @@ class TurnRequest(BaseModel):
     """
 
     turn_id: str
-    status: Literal["assigned", "in_progress", "done", "fail", "ready"] = "assigned"
-    reason: Literal["events", "idle", "dream", "agent", "choose", "flush", "clear", "new", "retry"] = "events"
+    status: TurnRequestStatus = TurnRequestStatus.ASSIGNED
+    reason: TurnReason = TurnReason.EVENTS
     message: Optional[str] = None
     heartbeat_at: datetime = Field(default_factory=_utc_now)
     assigned_at: datetime = Field(default_factory=_utc_now)
+    sequence_id: Optional[int] = None
+    attempt_count: int = 0
+
+    # Retry coordination
+    next_attempt_at: Optional[str] = None  # ISO format datetime string for retry timing
+    status_reason: Optional[str] = None  # Human-readable reason for current status
+    deadline_ms: Optional[str] = None  # Deadline in milliseconds (used by mediator)
 
     # Optional fields for specific turn types
     scenario: Optional[str] = None
     query: Optional[str] = None
     guidance: Optional[str] = None
     conversation_id: Optional[str] = None
+
+    @classmethod
+    async def from_redis(cls, redis_client: "redis.Redis", agent_id: str) -> Optional["MUDTurnRequest"]:
+        """Fetch and deserialize turn request from Redis.
+
+        Args:
+            redis_client: Async Redis client
+            agent_id: Agent identifier
+
+        Returns:
+            MUDTurnRequest object, or None if not found or invalid
+        """
+        key = RedisKeys.agent_turn_request(agent_id)
+        data = await redis_client.hgetall(key)
+
+        if not data:
+            return None
+
+        # Decode bytes to strings
+        decoded: dict[str, str] = {}
+        for k, v in data.items():
+            if isinstance(k, bytes):
+                k = k.decode("utf-8")
+            if isinstance(v, bytes):
+                v = v.decode("utf-8")
+            decoded[str(k)] = str(v)
+
+        # Deserialize to MUDTurnRequest object
+        try:
+            return cls.model_validate(decoded)
+        except Exception:
+            return None
 
 
 class DreamerState(BaseModel):

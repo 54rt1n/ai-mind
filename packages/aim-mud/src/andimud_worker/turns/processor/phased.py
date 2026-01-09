@@ -5,10 +5,9 @@
 import logging
 from typing import TYPE_CHECKING
 
-from aim_mud_types import MUDAction
+from aim_mud_types import MUDAction, MUDEvent, MUDTurnRequest, EventType, ActorType
 from aim.dreamer.executor import extract_think_tags
-from ...adapter import build_current_context
-from aim_mud_types import MUDEvent
+from ...adapter import build_current_context, format_self_action_guidance
 from ..response import (
     sanitize_response,
     normalize_response,
@@ -47,7 +46,54 @@ class PhasedTurnProcessor(BaseTurnProcessor):
         super().__init__(worker)
         self.user_guidance = ""
 
-    async def _decide_action(self, events: list[MUDEvent]) -> tuple[list[MUDAction], str]:
+    def _create_event(
+        self,
+        turn_request: MUDTurnRequest,
+        event_type: EventType,
+        content: str,
+        target: str = None,
+    ) -> MUDEvent:
+        """Create self-action event with formatted guidance content.
+
+        Creates event, then formats it with format_self_action_guidance()
+        to generate the detailed guidance box that appears in prompts.
+
+        Args:
+            turn_request: Current turn request with sequence_id.
+            event_type: Type of event (MOVEMENT, OBJECT, etc.).
+            content: Event content/description (e.g., "moved to Kitchen").
+            target: Optional target (object name, direction, etc.).
+
+        Returns:
+            MUDEvent with formatted content and is_self_action=True metadata.
+        """
+        # Create basic event
+        event = MUDEvent(
+            event_type=event_type,
+            actor=self.worker.persona.name,
+            actor_id=self.worker.config.agent_id,
+            actor_type=ActorType.AI,
+            room_id=self.worker.session.current_room.room_id,
+            room_name=self.worker.session.current_room.name,
+            content=content,
+            target=target,
+            sequence_id=turn_request.sequence_id,
+            metadata={"is_self_action": True},
+            world_state=self.worker.session.world_state,
+        )
+
+        # Format with existing guidance formatter
+        formatted_content = format_self_action_guidance(
+            [event],
+            world_state=self.worker.session.world_state
+        )
+
+        # Update event with formatted content
+        event.content = formatted_content
+
+        return event
+
+    async def _decide_action(self, turn_request: MUDTurnRequest, events: list[MUDEvent]) -> tuple[list[MUDAction], str]:
         """Execute phased decision strategy.
 
         Args:
@@ -70,7 +116,7 @@ class PhasedTurnProcessor(BaseTurnProcessor):
                 await self.worker._decide_action(
                     idle_mode=idle_mode,
                     role="tool",
-                    action_guidance=self._action_guidance,
+                    action_guidance="",
                     user_guidance=self.user_guidance,
                 )
             )
@@ -80,6 +126,16 @@ class PhasedTurnProcessor(BaseTurnProcessor):
             if decision_tool == "move":
                 action = MUDAction(tool="move", args=decision_args)
                 actions_taken.append(action)
+
+                # Create and write self-action event immediately
+                location = decision_args.get("location", "somewhere")
+                event = self._create_event(
+                    turn_request,
+                    EventType.MOVEMENT,
+                    f"moved to {location}"
+                )
+                await self.worker._write_self_event(event)
+
                 await self.worker._emit_actions(actions_taken)
 
             elif decision_tool == "take":
@@ -87,6 +143,16 @@ class PhasedTurnProcessor(BaseTurnProcessor):
                 if obj:
                     action = MUDAction(tool="get", args={"object": obj})
                     actions_taken.append(action)
+
+                    # Create and write self-action event immediately
+                    event = self._create_event(
+                        turn_request,
+                        EventType.OBJECT,
+                        f"picked up {obj}",
+                        target=obj
+                    )
+                    await self.worker._write_self_event(event)
+
                     await self.worker._emit_actions(actions_taken)
                 else:
                     logger.warning("Phase1 take missing object; no action emitted")
@@ -96,6 +162,16 @@ class PhasedTurnProcessor(BaseTurnProcessor):
                 if obj:
                     action = MUDAction(tool="drop", args={"object": obj})
                     actions_taken.append(action)
+
+                    # Create and write self-action event immediately
+                    event = self._create_event(
+                        turn_request,
+                        EventType.OBJECT,
+                        f"dropped {obj}",
+                        target=obj
+                    )
+                    await self.worker._write_self_event(event)
+
                     await self.worker._emit_actions(actions_taken)
                 else:
                     logger.warning("Phase1 drop missing object; no action emitted")
@@ -106,6 +182,16 @@ class PhasedTurnProcessor(BaseTurnProcessor):
                 if obj and target:
                     action = MUDAction(tool="give", args={"object": obj, "target": target})
                     actions_taken.append(action)
+
+                    # Create and write self-action event immediately
+                    event = self._create_event(
+                        turn_request,
+                        EventType.OBJECT,
+                        f"gave {obj} to {target}",
+                        target=obj
+                    )
+                    await self.worker._write_self_event(event)
+
                     await self.worker._emit_actions(actions_taken)
                 else:
                     logger.warning("Phase1 give missing object or target; no action emitted")
@@ -122,6 +208,15 @@ class PhasedTurnProcessor(BaseTurnProcessor):
                     logger.info("Wait emote with default mood")
                 action = MUDAction(tool="emote", args={"action": emote_text})
                 actions_taken.append(action)
+
+                # Create and write self-action event immediately
+                event = self._create_event(
+                    turn_request,
+                    EventType.EMOTE,
+                    emote_text
+                )
+                await self.worker._write_self_event(event)
+
                 await self.worker._emit_actions(actions_taken)
 
             elif decision_tool == "speak":
@@ -140,7 +235,6 @@ class PhasedTurnProcessor(BaseTurnProcessor):
                     guidance=None,
                     coming_online=coming_online,
                     include_events=False,
-                    action_guidance=self._action_guidance,
                 )
 
                 # Use response strategy for full context (consciousness + memory)
@@ -206,8 +300,18 @@ class PhasedTurnProcessor(BaseTurnProcessor):
             elif decision_tool == "confused":
                 # Phase 1 failed to parse a valid decision - emit confused emote
                 logger.info("Phase 1 returned confused; emitting confused emote")
-                action = MUDAction(tool="emote", args={"action": "looks confused."})
+                emote_text = "looks confused."
+                action = MUDAction(tool="emote", args={"action": emote_text})
                 actions_taken.append(action)
+
+                # Create and write self-action event immediately
+                event = self._create_event(
+                    turn_request,
+                    EventType.EMOTE,
+                    emote_text
+                )
+                await self.worker._write_self_event(event)
+
                 await self.worker._emit_actions(actions_taken)
 
             else:

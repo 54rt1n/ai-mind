@@ -10,7 +10,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
-from aim_mud_types import MUDAction, MUDEvent, MUDTurn
+from aim_mud_types import MUDAction, MUDEvent, MUDTurn, MUDTurnRequest
 from aim_mud_types.helper import _utc_now
 
 from ...adapter import format_self_action_guidance
@@ -30,8 +30,6 @@ class BaseTurnProcessor(ABC):
     - setup_turn() and finalize_turn() are shared helpers
     """
 
-    _action_guidance: str = ""
-
     def __init__(self, worker: "TurnsMixin"):
         """Initialize processor with worker reference.
 
@@ -40,7 +38,7 @@ class BaseTurnProcessor(ABC):
         """
         self.worker = worker
 
-    async def execute(self, events: list[MUDEvent]) -> None:
+    async def execute(self, turn_request: MUDTurnRequest, events: list[MUDEvent]) -> None:
         """Framework method that orchestrates the entire turn.
 
         Template method that calls:
@@ -49,14 +47,15 @@ class BaseTurnProcessor(ABC):
         3. finalize_turn() - Save conversation, create turn record
 
         Args:
+            turn_request: Current turn request with sequence_id
             events: List of events to process
         """
         await self.setup_turn(events)
-        actions_taken, thinking = await self._decide_action(events)
+        actions_taken, thinking = await self._decide_action(turn_request, events)
         await self.finalize_turn(actions_taken, thinking, events)
 
     @abstractmethod
-    async def _decide_action(self, events: list[MUDEvent]) -> tuple[list[MUDAction], str]:
+    async def _decide_action(self, turn_request: MUDTurnRequest, events: list[MUDEvent]) -> tuple[list[MUDAction], str]:
         """Strategy-specific decision logic (overridden by subclasses).
 
         Implementations determine:
@@ -66,6 +65,7 @@ class BaseTurnProcessor(ABC):
         - What actions to emit
 
         Args:
+            turn_request: Current turn request with sequence_id
             events: List of events to process
 
         Returns:
@@ -90,20 +90,6 @@ class BaseTurnProcessor(ABC):
             room_id = events[-1].room_id
         await self.worker._load_room_profile(room_id, character_id)
 
-        # Capture pending self-actions for both guidance and document inclusion
-        self._action_guidance = ""
-        self_actions: list[MUDEvent] = []
-        if self.worker.session and self.worker.session.pending_self_actions:
-            self_actions = self.worker.session.pending_self_actions.copy()
-            self._action_guidance = format_self_action_guidance(
-                self_actions, world_state=self.worker.session.world_state
-            )
-            logger.info(
-                f"Prepared action guidance for {len(self_actions)} self-actions"
-            )
-            # Clear pending self-actions (they will be presented this turn)
-            self.worker.session.pending_self_actions = []
-
         # Log event details for debugging
         for event in events:
             logger.info(
@@ -119,14 +105,10 @@ class BaseTurnProcessor(ABC):
             latest = events[-1]
             self.worker.session.last_event_time = latest.timestamp
 
-        # Combine self-actions with external events for mud-world document
-        # Self-actions go first (they happened before we received new events)
-        all_events_for_doc = self_actions + events
-
         # Push user turn to conversation list
-        if self.worker.conversation_manager and all_events_for_doc:
+        if self.worker.conversation_manager and events:
             await self.worker.conversation_manager.push_user_turn(
-                events=all_events_for_doc,
+                events=events,
                 world_state=self.worker.session.world_state,
                 room_id=self.worker.session.current_room.room_id if self.worker.session.current_room else None,
                 room_name=self.worker.session.current_room.name if self.worker.session.current_room else None,
@@ -180,6 +162,3 @@ class BaseTurnProcessor(ABC):
             f"Turn processed. Actions: {len(actions_taken)}. "
             f"Session now has {len(self.worker.session.recent_turns)} turns"
         )
-
-        # Clear action guidance (it has been consumed)
-        self._action_guidance = ""

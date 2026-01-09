@@ -6,7 +6,7 @@ import logging
 from typing import Optional
 import uuid
 
-from aim_mud_types import MUDEvent, EventType, RedisKeys
+from aim_mud_types import MUDEvent, EventType, RedisKeys, TurnRequestStatus, TurnReason
 from aim_mud_types.helper import _utc_now
 
 from ..patterns import (
@@ -55,7 +55,7 @@ class DreamerMixin:
             logger.warning(f"@{cmd_name}: Agent '{agent_id}' offline (no turn_request)")
             return False
 
-        status = current.get("status")
+        status = current.status
 
         # Validate critical parameters
         if status is None:
@@ -71,18 +71,18 @@ class DreamerMixin:
             return False
 
         # Block if agent is busy or crashed
-        if status == "crashed":
+        if status == TurnRequestStatus.CRASHED:
             logger.warning(f"@{cmd_name}: Agent '{agent_id}' is crashed")
             return False
 
-        if status in ("assigned", "in_progress", "abort_requested"):
+        if status in (TurnRequestStatus.ASSIGNED, TurnRequestStatus.IN_PROGRESS, TurnRequestStatus.ABORT_REQUESTED):
             logger.warning(f"@{cmd_name}: Agent '{agent_id}' is busy (status={status})")
             return False
 
         # Create dream turn assignment
         turn_id = str(uuid.uuid4())
         assigned_at = _utc_now().isoformat()
-        current_turn_id = current.get("turn_id", "")
+        current_turn_id = current.turn_id or ""
         # Dreams get 30 minutes (1800000ms) - they're slow pipeline operations
         deadline_ms = "1800000"
 
@@ -102,15 +102,15 @@ class DreamerMixin:
 
             -- Atomically assign dream turn
             redis.call('HSET', key, 'turn_id', ARGV[3])
-            redis.call('HSET', key, 'status', 'assigned')
-            redis.call('HSET', key, 'reason', 'dream')
-            redis.call('HSET', key, 'assigned_at', ARGV[4])
-            redis.call('HSET', key, 'heartbeat_at', ARGV[4])
-            redis.call('HSET', key, 'deadline_ms', ARGV[5])
+            redis.call('HSET', key, 'status', ARGV[4])
+            redis.call('HSET', key, 'reason', ARGV[5])
+            redis.call('HSET', key, 'assigned_at', ARGV[6])
+            redis.call('HSET', key, 'heartbeat_at', ARGV[6])
+            redis.call('HSET', key, 'deadline_ms', ARGV[7])
             redis.call('HSET', key, 'attempt_count', '0')
-            redis.call('HSET', key, 'scenario', ARGV[6])
-            redis.call('HSET', key, 'conversation_id', ARGV[7])
-            redis.call('HSET', key, 'guidance', ARGV[8])
+            redis.call('HSET', key, 'scenario', ARGV[8])
+            redis.call('HSET', key, 'conversation_id', ARGV[9])
+            redis.call('HSET', key, 'guidance', ARGV[10])
 
             return 1  -- Success
         """
@@ -120,8 +120,10 @@ class DreamerMixin:
             1,  # number of keys
             RedisKeys.agent_turn_request(agent_id),
             current_turn_id or "",
-            status,  # Already validated above
+            status.value if isinstance(status, TurnRequestStatus) else status,  # Convert enum to string
             turn_id,
+            TurnRequestStatus.ASSIGNED.value,
+            TurnReason.DREAM.value,
             assigned_at,
             deadline_ms,
             scenario,  # Already validated above
@@ -187,7 +189,7 @@ class DreamerMixin:
             logger.warning(f"@{cmd_name}: Agent '{agent_id}' offline (no turn_request)")
             return False
 
-        status = current.get("status")
+        status = current.status
 
         # Validate critical parameters
         if status is None:
@@ -199,18 +201,18 @@ class DreamerMixin:
             return False
 
         # Block if agent is busy or crashed
-        if status == "crashed":
+        if status == TurnRequestStatus.CRASHED:
             logger.warning(f"@{cmd_name}: Agent '{agent_id}' is crashed")
             return False
 
-        if status in ("assigned", "in_progress", "abort_requested"):
+        if status in (TurnRequestStatus.ASSIGNED, TurnRequestStatus.IN_PROGRESS, TurnRequestStatus.ABORT_REQUESTED):
             logger.warning(f"@{cmd_name}: Agent '{agent_id}' is busy (status={status})")
             return False
 
         # Create dream turn assignment
         turn_id = str(uuid.uuid4())
         assigned_at = _utc_now().isoformat()
-        current_turn_id = current.get("turn_id", "")
+        current_turn_id = current.turn_id or ""
         # Dreams get 30 minutes (1800000ms) - they're slow pipeline operations
         deadline_ms = "1800000"
 
@@ -230,15 +232,15 @@ class DreamerMixin:
 
             -- Atomically assign dream turn
             redis.call('HSET', key, 'turn_id', ARGV[3])
-            redis.call('HSET', key, 'status', 'assigned')
-            redis.call('HSET', key, 'reason', 'dream')
-            redis.call('HSET', key, 'assigned_at', ARGV[4])
-            redis.call('HSET', key, 'heartbeat_at', ARGV[4])
-            redis.call('HSET', key, 'deadline_ms', ARGV[5])
+            redis.call('HSET', key, 'status', ARGV[4])
+            redis.call('HSET', key, 'reason', ARGV[5])
+            redis.call('HSET', key, 'assigned_at', ARGV[6])
+            redis.call('HSET', key, 'heartbeat_at', ARGV[6])
+            redis.call('HSET', key, 'deadline_ms', ARGV[7])
             redis.call('HSET', key, 'attempt_count', '0')
-            redis.call('HSET', key, 'scenario', ARGV[6])
-            redis.call('HSET', key, 'query', ARGV[7])
-            redis.call('HSET', key, 'guidance', ARGV[8])
+            redis.call('HSET', key, 'scenario', ARGV[8])
+            redis.call('HSET', key, 'query', ARGV[9])
+            redis.call('HSET', key, 'guidance', ARGV[10])
 
             return 1  -- Success
         """
@@ -248,8 +250,10 @@ class DreamerMixin:
             1,  # number of keys
             RedisKeys.agent_turn_request(agent_id),
             current_turn_id or "",
-            status,  # Already validated above
+            status.value if isinstance(status, TurnRequestStatus) else status,  # Convert enum to string
             turn_id,
+            TurnRequestStatus.ASSIGNED.value,
+            TurnReason.DREAM.value,
             assigned_at,
             deadline_ms,
             scenario,  # Already validated above

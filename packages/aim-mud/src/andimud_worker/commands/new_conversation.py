@@ -5,7 +5,7 @@
 import logging
 from typing import TYPE_CHECKING
 
-from aim_mud_types import MUDAction
+from aim_mud_types import MUDAction, TurnRequestStatus
 from ..conversation.storage import generate_conversation_id
 from .base import Command
 from .result import CommandResult
@@ -70,6 +70,6 @@ class NewConversationCommand(Command):
             complete=True,
             flush_drain=False,
             saved_event_id=None,
-            status="done",
+            status=TurnRequestStatus.DONE,
             message=f"New conversation: {conversation_id}" if conversation_id else "Failed to create conversation"
         )

@@ -5,6 +5,8 @@
 from dataclasses import dataclass
 from typing import Optional
 
+from aim_mud_types import TurnRequestStatus
+
 
 @dataclass
 class CommandResult:
@@ -14,12 +16,12 @@ class CommandResult:
         complete: True if command finished (continue loop), False if needs process_turn
         flush_drain: True if command consumed events (clear worker.pending_events)
         saved_event_id: Event ID before draining (for rollback on failure)
-        status: "done" or "fail" (only used if complete=True)
+        status: TurnRequestStatus.DONE or TurnRequestStatus.FAIL (only used if complete=True)
         message: Optional status message (for "fail" status)
     """
 
     complete: bool
     flush_drain: bool = False
     saved_event_id: Optional[str] = None
-    status: str = "done"
+    status: TurnRequestStatus = TurnRequestStatus.DONE
     message: Optional[str] = None

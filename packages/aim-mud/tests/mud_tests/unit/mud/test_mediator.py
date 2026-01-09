@@ -359,10 +359,8 @@ class TestMediatorEventRouting:
         assert hset_call[0][0] == RedisKeys.EVENTS_PROCESSED
         assert hset_call[0][1] == "1704096000000-0"
 
-        mock_redis.expire.assert_called_once_with(
-            RedisKeys.agent_turn_request("andi"),
-            mediator_config.turn_request_ttl_seconds,
-        )
+        # With default config (turn_request_ttl_seconds=0), expire should NOT be called
+        mock_redis.expire.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_process_event_skips_turn_request_when_active(

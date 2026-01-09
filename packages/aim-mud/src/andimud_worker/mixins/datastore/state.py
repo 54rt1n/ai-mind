@@ -9,6 +9,7 @@ Extracted from worker.py lines 537-809
 import logging
 from typing import TYPE_CHECKING
 
+from aim_mud_types import TurnRequestStatus
 from aim_mud_types.helper import _utc_now
 
 if TYPE_CHECKING:
@@ -44,12 +45,14 @@ class StateMixin:
             bool: True if abort requested, False otherwise.
         """
         turn_request = await self._get_turn_request()
-        status = turn_request.get("status")
-        if status == "abort_requested":
-            # Clear the abort flag
+
+        if turn_request is None:
+            return False
+
+        if turn_request.status == TurnRequestStatus.ABORT_REQUESTED:
             await self._set_turn_request_state(
-                turn_request.get("turn_id", "unknown"),
-                "aborted",
+                turn_request.turn_id,
+                TurnRequestStatus.ABORTED,
                 message="Aborted by user request"
             )
             return True

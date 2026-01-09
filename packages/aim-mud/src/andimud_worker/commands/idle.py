@@ -5,6 +5,7 @@
 import logging
 from typing import TYPE_CHECKING
 
+from aim_mud_types import TurnRequestStatus
 from .base import Command
 from .result import CommandResult
 
@@ -63,6 +64,6 @@ class IdleCommand(Command):
             complete=False,
             flush_drain=True,
             saved_event_id=None,
-            status="done",
+            status=TurnRequestStatus.DONE,
             message="Idle turn ready"
         )

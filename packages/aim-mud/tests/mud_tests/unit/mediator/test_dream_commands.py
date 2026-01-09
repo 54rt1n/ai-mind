@@ -508,11 +508,13 @@ class TestHandleAnalysisCommand:
         assert args[3] == "prev-turn"  # Expected turn_id
         assert args[4] == "ready"  # Expected status
         # args[5] is new turn_id (UUID)
-        # args[6] is assigned_at timestamp
-        assert args[7] == "1800000"  # deadline_ms for dreams
-        assert args[8] == "analysis_dialogue"  # scenario
-        assert args[9] == "conv_123"  # conversation_id
-        assert args[10] == "Focus on emotional patterns"  # guidance
+        assert args[6] == "assigned"  # new status
+        assert args[7] == "dream"  # reason (NEW FIELD)
+        # args[8] is assigned_at timestamp
+        assert args[9] == "1800000"  # deadline_ms for dreams
+        assert args[10] == "analysis_dialogue"  # scenario
+        assert args[11] == "conv_123"  # conversation_id
+        assert args[12] == "Focus on emotional patterns"  # guidance
 
         # Verify TTL is NOT set (default turn_request_ttl_seconds=0)
         mock_redis.expire.assert_not_called()
@@ -540,9 +542,9 @@ class TestHandleAnalysisCommand:
         # Verify empty string for guidance
         eval_call = mock_redis.eval.call_args
         args = eval_call[0]
-        assert args[8] == "summarizer"
-        assert args[9] == "conv_456"
-        assert args[10] == ""  # Empty guidance
+        assert args[10] == "summarizer"
+        assert args[11] == "conv_456"
+        assert args[12] == ""  # Empty guidance
 
     @pytest.mark.asyncio
     async def test_handles_cas_failure(self, mock_redis, mediator_config):
@@ -713,11 +715,13 @@ class TestHandleCreativeCommand:
         assert args[3] == "prev-turn"  # Expected turn_id
         assert args[4] == "ready"  # Expected status
         # args[5] is new turn_id (UUID)
-        # args[6] is assigned_at timestamp
-        assert args[7] == "1800000"  # deadline_ms for dreams
-        assert args[8] == "journaler_dialogue"  # scenario
-        assert args[9] == "What did I learn today?"  # query
-        assert args[10] == "Focus on emotional growth"  # guidance
+        assert args[6] == "assigned"  # new status
+        assert args[7] == "dream"  # reason (NEW FIELD)
+        # args[8] is assigned_at timestamp
+        assert args[9] == "1800000"  # deadline_ms for dreams
+        assert args[10] == "journaler_dialogue"  # scenario
+        assert args[11] == "What did I learn today?"  # query
+        assert args[12] == "Focus on emotional growth"  # guidance
 
         # Verify TTL is NOT set (default turn_request_ttl_seconds=0)
         mock_redis.expire.assert_not_called()
@@ -745,9 +749,9 @@ class TestHandleCreativeCommand:
         # Verify empty string for guidance
         eval_call = mock_redis.eval.call_args
         args = eval_call[0]
-        assert args[8] == "philosopher_dialogue"
-        assert args[9] == "What is the meaning of life?"
-        assert args[10] == ""  # Empty guidance
+        assert args[10] == "philosopher_dialogue"
+        assert args[11] == "What is the meaning of life?"
+        assert args[12] == ""  # Empty guidance
 
     @pytest.mark.asyncio
     async def test_assigns_creative_turn_no_params(self, mock_redis, mediator_config):
@@ -772,9 +776,9 @@ class TestHandleCreativeCommand:
         # Verify empty strings for both
         eval_call = mock_redis.eval.call_args
         args = eval_call[0]
-        assert args[8] == "daydream_dialogue"
-        assert args[9] == ""  # Empty query
-        assert args[10] == ""  # Empty guidance
+        assert args[10] == "daydream_dialogue"
+        assert args[11] == ""  # Empty query
+        assert args[12] == ""  # Empty guidance
 
     @pytest.mark.asyncio
     async def test_handles_cas_failure(self, mock_redis, mediator_config):
