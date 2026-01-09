@@ -48,17 +48,38 @@ class AgentsMixin:
                         heartbeat_at = datetime.fromisoformat(heartbeat_at_str)
                         stale_seconds = (datetime.now(timezone.utc) - heartbeat_at).total_seconds()
                         if stale_seconds > 300:  # 5 minutes
-                            logger.error(
-                                f"Worker {agent_id} crashed (no heartbeat for {stale_seconds:.0f}s)"
-                            )
                             stale_duration = f"{int(stale_seconds // 60)}m{int(stale_seconds % 60)}s"
-                            await self.redis.hset(
+
+                            # Mark as crashed - use Lua script to prevent partial hash creation
+                            lua_script = """
+                                local key = KEYS[1]
+                                local status_reason = ARGV[1]
+
+                                -- Only mark crashed if turn_request exists
+                                if redis.call('EXISTS', key) == 1 then
+                                    redis.call('HSET', key, 'status', 'crashed')
+                                    redis.call('HSET', key, 'status_reason', status_reason)
+                                    return 1
+                                else
+                                    return 0
+                                end
+                            """
+
+                            result = await self.redis.eval(
+                                lua_script,
+                                1,  # number of keys
                                 RedisKeys.agent_turn_request(agent_id),
-                                mapping={
-                                    "status": "crashed",
-                                    "status_reason": f"Heartbeat stale for {stale_duration}"
-                                }
+                                f"Heartbeat stale for {stale_duration}"
                             )
+
+                            if result == 1:
+                                logger.error(
+                                    f"Worker {agent_id} crashed (no heartbeat for {stale_seconds:.0f}s)"
+                                )
+                            else:
+                                logger.debug(
+                                    f"Agent '{agent_id}' turn_request missing, skipping crash detection"
+                                )
             except Exception as e:
                 logger.error(f"Error checking state for {agent_id}: {e}", exc_info=True)
                 continue

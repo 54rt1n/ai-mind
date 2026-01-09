@@ -135,6 +135,9 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
         # Turn request tracking
         self._last_turn_request_id: Optional[str] = None
 
+        # Main loop task tracking for clean shutdown
+        self._main_loop_task: Optional[asyncio.Task] = None
+
         # Event accumulation buffer
         self.pending_events: list = []
 
@@ -249,7 +252,9 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
         logger.info(f"Using model: {self.chat_config.default_model}")
 
         # Run the main worker loop
-        await self._run_main_loop()
+        # Track main loop task for clean shutdown synchronization
+        self._main_loop_task = asyncio.create_task(self._run_main_loop())
+        await self._main_loop_task
 
         logger.info("Worker loop ended")
 
@@ -289,10 +294,12 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
                 if turn_request.get("status") != "assigned":
                     # Keep turn_request alive when ready but idle - refresh TTL and heartbeat
                     if turn_request.get("status") == "ready":
-                        await self.redis.hset(
-                            self._turn_request_key(),
-                            mapping={"heartbeat_at": _utc_now().isoformat()},
-                        )
+                        # Guard against shutdown race - only update if key exists
+                        if await self.redis.exists(self._turn_request_key()):
+                            await self.redis.hset(
+                                self._turn_request_key(),
+                                mapping={"heartbeat_at": _utc_now().isoformat()},
+                            )
                         # Only set TTL if configured (0 = no TTL)
                         if self.config.turn_request_ttl_seconds > 0:
                             await self.redis.expire(
@@ -474,11 +481,21 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
         logger.info("Stopping worker...")
         self.running = False
 
-        # Clean up turn_request so mediator knows we're offline
+        # Wait for main loop to exit cleanly before cleanup
+        if hasattr(self, '_main_loop_task') and self._main_loop_task:
+            try:
+                await asyncio.wait_for(self._main_loop_task, timeout=5.0)
+                logger.info("Main loop exited cleanly")
+            except asyncio.TimeoutError:
+                logger.warning("Main loop did not exit within 5s, forcing stop")
+            except Exception as e:
+                logger.warning(f"Error waiting for main loop: {e}")
+
+        # NOW safe to delete turn_request (main loop has stopped)
         turn_request = await self._get_turn_request()
         if turn_request:
+            logger.info("Deleting turn_request on shutdown")
             await self.redis.delete(self._turn_request_key())
-            logger.info("Deleted turn_request on shutdown")
 
     async def _announce_presence(self) -> None:
         """Announce worker online with ready status and wakeup message.
@@ -558,18 +575,29 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
                     }
                 )
 
-        # Branch 3: Normal states (ready/done/fail) → update heartbeat only
+        # Branch 3: Normal states (ready/done/fail) → update heartbeat or fix corruption
         else:
             status = turn_request.get("status")
             turn_id = turn_request.get("turn_id", str(uuid.uuid4()))
 
-            logger.info(f"Startup: turn_request in normal state '{status}', updating heartbeat")
+            # Detect corrupted hash (missing status field)
+            if status is None:
+                logger.error(
+                    "Startup: turn_request corrupted (status is None), recreating with fresh state"
+                )
+                await self._set_turn_request_state(
+                    turn_id=str(uuid.uuid4()),
+                    status="ready",
+                    extra_fields={"status_reason": "Recovered from corrupted state during startup"}
+                )
+            else:
+                logger.info(f"Startup: turn_request in normal state '{status}', updating heartbeat")
 
-            # Update heartbeat timestamp to indicate worker is alive
-            await self.redis.hset(
-                self._turn_request_key(),
-                mapping={"heartbeat_at": _utc_now().isoformat()}
-            )
+                # Update heartbeat timestamp to indicate worker is alive
+                await self.redis.hset(
+                    self._turn_request_key(),
+                    mapping={"heartbeat_at": _utc_now().isoformat()}
+                )
 
         # Get wakeup message with room context
         if self.persona.mud_wakeup and self.session and self.session.world_state:

@@ -509,16 +509,13 @@ class TestHandleAnalysisCommand:
         assert args[4] == "ready"  # Expected status
         # args[5] is new turn_id (UUID)
         # args[6] is assigned_at timestamp
-        assert args[7] == "600000"  # deadline_ms for dreams
+        assert args[7] == "1800000"  # deadline_ms for dreams
         assert args[8] == "analysis_dialogue"  # scenario
         assert args[9] == "conv_123"  # conversation_id
         assert args[10] == "Focus on emotional patterns"  # guidance
 
-        # Verify TTL is set for 10 minutes
-        mock_redis.expire.assert_called_once_with(
-            RedisKeys.agent_turn_request("andi"),
-            600,
-        )
+        # Verify TTL is NOT set (default turn_request_ttl_seconds=0)
+        mock_redis.expire.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_assigns_analysis_turn_without_guidance(self, mock_redis, mediator_config):
@@ -717,16 +714,13 @@ class TestHandleCreativeCommand:
         assert args[4] == "ready"  # Expected status
         # args[5] is new turn_id (UUID)
         # args[6] is assigned_at timestamp
-        assert args[7] == "600000"  # deadline_ms for dreams
+        assert args[7] == "1800000"  # deadline_ms for dreams
         assert args[8] == "journaler_dialogue"  # scenario
         assert args[9] == "What did I learn today?"  # query
         assert args[10] == "Focus on emotional growth"  # guidance
 
-        # Verify TTL is set for 10 minutes
-        mock_redis.expire.assert_called_once_with(
-            RedisKeys.agent_turn_request("andi"),
-            600,
-        )
+        # Verify TTL is NOT set (default turn_request_ttl_seconds=0)
+        mock_redis.expire.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_assigns_creative_turn_query_only(self, mock_redis, mediator_config):

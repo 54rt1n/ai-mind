@@ -295,6 +295,228 @@ class TestMUDConversationManagerPushUserTurn:
         assert "*Andi picks up a flower*" not in entry.content
 
 
+class TestMUDConversationManagerSelfSpeechFiltering:
+    """Test MUDConversationManager self-speech echo filtering."""
+
+    @pytest.mark.asyncio
+    async def test_push_user_turn_filters_self_speech(self, conversation_manager, mock_redis):
+        """Self-speech events should be filtered from conversation."""
+        # Create a self-speech event and a regular event
+        self_speech = MUDEvent(
+            event_id="1",
+            event_type=EventType.SPEECH,
+            actor="Andi",
+            actor_id="ai_andi",
+            room_id="#123",
+            room_name="Test Room",
+            content="Hello world",
+            timestamp=datetime.now(timezone.utc),
+            metadata={"is_self_action": True}
+        )
+
+        other_speech = MUDEvent(
+            event_id="2",
+            event_type=EventType.SPEECH,
+            actor="Bob",
+            actor_id="player_bob",
+            room_id="#123",
+            room_name="Test Room",
+            content="Hi Andi!",
+            timestamp=datetime.now(timezone.utc),
+            metadata={"is_self_action": False}
+        )
+
+        # Push both events
+        entry = await conversation_manager.push_user_turn(
+            events=[self_speech, other_speech],
+            room_id="#123",
+            room_name="Test Room",
+        )
+
+        # Entry should only contain other_speech, not self_speech
+        assert "Hi Andi!" in entry.content
+        assert "Hello world" not in entry.content
+        assert "You:" not in entry.content  # No "You: Hello world"
+
+        # Should have event_count=1 (only the non-self-speech event)
+        assert entry.metadata["event_count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_push_user_turn_all_self_speech_filtered(self, conversation_manager, mock_redis):
+        """When all events are self-speech, entry should say [No events]."""
+        # Create only self-speech events
+        self_speech1 = MUDEvent(
+            event_id="1",
+            event_type=EventType.SPEECH,
+            actor="Andi",
+            actor_id="ai_andi",
+            room_id="#123",
+            room_name="Test Room",
+            content="Hello world",
+            timestamp=datetime.now(timezone.utc),
+            metadata={"is_self_action": True}
+        )
+
+        self_speech2 = MUDEvent(
+            event_id="2",
+            event_type=EventType.SPEECH,
+            actor="Andi",
+            actor_id="ai_andi",
+            room_id="#123",
+            room_name="Test Room",
+            content="How are you?",
+            timestamp=datetime.now(timezone.utc),
+            metadata={"is_self_action": True}
+        )
+
+        entry = await conversation_manager.push_user_turn(
+            events=[self_speech1, self_speech2],
+            room_id="#123",
+            room_name="Test Room",
+        )
+
+        # Entry content should be [No events] since all were filtered
+        assert entry.content == "[No events]"
+        assert entry.metadata["event_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_push_user_turn_self_speech_mixed_with_other_events(self, conversation_manager, mock_redis):
+        """Self-speech should be filtered but other event types from self preserved."""
+        # Self-speech (should be filtered)
+        self_speech = MUDEvent(
+            event_id="1",
+            event_type=EventType.SPEECH,
+            actor="Andi",
+            actor_id="ai_andi",
+            room_id="#123",
+            room_name="Test Room",
+            content="Hello",
+            timestamp=datetime.now(timezone.utc),
+            metadata={"is_self_action": True}
+        )
+
+        # Self-emote (should NOT be filtered)
+        self_emote = MUDEvent(
+            event_id="2",
+            event_type=EventType.EMOTE,
+            actor="Andi",
+            actor_id="ai_andi",
+            room_id="#123",
+            room_name="Test Room",
+            content="waves enthusiastically",
+            timestamp=datetime.now(timezone.utc),
+            metadata={"is_self_action": True}
+        )
+
+        # Other's speech (should NOT be filtered)
+        other_speech = MUDEvent(
+            event_id="3",
+            event_type=EventType.SPEECH,
+            actor="Charlie",
+            actor_id="player_charlie",
+            room_id="#123",
+            room_name="Test Room",
+            content="Hi everyone!",
+            timestamp=datetime.now(timezone.utc),
+            metadata={"is_self_action": False}
+        )
+
+        entry = await conversation_manager.push_user_turn(
+            events=[self_speech, self_emote, other_speech],
+            room_id="#123",
+            room_name="Test Room",
+        )
+
+        # Entry should contain emote and other's speech, but NOT self-speech
+        assert "waves enthusiastically" in entry.content
+        assert "Hi everyone!" in entry.content
+        assert "Hello" not in entry.content
+        assert "You: Hello" not in entry.content
+
+        # Should have event_count=2 (emote + other's speech, not self-speech)
+        assert entry.metadata["event_count"] == 2
+
+    @pytest.mark.asyncio
+    async def test_push_user_turn_self_speech_doesnt_affect_actor_metadata(self, conversation_manager, mock_redis):
+        """Filtered self-speech should not appear in actors list."""
+        # Self-speech (will be filtered)
+        self_speech = MUDEvent(
+            event_id="1",
+            event_type=EventType.SPEECH,
+            actor="Andi",
+            actor_id="ai_andi",
+            room_id="#123",
+            room_name="Test Room",
+            content="Hello",
+            timestamp=datetime.now(timezone.utc),
+            metadata={"is_self_action": True}
+        )
+
+        # Other's speech
+        other_speech = MUDEvent(
+            event_id="2",
+            event_type=EventType.SPEECH,
+            actor="Dave",
+            actor_id="player_dave",
+            room_id="#123",
+            room_name="Test Room",
+            content="Hey there",
+            timestamp=datetime.now(timezone.utc),
+            metadata={"is_self_action": False}
+        )
+
+        entry = await conversation_manager.push_user_turn(
+            events=[self_speech, other_speech],
+            room_id="#123",
+            room_name="Test Room",
+        )
+
+        # Actors list should only contain Dave, not Andi (from filtered self-speech)
+        assert "Dave" in entry.metadata["actors"]
+        assert "Andi" not in entry.metadata["actors"]
+        assert len(entry.metadata["actors"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_push_user_turn_self_speech_doesnt_affect_event_ids(self, conversation_manager, mock_redis):
+        """Filtered self-speech event IDs should not appear in metadata."""
+        # Self-speech (will be filtered)
+        self_speech = MUDEvent(
+            event_id="self-speech-123",
+            event_type=EventType.SPEECH,
+            actor="Andi",
+            actor_id="ai_andi",
+            room_id="#123",
+            room_name="Test Room",
+            content="Hello",
+            timestamp=datetime.now(timezone.utc),
+            metadata={"is_self_action": True}
+        )
+
+        # Other event
+        other_event = MUDEvent(
+            event_id="other-event-456",
+            event_type=EventType.EMOTE,
+            actor="Eve",
+            actor_id="player_eve",
+            room_id="#123",
+            room_name="Test Room",
+            content="smiles",
+            timestamp=datetime.now(timezone.utc),
+            metadata={"is_self_action": False}
+        )
+
+        entry = await conversation_manager.push_user_turn(
+            events=[self_speech, other_event],
+            room_id="#123",
+            room_name="Test Room",
+        )
+
+        # Event IDs should only contain the other event, not self-speech
+        assert "other-event-456" in entry.metadata["event_ids"]
+        assert "self-speech-123" not in entry.metadata["event_ids"]
+        assert len(entry.metadata["event_ids"]) == 1
+
+
 class TestMUDConversationManagerPushAssistantTurn:
     """Test MUDConversationManager.push_assistant_turn method."""
 

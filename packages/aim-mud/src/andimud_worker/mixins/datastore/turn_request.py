@@ -151,15 +151,21 @@ class TurnRequestMixin:
                 await asyncio.sleep(self.config.turn_request_heartbeat_seconds)
                 if stop_event.is_set():
                     break
-                # Only set TTL if configured (0 = no TTL)
-                if self.config.turn_request_ttl_seconds > 0:
-                    await self.redis.expire(
+                # Guard against turn completion - only update if key still exists
+                if await self.redis.exists(self._turn_request_key()):
+                    # Only set TTL if configured (0 = no TTL)
+                    if self.config.turn_request_ttl_seconds > 0:
+                        await self.redis.expire(
+                            self._turn_request_key(),
+                            self.config.turn_request_ttl_seconds,
+                        )
+                    await self.redis.hset(
                         self._turn_request_key(),
-                        self.config.turn_request_ttl_seconds,
+                        mapping={"heartbeat_at": _utc_now().isoformat()},
                     )
-                await self.redis.hset(
-                    self._turn_request_key(),
-                    mapping={"heartbeat_at": _utc_now().isoformat()},
-                )
+                else:
+                    # Turn completed or corrupted, stop heartbeating
+                    logger.debug("Turn completed or key missing, stopping heartbeat")
+                    return
         except asyncio.CancelledError:
             return

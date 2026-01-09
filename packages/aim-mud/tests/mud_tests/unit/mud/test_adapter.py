@@ -187,7 +187,7 @@ class TestFormatEvent:
             content="enters from the north",
         )
         result = format_event(event)
-        assert result == "*You see Prax has arrived.*"
+        assert result == "*You see Prax arriving from the north.*"
 
     def test_format_movement_arrive_event(self):
         """Test formatting a movement event with 'arrive' in content."""
@@ -209,7 +209,134 @@ class TestFormatEvent:
             content="leaves to the north",
         )
         result = format_event(event)
-        assert result == "*You watch Prax leave.*"
+        assert result == "*You watch Prax leaving toward the north.*"
+
+    def test_arrival_with_source_location(self):
+        """Arrival events should show source location when available."""
+        event = MUDEvent(
+            event_type=EventType.MOVEMENT,
+            actor="Andi",
+            actor_id="ai_andi",
+            actor_type="ai",
+            room_id="room2",
+            room_name="Kitchen",
+            content="arrived from Garden",
+        )
+        result = format_event(event)
+        assert result == "*You see Andi arriving from Garden.*"
+        assert "Garden" in result
+        assert "arriving from" in result
+
+    def test_departure_with_destination_location(self):
+        """Departure events should show destination when available."""
+        event = MUDEvent(
+            event_type=EventType.MOVEMENT,
+            actor="Nova",
+            actor_id="ai_nova",
+            actor_type="ai",
+            room_id="room1",
+            room_name="Garden",
+            content="left to Kitchen",
+        )
+        result = format_event(event)
+        assert result == "*You watch Nova leaving toward Kitchen.*"
+        assert "Kitchen" in result
+        assert "leaving toward" in result
+
+    def test_arrival_without_location_info(self):
+        """Arrival without 'from' should use generic message."""
+        event = MUDEvent(
+            event_type=EventType.MOVEMENT,
+            actor="Bob",
+            actor_id="player_bob",
+            actor_type="player",
+            room_id="room1",
+            room_name="Garden",
+            content="arrived",  # No "from" keyword
+        )
+        result = format_event(event)
+        assert result == "*You see Bob has arrived.*"
+
+    def test_departure_without_location_info(self):
+        """Departure without 'to' should use generic message."""
+        event = MUDEvent(
+            event_type=EventType.MOVEMENT,
+            actor="Charlie",
+            actor_id="npc_charlie",
+            actor_type="npc",
+            room_id="room1",
+            room_name="Garden",
+            content="departed",  # No "to" keyword
+        )
+        result = format_event(event)
+        assert result == "*You watch Charlie leave.*"
+
+    def test_entered_from_location(self):
+        """'entered from' should also work (alternative phrasing)."""
+        event = MUDEvent(
+            event_type=EventType.MOVEMENT,
+            actor="Dave",
+            actor_id="player_dave",
+            actor_type="player",
+            room_id="room2",
+            room_name="Kitchen",
+            content="entered from the north",
+        )
+        result = format_event(event)
+        assert "arriving from the north" in result
+        assert "Dave" in result
+
+    def test_movement_with_complex_location_names(self):
+        """Location names with multiple words should be preserved."""
+        event = MUDEvent(
+            event_type=EventType.MOVEMENT,
+            actor="Andi",
+            actor_id="ai_andi",
+            actor_type="ai",
+            room_id="room3",
+            room_name="Great Hall",
+            content="arrived from the Ancient Library of Whispers",
+        )
+        result = format_event(event)
+        assert "Ancient Library of Whispers" in result
+        assert "arriving from" in result
+
+    def test_departure_to_complex_location(self):
+        """Departure to locations with multiple words."""
+        event = MUDEvent(
+            event_type=EventType.MOVEMENT,
+            actor="Nova",
+            actor_id="ai_nova",
+            actor_type="ai",
+            room_id="room1",
+            room_name="Garden",
+            content="left to the Sacred Grove of Contemplation",
+        )
+        result = format_event(event)
+        assert "Sacred Grove of Contemplation" in result
+        assert "leaving toward" in result
+
+    def test_arrival_case_insensitive(self):
+        """Test that arrival detection is case-insensitive."""
+        event = MUDEvent(
+            event_type=EventType.MOVEMENT,
+            actor="Andi",
+            room_id="room1",
+            content="ARRIVED from Garden",  # Uppercase
+        )
+        result = format_event(event)
+        assert "arriving from Garden" in result
+
+    def test_departure_case_insensitive(self):
+        """Test that departure detection is case-insensitive."""
+        event = MUDEvent(
+            event_type=EventType.MOVEMENT,
+            actor="Nova",
+            room_id="room1",
+            content="LEAVES to Kitchen",  # Uppercase
+        )
+        result = format_event(event)
+        assert "leaving toward Kitchen" in result
 
     def test_format_object_event(self):
         """Test formatting an object event."""
@@ -253,9 +380,9 @@ class TestFormatEvent:
             room_name="The Kitchen",
             content="enters from the west",
         )
-        # Third person (default)
+        # Third person (default) - now shows location info
         result_third = format_event(event)
-        assert result_third == "*You see Andi has arrived.*"
+        assert result_third == "*You see Andi arriving from the west.*"
 
         # First person (delegates to format_self_event)
         result_first = format_event(event, first_person=True)

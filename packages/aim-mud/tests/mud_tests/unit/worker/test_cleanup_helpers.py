@@ -25,6 +25,7 @@ class TestHeartbeatTurnRequest:
         stop_event = asyncio.Event()
         test_worker.redis.expire = AsyncMock()
         test_worker.redis.hset = AsyncMock()
+        test_worker.redis.exists = AsyncMock(return_value=True)  # Key exists
         test_worker.config.turn_request_heartbeat_seconds = 0.01  # Fast for testing
 
         # Act - start heartbeat and let it run for a few cycles
@@ -51,6 +52,7 @@ class TestHeartbeatTurnRequest:
         stop_event = asyncio.Event()
         test_worker.redis.expire = AsyncMock()
         test_worker.redis.hset = AsyncMock()
+        test_worker.redis.exists = AsyncMock(return_value=True)  # Key exists
         test_worker.config.turn_request_heartbeat_seconds = 0.01
 
         # Act - start and immediately stop
@@ -70,6 +72,7 @@ class TestHeartbeatTurnRequest:
         stop_event = asyncio.Event()
         test_worker.redis.expire = AsyncMock()
         test_worker.redis.hset = AsyncMock()
+        test_worker.redis.exists = AsyncMock(return_value=True)  # Key exists
         test_worker.config.turn_request_heartbeat_seconds = 1.0
 
         # Act - cancel task during heartbeat
@@ -373,6 +376,7 @@ class TestHeartbeatCleanup:
         heartbeat_stop = asyncio.Event()
         test_worker.redis.expire = AsyncMock()
         test_worker.redis.hset = AsyncMock()
+        test_worker.redis.exists = AsyncMock(return_value=True)  # Key exists
         test_worker.config.turn_request_heartbeat_seconds = 0.01
 
         heartbeat_task = asyncio.create_task(
@@ -401,6 +405,7 @@ class TestHeartbeatCleanup:
         heartbeat_stop = asyncio.Event()
         test_worker.redis.expire = AsyncMock()
         test_worker.redis.hset = AsyncMock()
+        test_worker.redis.exists = AsyncMock(return_value=True)  # Key exists
         test_worker.config.turn_request_heartbeat_seconds = 0.01
 
         heartbeat_task = asyncio.create_task(

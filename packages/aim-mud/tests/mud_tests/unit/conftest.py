@@ -16,20 +16,179 @@ def mock_redis():
     """Mock for Redis (external service).
 
     This mocks the Redis client. All Redis operations should use this fixture.
+    Includes queue simulation for dreamer tests.
     """
     redis = AsyncMock()
-    redis.get = AsyncMock(return_value=None)
-    redis.set = AsyncMock(return_value=True)
-    redis.delete = AsyncMock(return_value=1)
-    redis.exists = AsyncMock(return_value=0)
-    redis.hget = AsyncMock(return_value=None)
-    redis.hset = AsyncMock(return_value=1)
-    redis.hgetall = AsyncMock(return_value={})
-    redis.hdel = AsyncMock(return_value=1)
+
+    # Basic key-value operations
+    redis_storage = {}
+    redis_hashes = {}
+    redis_queues = {}
+
+    async def mock_get(key):
+        return redis_storage.get(key)
+
+    async def mock_set(key, value, **kwargs):
+        # Support SET with NX (only if not exists) - used for distributed locks
+        if kwargs.get('nx'):
+            if key in redis_storage:
+                return None  # Key exists, lock not acquired
+        redis_storage[key] = value
+        return True
+
+    async def mock_delete(*keys):
+        count = 0
+        for key in keys:
+            if key in redis_storage:
+                del redis_storage[key]
+                count += 1
+            if key in redis_hashes:
+                del redis_hashes[key]
+                count += 1
+            if key in redis_queues:
+                del redis_queues[key]
+                count += 1
+        return count
+
+    async def mock_exists(key):
+        return 1 if key in redis_storage else 0
+
+    # Hash operations
+    async def mock_hget(key, field):
+        return redis_hashes.get(key, {}).get(field)
+
+    async def mock_hset(key, field=None, value=None, mapping=None):
+        if key not in redis_hashes:
+            redis_hashes[key] = {}
+        if mapping:
+            redis_hashes[key].update(mapping)
+        elif field and value:
+            redis_hashes[key][field] = value
+        return 1
+
+    async def mock_hgetall(key):
+        return redis_hashes.get(key, {})
+
+    async def mock_hdel(key, *fields):
+        if key not in redis_hashes:
+            return 0
+        count = 0
+        for field in fields:
+            if field in redis_hashes[key]:
+                del redis_hashes[key][field]
+                count += 1
+        return count
+
+    # Queue operations (for scheduler)
+    async def mock_lpush(key, *values):
+        if key not in redis_queues:
+            redis_queues[key] = []
+        # lpush adds to the left (beginning) of the list
+        redis_queues[key] = list(values) + redis_queues[key]
+        return len(redis_queues[key])
+
+    async def mock_brpop(key, timeout=0):
+        """Block right pop - returns (key, value) tuple or None."""
+        if key not in redis_queues or not redis_queues[key]:
+            return None
+        # brpop removes from the right (end) of the list
+        value = redis_queues[key].pop()
+        return (key, value)
+
+    async def mock_llen(key):
+        return len(redis_queues.get(key, []))
+
+    async def mock_lrange(key, start, stop):
+        queue = redis_queues.get(key, [])
+        return queue[start:stop+1] if stop >= 0 else queue[start:]
+
+    # Sorted set operations (for delayed queue)
+    redis_zsets = {}
+
+    async def mock_zadd(key, mapping, **kwargs):
+        """Add items to sorted set with scores."""
+        if key not in redis_zsets:
+            redis_zsets[key] = {}
+        redis_zsets[key].update(mapping)
+        return len(mapping)
+
+    async def mock_zrangebyscore(key, min, max, **kwargs):
+        """Get items from sorted set by score range."""
+        if key not in redis_zsets:
+            return []
+        # Return items whose scores are in [min, max]
+        return [
+            item for item, score in redis_zsets[key].items()
+            if min <= score <= max
+        ]
+
+    async def mock_zrem(key, *members):
+        """Remove items from sorted set."""
+        if key not in redis_zsets:
+            return 0
+        count = 0
+        for member in members:
+            if member in redis_zsets[key]:
+                del redis_zsets[key][member]
+                count += 1
+        return count
+
+    # Pipeline support
+    class MockPipeline:
+        """Mock Redis pipeline for batched operations."""
+        def __init__(self):
+            self.commands = []
+
+        def lpush(self, key, *values):
+            self.commands.append(('lpush', key, values))
+            return self
+
+        def zrem(self, key, *members):
+            self.commands.append(('zrem', key, members))
+            return self
+
+        async def execute(self):
+            """Execute all queued commands."""
+            results = []
+            for cmd in self.commands:
+                if cmd[0] == 'lpush':
+                    result = await mock_lpush(cmd[1], *cmd[2])
+                    results.append(result)
+                elif cmd[0] == 'zrem':
+                    result = await mock_zrem(cmd[1], *cmd[2])
+                    results.append(result)
+            self.commands = []
+            return results
+
+    def mock_pipeline():
+        """Create a new pipeline."""
+        return MockPipeline()
+
+    # Stream operations
     redis.xadd = AsyncMock(return_value=b"stream-id-123")
     redis.xread = AsyncMock(return_value=[])
     redis.xack = AsyncMock(return_value=1)
     redis.close = AsyncMock()
+    redis.expire = AsyncMock(return_value=True)
+
+    # Assign mocked operations
+    redis.get = mock_get
+    redis.set = mock_set
+    redis.delete = mock_delete
+    redis.exists = mock_exists
+    redis.hget = mock_hget
+    redis.hset = mock_hset
+    redis.hgetall = mock_hgetall
+    redis.hdel = mock_hdel
+    redis.lpush = mock_lpush
+    redis.brpop = mock_brpop
+    redis.llen = mock_llen
+    redis.lrange = mock_lrange
+    redis.zadd = mock_zadd
+    redis.zrangebyscore = mock_zrangebyscore
+    redis.zrem = mock_zrem
+    redis.pipeline = mock_pipeline
+
     return redis
 
 

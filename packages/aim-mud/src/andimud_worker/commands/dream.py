@@ -66,7 +66,8 @@ class DreamCommand(Command):
                 f"Dream completed: {result.pipeline_id} "
                 f"in {result.duration_seconds:.1f}s"
             )
-            # Update conversation report
+            # Refresh index and update conversation report
+            worker.cvm.refresh()
             await worker._update_conversation_report()
             return CommandResult(
                 complete=True,

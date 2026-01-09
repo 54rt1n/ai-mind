@@ -135,12 +135,15 @@ class MUDConversationManager:
         Returns:
             The created MUDConversationEntry.
         """
+        # Filter out self-speech echoes - agent already has these in assistant turn
+        filtered_events = [e for e in events if not e.is_self_speech_echo()]
+
         # Format events as pure prose (CVM-ready, no XML wrapper)
         # Use \n\n delimiter for paragraph separation
         # Self-actions are formatted in first person, others in third person
-        if events:
+        if filtered_events:
             formatted_parts = []
-            for event in events:
+            for event in filtered_events:
                 # Check if this is a self-action (from metadata flag)
                 is_self = event.metadata.get("is_self_action", False)
                 if is_self:
@@ -155,8 +158,8 @@ class MUDConversationManager:
         tokens = count_tokens(content)
 
         # Build metadata
-        actors = list({e.actor for e in events if e.actor})
-        event_ids = [e.event_id for e in events if e.event_id]
+        actors = list({e.actor for e in filtered_events if e.actor})
+        event_ids = [e.event_id for e in filtered_events if e.event_id]
 
         # Get room info from world_state if not provided
         if not room_id and world_state and world_state.room_state:
@@ -171,7 +174,7 @@ class MUDConversationManager:
         metadata = {
             "room_id": room_id,
             "room_name": room_name,
-            "event_count": len(events),
+            "event_count": len(filtered_events),
             "actors": actors,
             "event_ids": event_ids,
         }

@@ -57,6 +57,19 @@ class DreamerMixin:
 
         status = current.get("status")
 
+        # Validate critical parameters
+        if status is None:
+            logger.error(f"@{cmd_name}: Agent '{agent_id}' has corrupted turn_request (status is None)")
+            return False
+
+        if not scenario:
+            logger.error(f"@{cmd_name}: Missing required parameter 'scenario'")
+            return False
+
+        if not conversation_id:
+            logger.error(f"@{cmd_name}: Missing required parameter 'conversation_id'")
+            return False
+
         # Block if agent is busy or crashed
         if status == "crashed":
             logger.warning(f"@{cmd_name}: Agent '{agent_id}' is crashed")
@@ -70,8 +83,8 @@ class DreamerMixin:
         turn_id = str(uuid.uuid4())
         assigned_at = _utc_now().isoformat()
         current_turn_id = current.get("turn_id", "")
-        # Dreams get 10 minutes (600000ms) - they're slow pipeline operations
-        deadline_ms = "600000"
+        # Dreams get 30 minutes (1800000ms) - they're slow pipeline operations
+        deadline_ms = "1800000"
 
         # Use extended Lua script to set dream-specific fields
         lua_script = """
@@ -107,21 +120,22 @@ class DreamerMixin:
             1,  # number of keys
             RedisKeys.agent_turn_request(agent_id),
             current_turn_id or "",
-            status,
+            status,  # Already validated above
             turn_id,
             assigned_at,
             deadline_ms,
-            scenario,
-            conversation_id,
-            guidance or "",
+            scenario,  # Already validated above
+            conversation_id,  # Already validated above
+            guidance or "",  # Optional field
         )
 
         if result == 1:
-            # CAS succeeded - set TTL (10 minutes for dreams)
-            await self.redis.expire(
-                RedisKeys.agent_turn_request(agent_id),
-                600,  # 10 minutes
-            )
+            # CAS succeeded - conditionally set TTL (0 = no TTL)
+            if self.config.turn_request_ttl_seconds > 0:
+                await self.redis.expire(
+                    RedisKeys.agent_turn_request(agent_id),
+                    self.config.turn_request_ttl_seconds,
+                )
             logger.info(
                 f"@{cmd_name}: Assigned dream turn to {agent_id} "
                 f"(scenario={scenario}, conversation_id={conversation_id}, "
@@ -175,6 +189,15 @@ class DreamerMixin:
 
         status = current.get("status")
 
+        # Validate critical parameters
+        if status is None:
+            logger.error(f"@{cmd_name}: Agent '{agent_id}' has corrupted turn_request (status is None)")
+            return False
+
+        if not scenario:
+            logger.error(f"@{cmd_name}: Missing required parameter 'scenario'")
+            return False
+
         # Block if agent is busy or crashed
         if status == "crashed":
             logger.warning(f"@{cmd_name}: Agent '{agent_id}' is crashed")
@@ -188,8 +211,8 @@ class DreamerMixin:
         turn_id = str(uuid.uuid4())
         assigned_at = _utc_now().isoformat()
         current_turn_id = current.get("turn_id", "")
-        # Dreams get 10 minutes (600000ms) - they're slow pipeline operations
-        deadline_ms = "600000"
+        # Dreams get 30 minutes (1800000ms) - they're slow pipeline operations
+        deadline_ms = "1800000"
 
         # Use extended Lua script to set dream-specific fields
         lua_script = """
@@ -225,21 +248,22 @@ class DreamerMixin:
             1,  # number of keys
             RedisKeys.agent_turn_request(agent_id),
             current_turn_id or "",
-            status,
+            status,  # Already validated above
             turn_id,
             assigned_at,
             deadline_ms,
-            scenario,
-            query or "",
-            guidance or "",
+            scenario,  # Already validated above
+            query or "",  # Optional field
+            guidance or "",  # Optional field
         )
 
         if result == 1:
-            # CAS succeeded - set TTL (10 minutes for dreams)
-            await self.redis.expire(
-                RedisKeys.agent_turn_request(agent_id),
-                600,  # 10 minutes
-            )
+            # CAS succeeded - conditionally set TTL (0 = no TTL)
+            if self.config.turn_request_ttl_seconds > 0:
+                await self.redis.expire(
+                    RedisKeys.agent_turn_request(agent_id),
+                    self.config.turn_request_ttl_seconds,
+                )
             logger.info(
                 f"@{cmd_name}: Assigned dream turn to {agent_id} "
                 f"(scenario={scenario}, query={query or 'none'}, "

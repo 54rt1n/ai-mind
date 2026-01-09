@@ -141,3 +141,19 @@ class MUDEvent(BaseModel):
             "timestamp": self.timestamp.isoformat(),
             "metadata": self.metadata,
         }
+
+    def is_self_speech_echo(self) -> bool:
+        """Check if this is a self-speech echo event.
+
+        These are events where the agent's own speech action was echoed
+        back from Evennia. They should not be added to conversation because
+        the agent already has their speech in the assistant turn.
+
+        Returns:
+            True if this is a self-speech echo that should be filtered.
+        """
+        from .enums import EventType
+        return (
+            self.metadata.get("is_self_action", False) and
+            self.event_type == EventType.SPEECH
+        )

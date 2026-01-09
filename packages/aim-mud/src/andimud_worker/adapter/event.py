@@ -40,8 +40,20 @@ def format_event(event: MUDEvent, first_person: bool = False) -> str:
         # Determine if this is an arrival or departure based on content
         content_lower = event.content.lower()
         if "enter" in content_lower or "arrive" in content_lower:
+            # Extract source location if available
+            # Content format: "arrived from Garden" or "entered from somewhere"
+            if "from" in event.content:
+                # Split on "from" and take everything after it
+                source = event.content.split("from", 1)[1].strip()
+                return f"*You see {event.actor} arriving from {source}.*"
             return f"*You see {event.actor} has arrived.*"
         else:
+            # Extract destination location if available
+            # Content format: "left to Kitchen" or "departed to somewhere"
+            if "to" in event.content:
+                # Split on "to" and take everything after it
+                destination = event.content.split("to", 1)[1].strip()
+                return f"*You watch {event.actor} leaving toward {destination}.*"
             return f"*You watch {event.actor} leave.*"
 
     elif event.event_type == EventType.OBJECT:
