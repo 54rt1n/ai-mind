@@ -277,17 +277,76 @@ class TestDreamerRunnerRunDream:
         assert "Pipeline execution failed" in result.error
         assert result.duration_seconds > 0
 
-    @pytest.mark.skip(reason="Needs updating for inline scheduler heartbeat handling")
     @pytest.mark.asyncio
-    async def test_dream_execution_invokes_heartbeat_callback(
+    async def test_heartbeat_callback_receives_pipeline_and_step_ids(
         self, test_config, test_cvm, test_roster
     ):
-        """Test dream execution invokes heartbeat callback during execution.
+        """Test heartbeat callback receives pipeline_id and step_id arguments.
 
-        TODO: Update this test to verify heartbeat callback with inline scheduler.
-        The inline scheduler wraps the heartbeat callback to match its signature.
+        This test would have caught the production bug where the wrapped_heartbeat
+        function in runner.py calls heartbeat_callback() with no arguments, but
+        the callback expects (pipeline_id: str, step_id: str).
+
+        CURRENT BUG (line 198 in runner.py):
+            async def wrapped_heartbeat(pipeline_id: str, step_id: str) -> None:
+                await heartbeat_callback()  # BUG: Missing arguments
+
+        CORRECT CODE:
+            async def wrapped_heartbeat(pipeline_id: str, step_id: str) -> None:
+                await heartbeat_callback(pipeline_id, step_id)
         """
-        pass
+        runner = DreamerRunner(
+            config=test_config,
+            cvm=test_cvm,
+            roster=test_roster,
+            persona_id="andi",
+        )
+
+        # Track heartbeat callback invocations
+        heartbeat_calls = []
+
+        async def mock_heartbeat(pipeline_id: str, step_id: str) -> None:
+            """Mock heartbeat that expects pipeline_id and step_id."""
+            heartbeat_calls.append({
+                "pipeline_id": pipeline_id,
+                "step_id": step_id,
+            })
+
+        # Mock execute_pipeline_inline to simulate step execution
+        async def mock_execute_pipeline(**kwargs):
+            # Extract the wrapped heartbeat callback
+            callback = kwargs.get("heartbeat_callback")
+            if callback:
+                # Simulate inline scheduler calling the callback with both arguments
+                # This is what happens at line 344 in inline/scheduler.py
+                await callback("pipeline_123", "step_1")
+            return "pipeline_123"
+
+        with patch("andimud_worker.dreamer.runner.execute_pipeline_inline", mock_execute_pipeline):
+            request = DreamRequest(scenario="test_standard")
+            result = await runner.run_dream(
+                request,
+                "andimud_123_abc",
+                heartbeat_callback=mock_heartbeat
+            )
+
+        # Verify: Dream completed successfully
+        assert result.success is True
+        assert result.pipeline_id == "pipeline_123"
+
+        # Verify: Heartbeat callback was invoked with both arguments
+        assert len(heartbeat_calls) == 1, (
+            "Heartbeat callback should have been called once by the inline scheduler"
+        )
+
+        # Verify: Callback received the correct arguments
+        call = heartbeat_calls[0]
+        assert call["pipeline_id"] == "pipeline_123", (
+            "Heartbeat callback should receive pipeline_id from inline scheduler"
+        )
+        assert call["step_id"] == "step_1", (
+            "Heartbeat callback should receive step_id from inline scheduler"
+        )
 
     @pytest.mark.asyncio
     async def test_uses_base_conversation_id_for_analysis(

@@ -9,10 +9,9 @@ from pathlib import Path
 from aim.tool.loader import ToolLoader
 from aim.tool.formatting import ToolUser
 from aim.utils.xml import XmlFormatter
-from aim_mud_types import MUDAction, MUDEvent, MUDTurnRequest
+from aim_mud_types import MUDAction, MUDEvent, MUDTurnRequest, EventType
 from aim.utils.think import extract_think_tags
 from ...adapter import build_current_context
-from aim_mud_types import MUDEvent
 from ..response import (
     sanitize_response,
     normalize_response,
@@ -50,6 +49,56 @@ class AgentTurnProcessor(BaseTurnProcessor):
         self.user_guidance = ""
         self._tool_helper = tool_helper
 
+    def _create_event(
+        self,
+        turn_request: MUDTurnRequest,
+        event_type: EventType,
+        content: str,
+        target: str = None,
+    ) -> MUDEvent:
+        """Create self-action event with formatted guidance content.
+
+        Creates event, then formats it with format_self_action_guidance()
+        to generate the detailed guidance box that appears in prompts.
+
+        Args:
+            turn_request: Current turn request with sequence_id.
+            event_type: Type of event (MOVEMENT, OBJECT, etc.).
+            content: Event content/description (e.g., "moved from X to Y").
+            target: Optional target (object name, direction, etc.).
+
+        Returns:
+            MUDEvent with formatted content and is_self_action=True metadata.
+        """
+        from ...adapter import format_self_action_guidance
+        from aim_mud_types import ActorType
+
+        # Create basic event
+        event = MUDEvent(
+            event_type=event_type,
+            actor=self.worker.persona.name,
+            actor_id=self.worker.config.agent_id,
+            actor_type=ActorType.AI,
+            room_id=self.worker.session.current_room.room_id,
+            room_name=self.worker.session.current_room.name,
+            content=content,
+            target=target,
+            sequence_id=turn_request.sequence_id,
+            metadata={"is_self_action": True},
+            world_state=self.worker.session.world_state,
+        )
+
+        # Format with existing guidance formatter
+        formatted_content = format_self_action_guidance(
+            [event],
+            world_state=self.worker.session.world_state
+        )
+
+        # Update event with formatted content
+        event.content = formatted_content
+
+        return event
+
     def build_system_message(self) -> str:
         """Build the system message for the agent turn.
 
@@ -60,6 +109,37 @@ class AgentTurnProcessor(BaseTurnProcessor):
         xml = self.worker.persona.xml_decorator(xml, disable_guidance=False, disable_pif=False, conversation_length=0)
         xml = self._tool_helper.decorate_xml(xml)
         return xml.render()
+
+    def _build_agent_guidance(self, user_guidance: str) -> str:
+        """Build comprehensive guidance for @agent action selection.
+
+        Generates structured guidance similar to Phase 1 decision guidance:
+        - OpenAI-style function signatures from ToolUser
+        - Agent action spec instructions
+        - Current world state context (exits, objects, inventory, targets)
+        - User guidance if provided
+
+        Args:
+            user_guidance: Optional user-provided guidance string
+
+        Returns:
+            Formatted guidance string for agent action selection
+        """
+        parts = []
+
+        # Get ToolUser guidance (OpenAI-style function signatures)
+        if self._tool_helper and self._tool_helper._tool_user:
+            tool_guidance = self._tool_helper._tool_user.get_tool_guidance()
+            if tool_guidance:
+                parts.append(tool_guidance)
+                parts.append("")
+
+        # Get basic agent action hints from worker
+        basic_guidance = self.worker._build_agent_guidance(user_guidance)
+        if basic_guidance:
+            parts.append(basic_guidance)
+
+        return "\n".join(parts)
 
     async def _decide_action(self, turn_request: MUDTurnRequest, events: list[MUDEvent]) -> tuple[list[MUDAction], str]:
         """Execute agent-guided decision strategy.
@@ -74,8 +154,8 @@ class AgentTurnProcessor(BaseTurnProcessor):
         thinking_parts: list[str] = []
         actions_taken: list[MUDAction] = []
 
-        # Build guidance from agent action spec
-        guidance = self.worker._build_agent_guidance(self.user_guidance)
+        # Build comprehensive guidance including ToolUser signatures
+        guidance = self._build_agent_guidance(self.user_guidance)
         coming_online = await self.worker._is_fresh_session()
 
         # Build user input with current context and agent guidance
@@ -87,6 +167,7 @@ class AgentTurnProcessor(BaseTurnProcessor):
             guidance=guidance,
             coming_online=coming_online,
             include_events=False,
+            include_format_guidance=False,  # @agent: JSON tool calls only, like Phase 1
         )
 
         # Use response strategy for full context (consciousness + memory)
@@ -171,8 +252,24 @@ class AgentTurnProcessor(BaseTurnProcessor):
                     location = args.get("location") or args.get("direction")
                     resolved = resolve_move_location(self.worker.session, location)
                     if resolved:
+                        # Capture source location before move
+                        source_location = self.worker.session.current_room.name if self.worker.session.current_room else "somewhere"
+
                         action_obj = MUDAction(tool="move", args={"location": resolved})
                         actions_taken.append(action_obj)
+
+                        # Create and write self-action event immediately
+                        event = self._create_event(
+                            turn_request,
+                            EventType.MOVEMENT,
+                            f"moved from {source_location} to {resolved}",
+                            target=resolved,
+                        )
+                        # Store source and destination in metadata for formatting
+                        event.metadata["source_location"] = source_location
+                        event.metadata["destination_location"] = resolved
+
+                        await self.worker._write_self_event(event)
                         await self.worker._emit_actions(actions_taken)
                     else:
                         logger.warning("Agent move missing/invalid location")

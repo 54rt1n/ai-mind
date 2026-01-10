@@ -290,6 +290,74 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
                     await asyncio.sleep(self.config.turn_request_poll_interval)
                     continue
 
+                # Check for immediate commands first (EXECUTE status)
+                if turn_request.status == TurnRequestStatus.EXECUTE:
+                    logger.info(
+                        f"Worker {self.config.agent_id}: Processing immediate command "
+                        f"(reason={turn_request.reason}, turn_id={turn_request.turn_id})"
+                    )
+                    # Transition to EXECUTING
+                    await self._set_turn_request_state(
+                        turn_id=turn_request.turn_id,
+                        status=TurnRequestStatus.EXECUTING,
+                    )
+
+                    # Execute command directly - NO event drain, NO turn guard
+                    heartbeat_stop = asyncio.Event()
+                    heartbeat_task = asyncio.create_task(
+                        self._heartbeat_turn_request(heartbeat_stop)
+                    )
+
+                    try:
+                        result = await self.command_registry.execute(self, **turn_request.model_dump())
+
+                        # Handle result status
+                        if result.complete:
+                            await self._set_turn_request_state(
+                                turn_request.turn_id,
+                                result.status,
+                                message=result.message
+                            )
+                        else:
+                            # Command returned incomplete - transition to DONE
+                            await self._set_turn_request_state(
+                                turn_request.turn_id,
+                                TurnRequestStatus.DONE
+                            )
+
+                    except AbortRequestedException:
+                        logger.info(f"Immediate command {turn_request.turn_id} aborted by user request")
+                        await self._set_turn_request_state(
+                            turn_request.turn_id,
+                            TurnRequestStatus.ABORTED,
+                            message="Aborted by user"
+                        )
+                    except Exception as e:
+                        logger.error(f"Error during immediate command {turn_request.turn_id}: {e}", exc_info=True)
+                        await self._set_turn_request_state(
+                            turn_request.turn_id,
+                            TurnRequestStatus.FAIL,
+                            message=str(e),
+                            extra_fields={"status_reason": f"Immediate command failed: {type(e).__name__}"}
+                        )
+                    finally:
+                        heartbeat_stop.set()
+                        await heartbeat_task
+
+                        # Transition EXECUTING commands to READY after completion
+                        final_turn_request = await self._get_turn_request()
+                        if final_turn_request:
+                            final_status = final_turn_request.status
+                            if final_status in (TurnRequestStatus.DONE, TurnRequestStatus.ABORTED):
+                                await self._set_turn_request_state(
+                                    str(uuid.uuid4()),
+                                    TurnRequestStatus.READY,
+                                    extra_fields={"status_reason": f"Immediate command completed ({final_status.value})"},
+                                    expected_turn_id=turn_request.turn_id
+                                )
+
+                    continue
+
                 # If not assigned, refresh heartbeat and wait
                 if turn_request.status != TurnRequestStatus.ASSIGNED:
                     # Keep turn_request alive when ready but idle - refresh TTL and heartbeat
@@ -532,7 +600,7 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
             )
 
         # Branch 2: Problem states → convert to FAIL with recovery logic
-        elif turn_request.status in (TurnRequestStatus.IN_PROGRESS, TurnRequestStatus.CRASHED, TurnRequestStatus.ASSIGNED, TurnRequestStatus.ABORT_REQUESTED):
+        elif turn_request.status in (TurnRequestStatus.IN_PROGRESS, TurnRequestStatus.CRASHED, TurnRequestStatus.ASSIGNED, TurnRequestStatus.ABORT_REQUESTED, TurnRequestStatus.EXECUTING):
             status = turn_request.status
             turn_id = turn_request.turn_id
 

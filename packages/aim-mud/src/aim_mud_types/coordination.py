@@ -25,6 +25,8 @@ class TurnRequestStatus(str, Enum):
     CRASHED = "crashed"
     ABORTED = "aborted"
     ABORT_REQUESTED = "abort_requested"
+    EXECUTE = "execute"        # Command ready to execute (non-blocking)
+    EXECUTING = "executing"    # Command is executing (non-blocking)
 
 
 class TurnReason(str, Enum):
@@ -38,6 +40,20 @@ class TurnReason(str, Enum):
     CLEAR = "clear"
     NEW = "new"
     RETRY = "retry"
+
+    def is_immediate_command(self) -> bool:
+        """Return True if this is an immediate command that uses EXECUTE status.
+
+        Immediate commands:
+        - Execute with interrupt semantics (don't wait for earlier events)
+        - Don't block other workers
+        - Skip event draining and turn guard
+        """
+        return self in {
+            TurnReason.FLUSH,
+            TurnReason.CLEAR,
+            TurnReason.NEW,
+        }
 
 
 class MUDTurnRequest(BaseModel):

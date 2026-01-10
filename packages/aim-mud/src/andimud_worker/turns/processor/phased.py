@@ -128,12 +128,20 @@ class PhasedTurnProcessor(BaseTurnProcessor):
                 actions_taken.append(action)
 
                 # Create and write self-action event immediately
-                location = decision_args.get("location", "somewhere")
+                # Capture source location before move
+                source_location = self.worker.session.current_room.name if self.worker.session.current_room else "somewhere"
+                destination_location = decision_args.get("location", "somewhere")
+
                 event = self._create_event(
                     turn_request,
                     EventType.MOVEMENT,
-                    f"moved to {location}"
+                    f"moved from {source_location} to {destination_location}",
+                    target=destination_location,
                 )
+                # Store source in metadata for formatting
+                event.metadata["source_location"] = source_location
+                event.metadata["destination_location"] = destination_location
+
                 await self.worker._write_self_event(event)
 
                 await self.worker._emit_actions(actions_taken)

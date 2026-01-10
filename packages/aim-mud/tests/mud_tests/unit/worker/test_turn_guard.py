@@ -603,3 +603,246 @@ class TestTurnGuard:
 
         # Assert
         assert result is True  # No active turns, should proceed
+
+    @pytest.mark.asyncio
+    async def test_ignores_execute_status(self, worker, mock_redis):
+        """Test that EXECUTE status is ignored by turn guard."""
+        # Arrange
+        now = datetime(2026, 1, 9, 12, 0, 0, tzinfo=timezone.utc)
+        old_time = now - timedelta(minutes=5)
+
+        turn_request = self.create_turn_request(
+            turn_id="turn-andi-1",
+            assigned_at=now,
+            heartbeat_at=now,
+        )
+
+        self.setup_redis_scan(
+            mock_redis,
+            ["agent:andi:turn_request", "agent:val:turn_request"]
+        )
+        self.setup_redis_pipeline(
+            mock_redis,
+            [
+                {
+                    "turn_id": "turn-andi-1",
+                    "status": TurnRequestStatus.IN_PROGRESS.value,
+                    "assigned_at": now.isoformat(),
+                    "heartbeat_at": now.isoformat(),
+                },
+                {
+                    "turn_id": "turn-val-1",
+                    "status": TurnRequestStatus.EXECUTE.value,  # Should be ignored
+                    "assigned_at": old_time.isoformat(),  # Even though older
+                    "heartbeat_at": old_time.isoformat(),
+                },
+            ],
+        )
+
+        # Act - mock _utc_now to control current time
+        with patch('andimud_worker.mixins.datastore.turn_request._utc_now', return_value=now):
+            result = await worker._should_process_turn(turn_request)
+
+        # Assert
+        assert result is True  # Should ignore EXECUTE status
+
+    @pytest.mark.asyncio
+    async def test_ignores_executing_status(self, worker, mock_redis):
+        """Test that EXECUTING status is ignored by turn guard."""
+        # Arrange
+        now = datetime(2026, 1, 9, 12, 0, 0, tzinfo=timezone.utc)
+        old_time = now - timedelta(minutes=5)
+
+        turn_request = self.create_turn_request(
+            turn_id="turn-andi-1",
+            assigned_at=now,
+            heartbeat_at=now,
+        )
+
+        self.setup_redis_scan(
+            mock_redis,
+            ["agent:andi:turn_request", "agent:val:turn_request"]
+        )
+        self.setup_redis_pipeline(
+            mock_redis,
+            [
+                {
+                    "turn_id": "turn-andi-1",
+                    "status": TurnRequestStatus.IN_PROGRESS.value,
+                    "assigned_at": now.isoformat(),
+                    "heartbeat_at": now.isoformat(),
+                },
+                {
+                    "turn_id": "turn-val-1",
+                    "status": TurnRequestStatus.EXECUTING.value,  # Should be ignored
+                    "assigned_at": old_time.isoformat(),  # Even though older
+                    "heartbeat_at": old_time.isoformat(),
+                },
+            ],
+        )
+
+        # Act - mock _utc_now to control current time
+        with patch('andimud_worker.mixins.datastore.turn_request._utc_now', return_value=now):
+            result = await worker._should_process_turn(turn_request)
+
+        # Assert
+        assert result is True  # Should ignore EXECUTING status
+
+    @pytest.mark.asyncio
+    async def test_oldest_assigned_selected_when_execute_present(self, worker, mock_redis):
+        """Test that oldest ASSIGNED turn is selected even with EXECUTE turns present."""
+        # Arrange
+        now = _utc_now()
+        old_assigned_time = now - timedelta(minutes=10)
+        execute_time = now - timedelta(minutes=15)  # Older than assigned, but should be ignored
+        new_assigned_time = now
+
+        turn_request = self.create_turn_request(
+            turn_id="turn-andi-1",
+            assigned_at=old_assigned_time,  # Oldest ASSIGNED
+            heartbeat_at=now,  # Recent heartbeat to avoid stale detection
+        )
+
+        self.setup_redis_scan(
+            mock_redis,
+            [
+                "agent:andi:turn_request",
+                "agent:val:turn_request",
+                "agent:nova:turn_request",
+            ]
+        )
+        self.setup_redis_pipeline(
+            mock_redis,
+            [
+                {
+                    "turn_id": "turn-andi-1",
+                    "status": TurnRequestStatus.ASSIGNED.value,
+                    "assigned_at": old_assigned_time.isoformat(),
+                    "heartbeat_at": now.isoformat(),  # Recent heartbeat
+                },
+                {
+                    "turn_id": "turn-val-1",
+                    "status": TurnRequestStatus.EXECUTE.value,  # Oldest overall, but ignored
+                    "assigned_at": execute_time.isoformat(),
+                    "heartbeat_at": now.isoformat(),  # Recent heartbeat
+                },
+                {
+                    "turn_id": "turn-nova-1",
+                    "status": TurnRequestStatus.ASSIGNED.value,
+                    "assigned_at": new_assigned_time.isoformat(),
+                    "heartbeat_at": now.isoformat(),  # Recent heartbeat
+                },
+            ],
+        )
+
+        # Act
+        result = await worker._should_process_turn(turn_request)
+
+        # Assert
+        assert result is True  # We are the oldest ASSIGNED turn
+
+    @pytest.mark.asyncio
+    async def test_waits_for_older_assigned_when_execute_present(self, worker, mock_redis):
+        """Test that we wait for older ASSIGNED turn even with EXECUTE turns present."""
+        # Arrange
+        now = _utc_now()
+        old_assigned_time = now - timedelta(minutes=10)
+        execute_time = now - timedelta(minutes=15)
+        new_assigned_time = now  # We're newer
+
+        turn_request = self.create_turn_request(
+            turn_id="turn-andi-1",
+            assigned_at=new_assigned_time,  # We're newer
+            heartbeat_at=now,  # Recent heartbeat
+        )
+
+        self.setup_redis_scan(
+            mock_redis,
+            [
+                "agent:andi:turn_request",
+                "agent:val:turn_request",
+                "agent:nova:turn_request",
+            ]
+        )
+        self.setup_redis_pipeline(
+            mock_redis,
+            [
+                {
+                    "turn_id": "turn-andi-1",
+                    "status": TurnRequestStatus.ASSIGNED.value,
+                    "assigned_at": new_assigned_time.isoformat(),
+                    "heartbeat_at": now.isoformat(),
+                },
+                {
+                    "turn_id": "turn-val-1",
+                    "status": TurnRequestStatus.EXECUTE.value,  # Should be ignored
+                    "assigned_at": execute_time.isoformat(),
+                    "heartbeat_at": now.isoformat(),
+                },
+                {
+                    "turn_id": "turn-nova-1",
+                    "status": TurnRequestStatus.ASSIGNED.value,  # Older ASSIGNED
+                    "assigned_at": old_assigned_time.isoformat(),
+                    "heartbeat_at": now.isoformat(),  # Recent heartbeat
+                },
+            ],
+        )
+
+        # Act
+        result = await worker._should_process_turn(turn_request)
+
+        # Assert
+        assert result is False  # Should wait for older ASSIGNED turn (nova)
+
+    @pytest.mark.asyncio
+    async def test_multiple_execute_statuses_all_ignored(self, worker, mock_redis):
+        """Test that multiple EXECUTE/EXECUTING statuses are all ignored."""
+        # Arrange
+        now = datetime(2026, 1, 9, 12, 0, 0, tzinfo=timezone.utc)
+        execute_time_1 = now - timedelta(minutes=15)
+        execute_time_2 = now - timedelta(minutes=10)
+        our_time = now
+
+        turn_request = self.create_turn_request(
+            turn_id="turn-andi-1",
+            assigned_at=our_time,
+            heartbeat_at=our_time,
+        )
+
+        self.setup_redis_scan(
+            mock_redis,
+            [
+                "agent:andi:turn_request",
+                "agent:val:turn_request",
+                "agent:nova:turn_request",
+            ]
+        )
+        self.setup_redis_pipeline(
+            mock_redis,
+            [
+                {
+                    "turn_id": "turn-andi-1",
+                    "status": TurnRequestStatus.IN_PROGRESS.value,
+                    "assigned_at": our_time.isoformat(),
+                    "heartbeat_at": our_time.isoformat(),
+                },
+                {
+                    "turn_id": "turn-val-1",
+                    "status": TurnRequestStatus.EXECUTE.value,
+                    "assigned_at": execute_time_1.isoformat(),
+                    "heartbeat_at": execute_time_1.isoformat(),
+                },
+                {
+                    "turn_id": "turn-nova-1",
+                    "status": TurnRequestStatus.EXECUTING.value,
+                    "assigned_at": execute_time_2.isoformat(),
+                    "heartbeat_at": execute_time_2.isoformat(),
+                },
+            ],
+        )
+
+        # Act
+        result = await worker._should_process_turn(turn_request)
+
+        # Assert
+        assert result is True  # All EXECUTE/EXECUTING ignored, we're the only active turn

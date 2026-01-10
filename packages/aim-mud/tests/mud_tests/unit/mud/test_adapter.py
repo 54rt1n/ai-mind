@@ -802,7 +802,8 @@ class TestFormatSelfActionGuidance:
         assert "!! IMPORTANT: YOUR RECENT ACTION !!" in result
         # Check for action type
         assert "Action Type: MOVEMENT" in result
-        # Check for explicit location statement
+        # Check for explicit location statements (source and destination)
+        assert "You just moved from: somewhere" in result  # No source metadata, defaults to "somewhere"
         assert "You just moved to: The Kitchen" in result
         # Check for current location
         assert "CURRENT LOCATION: The Kitchen" in result
@@ -931,8 +932,8 @@ class TestFormatSelfActionGuidance:
 
         # Check for plural header
         assert "!! IMPORTANT: YOUR RECENT ACTIONS !!" in result
-        # Check for numbered list
-        assert "1. MOVEMENT: You moved to The Kitchen" in result
+        # Check for numbered list (now includes source and destination)
+        assert "1. MOVEMENT: You moved from somewhere to The Kitchen" in result
         assert "→ Current Location: The Kitchen" in result
         assert "2. OBJECT: You picked up Golden Key" in result
         assert "→ Current Inventory: Golden Key" in result
@@ -961,8 +962,9 @@ class TestFormatSelfActionGuidance:
         )
         result = format_self_action_guidance([event1, event2])
 
-        assert "1. MOVEMENT: You moved to The Kitchen" in result
-        assert "2. MOVEMENT: You moved to The Parlor" in result
+        # Now includes source location (defaults to "somewhere" without metadata)
+        assert "1. MOVEMENT: You moved from somewhere to The Kitchen" in result
+        assert "2. MOVEMENT: You moved from somewhere to The Parlor" in result
         assert "You have moved between multiple locations" in result
         assert "You are now in The Parlor" in result
 

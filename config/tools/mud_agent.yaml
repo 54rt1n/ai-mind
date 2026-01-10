@@ -5,7 +5,7 @@ instructions: >
   Return ONLY a JSON object with an "action" field and its parameters.
   Do not include any extra text outside the JSON object.
 
-actions:
+functions:
   - name: speak
     description: Speak or respond in the room with free text.
     parameters:

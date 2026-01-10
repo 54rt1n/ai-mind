@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 from andimud_worker.conversation import MUDConversationManager
+from andimud_worker.adapter import format_self_action_guidance
 from aim_mud_types import (
     MUDConversationEntry,
     MUDEvent,
@@ -227,7 +228,7 @@ class TestMUDConversationManagerPushUserTurn:
 
     @pytest.mark.asyncio
     async def test_push_user_turn_formats_self_actions_first_person(self, conversation_manager, mock_redis):
-        """Test that self-actions are formatted in first person."""
+        """Test that self-actions preserve their pre-formatted guidance box content."""
         # Regular event from another actor
         regular_event = MUDEvent(
             event_id="1",
@@ -240,13 +241,29 @@ class TestMUDConversationManagerPushUserTurn:
         )
 
         # Self-action: agent moved to a new room
+        # Create the event first to pass to the formatter
+        self_movement_raw = MUDEvent(
+            event_id="2",
+            event_type=EventType.MOVEMENT,
+            actor="Andi",
+            room_id="#124",
+            room_name="The Kitchen",
+            content="arrives from the garden",  # This will be replaced
+            timestamp=datetime.now(timezone.utc),
+            metadata={"is_self_action": True},
+        )
+
+        # Self-actions arrive already formatted with guidance box
+        self_action_guidance = format_self_action_guidance([self_movement_raw])
+
+        # Now create the event with the pre-formatted content
         self_movement = MUDEvent(
             event_id="2",
             event_type=EventType.MOVEMENT,
             actor="Andi",
             room_id="#124",
             room_name="The Kitchen",
-            content="arrives from the garden",
+            content=self_action_guidance,
             timestamp=datetime.now(timezone.utc),
             metadata={"is_self_action": True},
         )
@@ -260,23 +277,41 @@ class TestMUDConversationManagerPushUserTurn:
         # Regular event should be in third person
         assert 'Prax says, "Hello there!"' in entry.content
 
-        # Self-action should be in first person
-        assert "You moved to The Kitchen" in entry.content
+        # Self-action guidance should be preserved as-is
+        assert "You just moved to: The Kitchen" in entry.content
+        assert "!! IMPORTANT: YOUR RECENT ACTION !!" in entry.content
 
         # Should NOT contain third-person self-action
         assert "*You see Andi has arrived.*" not in entry.content
 
     @pytest.mark.asyncio
     async def test_push_user_turn_formats_self_object_actions(self, conversation_manager, mock_redis):
-        """Test that self object actions are formatted in first person."""
+        """Test that self object actions preserve their pre-formatted guidance box content."""
         # Self-action: agent picked up an object
+        # Create the event first to pass to the formatter
+        self_pickup_raw = MUDEvent(
+            event_id="1",
+            event_type=EventType.OBJECT,
+            actor="Andi",
+            room_id="#123",
+            room_name="The Garden",
+            content="picks up a flower",  # This will be replaced
+            target="flower",
+            timestamp=datetime.now(timezone.utc),
+            metadata={"is_self_action": True},
+        )
+
+        # Self-actions arrive already formatted with guidance box
+        self_action_guidance = format_self_action_guidance([self_pickup_raw])
+
+        # Now create the event with the pre-formatted content
         self_pickup = MUDEvent(
             event_id="1",
             event_type=EventType.OBJECT,
             actor="Andi",
             room_id="#123",
             room_name="The Garden",
-            content="picks up a flower",
+            content=self_action_guidance,
             target="flower",
             timestamp=datetime.now(timezone.utc),
             metadata={"is_self_action": True},
@@ -288,8 +323,9 @@ class TestMUDConversationManagerPushUserTurn:
             room_name="The Garden",
         )
 
-        # Self-action should be in first person
-        assert "You picked up flower" in entry.content
+        # Self-action guidance should be preserved as-is
+        assert "You picked up: flower" in entry.content
+        assert "!! IMPORTANT: YOUR RECENT ACTION !!" in entry.content
 
         # Should NOT contain third-person format
         assert "*Andi picks up a flower*" not in entry.content

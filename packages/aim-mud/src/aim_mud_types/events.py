@@ -102,6 +102,7 @@ class MUDEvent(BaseModel):
         return cls(
             # Support both 'id' (Redis) and 'event_id' (normalized)
             event_id=data.get("id", data.get("event_id", "")),
+            sequence_id=data.get("sequence_id"),
             # Support both 'type' (compact) and 'event_type' (explicit)
             event_type=EventType(data.get("type", data.get("event_type", "system"))),
             actor=data.get("actor", ""),
@@ -128,7 +129,7 @@ class MUDEvent(BaseModel):
         Returns:
             Dictionary ready for JSON serialization to Redis.
         """
-        return {
+        result = {
             "type": self.event_type.value,
             "actor": self.actor,
             "actor_id": self.actor_id,
@@ -141,6 +142,12 @@ class MUDEvent(BaseModel):
             "timestamp": self.timestamp.isoformat(),
             "metadata": self.metadata,
         }
+
+        # Include sequence_id if set (for self-actions written directly to agent streams)
+        if self.sequence_id is not None:
+            result["sequence_id"] = self.sequence_id
+
+        return result
 
     def is_self_speech_echo(self) -> bool:
         """Check if this is a self-speech echo event.

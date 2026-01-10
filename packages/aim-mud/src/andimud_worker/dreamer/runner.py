@@ -191,11 +191,11 @@ class DreamerRunner:
 
             # Wrap heartbeat_callback to match inline scheduler signature
             # Inline scheduler expects callback(pipeline_id, step_id)
-            # MUD worker provides callback() that just refreshes TTL
+            # Pass through pipeline/step context to heartbeat callback
             wrapped_heartbeat = None
             if heartbeat_callback:
                 async def wrapped_heartbeat(pipeline_id: str, step_id: str) -> None:
-                    await heartbeat_callback()
+                    await heartbeat_callback(pipeline_id, step_id)
 
             # Execute pipeline inline
             pipeline_id = await execute_pipeline_inline(

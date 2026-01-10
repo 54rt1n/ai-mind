@@ -347,6 +347,6 @@ class TurnsMixin:
             user_guidance: Optional guidance for the agent
         """
         logger.info(f"Processing @agent turn with {len(events)} events")
-        processor = AgentTurnProcessor(self)
+        processor = AgentTurnProcessor.from_config(self, self.chat_config, self.config)
         processor.user_guidance = user_guidance
         await processor.execute(turn_request, events)

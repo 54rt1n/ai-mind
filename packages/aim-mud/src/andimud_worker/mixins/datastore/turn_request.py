@@ -274,8 +274,16 @@ class TurnRequestMixin:
                         v = v.decode("utf-8")
                     decoded[str(k)] = str(v)
 
-                # Skip non-active turns
+                # Skip immediate commands - they don't participate in turn guard
                 status = decoded.get("status", "")
+                if status in [TurnRequestStatus.EXECUTE.value, TurnRequestStatus.EXECUTING.value]:
+                    logger.debug(
+                        f"Turn guard: Skipping immediate command {decoded.get('turn_id')} "
+                        f"(status={status})"
+                    )
+                    continue
+
+                # Skip non-active turns
                 if status not in [TurnRequestStatus.ASSIGNED.value,
                                  TurnRequestStatus.IN_PROGRESS.value]:
                     continue

@@ -205,13 +205,19 @@ def format_self_action_guidance(self_actions: list[MUDEvent], world_state=None) 
 
         # Add action type and details
         if event.event_type == EventType.MOVEMENT:
-            room_name = event.room_name or event.metadata.get("room_name", "somewhere")
+            source = event.metadata.get("source_location", "somewhere")
+            destination = (
+                event.metadata.get("destination_location")
+                or event.room_name
+                or event.metadata.get("room_name", "somewhere")
+            )
             lines.extend([
                 "Action Type: MOVEMENT",
                 "",
-                f"You just moved to: {room_name}",
+                f"You just moved from: {source}",
+                f"You just moved to: {destination}",
                 "",
-                f"CURRENT LOCATION: {room_name}",
+                f"CURRENT LOCATION: {destination}",
                 "",
                 "This is your new location. You have physically moved and are now",
                 "in a different room than before.",
@@ -291,10 +297,15 @@ def format_self_action_guidance(self_actions: list[MUDEvent], world_state=None) 
 
             if event.event_type == EventType.MOVEMENT:
                 movement_occurred = True
-                room_name = event.room_name or event.metadata.get("room_name", "somewhere")
-                final_location = room_name
-                lines.append(f"{idx}. MOVEMENT: You moved to {room_name}")
-                lines.append(f"   → Current Location: {room_name}")
+                source = event.metadata.get("source_location", "somewhere")
+                destination = (
+                    event.metadata.get("destination_location")
+                    or event.room_name
+                    or event.metadata.get("room_name", "somewhere")
+                )
+                final_location = destination
+                lines.append(f"{idx}. MOVEMENT: You moved from {source} to {destination}")
+                lines.append(f"   → Current Location: {destination}")
 
             elif event.event_type == EventType.OBJECT:
                 object_interaction = True

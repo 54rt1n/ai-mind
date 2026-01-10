@@ -148,6 +148,14 @@ class AgentsMixin:
         # Convert reason to string value for Lua script
         reason_str = reason.value if isinstance(reason, TurnReason) else reason
 
+        # Determine initial status based on reason
+        # Immediate commands (FLUSH, CLEAR, NEW) get EXECUTE status for priority handling
+        turn_reason_enum = reason if isinstance(reason, TurnReason) else TurnReason(reason)
+        if turn_reason_enum.is_immediate_command():
+            initial_status = TurnRequestStatus.EXECUTE
+        else:
+            initial_status = TurnRequestStatus.ASSIGNED
+
         # Use CAS pattern to atomically assign if state hasn't changed
         lua_script = """
             local key = KEYS[1]
@@ -182,7 +190,7 @@ class AgentsMixin:
             current_turn_id or "",
             status.value if isinstance(status, TurnRequestStatus) else status,
             turn_id,
-            TurnRequestStatus.ASSIGNED.value,
+            initial_status.value,
             reason_str,
             assigned_at,
             str(self.config.turn_request_ttl_seconds * 1000),
@@ -197,7 +205,7 @@ class AgentsMixin:
                     RedisKeys.agent_turn_request(agent_id),
                     self.config.turn_request_ttl_seconds
                 )
-            logger.info(f"Assigned turn to {agent_id} (sequence_id={turn_sequence_id}, reason={reason_str}, attempt={attempt_count})")
+            logger.info(f"Assigned turn to {agent_id} (sequence_id={turn_sequence_id}, status={initial_status.value}, reason={reason_str}, attempt={attempt_count})")
             return True
         else:
             # CAS failed - state changed between check and assign

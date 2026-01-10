@@ -142,3 +142,101 @@ class TestMUDEventIsSelfSpeechEcho:
             }
         )
         assert self_speech.is_self_speech_echo() is True
+
+
+class TestMUDEventSequenceIdSerialization:
+    """Test MUDEvent sequence_id serialization and deserialization."""
+
+    def test_to_redis_dict_includes_sequence_id_when_set(self):
+        """to_redis_dict should include sequence_id when it's not None."""
+        event = MUDEvent(
+            event_type=EventType.SPEECH,
+            actor="Andi",
+            room_id="room1",
+            sequence_id=42
+        )
+
+        redis_dict = event.to_redis_dict()
+
+        assert "sequence_id" in redis_dict
+        assert redis_dict["sequence_id"] == 42
+
+    def test_to_redis_dict_excludes_sequence_id_when_none(self):
+        """to_redis_dict should not include sequence_id when it's None."""
+        event = MUDEvent(
+            event_type=EventType.SPEECH,
+            actor="Andi",
+            room_id="room1",
+            sequence_id=None
+        )
+
+        redis_dict = event.to_redis_dict()
+
+        assert "sequence_id" not in redis_dict
+
+    def test_from_dict_extracts_sequence_id(self):
+        """from_dict should extract sequence_id from data."""
+        data = {
+            "type": "speech",
+            "actor": "Andi",
+            "room_id": "room1",
+            "sequence_id": 123,
+            "timestamp": "2025-01-10T12:00:00Z"
+        }
+
+        event = MUDEvent.from_dict(data)
+
+        assert event.sequence_id == 123
+
+    def test_from_dict_handles_missing_sequence_id(self):
+        """from_dict should handle missing sequence_id gracefully."""
+        data = {
+            "type": "speech",
+            "actor": "Andi",
+            "room_id": "room1",
+            "timestamp": "2025-01-10T12:00:00Z"
+        }
+
+        event = MUDEvent.from_dict(data)
+
+        assert event.sequence_id is None
+
+    def test_round_trip_serialization_with_sequence_id(self):
+        """Round-trip serialization should preserve sequence_id."""
+        original = MUDEvent(
+            event_type=EventType.EMOTE,
+            actor="Prax",
+            room_id="room1",
+            content="waves",
+            sequence_id=999
+        )
+
+        # Serialize to Redis dict
+        redis_dict = original.to_redis_dict()
+
+        # Deserialize back
+        restored = MUDEvent.from_dict(redis_dict)
+
+        assert restored.sequence_id == original.sequence_id
+        assert restored.event_type == original.event_type
+        assert restored.actor == original.actor
+        assert restored.content == original.content
+
+    def test_round_trip_serialization_without_sequence_id(self):
+        """Round-trip serialization should work when sequence_id is None."""
+        original = MUDEvent(
+            event_type=EventType.MOVEMENT,
+            actor="Nova",
+            room_id="room2",
+            content="arrives"
+        )
+
+        # Serialize to Redis dict
+        redis_dict = original.to_redis_dict()
+
+        # Deserialize back
+        restored = MUDEvent.from_dict(redis_dict)
+
+        assert restored.sequence_id is None
+        assert restored.event_type == original.event_type
+        assert restored.actor == original.actor
