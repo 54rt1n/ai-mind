@@ -8,6 +8,7 @@ All methods take explicit parameters and return data.
 
 import asyncio
 import logging
+from datetime import datetime
 from typing import Optional, TYPE_CHECKING, Union
 
 from ...config import MUDConfig
@@ -227,3 +228,115 @@ class TurnRequestMixin:
 
         except asyncio.CancelledError:
             return
+
+    async def _should_process_turn(
+        self: "MUDAgentWorker",
+        turn_request: MUDTurnRequest
+    ) -> bool:
+        """Check if this worker has the oldest active turn."""
+        HEARTBEAT_STALE_THRESHOLD = 300  # 5 minutes
+
+        try:
+            # Scan for all agent turn_request keys
+            agent_keys = []
+            cursor = 0
+            while True:
+                cursor, keys = await self.redis.scan(
+                    cursor, match="agent:*:turn_request", count=100
+                )
+                agent_keys.extend(keys)
+                if cursor == 0:
+                    break
+
+            if not agent_keys:
+                return True
+
+            # Fetch all turn requests
+            pipeline = self.redis.pipeline()
+            for key in agent_keys:
+                pipeline.hgetall(key)
+            results = await pipeline.execute()
+
+            # Find oldest ASSIGNED or IN_PROGRESS turn
+            oldest_assigned_at = None
+            oldest_turn_id = None
+
+            for key, data in zip(agent_keys, results):
+                if not data:
+                    continue
+
+                # Decode bytes
+                decoded = {}
+                for k, v in data.items():
+                    if isinstance(k, bytes):
+                        k = k.decode("utf-8")
+                    if isinstance(v, bytes):
+                        v = v.decode("utf-8")
+                    decoded[str(k)] = str(v)
+
+                # Skip non-active turns
+                status = decoded.get("status", "")
+                if status not in [TurnRequestStatus.ASSIGNED.value,
+                                 TurnRequestStatus.IN_PROGRESS.value]:
+                    continue
+
+                # Skip stale heartbeats
+                heartbeat_at_str = decoded.get("heartbeat_at")
+                if heartbeat_at_str:
+                    try:
+                        heartbeat_at = datetime.fromisoformat(
+                            heartbeat_at_str.replace("Z", "+00:00")
+                        )
+                        age = (_utc_now() - heartbeat_at).total_seconds()
+                        if age > HEARTBEAT_STALE_THRESHOLD:
+                            logger.warning(
+                                f"Turn guard: Ignoring stale turn "
+                                f"{decoded.get('turn_id')} (heartbeat {age:.0f}s old)"
+                            )
+                            continue
+                    except (ValueError, AttributeError):
+                        pass
+
+                # Parse assigned_at
+                assigned_at_str = decoded.get("assigned_at")
+                if not assigned_at_str:
+                    continue
+
+                try:
+                    assigned_at = datetime.fromisoformat(
+                        assigned_at_str.replace("Z", "+00:00")
+                    )
+                except (ValueError, AttributeError):
+                    continue
+
+                # Track oldest
+                if oldest_assigned_at is None or assigned_at < oldest_assigned_at:
+                    oldest_assigned_at = assigned_at
+                    oldest_turn_id = decoded.get("turn_id")
+                elif assigned_at == oldest_assigned_at:
+                    # Tie-breaker: lexicographic turn_id
+                    current_oldest_id = oldest_turn_id or ""
+                    candidate_id = decoded.get("turn_id", "")
+                    if candidate_id < current_oldest_id:
+                        oldest_turn_id = candidate_id
+
+            # If no active turns, proceed
+            if oldest_turn_id is None:
+                return True
+
+            # Check if we're oldest
+            is_oldest = (turn_request.turn_id == oldest_turn_id)
+
+            if not is_oldest:
+                logger.info(
+                    f"Turn guard: Turn {turn_request.turn_id} assigned at "
+                    f"{turn_request.assigned_at}, waiting for older turn "
+                    f"{oldest_turn_id} (assigned at {oldest_assigned_at})"
+                )
+
+            return is_oldest
+
+        except Exception as e:
+            logger.error(f"Turn guard: Error checking turn order: {e}", exc_info=True)
+            logger.warning("Turn guard: Proceeding despite error to avoid deadlock")
+            return True

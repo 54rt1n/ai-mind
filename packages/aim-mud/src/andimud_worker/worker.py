@@ -318,6 +318,21 @@ class MUDAgentWorker(ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMix
                     self._heartbeat_turn_request(heartbeat_stop)
                 )
 
+                # Turn guard: Check if we have the oldest active turn
+                if not await self._should_process_turn(turn_request):
+                    logger.info(
+                        f"Turn {turn_id} is not oldest active turn, delaying processing"
+                    )
+                    await self._set_turn_request_state(
+                        turn_id,
+                        TurnRequestStatus.ASSIGNED,
+                        message="Delayed (waiting for older turn)"
+                    )
+                    heartbeat_stop.set()
+                    await heartbeat_task
+                    await asyncio.sleep(0.5)
+                    continue
+
                 try:
                     # SAVE pre-drain event position for potential rollback
                     saved_event_id = self.session.last_event_id
