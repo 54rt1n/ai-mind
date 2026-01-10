@@ -1,4 +1,4 @@
-# aim/dreamer/dialogue/scenario.py
+# aim/dreamer/core/dialogue/scenario.py
 # AI-Mind © 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
 """DialogueScenario: Executes a DialogueStrategy with proper role flipping."""
 
@@ -11,19 +11,12 @@ import uuid
 if TYPE_CHECKING:
     from aim.llm.model_set import ModelSet
 
-from .models import (
-    DialogueState,
-    DialogueStep,
-    DialogueSpeaker,
-    DialogueTurn,
-    SpeakerType,
-)
-from .strategy import DialogueStrategy
-from ..executor import load_prior_outputs, format_memories_xml, extract_think_tags, format_thought_stream
-from ...agents.persona import Persona
-from ...agents.aspects import get_aspect_or_default
-from ...config import ChatConfig
-from ...constants import (
+from ....utils.redis_cache import RedisCache
+from ....utils.think import extract_think_tags
+from ....agents.persona import Persona
+from ....agents.aspects import get_aspect_or_default
+from ....config import ChatConfig
+from ....constants import (
     DOC_DIALOGUE_ARTIST,
     DOC_DIALOGUE_CODER,
     DOC_DIALOGUE_DREAMER,
@@ -33,10 +26,21 @@ from ...constants import (
     DOC_DIALOGUE_REVELATOR,
     DOC_DIALOGUE_WRITER,
 )
-from ...conversation.model import ConversationModel
-from ...conversation.message import ConversationMessage
-from ...llm.models import LanguageModelV2
-from ...utils.tokens import count_tokens
+from ....conversation.model import ConversationModel
+from ....conversation.message import ConversationMessage
+from ....llm.models import LanguageModelV2
+from ....utils.tokens import count_tokens
+
+from ..executor import load_prior_outputs, format_memories_xml
+
+from .strategy import DialogueStrategy
+from .models import (
+    DialogueState,
+    DialogueStep,
+    DialogueSpeaker,
+    DialogueTurn,
+    SpeakerType,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -237,7 +241,6 @@ class DialogueScenario:
         )
 
         # 7. Generate response (streaming) with activity updates
-        from ...utils.redis_cache import RedisCache
         cache = RedisCache(self.config)
         cache.update_api_activity()
 

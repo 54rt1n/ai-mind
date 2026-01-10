@@ -1,4 +1,4 @@
-# aim/dreamer/worker.py
+# aim/dreamer/server/worker.py
 # AI-Mind © 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
 """Worker process for consuming and executing pipeline steps."""
 
@@ -8,20 +8,21 @@ import signal
 from datetime import datetime, timezone
 from typing import Optional
 
-from .executor import execute_step, create_message, RetryableError
+from ...config import ChatConfig
+from ...conversation.model import ConversationModel
+from ...agents.roster import Roster
+from ...llm.model_set import ModelSet
 
-logger = logging.getLogger(__name__)
-from .models import StepJob, StepStatus
-from .scenario import load_scenario
+from ..core.executor import execute_step, create_message, RetryableError
+from ..core.models import StepJob, StepStatus
+from ..core.scenario import load_scenario
+from ..core.dialogue.strategy import DialogueStrategy
+from ..core.dialogue.scenario import DialogueScenario
+
 from .scheduler import Scheduler
 from .state import StateStore
-from .dialogue.strategy import DialogueStrategy
-from .dialogue.scenario import DialogueScenario
-from ..config import ChatConfig
-from ..conversation.model import ConversationModel
-from ..agents.roster import Roster
-from ..llm.model_set import ModelSet
 
+logger = logging.getLogger(__name__)
 
 class DreamerWorker:
     """Worker that consumes steps from the queue and executes them."""

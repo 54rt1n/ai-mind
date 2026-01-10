@@ -1,4 +1,4 @@
-# aim/dreamer/memory_dsl.py
+# aim/dreamer/core/memory_dsl.py
 # AI-Mind © 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
 """Unified Memory DSL executor for pipeline context building.
 
@@ -17,9 +17,9 @@ import logging
 from typing import TYPE_CHECKING, Union
 
 if TYPE_CHECKING:
-    from aim.conversation.model import ConversationModel
-    from aim.dreamer.models import MemoryAction, PipelineState
-    from aim.dreamer.dialogue.models import DialogueState
+    from ...conversation.model import ConversationModel
+    from .models import MemoryAction, PipelineState
+    from .dialogue.models import DialogueState
 
 logger = logging.getLogger(__name__)
 

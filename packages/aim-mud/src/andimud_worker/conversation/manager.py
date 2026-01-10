@@ -146,9 +146,13 @@ class MUDConversationManager:
             for event in filtered_events:
                 # Check if this is a self-action (from metadata flag)
                 is_self = event.metadata.get("is_self_action", False)
+
                 if is_self:
-                    formatted_parts.append(format_self_event(event))
+                    # Self-actions are already formatted with rich guidance boxes
+                    # Use content directly to preserve formatting
+                    formatted_parts.append(event.content)
                 else:
+                    # Other events need third-person formatting
                     formatted_parts.append(format_event(event))
             content = "\n\n".join(formatted_parts)
         else:

@@ -1,4 +1,4 @@
-# aim/dreamer/dialogue/models.py
+# aim/dreamer/core/dialogue/models.py
 # AI-Mind © 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
 """Pydantic models for dialogue flow execution."""
 

@@ -1,10 +1,13 @@
-# aim/dreamer/dialogue/strategy.py
+# aim/dreamer/core/dialogue/strategy.py
 # AI-Mind © 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
 """DialogueStrategy: Loads and represents dialogue flow configuration from YAML."""
 
 from pathlib import Path
 from typing import Optional
 import yaml
+
+from ..models import MemoryAction, StepConfig, StepOutput
+from ..scenario import get_jinja_environment
 
 from .models import (
     DialogueStep,
@@ -14,8 +17,6 @@ from .models import (
     ScenarioContext,
     SpeakerType,
 )
-from ..models import MemoryAction, StepConfig, StepOutput
-from ..scenario import get_jinja_environment
 
 
 class DialogueStrategy:

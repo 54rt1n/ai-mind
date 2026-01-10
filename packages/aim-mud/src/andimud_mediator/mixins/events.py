@@ -241,16 +241,35 @@ class EventsMixin:
                 break
 
         if not any_processing and agents_to_notify:
-            # System idle - assign turn via round-robin
-            n = len(agents_to_notify)
-            for i in range(n):
-                candidate = agents_to_notify[(self._turn_index + i) % n]
-                assigned = await self._maybe_assign_turn(candidate, reason=TurnReason.EVENTS)
-                if assigned:
-                    assigned_agent = candidate
-                    self._turn_index = (self._turn_index + i + 1) % n
-                    logger.info(f"Assigned turn to {assigned_agent} for event {msg_id} (seq={sequence_id})")
+            # Debounce: Wait briefly to ensure status is stable (not mid-transition)
+            # This prevents assignment during the window when an agent completes
+            # their turn and writes self-events that trigger another cycle
+            await asyncio.sleep(0.1)
+
+            # Re-check processing status to catch any transitions that occurred
+            any_processing_recheck = False
+            for agent_id in agents_to_notify:
+                turn_request = await self._get_turn_request(agent_id)
+                if turn_request and turn_request.status == TurnRequestStatus.IN_PROGRESS:
+                    any_processing_recheck = True
+                    logger.debug(
+                        f"Agent {agent_id} started processing during debounce, "
+                        f"blocking turn assignment"
+                    )
                     break
+
+            # Only assign if status remains stable
+            if not any_processing_recheck:
+                # System idle - assign turn via round-robin
+                n = len(agents_to_notify)
+                for i in range(n):
+                    candidate = agents_to_notify[(self._turn_index + i) % n]
+                    assigned = await self._maybe_assign_turn(candidate, reason=TurnReason.EVENTS)
+                    if assigned:
+                        assigned_agent = candidate
+                        self._turn_index = (self._turn_index + i + 1) % n
+                        logger.info(f"Assigned turn to {assigned_agent} for event {msg_id} (seq={sequence_id})")
+                        break
         else:
             if any_processing:
                 logger.debug(f"Event {msg_id} queued (agents busy, no turn assigned)")

@@ -56,11 +56,9 @@ class DreamerMixin:
             config=self.chat_config,
             cvm=self.cvm,
             roster=self.roster,
-            redis_client=self.redis,
-            agent_id=self.config.agent_id,
             persona_id=self.config.persona_id,
         )
-        logger.info(f"Initialized DreamerRunner for {self.config.agent_id}")
+        logger.info(f"Initialized DreamerRunner for {self.config.persona_id}")
 
     async def process_dream_turn(
         self: "MUDAgentWorker",
@@ -103,16 +101,17 @@ class DreamerMixin:
         base_conversation_id = self.conversation_manager.conversation_id
 
         # Create heartbeat callback that refreshes turn_request TTL
-        async def heartbeat() -> None:
-            """Refresh turn request TTL during long-running dream steps."""
-            await self.redis.expire(
-                self._turn_request_key(),
-                self.config.turn_request_ttl_seconds,
-            )
-            await self.redis.hset(
-                self._turn_request_key(),
-                mapping={"heartbeat_at": datetime.now(timezone.utc).isoformat()},
-            )
+        async def heartbeat(pipeline_id: str, step_id: str) -> None:
+            """Refresh turn request TTL during long-running dream steps.
+
+            Uses atomic update to prevent partial hash creation during shutdown.
+            """
+            result = await self.atomic_heartbeat_update(update_ttl=True)
+
+            if result == 0:
+                logger.debug("Turn request deleted during dream, stopping heartbeat")
+            elif result == -1:
+                logger.error("Corrupted turn_request during dream heartbeat")
 
         result = await self._dreamer_runner.run_dream(
             request, base_conversation_id, heartbeat

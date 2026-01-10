@@ -1,12 +1,12 @@
-# aim/dreamer/state.py
+# aim/dreamer/server/state.py
 # AI-Mind © 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
 """Redis state persistence for pipeline execution."""
 
 from typing import Optional
 import redis.asyncio as redis
 
-from .models import PipelineState, StepStatus, Scenario
-from .dialogue.models import DialogueState
+from ..core.models import PipelineState, StepStatus, Scenario
+from ..core.dialogue.models import DialogueState
 
 
 class StateStore:

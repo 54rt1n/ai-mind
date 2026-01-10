@@ -1,4 +1,4 @@
-# aim/dreamer/context.py
+# aim/dreamer/core/context.py
 # AI-Mind © 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
 """Context preparation DSL executor for pipeline steps.
 
@@ -14,8 +14,8 @@ import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from aim.conversation.model import ConversationModel
-    from aim.dreamer.models import MemoryAction, StepDefinition, PipelineState
+    from ...conversation.model import ConversationModel
+    from .models import MemoryAction, StepDefinition, PipelineState
 
 logger = logging.getLogger(__name__)
 

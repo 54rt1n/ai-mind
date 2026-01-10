@@ -6,7 +6,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from aim_mud_types import MUDAction, MUDEvent, MUDTurnRequest, EventType, ActorType
-from aim.dreamer.executor import extract_think_tags
+from aim.utils.think import extract_think_tags
 from ...adapter import build_current_context, format_self_action_guidance
 from ..response import (
     sanitize_response,

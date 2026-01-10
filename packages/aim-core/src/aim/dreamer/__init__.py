@@ -7,7 +7,7 @@ Provides step-by-step execution of scenarios with Redis-backed state
 management and queue-based job distribution.
 """
 
-from .api import (
+from .server.api import (
     start_pipeline,
     get_status,
     cancel_pipeline,
@@ -18,7 +18,7 @@ from .api import (
     PipelineStatus,
     ResumeResult,
 )
-from .models import (
+from .core.models import (
     PipelineState,
     StepResult,
     StepJob,
@@ -30,11 +30,11 @@ from .models import (
     ScenarioContext,
     MemoryAction,
 )
-from .worker import DreamerWorker, run_worker
-from .executor import RetryableError
-from .state import StateStore
-from .scheduler import Scheduler
-from .scenario import load_scenario, render_template, build_template_context
+from .server.worker import DreamerWorker, run_worker
+from .core.executor import RetryableError
+from .server.state import StateStore
+from .server.scheduler import Scheduler
+from .core.scenario import load_scenario, render_template, build_template_context
 
 __all__ = [
     # API

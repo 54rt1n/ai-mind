@@ -1,4 +1,4 @@
-# aim/dreamer/scheduler.py
+# aim/dreamer/server/scheduler.py
 # AI-Mind © 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
 """DAG resolution and Redis queue operations."""
 
@@ -7,7 +7,8 @@ from typing import Optional
 import redis.asyncio as redis
 import json
 
-from .models import StepJob, Scenario, StepStatus, StepDefinition
+from ..core.models import StepJob, Scenario, StepStatus, StepDefinition
+
 from .state import StateStore
 
 

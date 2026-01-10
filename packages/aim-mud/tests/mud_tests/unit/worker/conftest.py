@@ -10,12 +10,13 @@ from andimud_worker.config import MUDConfig
 from andimud_worker.conversation import MUDConversationManager
 from andimud_worker.conversation.memory import MUDDecisionStrategy, MUDResponseStrategy
 from andimud_worker.worker import MUDAgentWorker
-from aim.dreamer.state import StateStore
-from aim.dreamer.scheduler import Scheduler
-from aim.dreamer.models import (
-    Scenario, ScenarioContext, StepDefinition, StepConfig, StepOutput,
-    PipelineState, StepJob, StepResult
-)
+# NOTE: Commented out 2026-01-09 - No longer needed after inline scheduler migration
+# from aim.dreamer.state import StateStore
+# from aim.dreamer.scheduler import Scheduler
+# from aim.dreamer.models import (
+#     Scenario, ScenarioContext, StepDefinition, StepConfig, StepOutput,
+#     PipelineState, StepJob, StepResult
+# )
 
 
 @pytest.fixture
@@ -102,162 +103,164 @@ def test_worker(test_mud_config, mock_redis, test_config):
 # =============================================================================
 # Dreamer Test Fixtures
 # =============================================================================
+# NOTE: Commented out 2026-01-09 - No longer needed after inline scheduler migration
+# Integration tests that used these fixtures have been skipped and need updating
 
-@pytest.fixture
-def test_state_store(mock_redis):
-    """Real StateStore with mocked Redis (external service).
+# @pytest.fixture
+# def test_state_store(mock_redis):
+#     """Real StateStore with mocked Redis (external service).
 
-    Mocks: Redis (external)
-    Real: StateStore logic
-    """
-    return StateStore(
-        redis_client=mock_redis,
-        key_prefix="test:dreamer",
-    )
-
-
-@pytest.fixture
-def test_scheduler(mock_redis, test_state_store):
-    """Real Scheduler with mocked Redis (external service).
-
-    Mocks: Redis (external)
-    Real: Scheduler logic, queue management
-    """
-    return Scheduler(
-        redis_client=mock_redis,
-        state_store=test_state_store,
-    )
+#     Mocks: Redis (external)
+#     Real: StateStore logic
+#     """
+#     return StateStore(
+#         redis_client=mock_redis,
+#         key_prefix="test:dreamer",
+#     )
 
 
-@pytest.fixture
-def minimal_standard_scenario():
-    """Minimal standard flow scenario for testing.
+# @pytest.fixture
+# def test_scheduler(mock_redis, test_state_store):
+#     """Real Scheduler with mocked Redis (external service).
 
-    Two-step pipeline:
-    - step1: No dependencies (root)
-    - step2: Depends on step1
-    """
-    return Scenario(
-        name="test_standard",
-        version=2,
-        flow="standard",
-        description="Minimal test scenario",
-        requires_conversation=False,
-        context=ScenarioContext(
-            required_aspects=[],
-            core_documents=[],
-            enhancement_documents=[],
-            location="",
-            thoughts=[],
-        ),
-        seed=[],
-        steps={
-            "step1": StepDefinition(
-                id="step1",
-                prompt="Test step 1: {{ query_text }}",
-                config=StepConfig(max_tokens=100),
-                output=StepOutput(
-                    document_type="test-step1",
-                    weight=1.0,
-                ),
-                next=["step2"],
-            ),
-            "step2": StepDefinition(
-                id="step2",
-                prompt="Test step 2: Build on previous results.",
-                config=StepConfig(max_tokens=100),
-                output=StepOutput(
-                    document_type="test-step2",
-                    weight=1.0,
-                ),
-                next=[],
-                depends_on=["step1"],
-            ),
-        },
-    )
+#     Mocks: Redis (external)
+#     Real: Scheduler logic, queue management
+#     """
+#     return Scheduler(
+#         redis_client=mock_redis,
+#         state_store=test_state_store,
+#     )
 
 
-@pytest.fixture
-def test_pipeline_state(test_config):
-    """Real PipelineState for testing.
+# @pytest.fixture
+# def minimal_standard_scenario():
+#     """Minimal standard flow scenario for testing.
 
-    Represents a pipeline mid-execution.
-    """
-    return PipelineState(
-        pipeline_id="test_pipeline_123",
-        scenario_name="test_standard",
-        conversation_id="test_conversation",
-        persona_id="test_persona",
-        user_id="test_user",
-        model=test_config.default_model,
-        thought_model=test_config.thought_model,
-        codex_model=test_config.codex_model,
-        guidance=None,
-        query_text="Test query",
-        persona_mood=None,
-        branch=0,
-        step_counter=1,
-        completed_steps=[],
-        step_doc_ids={},
-        seed_doc_ids={},
-        context_doc_ids=[],
-        context_documents=None,
-        created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc),
-    )
-
-
-@pytest.fixture
-def test_step_job():
-    """Real StepJob for testing.
-
-    Represents a job in the scheduler queue.
-    """
-    return StepJob(
-        pipeline_id="test_pipeline_123",
-        step_id="step1",
-        attempt=1,
-        max_attempts=3,
-        enqueued_at=datetime.now(timezone.utc),
-        priority=0,
-    )
-
-
-@pytest.fixture
-def mock_execute_step():
-    """Mock for execute_step function (contains LLM calls - external).
-
-    This mocks the LLM execution, NOT the internal pipeline logic.
-    Use this when testing pipeline orchestration without actual LLM calls.
-    """
-    async def fake_execute_step(state, scenario, step_def, cvm, persona, config, model_set):
-        """Return a fake successful step result."""
-        return (
-            StepResult(
-                step_id=step_def.id,
-                response=f"Test response for {step_def.id}",
-                think=None,
-                doc_id=f"doc_{step_def.id}_123",
-                document_type=step_def.output.document_type,
-                document_weight=step_def.output.weight,
-                tokens_used=50,
-                timestamp=datetime.now(timezone.utc),
-            ),
-            [],  # context_doc_ids
-            False,  # is_initial_context
-        )
-
-    return fake_execute_step
+#     Two-step pipeline:
+#     - step1: No dependencies (root)
+#     - step2: Depends on step1
+#     """
+#     return Scenario(
+#         name="test_standard",
+#         version=2,
+#         flow="standard",
+#         description="Minimal test scenario",
+#         requires_conversation=False,
+#         context=ScenarioContext(
+#             required_aspects=[],
+#             core_documents=[],
+#             enhancement_documents=[],
+#             location="",
+#             thoughts=[],
+#         ),
+#         seed=[],
+#         steps={
+#             "step1": StepDefinition(
+#                 id="step1",
+#                 prompt="Test step 1: {{ query_text }}",
+#                 config=StepConfig(max_tokens=100),
+#                 output=StepOutput(
+#                     document_type="test-step1",
+#                     weight=1.0,
+#                 ),
+#                 next=["step2"],
+#             ),
+#             "step2": StepDefinition(
+#                 id="step2",
+#                 prompt="Test step 2: Build on previous results.",
+#                 config=StepConfig(max_tokens=100),
+#                 output=StepOutput(
+#                     document_type="test-step2",
+#                     weight=1.0,
+#                 ),
+#                 next=[],
+#                 depends_on=["step1"],
+#             ),
+#         },
+#     )
 
 
-@pytest.fixture
-def mock_load_scenario(minimal_standard_scenario):
-    """Mock load_scenario to return test scenario.
+# @pytest.fixture
+# def test_pipeline_state(test_config):
+#     """Real PipelineState for testing.
 
-    Mocks: File system access (external)
-    Real: Scenario objects and logic
-    """
-    def load_test_scenario(scenario_name):
-        return minimal_standard_scenario
+#     Represents a pipeline mid-execution.
+#     """
+#     return PipelineState(
+#         pipeline_id="test_pipeline_123",
+#         scenario_name="test_standard",
+#         conversation_id="test_conversation",
+#         persona_id="test_persona",
+#         user_id="test_user",
+#         model=test_config.default_model,
+#         thought_model=test_config.thought_model,
+#         codex_model=test_config.codex_model,
+#         guidance=None,
+#         query_text="Test query",
+#         persona_mood=None,
+#         branch=0,
+#         step_counter=1,
+#         completed_steps=[],
+#         step_doc_ids={},
+#         seed_doc_ids={},
+#         context_doc_ids=[],
+#         context_documents=None,
+#         created_at=datetime.now(timezone.utc),
+#         updated_at=datetime.now(timezone.utc),
+#     )
 
-    return load_test_scenario
+
+# @pytest.fixture
+# def test_step_job():
+#     """Real StepJob for testing.
+
+#     Represents a job in the scheduler queue.
+#     """
+#     return StepJob(
+#         pipeline_id="test_pipeline_123",
+#         step_id="step1",
+#         attempt=1,
+#         max_attempts=3,
+#         enqueued_at=datetime.now(timezone.utc),
+#         priority=0,
+#     )
+
+
+# @pytest.fixture
+# def mock_execute_step():
+#     """Mock for execute_step function (contains LLM calls - external).
+
+#     This mocks the LLM execution, NOT the internal pipeline logic.
+#     Use this when testing pipeline orchestration without actual LLM calls.
+#     """
+#     async def fake_execute_step(state, scenario, step_def, cvm, persona, config, model_set):
+#         """Return a fake successful step result."""
+#         return (
+#             StepResult(
+#                 step_id=step_def.id,
+#                 response=f"Test response for {step_def.id}",
+#                 think=None,
+#                 doc_id=f"doc_{step_def.id}_123",
+#                 document_type=step_def.output.document_type,
+#                 document_weight=step_def.output.weight,
+#                 tokens_used=50,
+#                 timestamp=datetime.now(timezone.utc),
+#             ),
+#             [],  # context_doc_ids
+#             False,  # is_initial_context
+#         )
+
+#     return fake_execute_step
+
+
+# @pytest.fixture
+# def mock_load_scenario(minimal_standard_scenario):
+#     """Mock load_scenario to return test scenario.
+
+#     Mocks: File system access (external)
+#     Real: Scenario objects and logic
+#     """
+#     def load_test_scenario(scenario_name):
+#         return minimal_standard_scenario
+
+#     return load_test_scenario

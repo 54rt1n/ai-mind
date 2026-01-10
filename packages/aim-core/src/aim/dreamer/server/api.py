@@ -1,4 +1,4 @@
-# aim/dreamer/api.py
+# aim/dreamer/server/api.py
 # AI-Mind © 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
 """Public API for pipeline management."""
 
@@ -7,21 +7,22 @@ from typing import Optional
 from datetime import datetime, timezone
 import logging
 import uuid
-import pandas as pd
 
-logger = logging.getLogger(__name__)
+from ...config import ChatConfig
+from ...conversation.model import ConversationModel
+from ...agents.roster import Roster
+from ...llm.models import LanguageModelV2
 
-from .models import PipelineState, Scenario, StepStatus
-from .scenario import load_scenario
+from ..core.models import PipelineState, Scenario, StepStatus
+from ..core.scenario import load_scenario
+from ..core.dialogue.models import DialogueState
+from ..core.dialogue.strategy import DialogueStrategy
+
 from .scheduler import Scheduler
 from .state import StateStore
-from .dialogue.models import DialogueState
-from .dialogue.strategy import DialogueStrategy
-from ..config import ChatConfig
-from ..conversation.model import ConversationModel
-from ..agents.roster import Roster
-from ..llm.models import LanguageModelV2
 
+
+logger = logging.getLogger(__name__)
 
 # Mapping from signature document types to scenario names
 # Each scenario has characteristic output document types that identify it

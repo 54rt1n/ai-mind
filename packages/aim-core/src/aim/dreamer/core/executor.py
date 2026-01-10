@@ -1,4 +1,4 @@
-# aim/dreamer/executor.py
+# aim/dreamer/core/executor.py
 # AI-Mind © 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
 """Step execution logic composing existing infrastructure."""
 
@@ -6,24 +6,23 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Optional, TYPE_CHECKING
 import logging
-import re
 
 if TYPE_CHECKING:
-    from aim.llm.model_set import ModelSet
+    from ...llm.model_set import ModelSet
 
-logger = logging.getLogger(__name__)
+from ...agents.persona import Persona
+from ...config import ChatConfig
+from ...conversation.model import ConversationModel
+from ...conversation.message import ConversationMessage
+from ...llm.models import LanguageModelV2
+from ...utils.tokens import count_tokens
+from ...utils.think import extract_think_tags
 
 from .models import PipelineState, StepDefinition, StepResult, StepConfig, Scenario
 from .scenario import render_template, build_template_context
 from .context import prepare_step_context
-from ..agents.persona import Persona
-from ..config import ChatConfig
-from ..conversation.model import ConversationModel
-from ..conversation.message import ConversationMessage
-from ..llm.models import LanguageModelV2
-from ..utils.tokens import count_tokens
-from ..utils.think import extract_think_tags
 
+logger = logging.getLogger(__name__)
 
 class RetryableError(Exception):
     """Error that indicates the step should be retried."""
