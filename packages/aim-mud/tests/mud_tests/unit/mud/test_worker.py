@@ -995,7 +995,7 @@ class TestMUDAgentWorkerStart:
         ), patch.object(
             worker, "_get_turn_request", new=AsyncMock(return_value={"turn_id": "t1", "status": "assigned"})
         ), patch.object(
-            worker, "_set_turn_request_state", new=AsyncMock()
+            worker, "update_turn_request", new=AsyncMock()
         ) as mock_set_state, patch(
             "asyncio.sleep", new_callable=AsyncMock
         ):
@@ -1098,7 +1098,7 @@ class TestMUDAgentWorkerStart:
                 "guidance": "test guidance"
             })
         ), patch.object(
-            worker, "_set_turn_request_state", new=AsyncMock()
+            worker, "update_turn_request", new=AsyncMock()
         ) as mock_set_state, patch(
             "asyncio.sleep", new_callable=AsyncMock
         ):
@@ -1137,7 +1137,7 @@ class TestMUDAgentWorkerStart:
             # Verify turn state was set to done
             assert mock_set_state.call_count >= 2
             # Check that one of the calls was to set state to "done"
-            # Note: _set_turn_request_state uses keyword args: (turn_id, status, ...)
+            # Note: update_turn_request uses keyword args: (turn_id, status, ...)
             done_calls = [
                 call for call in mock_set_state.call_args_list
                 if (len(call[0]) > 1 and call[0][1] == "done") or call.kwargs.get("status") == "done"
@@ -1202,7 +1202,7 @@ class TestMUDAgentWorkerStart:
                 "guidance": "choose guidance"
             })
         ), patch.object(
-            worker, "_set_turn_request_state", new=AsyncMock()
+            worker, "update_turn_request", new=AsyncMock()
         ) as mock_set_state, patch(
             "asyncio.sleep", new_callable=AsyncMock
         ):
@@ -1241,7 +1241,7 @@ class TestMUDAgentWorkerStart:
             # Verify turn state was set to done
             assert mock_set_state.call_count >= 2
             # Check that one of the calls was to set state to "done"
-            # Note: _set_turn_request_state uses keyword args: (turn_id, status, ...)
+            # Note: update_turn_request uses keyword args: (turn_id, status, ...)
             done_calls = [
                 call for call in mock_set_state.call_args_list
                 if (len(call[0]) > 1 and call[0][1] == "done") or call.kwargs.get("status") == "done"
@@ -1292,7 +1292,7 @@ class TestMUDAgentWorkerStart:
                 # No guidance key
             })
         ), patch.object(
-            worker, "_set_turn_request_state", new=AsyncMock()
+            worker, "update_turn_request", new=AsyncMock()
         ), patch(
             "asyncio.sleep", new_callable=AsyncMock
         ):

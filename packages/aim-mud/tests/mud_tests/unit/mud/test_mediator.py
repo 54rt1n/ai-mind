@@ -242,21 +242,11 @@ class TestMediatorEventRouting:
         mediator = MediatorService(mock_redis, mediator_config)
         mediator.register_agent("andi")
         mediator.register_agent("other")
-        mock_redis.hget = AsyncMock(
-            return_value=json.dumps(
-                [
-                    {
-                        "entity_id": "#3",
-                        "name": "Andi",
-                        "entity_type": "ai",
-                        "agent_id": "andi",
-                    }
-                ]
-            ).encode("utf-8")
-        )
 
-        data = {b"data": json.dumps(sample_speech_event).encode()}
-        await mediator._process_event("1704096000000-0", data)
+        # Patch _agents_from_room_profile to return only andi (in room)
+        with patch.object(mediator, "_agents_from_room_profile", return_value=["andi"]):
+            data = {b"data": json.dumps(sample_speech_event).encode()}
+            await mediator._process_event("1704096000000-0", data)
 
         # Should have called xadd once for andi, not for other
         assert mock_redis.xadd.call_count == 1
@@ -319,31 +309,27 @@ class TestMediatorEventRouting:
         self, mock_redis, mediator_config, sample_speech_event
     ):
         """Test that a turn_request is written when delivering an event."""
+        from aim_mud_types.helper import _utc_now
+
         mediator = MediatorService(mock_redis, mediator_config)
         mediator.register_agent("andi")
-        mock_redis.hget = AsyncMock(
-            return_value=json.dumps(
-                [
-                    {
-                        "entity_id": "#3",
-                        "name": "Andi",
-                        "entity_type": "ai",
-                        "agent_id": "andi",
-                    }
-                ]
-            ).encode("utf-8")
-        )
+
         # Configure hgetall to return a turn_request with "ready" status so assignment can proceed
         mock_redis.hgetall = AsyncMock(
             return_value={
                 b"turn_id": b"prev-turn-123",
                 b"status": b"ready",
+                b"reason": b"events",
                 b"sequence_id": b"1",
+                b"heartbeat_at": _utc_now().isoformat().encode(),
+                b"attempt_count": b"0",
             }
         )
 
-        data = {b"data": json.dumps(sample_speech_event).encode()}
-        await mediator._process_event("1704096000000-0", data)
+        # Patch _agents_from_room_profile to return andi
+        with patch.object(mediator, "_agents_from_room_profile", return_value=["andi"]):
+            data = {b"data": json.dumps(sample_speech_event).encode()}
+            await mediator._process_event("1704096000000-0", data)
 
         # Turn assignment now uses eval (Lua script for CAS pattern)
         # Only hset call should be for events_processed
@@ -368,26 +354,25 @@ class TestMediatorEventRouting:
         self, mock_redis, mediator_config, sample_speech_event
     ):
         """Test that mediator does not overwrite active turn_request."""
+        from aim_mud_types.helper import _utc_now
+
         mediator = MediatorService(mock_redis, mediator_config)
         mediator.register_agent("andi")
-        mock_redis.hget = AsyncMock(
-            return_value=json.dumps(
-                [
-                    {
-                        "entity_id": "#3",
-                        "name": "Andi",
-                        "entity_type": "ai",
-                        "agent_id": "andi",
-                    }
-                ]
-            ).encode("utf-8")
-        )
         mock_redis.hgetall = AsyncMock(
-            return_value={b"status": b"in_progress", b"turn_id": b"abc", b"sequence_id": b"1"}
+            return_value={
+                b"status": b"in_progress",
+                b"turn_id": b"abc",
+                b"reason": b"events",
+                b"sequence_id": b"1",
+                b"heartbeat_at": _utc_now().isoformat().encode(),
+                b"attempt_count": b"0",
+            }
         )
 
-        data = {b"data": json.dumps(sample_speech_event).encode()}
-        await mediator._process_event("1704096000000-0", data)
+        # Patch _agents_from_room_profile to return andi
+        with patch.object(mediator, "_agents_from_room_profile", return_value=["andi"]):
+            data = {b"data": json.dumps(sample_speech_event).encode()}
+            await mediator._process_event("1704096000000-0", data)
 
         # Should be called once for events_processed (turn_request skipped)
         assert mock_redis.hset.call_count == 1
@@ -411,18 +396,12 @@ class TestMediatorEventRouter:
         mediator.register_agent("andi")
         mediator.running = True  # Must set running before the loop
         call_count = [0]
-        mock_redis.hget = AsyncMock(
-            return_value=json.dumps(
-                [
-                    {
-                        "entity_id": "#3",
-                        "name": "Andi",
-                        "entity_type": "ai",
-                        "agent_id": "andi",
-                    }
-                ]
-            ).encode("utf-8")
-        )
+
+        # Patch _agents_from_room_profile to return andi
+        async def mock_agents_from_room(*args, **kwargs):
+            return ["andi"]
+
+        mediator._agents_from_room_profile = mock_agents_from_room
 
         # Track processed events for trim operation
         processed_events = []

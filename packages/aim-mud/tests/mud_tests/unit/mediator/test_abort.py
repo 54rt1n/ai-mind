@@ -3,7 +3,7 @@
 """Unit tests for mediator abort handling."""
 
 import pytest
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 import json
 
 from andimud_mediator.service import MediatorService
@@ -204,53 +204,42 @@ class TestMediatorAbortEventProcessing:
         mediator = MediatorService(mock_redis, mediator_config)
         mediator.register_agent("test_agent")
 
-        # Mock agent in room
-        mock_redis.hget = AsyncMock(
-            return_value=json.dumps([
-                {
-                    "entity_id": "#3",
-                    "name": "TestAgent",
-                    "entity_type": "ai",
-                    "agent_id": "test_agent"
-                }
-            ]).encode("utf-8")
-        )
-
         # Mock turn_request with abort_requested status
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"abort_requested",
             b"turn_id": b"abort_turn",
             b"reason": b"events",
             b"heartbeat_at": _utc_now().isoformat().encode(),
+            b"assigned_at": _utc_now().isoformat().encode(),
             b"sequence_id": b"1",
+            b"attempt_count": b"0",
         })
+        mock_redis.hget = AsyncMock(return_value=None)  # is_sleeping check returns None (not sleeping)
+        mock_redis.hexists = AsyncMock(return_value=False)  # Event not already processed
+        mock_redis.xadd = AsyncMock(return_value=b"1704096000001-0")  # Event delivery
+        mock_redis.hset = AsyncMock(return_value=1)  # Mark event as processed
+        mock_redis.incr = AsyncMock(return_value=1)  # Sequence ID
 
-        sample_event = {
-            "type": "speech",
-            "actor": "Prax",
-            "actor_type": "player",
-            "room_id": "#123",
-            "room_name": "Test Room",
-            "content": "Hello!",
-            "timestamp": "2026-01-01T12:00:00+00:00",
-        }
+        # Patch _agents_from_room_profile to return our test agent
+        with patch.object(mediator, "_agents_from_room_profile", return_value=["test_agent"]):
+            sample_event = {
+                "type": "speech",
+                "actor": "Prax",
+                "actor_type": "player",
+                "room_id": "#123",
+                "room_name": "Test Room",
+                "content": "Hello!",
+                "timestamp": "2026-01-01T12:00:00+00:00",
+            }
 
-        data = {b"data": json.dumps(sample_event).encode()}
-        await mediator._process_event("1704096000000-0", data)
+            data = {b"data": json.dumps(sample_event).encode()}
+            await mediator._process_event("1704096000000-0", data)
 
         # Should still deliver event to agent stream
         assert mock_redis.xadd.call_count >= 1
 
-        # Check if turn_request was assigned
-        hset_calls = [call for call in mock_redis.hset.call_args_list
-                      if RedisKeys.agent_turn_request("test_agent") in str(call)]
-
-        # Should NOT assign new turn (only mark event as processed)
-        # The only hset should be for events_processed
-        for call in mock_redis.hset.call_args_list:
-            if RedisKeys.agent_turn_request("test_agent") in str(call[0]):
-                # If there's a turn_request hset, it should not be a new assignment
-                pytest.fail("Turn request should not be assigned when status is abort_requested")
+        # Check if turn_request was assigned - eval should NOT be called (abort_requested blocks assignment)
+        assert mock_redis.eval.call_count == 0
 
     @pytest.mark.asyncio
     async def test_process_event_assigns_turn_after_worker_ready(
@@ -260,39 +249,37 @@ class TestMediatorAbortEventProcessing:
         mediator = MediatorService(mock_redis, mediator_config)
         mediator.register_agent("test_agent")
 
-        # Mock agent in room
-        mock_redis.hget = AsyncMock(
-            return_value=json.dumps([
-                {
-                    "entity_id": "#3",
-                    "name": "TestAgent",
-                    "entity_type": "ai",
-                    "agent_id": "test_agent"
-                }
-            ]).encode("utf-8")
-        )
-
-        # Mock turn_request with ready status (worker completed abort and returned to ready)
+        # Mock turn_request with ready status
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"ready",
             b"turn_id": b"old_abort_turn",
             b"reason": b"events",
             b"heartbeat_at": _utc_now().isoformat().encode(),
+            b"assigned_at": _utc_now().isoformat().encode(),
             b"sequence_id": b"1",
+            b"attempt_count": b"0",
         })
+        mock_redis.hget = AsyncMock(return_value=None)  # is_sleeping check returns None (not sleeping)
+        mock_redis.hexists = AsyncMock(return_value=False)  # Event not already processed
+        mock_redis.xadd = AsyncMock(return_value=b"1704096000001-0")  # Event delivery
+        mock_redis.hset = AsyncMock(return_value=1)  # Mark event as processed
+        mock_redis.incr = AsyncMock(return_value=1)  # Sequence ID
+        mock_redis.eval = AsyncMock(return_value=1)  # CAS turn assignment succeeds
 
-        sample_event = {
-            "type": "speech",
-            "actor": "Prax",
-            "actor_type": "player",
-            "room_id": "#123",
-            "room_name": "Test Room",
-            "content": "Are you listening?",
-            "timestamp": "2026-01-01T12:01:00+00:00",
-        }
+        # Patch _agents_from_room_profile to return our test agent
+        with patch.object(mediator, "_agents_from_room_profile", return_value=["test_agent"]):
+            sample_event = {
+                "type": "speech",
+                "actor": "Prax",
+                "actor_type": "player",
+                "room_id": "#123",
+                "room_name": "Test Room",
+                "content": "Are you listening?",
+                "timestamp": "2026-01-01T12:01:00+00:00",
+            }
 
-        data = {b"data": json.dumps(sample_event).encode()}
-        await mediator._process_event("1704096000001-0", data)
+            data = {b"data": json.dumps(sample_event).encode()}
+            await mediator._process_event("1704096000001-0", data)
 
         # Should assign new turn since status is ready (using Lua script/eval)
         eval_calls = mock_redis.eval.call_args_list

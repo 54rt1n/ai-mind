@@ -108,6 +108,7 @@ def sample_turn_request() -> MUDTurnRequest:
         turn_id="test_turn_123",
         reason="events",
         attempt_count=0,
+        sequence_id=1,
     )
 
 

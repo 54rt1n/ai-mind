@@ -66,19 +66,19 @@ class TestCheckAbortRequested:
             b"sequence_id": b"1",
         })
 
-        # Track state transitions
-        state_changes = []
-        async def track_state(turn_id, status, **kwargs):
-            state_changes.append((turn_id, status))
-
-        test_worker._set_turn_request_state = AsyncMock(side_effect=track_state)
+        # Mock the update_turn_request method to succeed
+        test_worker.update_turn_request = AsyncMock(return_value=True)
 
         result = await test_worker._check_abort_requested()
 
         assert result is True
-        # Verify state was set to aborted
-        assert len(state_changes) == 1
-        assert state_changes[0] == ("test_turn_123", "aborted")
+        # Verify update_turn_request was called
+        assert test_worker.update_turn_request.called
+        # Verify the updated turn request has status=aborted
+        call_args = test_worker.update_turn_request.call_args[0]
+        updated_turn_request = call_args[0]
+        assert updated_turn_request.status == "aborted"
+        assert updated_turn_request.turn_id == "test_turn_123"
 
     @pytest.mark.asyncio
     async def test_returns_false_when_not_abort_requested(self, test_worker, mock_redis):
@@ -92,13 +92,13 @@ class TestCheckAbortRequested:
             b"sequence_id": b"1",
         })
 
-        test_worker._set_turn_request_state = AsyncMock()
+        test_worker.update_turn_request = AsyncMock()
 
         result = await test_worker._check_abort_requested()
 
         assert result is False
         # Verify state was NOT changed
-        assert not test_worker._set_turn_request_state.called
+        assert not test_worker.update_turn_request.called
 
     @pytest.mark.asyncio
     async def test_handles_missing_turn_id(self, test_worker, mock_redis):
@@ -114,11 +114,7 @@ class TestCheckAbortRequested:
             # No turn_id - will cause validation failure
         })
 
-        state_changes = []
-        async def track_state(turn_id, status, **kwargs):
-            state_changes.append((turn_id, status))
-
-        test_worker._set_turn_request_state = AsyncMock(side_effect=track_state)
+        test_worker.update_turn_request = AsyncMock()
 
         result = await test_worker._check_abort_requested()
 
@@ -126,7 +122,7 @@ class TestCheckAbortRequested:
         # So _check_abort_requested should return False (no valid turn request)
         assert result is False
         # Should NOT attempt state transition when turn_request is None
-        assert len(state_changes) == 0
+        assert not test_worker.update_turn_request.called
 
 
 class TestShouldActSpontaneously:

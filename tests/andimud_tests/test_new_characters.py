@@ -6,7 +6,7 @@ with correct agent IDs, permissions, and behavior.
 """
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, PropertyMock
 import sys
 from pathlib import Path
 
@@ -53,32 +53,36 @@ class TestNovaCharacter:
     def test_at_object_creation_sets_agent_id(self, mock_character_base):
         """Test that at_object_creation sets the correct agent_id."""
         nova = NovaCharacter()
-        nova.db = mock_character_base.db
-        nova.locks = mock_character_base.locks
-        nova.permissions = mock_character_base.permissions
 
-        # Mock the parent class's at_object_creation
-        with patch.object(NovaCharacter.__bases__[0], 'at_object_creation'):
-            nova.at_object_creation()
+        # Use PropertyMock to mock the db, locks, and permissions descriptors
+        with patch.object(type(nova), 'db', new_callable=lambda: PropertyMock(return_value=mock_character_base.db)), \
+             patch.object(type(nova), 'locks', new_callable=lambda: PropertyMock(return_value=mock_character_base.locks)), \
+             patch.object(type(nova), 'permissions', new_callable=lambda: PropertyMock(return_value=mock_character_base.permissions)):
 
-        # Verify agent_id is set
-        assert nova.db.agent_id == "nova"
+            # Mock the parent class's at_object_creation
+            with patch.object(NovaCharacter.__bases__[0], 'at_object_creation'):
+                nova.at_object_creation()
+
+            # Verify agent_id is set
+            assert nova.db.agent_id == "nova"
 
     def test_at_object_creation_sets_permissions(self, mock_character_base):
         """Test that at_object_creation sets correct permissions."""
         nova = NovaCharacter()
-        nova.db = mock_character_base.db
-        nova.locks = mock_character_base.locks
-        nova.permissions = mock_character_base.permissions
 
-        with patch.object(NovaCharacter.__bases__[0], 'at_object_creation'):
-            nova.at_object_creation()
+        # Use PropertyMock to mock the db, locks, and permissions descriptors
+        with patch.object(type(nova), 'db', new_callable=lambda: PropertyMock(return_value=mock_character_base.db)), \
+             patch.object(type(nova), 'locks', new_callable=lambda: PropertyMock(return_value=mock_character_base.locks)), \
+             patch.object(type(nova), 'permissions', new_callable=lambda: PropertyMock(return_value=mock_character_base.permissions)):
 
-        # Verify permissions
-        nova.locks.add.assert_called_with("control:perm(Developer)")
-        assert nova.permissions.add.call_count == 2
-        nova.permissions.add.assert_any_call("Developer")
-        nova.permissions.add.assert_any_call("Builder")
+            with patch.object(NovaCharacter.__bases__[0], 'at_object_creation'):
+                nova.at_object_creation()
+
+            # Verify permissions
+            nova.locks.add.assert_called_with("control:perm(Developer)")
+            assert nova.permissions.add.call_count == 2
+            nova.permissions.add.assert_any_call("Developer")
+            nova.permissions.add.assert_any_call("Builder")
 
 
 class TestCorrodedCharacter:
@@ -87,29 +91,31 @@ class TestCorrodedCharacter:
     def test_at_object_creation_sets_agent_id(self, mock_character_base):
         """Test that at_object_creation sets the correct agent_id."""
         corroded = CorrodedCharacter()
-        corroded.db = mock_character_base.db
-        corroded.locks = mock_character_base.locks
-        corroded.permissions = mock_character_base.permissions
 
-        with patch.object(CorrodedCharacter.__bases__[0], 'at_object_creation'):
-            corroded.at_object_creation()
+        with patch.object(type(corroded), 'db', new_callable=lambda: PropertyMock(return_value=mock_character_base.db)), \
+             patch.object(type(corroded), 'locks', new_callable=lambda: PropertyMock(return_value=mock_character_base.locks)), \
+             patch.object(type(corroded), 'permissions', new_callable=lambda: PropertyMock(return_value=mock_character_base.permissions)):
 
-        assert corroded.db.agent_id == "corroded"
+            with patch.object(CorrodedCharacter.__bases__[0], 'at_object_creation'):
+                corroded.at_object_creation()
+
+            assert corroded.db.agent_id == "corroded"
 
     def test_at_object_creation_sets_permissions(self, mock_character_base):
         """Test that at_object_creation sets correct permissions."""
         corroded = CorrodedCharacter()
-        corroded.db = mock_character_base.db
-        corroded.locks = mock_character_base.locks
-        corroded.permissions = mock_character_base.permissions
 
-        with patch.object(CorrodedCharacter.__bases__[0], 'at_object_creation'):
-            corroded.at_object_creation()
+        with patch.object(type(corroded), 'db', new_callable=lambda: PropertyMock(return_value=mock_character_base.db)), \
+             patch.object(type(corroded), 'locks', new_callable=lambda: PropertyMock(return_value=mock_character_base.locks)), \
+             patch.object(type(corroded), 'permissions', new_callable=lambda: PropertyMock(return_value=mock_character_base.permissions)):
 
-        corroded.locks.add.assert_called_with("control:perm(Developer)")
-        assert corroded.permissions.add.call_count == 2
-        corroded.permissions.add.assert_any_call("Developer")
-        corroded.permissions.add.assert_any_call("Builder")
+            with patch.object(CorrodedCharacter.__bases__[0], 'at_object_creation'):
+                corroded.at_object_creation()
+
+            corroded.locks.add.assert_called_with("control:perm(Developer)")
+            assert corroded.permissions.add.call_count == 2
+            corroded.permissions.add.assert_any_call("Developer")
+            corroded.permissions.add.assert_any_call("Builder")
 
 
 class TestLinYuCharacter:
@@ -118,29 +124,31 @@ class TestLinYuCharacter:
     def test_at_object_creation_sets_agent_id(self, mock_character_base):
         """Test that at_object_creation sets the correct agent_id."""
         linyu = LinYuCharacter()
-        linyu.db = mock_character_base.db
-        linyu.locks = mock_character_base.locks
-        linyu.permissions = mock_character_base.permissions
 
-        with patch.object(LinYuCharacter.__bases__[0], 'at_object_creation'):
-            linyu.at_object_creation()
+        with patch.object(type(linyu), 'db', new_callable=lambda: PropertyMock(return_value=mock_character_base.db)), \
+             patch.object(type(linyu), 'locks', new_callable=lambda: PropertyMock(return_value=mock_character_base.locks)), \
+             patch.object(type(linyu), 'permissions', new_callable=lambda: PropertyMock(return_value=mock_character_base.permissions)):
 
-        assert linyu.db.agent_id == "linyu"
+            with patch.object(LinYuCharacter.__bases__[0], 'at_object_creation'):
+                linyu.at_object_creation()
+
+            assert linyu.db.agent_id == "linyu"
 
     def test_at_object_creation_sets_permissions(self, mock_character_base):
         """Test that at_object_creation sets correct permissions."""
         linyu = LinYuCharacter()
-        linyu.db = mock_character_base.db
-        linyu.locks = mock_character_base.locks
-        linyu.permissions = mock_character_base.permissions
 
-        with patch.object(LinYuCharacter.__bases__[0], 'at_object_creation'):
-            linyu.at_object_creation()
+        with patch.object(type(linyu), 'db', new_callable=lambda: PropertyMock(return_value=mock_character_base.db)), \
+             patch.object(type(linyu), 'locks', new_callable=lambda: PropertyMock(return_value=mock_character_base.locks)), \
+             patch.object(type(linyu), 'permissions', new_callable=lambda: PropertyMock(return_value=mock_character_base.permissions)):
 
-        linyu.locks.add.assert_called_with("control:perm(Developer)")
-        assert linyu.permissions.add.call_count == 2
-        linyu.permissions.add.assert_any_call("Developer")
-        linyu.permissions.add.assert_any_call("Builder")
+            with patch.object(LinYuCharacter.__bases__[0], 'at_object_creation'):
+                linyu.at_object_creation()
+
+            linyu.locks.add.assert_called_with("control:perm(Developer)")
+            assert linyu.permissions.add.call_count == 2
+            linyu.permissions.add.assert_any_call("Developer")
+            linyu.permissions.add.assert_any_call("Builder")
 
 
 class TestTiberiusCharacter:
@@ -149,26 +157,28 @@ class TestTiberiusCharacter:
     def test_at_object_creation_sets_agent_id(self, mock_character_base):
         """Test that at_object_creation sets the correct agent_id."""
         tiberius = TiberiusCharacter()
-        tiberius.db = mock_character_base.db
-        tiberius.locks = mock_character_base.locks
-        tiberius.permissions = mock_character_base.permissions
 
-        with patch.object(TiberiusCharacter.__bases__[0], 'at_object_creation'):
-            tiberius.at_object_creation()
+        with patch.object(type(tiberius), 'db', new_callable=lambda: PropertyMock(return_value=mock_character_base.db)), \
+             patch.object(type(tiberius), 'locks', new_callable=lambda: PropertyMock(return_value=mock_character_base.locks)), \
+             patch.object(type(tiberius), 'permissions', new_callable=lambda: PropertyMock(return_value=mock_character_base.permissions)):
 
-        assert tiberius.db.agent_id == "tiberius"
+            with patch.object(TiberiusCharacter.__bases__[0], 'at_object_creation'):
+                tiberius.at_object_creation()
+
+            assert tiberius.db.agent_id == "tiberius"
 
     def test_at_object_creation_sets_permissions(self, mock_character_base):
         """Test that at_object_creation sets correct permissions."""
         tiberius = TiberiusCharacter()
-        tiberius.db = mock_character_base.db
-        tiberius.locks = mock_character_base.locks
-        tiberius.permissions = mock_character_base.permissions
 
-        with patch.object(TiberiusCharacter.__bases__[0], 'at_object_creation'):
-            tiberius.at_object_creation()
+        with patch.object(type(tiberius), 'db', new_callable=lambda: PropertyMock(return_value=mock_character_base.db)), \
+             patch.object(type(tiberius), 'locks', new_callable=lambda: PropertyMock(return_value=mock_character_base.locks)), \
+             patch.object(type(tiberius), 'permissions', new_callable=lambda: PropertyMock(return_value=mock_character_base.permissions)):
 
-        tiberius.locks.add.assert_called_with("control:perm(Developer)")
-        assert tiberius.permissions.add.call_count == 2
-        tiberius.permissions.add.assert_any_call("Developer")
-        tiberius.permissions.add.assert_any_call("Builder")
+            with patch.object(TiberiusCharacter.__bases__[0], 'at_object_creation'):
+                tiberius.at_object_creation()
+
+            tiberius.locks.add.assert_called_with("control:perm(Developer)")
+            assert tiberius.permissions.add.call_count == 2
+            tiberius.permissions.add.assert_any_call("Developer")
+            tiberius.permissions.add.assert_any_call("Builder")

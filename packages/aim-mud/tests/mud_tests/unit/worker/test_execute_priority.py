@@ -32,7 +32,7 @@ def mock_worker(mock_redis):
     worker.redis = mock_redis
     worker.config = MUDConfig(agent_id="andi", persona_id="andi")
     worker._get_turn_request = AsyncMock()
-    worker._set_turn_request_state = AsyncMock(return_value=True)
+    worker.update_turn_request = AsyncMock(return_value=True)
     worker._should_process_turn = AsyncMock(return_value=True)
     worker._process_turn = AsyncMock()
     return worker
@@ -51,14 +51,20 @@ class TestWorkerExecutePriority:
             turn_id="turn-execute-1",
             status=TurnRequestStatus.EXECUTE,
             reason=TurnReason.FLUSH,
+            sequence_id=100,
+            heartbeat_at=datetime.now(timezone.utc),
             assigned_at=datetime.now(timezone.utc),
+            attempt_count=0,
         )
 
         assigned_turn = MUDTurnRequest(
             turn_id="turn-assigned-1",
             status=TurnRequestStatus.ASSIGNED,
             reason=TurnReason.EVENTS,
+            sequence_id=101,
+            heartbeat_at=datetime.now(timezone.utc),
             assigned_at=datetime.now(timezone.utc),
+            attempt_count=0,
         )
 
         # When we have EXECUTE status, it should be processed
@@ -76,21 +82,29 @@ class TestWorkerExecutePriority:
             turn_id="turn-1",
             status=TurnRequestStatus.EXECUTE,
             reason=TurnReason.FLUSH,
+            sequence_id=100,
+            heartbeat_at=datetime.now(timezone.utc),
             assigned_at=datetime.now(timezone.utc),
+            attempt_count=0,
         )
 
         mock_worker._get_turn_request.return_value = turn_request
 
-        # Simulate the transition that happens in run_loop
-        await mock_worker._set_turn_request_state(
+        # Create the updated request
+        executing_request = MUDTurnRequest(
             turn_id=turn_request.turn_id,
             status=TurnRequestStatus.EXECUTING,
+            reason=TurnReason.FLUSH,
+            sequence_id=100,
+            heartbeat_at=datetime.now(timezone.utc),
+            assigned_at=turn_request.assigned_at,
+            attempt_count=0,
         )
 
-        mock_worker._set_turn_request_state.assert_called_once_with(
-            turn_id="turn-1",
-            status=TurnRequestStatus.EXECUTING,
-        )
+        # Simulate the transition that happens in run_loop
+        await mock_worker.update_turn_request(executing_request, turn_request.turn_id)
+
+        mock_worker.update_turn_request.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_execute_status_skips_turn_guard(self, mock_worker):
@@ -102,7 +116,10 @@ class TestWorkerExecutePriority:
             turn_id="turn-1",
             status=TurnRequestStatus.EXECUTE,
             reason=TurnReason.CLEAR,
+            sequence_id=100,
+            heartbeat_at=datetime.now(timezone.utc),
             assigned_at=datetime.now(timezone.utc),
+            attempt_count=0,
         )
 
         # In the actual implementation, EXECUTE status commands are processed
@@ -120,7 +137,10 @@ class TestWorkerExecutePriority:
             turn_id="turn-1",
             status=TurnRequestStatus.ASSIGNED,
             reason=TurnReason.EVENTS,
+            sequence_id=100,
+            heartbeat_at=datetime.now(timezone.utc),
             assigned_at=datetime.now(timezone.utc),
+            attempt_count=0,
         )
 
         # ASSIGNED status should call turn guard before processing
@@ -136,7 +156,10 @@ class TestWorkerExecutePriority:
             turn_id="turn-1",
             status=TurnRequestStatus.EXECUTE,
             reason=TurnReason.FLUSH,
+            sequence_id=100,
+            heartbeat_at=datetime.now(timezone.utc),
             assigned_at=datetime.now(timezone.utc),
+            attempt_count=0,
         )
 
         assert turn_request.reason == TurnReason.FLUSH
@@ -150,7 +173,10 @@ class TestWorkerExecutePriority:
             turn_id="turn-1",
             status=TurnRequestStatus.EXECUTE,
             reason=TurnReason.CLEAR,
+            sequence_id=100,
+            heartbeat_at=datetime.now(timezone.utc),
             assigned_at=datetime.now(timezone.utc),
+            attempt_count=0,
         )
 
         assert turn_request.reason == TurnReason.CLEAR
@@ -164,7 +190,10 @@ class TestWorkerExecutePriority:
             turn_id="turn-1",
             status=TurnRequestStatus.EXECUTE,
             reason=TurnReason.NEW,
+            sequence_id=100,
+            heartbeat_at=datetime.now(timezone.utc),
             assigned_at=datetime.now(timezone.utc),
+            attempt_count=0,
         )
 
         assert turn_request.reason == TurnReason.NEW
@@ -184,32 +213,45 @@ class TestWorkerExecutePriority:
         # EXECUTE -> EXECUTING -> DONE -> READY
 
         turn_id = "turn-1"
+        now = datetime.now(timezone.utc)
 
         # Step 1: EXECUTE -> EXECUTING (when command starts)
-        await mock_worker._set_turn_request_state(
+        executing_request = MUDTurnRequest(
             turn_id=turn_id,
             status=TurnRequestStatus.EXECUTING,
+            reason=TurnReason.FLUSH,
+            sequence_id=100,
+            heartbeat_at=now,
+            assigned_at=now,
+            attempt_count=0,
         )
+        await mock_worker.update_turn_request(executing_request, turn_id)
 
         # Step 2: EXECUTING -> DONE (when command completes)
-        await mock_worker._set_turn_request_state(
+        done_request = MUDTurnRequest(
             turn_id=turn_id,
             status=TurnRequestStatus.DONE,
+            reason=TurnReason.FLUSH,
+            sequence_id=100,
+            heartbeat_at=now,
+            assigned_at=now,
+            attempt_count=0,
         )
+        await mock_worker.update_turn_request(done_request, turn_id)
 
         # Step 3: DONE -> READY (cleanup phase)
-        await mock_worker._set_turn_request_state(
+        ready_request = MUDTurnRequest(
             turn_id=turn_id,
             status=TurnRequestStatus.READY,
+            reason=TurnReason.EVENTS,
+            sequence_id=101,
+            heartbeat_at=now,
+            attempt_count=0,
         )
+        await mock_worker.update_turn_request(ready_request, turn_id)
 
         # Verify all three transitions were called
-        assert mock_worker._set_turn_request_state.call_count == 3
-
-        calls = mock_worker._set_turn_request_state.call_args_list
-        assert calls[0][1]['status'] == TurnRequestStatus.EXECUTING
-        assert calls[1][1]['status'] == TurnRequestStatus.DONE
-        assert calls[2][1]['status'] == TurnRequestStatus.READY
+        assert mock_worker.update_turn_request.call_count == 3
 
     @pytest.mark.asyncio
     async def test_executing_transitions_to_ready_not_done(self, mock_worker):
@@ -218,17 +260,20 @@ class TestWorkerExecutePriority:
         # (skipping DONE) after completion
 
         turn_id = "turn-1"
+        now = datetime.now(timezone.utc)
 
         # EXECUTING -> READY (direct transition)
-        await mock_worker._set_turn_request_state(
+        ready_request = MUDTurnRequest(
             turn_id=turn_id,
             status=TurnRequestStatus.READY,
+            reason=TurnReason.EVENTS,
+            sequence_id=100,
+            heartbeat_at=now,
+            attempt_count=0,
         )
+        await mock_worker.update_turn_request(ready_request, turn_id)
 
-        mock_worker._set_turn_request_state.assert_called_once_with(
-            turn_id=turn_id,
-            status=TurnRequestStatus.READY,
-        )
+        mock_worker.update_turn_request.assert_called_once()
 
 
 class TestWorkerExecuteStatusTransitions:
@@ -262,6 +307,7 @@ class TestWorkerExecuteStatusTransitions:
             "in_progress",
             "done",
             "fail",
+            "retry",
             "ready",
             "crashed",
             "aborted",

@@ -15,8 +15,8 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock, AsyncMock, patch
 import pandas as pd
 
-from aim.dreamer.scenario import load_scenario
-from aim.dreamer.models import (
+from aim.dreamer import (
+    load_scenario,
     Scenario,
     StepDefinition,
     StepStatus,
@@ -24,7 +24,7 @@ from aim.dreamer.models import (
     StepResult,
     MemoryAction,
 )
-from aim.dreamer.context import prepare_step_context
+from aim.dreamer.core.context import prepare_step_context
 
 
 # All production scenarios to test

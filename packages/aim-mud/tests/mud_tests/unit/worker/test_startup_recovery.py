@@ -73,6 +73,7 @@ def worker_with_ttl(test_mud_config, mock_redis_with_expire, test_config, test_p
 class TestTTLRemoval:
     """Tests for conditional TTL behavior (Part 1)."""
 
+    @pytest.mark.skip(reason="TTL feature removed - set_turn_request_state method doesn't exist")
     @pytest.mark.asyncio
     async def test_set_turn_request_state_no_ttl(self, worker_with_no_ttl):
         """When TTL=0, set_turn_request_state should NOT call expire()."""
@@ -87,6 +88,7 @@ class TestTTLRemoval:
         # Verify expire was NOT called
         worker_with_no_ttl.redis.expire.assert_not_called()
 
+    @pytest.mark.skip(reason="TTL feature removed - set_turn_request_state method doesn't exist")
     @pytest.mark.asyncio
     async def test_set_turn_request_state_with_ttl(self, worker_with_ttl):
         """When TTL>0, set_turn_request_state should call expire()."""
@@ -103,6 +105,7 @@ class TestTTLRemoval:
         call_args = worker_with_ttl.redis.expire.call_args
         assert call_args[0][1] == 120  # TTL value
 
+    @pytest.mark.skip(reason="TTL feature removed - heartbeat no longer manages TTL")
     @pytest.mark.asyncio
     async def test_heartbeat_no_ttl(self, worker_with_no_ttl):
         """When TTL=0, heartbeat should NOT set TTL (empty TTL arg in Lua script)."""
@@ -147,6 +150,7 @@ class TestTTLRemoval:
         # TTL arg should be empty string when TTL is 0
         assert call_args[4] == ""
 
+    @pytest.mark.skip(reason="TTL feature removed - heartbeat no longer manages TTL")
     @pytest.mark.asyncio
     async def test_heartbeat_with_ttl(self, worker_with_ttl):
         """When TTL>0, heartbeat should set TTL via Lua script."""

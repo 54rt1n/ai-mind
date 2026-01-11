@@ -48,36 +48,45 @@ class TestGetTurnRequest:
         assert result is None
 
 
-class TestSetTurnRequestState:
-    """Tests for _set_turn_request_state() helper method."""
+class TestUpdateTurnRequest:
+    """Tests for update_turn_request() helper method."""
 
     @pytest.mark.asyncio
-    async def test_set_turn_request_state_basic(self, test_worker):
-        """Test setting turn request state uses Lua script CAS."""
+    async def test_update_turn_request_basic(self, test_worker):
+        """Test updating turn request uses Lua script CAS."""
         # Arrange
-        test_worker.config.turn_request_ttl_seconds = 120  # Enable TTL for this test
+        turn_request = MUDTurnRequest(
+            status="in_progress",
+            turn_id="turn123",
+            reason="events",
+            heartbeat_at=_utc_now(),
+            sequence_id="1",
+        )
         test_worker.redis.eval = AsyncMock(return_value=1)  # CAS success
-        test_worker.redis.expire = AsyncMock()
 
         # Act
-        result = await test_worker._set_turn_request_state("turn123", "in_progress")
+        result = await test_worker.update_turn_request(turn_request, expected_turn_id="turn123")
 
         # Assert
         assert result is True
         test_worker.redis.eval.assert_called_once()
-        test_worker.redis.expire.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_set_turn_request_state_with_message(self, test_worker):
-        """Test setting state with status message."""
+    async def test_update_turn_request_with_message(self, test_worker):
+        """Test updating request with status message."""
         # Arrange
+        turn_request = MUDTurnRequest(
+            status="done",
+            turn_id="turn123",
+            reason="events",
+            heartbeat_at=_utc_now(),
+            sequence_id="1",
+            message="Completed successfully",
+        )
         test_worker.redis.eval = AsyncMock(return_value=1)
-        test_worker.redis.expire = AsyncMock()
 
         # Act
-        result = await test_worker._set_turn_request_state(
-            "turn123", "done", message="Completed successfully"
-        )
+        result = await test_worker.update_turn_request(turn_request, expected_turn_id="turn123")
 
         # Assert
         assert result is True
@@ -86,53 +95,20 @@ class TestSetTurnRequestState:
         assert "Completed successfully" in call_args
 
     @pytest.mark.asyncio
-    async def test_set_turn_request_state_with_extra_fields(self, test_worker):
-        """Test setting state with extra fields."""
-        # Arrange
-        test_worker.redis.eval = AsyncMock(return_value=1)
-        test_worker.redis.expire = AsyncMock()
-
-        # Act
-        result = await test_worker._set_turn_request_state(
-            "turn123",
-            "fail",
-            extra_fields={"attempt_count": "2", "next_attempt_at": "2026-01-08T12:00:00"},
-        )
-
-        # Assert
-        assert result is True
-        # Verify extra fields are in the Lua script args
-        call_args = test_worker.redis.eval.call_args[0]
-        assert "2" in call_args  # attempt_count value
-        assert "2026-01-08T12:00:00" in call_args  # next_attempt_at value
-
-    @pytest.mark.asyncio
-    async def test_set_turn_request_state_sets_ttl(self, test_worker):
-        """Test that state updates refresh TTL when TTL>0."""
-        # Arrange
-        test_worker.config.turn_request_ttl_seconds = 120  # Enable TTL
-        test_worker.redis.eval = AsyncMock(return_value=1)
-        test_worker.redis.expire = AsyncMock()
-
-        # Act
-        await test_worker._set_turn_request_state("turn123", "in_progress")
-
-        # Assert
-        test_worker.redis.expire.assert_called_once()
-        call_args = test_worker.redis.expire.call_args
-        assert call_args[0][0] == test_worker._turn_request_key()
-        assert call_args[0][1] == test_worker.config.turn_request_ttl_seconds
-
-    @pytest.mark.asyncio
-    async def test_set_turn_request_state_cas_failure(self, test_worker):
+    async def test_update_turn_request_cas_failure(self, test_worker):
         """Test that CAS failure returns False."""
         # Arrange
+        turn_request = MUDTurnRequest(
+            status="in_progress",
+            turn_id="turn123",
+            reason="events",
+            heartbeat_at=_utc_now(),
+            sequence_id="1",
+        )
         test_worker.redis.eval = AsyncMock(return_value=0)  # CAS failed
 
         # Act
-        result = await test_worker._set_turn_request_state(
-            "turn123", "in_progress", expected_turn_id="turn456"
-        )
+        result = await test_worker.update_turn_request(turn_request, expected_turn_id="turn456")
 
         # Assert
         assert result is False
@@ -166,8 +142,12 @@ class TestIsPaused:
         assert result is False
 
 
-class TestCheckAbortRequested:
-    """Tests for _check_abort_requested() helper method."""
+class TestCheckAbortRequestedDuplicate:
+    """Tests for _check_abort_requested() helper method.
+
+    Note: These duplicate tests in test_state_helpers.py which are more comprehensive.
+    Keeping these for now to verify the same behavior.
+    """
 
     @pytest.mark.asyncio
     async def test_check_abort_clears_flag_when_set(self, test_worker):
@@ -176,18 +156,24 @@ class TestCheckAbortRequested:
         turn_request = MUDTurnRequest(
             status="abort_requested",
             turn_id="turn123",
+            reason="events",
+            heartbeat_at=_utc_now(),
+            sequence_id="1",
         )
         test_worker._get_turn_request = AsyncMock(return_value=turn_request)
-        test_worker._set_turn_request_state = AsyncMock(return_value=True)
+        test_worker.update_turn_request = AsyncMock(return_value=True)
 
         # Act
         result = await test_worker._check_abort_requested()
 
         # Assert
         assert result is True
-        test_worker._set_turn_request_state.assert_called_once_with(
-            "turn123", "aborted", message="Aborted by user request"
-        )
+        # Verify update was called
+        assert test_worker.update_turn_request.called
+        # Verify the updated turn request has status=aborted
+        call_args = test_worker.update_turn_request.call_args[0]
+        updated_turn_request = call_args[0]
+        assert updated_turn_request.status == "aborted"
 
     @pytest.mark.asyncio
     async def test_check_abort_returns_false_when_not_set(self, test_worker):
@@ -195,59 +181,37 @@ class TestCheckAbortRequested:
         # Arrange
         turn_request = MUDTurnRequest(
             status="ready",
-            turn_id="",
+            turn_id="turn123",
+            reason="events",
+            heartbeat_at=_utc_now(),
+            sequence_id="1",
         )
         test_worker._get_turn_request = AsyncMock(return_value=turn_request)
-        test_worker._set_turn_request_state = AsyncMock()
+        test_worker.update_turn_request = AsyncMock()
 
         # Act
         result = await test_worker._check_abort_requested()
 
         # Assert
         assert result is False
-        test_worker._set_turn_request_state.assert_not_called()
+        test_worker.update_turn_request.assert_not_called()
 
 
 class TestAtomicHeartbeatUpdate:
     """Tests for atomic_heartbeat_update() method."""
 
     @pytest.mark.asyncio
-    async def test_atomic_heartbeat_success_with_ttl(self, test_worker):
-        """Test successful atomic heartbeat update with TTL refresh."""
+    async def test_atomic_heartbeat_success(self, test_worker):
+        """Test successful atomic heartbeat update."""
         # Arrange
-        test_worker.config.turn_request_ttl_seconds = 120
         test_worker.redis.eval = AsyncMock(return_value=1)  # Success
 
         # Act
-        result = await test_worker.atomic_heartbeat_update(update_ttl=True)
+        result = await test_worker.atomic_heartbeat_update()
 
         # Assert
         assert result == 1
         test_worker.redis.eval.assert_called_once()
-        # Verify Lua script was called with TTL argument
-        call_args = test_worker.redis.eval.call_args[0]
-        # Arguments: lua_script, num_keys, key, heartbeat_at, ttl_arg
-        # TTL arg should be "120" (5th positional arg, index 4)
-        assert call_args[4] == "120"
-
-    @pytest.mark.asyncio
-    async def test_atomic_heartbeat_success_without_ttl(self, test_worker):
-        """Test successful atomic heartbeat update without TTL refresh."""
-        # Arrange
-        test_worker.config.turn_request_ttl_seconds = 120
-        test_worker.redis.eval = AsyncMock(return_value=1)  # Success
-
-        # Act
-        result = await test_worker.atomic_heartbeat_update(update_ttl=False)
-
-        # Assert
-        assert result == 1
-        test_worker.redis.eval.assert_called_once()
-        # Verify Lua script was called with empty TTL argument
-        call_args = test_worker.redis.eval.call_args[0]
-        # Arguments: lua_script, num_keys, key, heartbeat_at, ttl_arg
-        # TTL arg should be empty string (5th positional arg, index 4)
-        assert call_args[4] == ""
 
     @pytest.mark.asyncio
     async def test_atomic_heartbeat_key_missing(self, test_worker):
@@ -256,7 +220,7 @@ class TestAtomicHeartbeatUpdate:
         test_worker.redis.eval = AsyncMock(return_value=0)  # Key missing
 
         # Act
-        result = await test_worker.atomic_heartbeat_update(update_ttl=True)
+        result = await test_worker.atomic_heartbeat_update()
 
         # Assert
         assert result == 0
@@ -269,26 +233,8 @@ class TestAtomicHeartbeatUpdate:
         test_worker.redis.eval = AsyncMock(return_value=-1)  # Corrupted
 
         # Act
-        result = await test_worker.atomic_heartbeat_update(update_ttl=True)
+        result = await test_worker.atomic_heartbeat_update()
 
         # Assert
         assert result == -1
         test_worker.redis.eval.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_atomic_heartbeat_respects_ttl_zero(self, test_worker):
-        """Test atomic heartbeat with TTL=0 doesn't set expiration."""
-        # Arrange
-        test_worker.config.turn_request_ttl_seconds = 0  # No TTL
-        test_worker.redis.eval = AsyncMock(return_value=1)
-
-        # Act
-        result = await test_worker.atomic_heartbeat_update(update_ttl=True)
-
-        # Assert
-        assert result == 1
-        # Verify TTL argument is empty string
-        call_args = test_worker.redis.eval.call_args[0]
-        # Arguments: lua_script, num_keys, key, heartbeat_at, ttl_arg
-        # TTL arg should be empty string (5th positional arg, index 4)
-        assert call_args[4] == ""

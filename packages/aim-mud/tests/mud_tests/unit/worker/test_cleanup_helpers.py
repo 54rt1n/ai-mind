@@ -12,11 +12,26 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from aim_mud_types.helper import _utc_now
+from aim_mud_types import MUDTurnRequest, TurnRequestStatus, TurnReason
+
+
+@pytest.fixture
+def mock_turn_request():
+    """Create a mock turn request for testing state transitions."""
+    return MUDTurnRequest(
+        turn_id="current_turn",
+        status=TurnRequestStatus.IN_PROGRESS,
+        reason=TurnReason.EVENTS,
+        sequence_id=100,
+        assigned_at=_utc_now(),
+        attempt_count=0,
+    )
 
 
 class TestHeartbeatTurnRequest:
     """Tests for _heartbeat_turn_request() helper method."""
 
+    @pytest.mark.skip(reason="TTL feature removed - no longer refreshing TTL in heartbeat")
     @pytest.mark.asyncio
     async def test_heartbeat_refreshes_ttl_periodically(self, test_worker):
         """Test that heartbeat refreshes TTL and timestamp periodically when TTL>0."""
@@ -94,20 +109,26 @@ class TestSetTurnRequestStateTransitions:
     """Tests for state transition logic using _set_turn_request_state()."""
 
     @pytest.mark.asyncio
-    async def test_done_to_ready_creates_new_turn_request(self, test_worker):
+    async def test_done_to_ready_creates_new_turn_request(self, test_worker, mock_turn_request):
         """Test that 'done' status transitions to 'ready' with new turn_id."""
         # Arrange
         old_turn_id = "turn123"
+        new_turn_id = str(uuid.uuid4())
         test_worker.redis.eval = AsyncMock(return_value=1)  # CAS success
-        test_worker.redis.expire = AsyncMock()
+
+        # Create complete new turn request with all required fields
+        new_request = MUDTurnRequest(
+            turn_id=new_turn_id,
+            status=TurnRequestStatus.READY,
+            reason=TurnReason.EVENTS,
+            sequence_id=101,
+            heartbeat_at=_utc_now(),
+            attempt_count=0,
+            status_reason="Turn completed",
+        )
 
         # Act
-        result = await test_worker._set_turn_request_state(
-            turn_id=str(uuid.uuid4()),
-            status="ready",
-            extra_fields={"status_reason": "Turn completed"},
-            expected_turn_id=old_turn_id
-        )
+        result = await test_worker.update_turn_request(new_request, old_turn_id)
 
         # Assert
         assert result is True
@@ -122,20 +143,26 @@ class TestSetTurnRequestStateTransitions:
         assert "Turn completed" in call_args  # status_reason
 
     @pytest.mark.asyncio
-    async def test_aborted_to_ready_creates_new_turn_request(self, test_worker):
+    async def test_aborted_to_ready_creates_new_turn_request(self, test_worker, mock_turn_request):
         """Test that 'aborted' status transitions to 'ready' with new turn_id."""
         # Arrange
         old_turn_id = "turn456"
+        new_turn_id = str(uuid.uuid4())
         test_worker.redis.eval = AsyncMock(return_value=1)
-        test_worker.redis.expire = AsyncMock()
+
+        # Create complete new turn request with all required fields
+        new_request = MUDTurnRequest(
+            turn_id=new_turn_id,
+            status=TurnRequestStatus.READY,
+            reason=TurnReason.EVENTS,
+            sequence_id=102,
+            heartbeat_at=_utc_now(),
+            attempt_count=0,
+            status_reason="Turn aborted",
+        )
 
         # Act
-        result = await test_worker._set_turn_request_state(
-            turn_id=str(uuid.uuid4()),
-            status="ready",
-            extra_fields={"status_reason": "Turn aborted"},
-            expected_turn_id=old_turn_id
-        )
+        result = await test_worker.update_turn_request(new_request, old_turn_id)
 
         # Assert
         assert result is True
@@ -145,45 +172,52 @@ class TestSetTurnRequestStateTransitions:
         assert "Turn aborted" in call_args
 
     @pytest.mark.asyncio
-    async def test_fail_state_preserved_no_transition(self, test_worker):
+    async def test_fail_state_preserved_no_transition(self, test_worker, mock_turn_request):
         """Test that 'fail' status does NOT auto-transition to 'ready'."""
-        # Arrange - simulate finally block NOT calling transition for "fail" status
+        # Arrange
         test_worker.redis.eval = AsyncMock(return_value=1)
-        test_worker.redis.expire = AsyncMock()
 
-        # Set fail state
-        await test_worker._set_turn_request_state(
+        # Create fail state turn request with all required fields
+        fail_request = MUDTurnRequest(
             turn_id="turn789",
-            status="fail",
-            message="LLM call failed",
-            extra_fields={
-                "attempt_count": "2",
-                "next_attempt_at": "2026-01-08T12:00:00",
-                "status_reason": "LLM call failed: TimeoutError"
-            }
+            status=TurnRequestStatus.FAIL,
+            reason=TurnReason.EVENTS,
+            sequence_id=103,
+            heartbeat_at=_utc_now(),
+            attempt_count=2,
+            next_attempt_at=_utc_now().isoformat(),
+            status_reason="LLM call failed: TimeoutError"
         )
 
-        # Assert - fail state is set, but verify it stays as "fail"
+        # Act - update to fail state (no expected_turn_id needed for fail state update)
+        await test_worker.update_turn_request(fail_request, "turn789")
+
+        # Assert - fail state is set
         call_args = test_worker.redis.eval.call_args[0]
         assert "fail" in call_args
-        assert "LLM call failed" in call_args
         assert "2" in call_args  # attempt_count
 
-        # The finally block should NOT call set_turn_request_state for "fail" status
+        # The finally block should NOT call update_turn_request for "fail" status
         # (This is tested in the integration test for the finally block logic)
 
     @pytest.mark.asyncio
-    async def test_cas_semantics_with_expected_turn_id(self, test_worker):
+    async def test_cas_semantics_with_expected_turn_id(self, test_worker, mock_turn_request):
         """Test that expected_turn_id provides CAS protection."""
         # Arrange
         test_worker.redis.eval = AsyncMock(return_value=0)  # CAS failed
 
-        # Act
-        result = await test_worker._set_turn_request_state(
+        # Create complete new turn request
+        new_request = MUDTurnRequest(
             turn_id="new_turn",
-            status="ready",
-            expected_turn_id="expected_turn"
+            status=TurnRequestStatus.READY,
+            reason=TurnReason.EVENTS,
+            sequence_id=104,
+            heartbeat_at=_utc_now(),
+            attempt_count=0,
         )
+
+        # Act
+        result = await test_worker.update_turn_request(new_request, "expected_turn")
 
         # Assert - CAS should fail
         assert result is False
@@ -194,23 +228,28 @@ class TestSetTurnRequestStateTransitions:
         assert "expected_turn" in call_args
 
     @pytest.mark.asyncio
-    async def test_cas_success_with_matching_turn_id(self, test_worker):
+    async def test_cas_success_with_matching_turn_id(self, test_worker, mock_turn_request):
         """Test that CAS succeeds when turn_id matches."""
         # Arrange
-        test_worker.config.turn_request_ttl_seconds = 120  # Enable TTL
         test_worker.redis.eval = AsyncMock(return_value=1)  # CAS success
-        test_worker.redis.expire = AsyncMock()
+
+        # Create complete new turn request
+        new_request = MUDTurnRequest(
+            turn_id="new_turn",
+            status=TurnRequestStatus.READY,
+            reason=TurnReason.EVENTS,
+            sequence_id=105,
+            heartbeat_at=_utc_now(),
+            attempt_count=0,
+        )
 
         # Act
-        result = await test_worker._set_turn_request_state(
-            turn_id="new_turn",
-            status="ready",
-            expected_turn_id="matching_turn"
-        )
+        result = await test_worker.update_turn_request(new_request, "matching_turn")
 
         # Assert
         assert result is True
-        test_worker.redis.expire.assert_called_once()
+        # TTL is handled atomically within the Lua script in update_turn_request
+        # No separate redis.expire() call is made
 
 
 class TestFinallyBlockStateTransitions:

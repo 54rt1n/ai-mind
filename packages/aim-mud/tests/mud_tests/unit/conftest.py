@@ -171,6 +171,51 @@ def mock_redis():
     redis.close = AsyncMock()
     redis.expire = AsyncMock(return_value=True)
 
+    # Lua eval support (for update_fields pattern)
+    async def mock_eval(script, num_keys, *args):
+        """Mock eval to handle common Lua patterns.
+
+        Handles the _update_fields pattern:
+        - KEYS[1] = hash key
+        - ARGV[1..N] = field-value pairs (for simple update)
+        - ARGV[1,2] = cas_field, cas_value (for CAS update)
+        - ARGV[3..N] = field-value pairs (for CAS update)
+        """
+        if num_keys != 1:
+            return 1  # Default success for other patterns
+
+        key = args[0]
+        argv = args[1:]
+
+        # Detect CAS pattern (script contains 'HGET')
+        is_cas = 'HGET' in script
+
+        if is_cas and len(argv) >= 2:
+            # CAS update: argv[0]=cas_field, argv[1]=cas_value, argv[2..]=field-value pairs
+            cas_field = argv[0]
+            cas_value = argv[1]
+
+            # Check CAS condition
+            current = redis_hashes.get(key, {}).get(cas_field)
+            if current != cas_value:
+                return 0  # CAS failed
+
+            # Update fields (pairs starting at argv[2])
+            if key not in redis_hashes:
+                redis_hashes[key] = {}
+            for i in range(2, len(argv), 2):
+                if i + 1 < len(argv):
+                    redis_hashes[key][argv[i]] = argv[i + 1]
+        else:
+            # Simple update: argv is field-value pairs
+            if key not in redis_hashes:
+                redis_hashes[key] = {}
+            for i in range(0, len(argv), 2):
+                if i + 1 < len(argv):
+                    redis_hashes[key][argv[i]] = argv[i + 1]
+
+        return 1  # Success
+
     # Assign mocked operations
     redis.get = mock_get
     redis.set = mock_set
@@ -188,6 +233,7 @@ def mock_redis():
     redis.zrangebyscore = mock_zrangebyscore
     redis.zrem = mock_zrem
     redis.pipeline = mock_pipeline
+    redis.eval = AsyncMock(side_effect=mock_eval)
 
     return redis
 

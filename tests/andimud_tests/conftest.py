@@ -7,8 +7,19 @@ import sys
 from pathlib import Path
 
 
+_django_setup_done = False
+
+
 def pytest_configure(config):
-    """Configure Django before running tests."""
+    """Configure Django before running tests - this runs globally but only once."""
+    global _django_setup_done
+
+    if _django_setup_done:
+        return
+
+    # Preserve working directory (Django changes it during setup)
+    original_cwd = os.getcwd()
+
     # Add andimud to Python path
     andimud_path = Path(__file__).parent.parent.parent / "andimud"
     if str(andimud_path) not in sys.path:
@@ -20,3 +31,8 @@ def pytest_configure(config):
     # Import and setup Django
     import django
     django.setup()
+
+    # Restore working directory for other tests
+    os.chdir(original_cwd)
+
+    _django_setup_done = True

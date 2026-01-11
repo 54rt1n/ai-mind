@@ -42,6 +42,7 @@ class TestTurnGuard:
         status: TurnRequestStatus = TurnRequestStatus.IN_PROGRESS,
         assigned_at: datetime = None,
         heartbeat_at: datetime = None,
+        sequence_id: int = 1,
     ) -> MUDTurnRequest:
         """Helper to create test turn request."""
         if assigned_at is None:
@@ -54,6 +55,8 @@ class TestTurnGuard:
             status=status,
             assigned_at=assigned_at,
             heartbeat_at=heartbeat_at,
+            sequence_id=sequence_id,
+            reason="events",
         )
 
     def setup_redis_scan(

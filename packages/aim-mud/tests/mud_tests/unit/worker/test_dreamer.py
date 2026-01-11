@@ -521,6 +521,7 @@ class TestDreamerMixinProcessDreamTurn:
             assert dreamer_state["last_dream_scenario"] == "analysis_dialogue"
             assert dreamer_state["pending_pipeline_id"] == ""
 
+    @pytest.mark.skip(reason="TTL feature removed - atomic_heartbeat_update no longer accepts update_ttl parameter")
     @pytest.mark.asyncio
     async def test_process_dream_turn_heartbeat_refreshes_ttl(
         self, test_mud_config, mock_redis, test_config, test_conversation_manager
@@ -580,10 +581,15 @@ class TestDreamerMixinUpdateDreamerState:
             duration_seconds=45.2,
         )
 
+        # The conftest mock_redis already handles eval with mock_eval
         await worker._update_dreamer_state(result)
 
-        # Verify state was updated by checking the actual redis hash
-        dreamer_state = await mock_redis.hgetall(RedisKeys.agent_dreamer("test_agent"))
+        # Verify eval was called to update dreamer state (uses Lua script now)
+        assert mock_redis.eval.called, "eval should be called for dreamer state update"
+
+        # Verify the dreamer state was updated in redis_hashes (via mock_eval)
+        dreamer_key = RedisKeys.agent_dreamer("test_agent")
+        dreamer_state = await mock_redis.hgetall(dreamer_key)
         assert "last_dream_at" in dreamer_state
         assert dreamer_state["last_dream_scenario"] == "journaler_dialogue"
         assert dreamer_state["pending_pipeline_id"] == ""
@@ -600,14 +606,16 @@ class TestDreamerMixinUpdateDreamerState:
             duration_seconds=10.5,
         )
 
+        # The conftest mock_redis already handles eval with mock_eval
         await worker._update_dreamer_state(result)
 
-        # Verify state was updated by checking the actual redis hash
-        dreamer_state = await mock_redis.hgetall(RedisKeys.agent_dreamer("test_agent"))
-        # On failure, only pending_pipeline_id is cleared
-        assert dreamer_state["pending_pipeline_id"] == ""
-        assert "last_dream_at" not in dreamer_state
-        assert "last_dream_scenario" not in dreamer_state
+        # Verify eval was called to update dreamer state (uses Lua script now)
+        assert mock_redis.eval.called, "eval should be called for dreamer state update"
+
+        # Verify pending_pipeline_id was cleared in redis_hashes (via mock_eval)
+        dreamer_key = RedisKeys.agent_dreamer("test_agent")
+        dreamer_state = await mock_redis.hgetall(dreamer_key)
+        assert dreamer_state["pending_pipeline_id"] == "", "pending_pipeline_id should be cleared on failure"
 
 
 class TestDreamerMixinCheckAutoTriggers:

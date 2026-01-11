@@ -158,6 +158,7 @@ class TestEventPositionRestoreOnException:
         # Mock turn request
         turn_request = MUDTurnRequest(
             turn_id="turn_123",
+            sequence_id=1,
             reason="events",
             attempt_count=0,
         )
@@ -190,7 +191,7 @@ class TestEventPositionRestoreOnException:
         with patch.object(
             worker, "_get_turn_request", return_value=turn_request
         ), patch.object(
-            worker, "_set_turn_request_state", side_effect=mock_set_state
+            worker, "update_turn_request", side_effect=mock_set_state
         ), patch.object(
             worker, "_drain_with_settle", side_effect=mock_drain
         ), patch.object(
