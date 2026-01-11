@@ -17,6 +17,7 @@ from ...conversation.message import ConversationMessage
 from ...llm.models import LanguageModelV2
 from ...utils.tokens import count_tokens
 from ...utils.think import extract_think_tags
+from ...utils.redis_cache import RedisCache
 
 from .models import PipelineState, StepDefinition, StepResult, StepConfig, Scenario
 from .scenario import render_template, build_template_context
@@ -446,7 +447,6 @@ async def execute_step(
 
     # 9. Generate response (streaming)
     # Update activity timestamp during streaming to prevent cascading triggers
-    from ..utils.redis_cache import RedisCache
     cache = RedisCache(config)
     cache.update_api_activity()
 

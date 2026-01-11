@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Optional
 import uuid
 
+from aim.conversation.model import ConversationModel
 from aim_mud_types import RedisKeys, MUDTurnRequest, TurnRequestStatus, TurnReason
 from aim_mud_types.helper import _utc_now
 
@@ -32,12 +33,18 @@ class AgentsMixin:
 
                 status = turn_request.status
 
-                # Case 1: Failed turn ready to retry
-                if status == TurnRequestStatus.FAIL:
+                # Case 1: Failed/retry turn ready to retry
+                if status in (TurnRequestStatus.RETRY, TurnRequestStatus.FAIL):
                     if turn_request.next_attempt_at:
                         next_attempt_at = datetime.fromisoformat(turn_request.next_attempt_at)
                         if datetime.now(timezone.utc) >= next_attempt_at:
-                            logger.info(f"Retrying failed turn for {agent_id}")
+                            # Check if ANY agent is busy before assigning retry
+                            # This enforces one-at-a-time concurrency
+                            if await self._any_agent_processing():
+                                logger.debug(f"Skipping retry for {agent_id} - another agent is processing")
+                                continue
+
+                            logger.info(f"Retrying turn for {agent_id} (was {status.value})")
                             await self._maybe_assign_turn(agent_id, reason=TurnReason.RETRY)
 
                 # Case 2: Stale heartbeat (worker crashed)
@@ -52,11 +59,13 @@ class AgentsMixin:
                                 local key = KEYS[1]
                                 local status_value = ARGV[1]
                                 local status_reason = ARGV[2]
+                                local completed_at = ARGV[3]
 
                                 -- Only mark crashed if turn_request exists
                                 if redis.call('EXISTS', key) == 1 then
                                     redis.call('HSET', key, 'status', status_value)
                                     redis.call('HSET', key, 'status_reason', status_reason)
+                                    redis.call('HSET', key, 'completed_at', completed_at)
                                     return 1
                                 else
                                     return 0
@@ -68,7 +77,8 @@ class AgentsMixin:
                                 1,  # number of keys
                                 RedisKeys.agent_turn_request(agent_id),
                                 TurnRequestStatus.CRASHED.value,
-                                f"Heartbeat stale for {stale_duration}"
+                                f"Heartbeat stale for {stale_duration}",
+                                _utc_now().isoformat()  # NEW - completion timestamp
                             )
 
                             if result == 1:
@@ -85,6 +95,30 @@ class AgentsMixin:
 
         # Check for auto-analysis trigger
         await self._check_auto_analysis_trigger()
+
+    async def _any_agent_processing(self) -> bool:
+        """Check if any agent is currently processing a turn.
+
+        Used to enforce one-at-a-time concurrency across all assignment paths.
+
+        Returns:
+            True if any agent is in ASSIGNED, IN_PROGRESS, EXECUTING, or EXECUTE status
+        """
+        for agent_id in self.registered_agents:
+            turn_request = await self._get_turn_request(agent_id)
+            if not turn_request:
+                continue
+
+            if turn_request.status in (
+                TurnRequestStatus.ASSIGNED,
+                TurnRequestStatus.IN_PROGRESS,
+                TurnRequestStatus.EXECUTING,
+                TurnRequestStatus.EXECUTE,
+                TurnRequestStatus.ABORT_REQUESTED,
+            ):
+                return True
+
+        return False
 
     async def _maybe_assign_turn(self, agent_id: str, reason: "str | TurnReason" = TurnReason.EVENTS) -> bool:
         """Assign turn if agent is available (including ready to retry).
@@ -121,91 +155,72 @@ class AgentsMixin:
             return False
 
         # Block if actively processing or being aborted
-        if status in (TurnRequestStatus.ASSIGNED, TurnRequestStatus.IN_PROGRESS, TurnRequestStatus.ABORT_REQUESTED):
+        if status in (TurnRequestStatus.ASSIGNED, TurnRequestStatus.IN_PROGRESS,
+                      TurnRequestStatus.ABORT_REQUESTED, TurnRequestStatus.EXECUTING):
             return False
 
-        # Check if failed turn ready to retry
-        if status == TurnRequestStatus.FAIL:
+        # Check if retry/fail turn in backoff period
+        if status in (TurnRequestStatus.RETRY, TurnRequestStatus.FAIL):
             if current.next_attempt_at:
                 next_attempt_at = datetime.fromisoformat(current.next_attempt_at)
                 if datetime.now(timezone.utc) < next_attempt_at:
-                    # Still in backoff period
+                    # Still in backoff period - not available
                     return False
             # Else: no next_attempt_at (max attempts) or past retry time, fall through to assign
 
         # Available: status is "ready" or "fail" past retry time
-        # Create new turn assignment
-        turn_id = str(uuid.uuid4())
-        turn_sequence_id = await self._next_sequence_id()
-        assigned_at = _utc_now().isoformat()
-        current_turn_id = current.turn_id
-
-        # Preserve attempt_count if retrying a failed turn
-        attempt_count = "0"
-        if status == TurnRequestStatus.FAIL:
-            attempt_count = str(current.attempt_count)
-
-        # Convert reason to string value for Lua script
-        reason_str = reason.value if isinstance(reason, TurnReason) else reason
+        # Convert reason to TurnReason enum
+        turn_reason_enum = reason if isinstance(reason, TurnReason) else TurnReason(reason)
 
         # Determine initial status based on reason
         # Immediate commands (FLUSH, CLEAR, NEW) get EXECUTE status for priority handling
-        turn_reason_enum = reason if isinstance(reason, TurnReason) else TurnReason(reason)
         if turn_reason_enum.is_immediate_command():
             initial_status = TurnRequestStatus.EXECUTE
         else:
             initial_status = TurnRequestStatus.ASSIGNED
 
-        # Use CAS pattern to atomically assign if state hasn't changed
-        lua_script = """
-            local key = KEYS[1]
-            local expected_turn_id = ARGV[1]
-            local expected_status = ARGV[2]
+        # Preserve attempt_count if retrying a failed turn
+        attempt_count = 0
+        if status in (TurnRequestStatus.RETRY, TurnRequestStatus.FAIL):
+            attempt_count = current.attempt_count
 
-            -- Check current state matches expectations
-            local current_turn_id = redis.call('HGET', key, 'turn_id')
-            local current_status = redis.call('HGET', key, 'status')
-
-            if current_turn_id ~= expected_turn_id or current_status ~= expected_status then
-                return 0  -- State changed, CAS failed
-            end
-
-            -- Atomically assign turn
-            redis.call('HSET', key, 'turn_id', ARGV[3])
-            redis.call('HSET', key, 'status', ARGV[4])
-            redis.call('HSET', key, 'reason', ARGV[5])
-            redis.call('HSET', key, 'assigned_at', ARGV[6])
-            redis.call('HSET', key, 'heartbeat_at', ARGV[6])
-            redis.call('HSET', key, 'deadline_ms', ARGV[7])
-            redis.call('HSET', key, 'attempt_count', ARGV[8])
-            redis.call('HSET', key, 'sequence_id', ARGV[9])
-
-            return 1  -- Success
-        """
-
-        result = await self.redis.eval(
-            lua_script,
-            1,  # number of keys
-            RedisKeys.agent_turn_request(agent_id),
-            current_turn_id or "",
-            status.value if isinstance(status, TurnRequestStatus) else status,
-            turn_id,
-            initial_status.value,
-            reason_str,
-            assigned_at,
-            str(self.config.turn_request_ttl_seconds * 1000),
-            attempt_count,
-            str(turn_sequence_id)
+        # Build complete MUDTurnRequest object with ALL required fields
+        # This ensures Pydantic validation catches missing fields
+        turn_request = MUDTurnRequest(
+            turn_id=str(uuid.uuid4()),
+            sequence_id=await self._next_sequence_id(),  # CRITICAL - was missing before
+            status=initial_status,
+            reason=turn_reason_enum,
+            assigned_at=_utc_now(),
+            heartbeat_at=_utc_now(),
+            completed_at=None,  # NEW - clear on new assignment
+            deadline_ms=str(self.config.turn_request_ttl_seconds * 1000),
+            attempt_count=attempt_count,
         )
 
-        if result == 1:
-            # CAS succeeded - conditionally set TTL (0 = no TTL)
+        # Use RedisMUDClient for atomic CAS update
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
+        success = await client.update_turn_request(
+            agent_id,
+            turn_request,
+            expected_turn_id=current.turn_id
+        )
+
+        if success:
+            # Conditionally set TTL (0 = no TTL)
             if self.config.turn_request_ttl_seconds > 0:
                 await self.redis.expire(
                     RedisKeys.agent_turn_request(agent_id),
                     self.config.turn_request_ttl_seconds
                 )
-            logger.info(f"Assigned turn to {agent_id} (sequence_id={turn_sequence_id}, status={initial_status.value}, reason={reason_str}, attempt={attempt_count})")
+            logger.info(
+                f"Assigned turn to {agent_id} "
+                f"(sequence_id={turn_request.sequence_id}, "
+                f"status={turn_request.status.value}, "
+                f"reason={turn_request.reason.value}, "
+                f"attempt={turn_request.attempt_count})"
+            )
             return True
         else:
             # CAS failed - state changed between check and assign
@@ -214,36 +229,32 @@ class AgentsMixin:
 
     async def _get_turn_request(self, agent_id: str) -> Optional[MUDTurnRequest]:
         """Fetch the current turn request hash for an agent."""
-        return await MUDTurnRequest.from_redis(self.redis, agent_id)
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
+        return await client.get_turn_request(agent_id)
 
     async def _agents_from_room_profile(self, room_id: str) -> list[str]:
         """Lookup agent_ids present in a room profile."""
         if not room_id:
             return []
         try:
-            raw = await self.redis.hget(RedisKeys.room_profile(room_id), "entities_present")
+            from aim_mud_types.client import RedisMUDClient
+            client = RedisMUDClient(self.redis)
+            room_profile = await client.get_room_profile(room_id)
+            if not room_profile:
+                return []
+
+            agent_ids: set[str] = set()
+            for entity in room_profile.entities:
+                if entity.get("entity_type") != "ai":
+                    continue
+                agent_id = entity.get("agent_id")
+                if agent_id:
+                    agent_ids.add(str(agent_id))
+            return list(agent_ids)
         except Exception as e:
             logger.error(f"Failed to read room profile for {room_id}: {e}")
             return []
-        if not raw:
-            return []
-        if isinstance(raw, bytes):
-            raw = raw.decode("utf-8")
-        try:
-            entities = json.loads(raw)
-        except json.JSONDecodeError:
-            logger.warning(f"Invalid room profile entities for {room_id}")
-            return []
-        agent_ids: set[str] = set()
-        for entity in entities:
-            if not isinstance(entity, dict):
-                continue
-            if entity.get("entity_type") != "ai":
-                continue
-            agent_id = entity.get("agent_id")
-            if agent_id:
-                agent_ids.add(str(agent_id))
-        return list(agent_ids)
 
     async def _agent_id_from_actor(self, room_id: str, actor_id: str) -> Optional[str]:
         """Lookup agent_id for an actor by their entity_id (dbref).
@@ -258,24 +269,21 @@ class AgentsMixin:
         if not room_id or not actor_id:
             return None
         try:
-            raw = await self.redis.hget(RedisKeys.room_profile(room_id), "entities_present")
+            from aim_mud_types.client import RedisMUDClient
+            client = RedisMUDClient(self.redis)
+            room_profile = await client.get_room_profile(room_id)
+            if not room_profile:
+                return None
+
+            for entity in room_profile.entities:
+                if not isinstance(entity, dict):
+                    continue
+                if entity.get("entity_id") == actor_id:
+                    return entity.get("agent_id")
+            return None
         except Exception as e:
             logger.error(f"Failed to read room profile for {room_id}: {e}")
             return None
-        if not raw:
-            return None
-        if isinstance(raw, bytes):
-            raw = raw.decode("utf-8")
-        try:
-            entities = json.loads(raw)
-        except json.JSONDecodeError:
-            return None
-        for entity in entities:
-            if not isinstance(entity, dict):
-                continue
-            if entity.get("entity_id") == actor_id:
-                return entity.get("agent_id")
-        return None
 
     def register_agent(self, agent_id: str, initial_room: str = "") -> None:
         """Register an agent with the mediator.
@@ -301,20 +309,12 @@ class AgentsMixin:
     async def _check_auto_analysis_trigger(self) -> None:
         """Check if we should trigger auto-analysis.
 
-        Conditions checked:
-        1. Auto-analysis enabled in config
-        2. Mediator not paused
-        3. Cooldown period has elapsed since last check
-        4. All non-sleeping agents are idle (ready/done/fail status, not in backoff)
-        5. Idle threshold duration reached
-
-        If all conditions met, triggers conversation scanning.
-        Sleeping agents are excluded from idle detection but CAN receive analysis tasks.
+        Uses completed_at field to track idle duration persistently.
+        No in-memory state needed - survives mediator restarts.
         """
         if not self.config.auto_analysis_enabled:
             return
 
-        # Don't trigger auto-analysis if mediator is paused
         if await self._is_paused():
             return
 
@@ -325,53 +325,75 @@ class AgentsMixin:
         if elapsed < self.config.auto_analysis_cooldown_seconds:
             return
 
-        # Check if ALL agents are idle (and not sleeping)
-        all_idle = True
+        # Check if ALL non-sleeping agents are idle
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
+
         for agent_id in self.registered_agents:
-            # Check if agent is sleeping
-            agent_profile = await self.redis.hgetall(RedisKeys.agent_profile(agent_id))
-            is_sleeping_raw = agent_profile.get(b"is_sleeping") or agent_profile.get("is_sleeping")
-            if is_sleeping_raw:
-                is_sleeping = is_sleeping_raw.decode() if isinstance(is_sleeping_raw, bytes) else is_sleeping_raw
-                if is_sleeping.lower() == "true":
-                    # Skip sleeping agents - they should not trigger auto-analysis
-                    continue
+            # Skip sleeping agents
+            is_sleeping = await client.get_agent_is_sleeping(agent_id)
+            if is_sleeping:
+                continue
 
             turn_request = await self._get_turn_request(agent_id)
             if not turn_request:
-                all_idle = False
-                break
+                # Agent offline - skip it (offline agents don't affect idle state)
+                continue
 
             status = turn_request.status
-            if status in (TurnRequestStatus.ASSIGNED, TurnRequestStatus.IN_PROGRESS, TurnRequestStatus.ABORT_REQUESTED):
-                all_idle = False
-                break
 
-            # Check if failed turn is still in backoff period
-            if status == TurnRequestStatus.FAIL:
-                next_attempt_at_str = turn_request.next_attempt_at
-                if next_attempt_at_str:
+            # Active states block idle detection
+            if status in (TurnRequestStatus.ASSIGNED, TurnRequestStatus.IN_PROGRESS,
+                          TurnRequestStatus.ABORT_REQUESTED, TurnRequestStatus.EXECUTING,
+                          TurnRequestStatus.EXECUTE):
+                return  # System not idle
+
+            # RETRY in backoff blocks idle detection
+            if status == TurnRequestStatus.RETRY:
+                if turn_request.next_attempt_at:
                     try:
-                        next_attempt_at = datetime.fromisoformat(next_attempt_at_str)
-                        if datetime.now(timezone.utc) < next_attempt_at:
-                            all_idle = False
-                            break
+                        next_attempt = datetime.fromisoformat(turn_request.next_attempt_at)
+                        if datetime.now(timezone.utc) < next_attempt:
+                            return  # Still in backoff - not idle
                     except (ValueError, TypeError):
-                        # Invalid timestamp, treat as idle
+                        pass  # Invalid timestamp, treat as idle
+
+            # FAIL in backoff blocks idle detection (backward compatibility)
+            if status == TurnRequestStatus.FAIL:
+                if turn_request.next_attempt_at:
+                    try:
+                        next_attempt = datetime.fromisoformat(turn_request.next_attempt_at)
+                        if datetime.now(timezone.utc) < next_attempt:
+                            return  # Still in backoff - not idle
+                    except (ValueError, TypeError):
                         pass
 
-        if not all_idle:
-            # Reset idle timer if system not fully idle
-            self._auto_analysis_idle_start = None
+        # All agents idle - find earliest completion time
+        earliest_completion: Optional[datetime] = None
+
+        for agent_id in self.registered_agents:
+            is_sleeping = await client.get_agent_is_sleeping(agent_id)
+            if is_sleeping:
+                continue
+
+            turn_request = await self._get_turn_request(agent_id)
+            if not turn_request:
+                continue
+
+            # Only READY agents count for idle timing
+            if turn_request.status == TurnRequestStatus.READY:
+                # Treat None as datetime.min (completed very long ago, always exceeds idle threshold)
+                completion_time = turn_request.completed_at or datetime.min.replace(tzinfo=timezone.utc)
+                if earliest_completion is None or completion_time < earliest_completion:
+                    earliest_completion = completion_time
+
+        if earliest_completion is None:
+            # No ready agents with completions yet
             return
 
-        # Track idle duration
-        if self._auto_analysis_idle_start is None:
-            self._auto_analysis_idle_start = now
-            logger.debug("Auto-analysis: system idle detected, starting timer")
-            return
+        # Calculate idle duration from earliest completion
+        idle_duration = (now - earliest_completion).total_seconds()
 
-        idle_duration = (now - self._auto_analysis_idle_start).total_seconds()
         if idle_duration < self.config.auto_analysis_idle_seconds:
             logger.debug(
                 f"Auto-analysis: system idle for {idle_duration:.0f}s "
@@ -382,9 +404,61 @@ class AgentsMixin:
         # Threshold reached!
         logger.info(f"Auto-analysis: triggered after {idle_duration:.0f}s idle")
         self._last_auto_analysis_check = now
-        self._auto_analysis_idle_start = None  # Reset for next cycle
 
         await self._scan_for_unanalyzed_conversations()
+
+    async def _refresh_conversation_reports(self) -> None:
+        """Refresh conversation reports for all registered agents.
+
+        Generates fresh conversation reports and stores them in Redis
+        for use by auto-analysis scanning. This ensures we're scanning
+        with up-to-date conversation data.
+        """
+        if not self.registered_agents:
+            return
+
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
+
+        refreshed_count = 0
+        for agent_id in self.registered_agents:
+            try:
+                # Get agent profile to lookup persona_id
+                profile = await client.get_agent_profile(agent_id)
+                if not profile or not profile.persona_id:
+                    logger.debug(f"Auto-analysis: no persona_id for {agent_id}, skipping report refresh")
+                    continue
+
+                # Create ConversationModel for this agent
+                # Using defaults similar to ChatConfig defaults
+                memory_path = f"memory/{profile.persona_id}"
+                cvm = ConversationModel(
+                    memory_path=memory_path,
+                    embedding_model="sentence-transformers/all-MiniLM-L6-v2",
+                    user_timezone=None,
+                    embedding_device=None,
+                )
+
+                # Generate fresh conversation report
+                report_df = cvm.get_conversation_report()
+                report_key = RedisKeys.agent_conversation_report(agent_id)
+
+                if not report_df.empty:
+                    report_dict = report_df.set_index('conversation_id').T.to_dict()
+                else:
+                    report_dict = {}
+
+                await self.redis.set(report_key, json.dumps(report_dict))
+                refreshed_count += 1
+
+            except Exception as e:
+                logger.error(
+                    f"Auto-analysis: failed to refresh conversation report for {agent_id}: {e}",
+                    exc_info=True
+                )
+                continue
+
+        logger.debug(f"Auto-analysis: refreshed conversation reports for {refreshed_count} agent(s)")
 
     async def _scan_for_unanalyzed_conversations(self) -> None:
         """Scan agents for conversations needing analysis.
@@ -395,6 +469,9 @@ class AgentsMixin:
 
         Uses existing turn assignment infrastructure via _handle_analysis_command().
         """
+        # Refresh conversation reports before scanning
+        await self._refresh_conversation_reports()
+
         # Convert set to list for indexing
         agents_list = list(self.registered_agents)
         if not agents_list:
@@ -443,13 +520,14 @@ class AgentsMixin:
                         )
                         continue
 
+                    has_conversation_docs = doc_counts.get("conversation", 0) > 0
                     has_mud_docs = (
                         doc_counts.get("mud-world", 0) > 0
                         or doc_counts.get("mud-agent", 0) > 0
                     )
                     has_analysis = doc_counts.get("analysis", 0) > 0
 
-                    if has_mud_docs and not has_analysis:
+                    if (has_conversation_docs or has_mud_docs) and not has_analysis:
                         timestamp = doc_counts.get("timestamp_max", "")
                         unanalyzed.append((conversation_id, timestamp))
 

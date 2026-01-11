@@ -8,9 +8,9 @@ from unittest.mock import Mock, MagicMock, patch
 from dataclasses import dataclass
 import yaml
 
-from aim.dreamer.dialogue import (
-    DialogueStrategy,
-    DialogueScenario,
+from aim.dreamer.core.dialogue.strategy import DialogueStrategy
+from aim.dreamer.core.dialogue.scenario import DialogueScenario
+from aim.dreamer.core.dialogue.models import (
     DialogueState,
     DialogueTurn,
     DialogueSpeaker,
@@ -18,7 +18,7 @@ from aim.dreamer.dialogue import (
     DialogueConfig,
     SpeakerType,
 )
-from aim.dreamer.models import StepConfig, StepOutput
+from aim.dreamer.core.models import StepConfig, StepOutput
 from aim.config import ChatConfig
 from aim.constants import DOC_DIALOGUE_CODER, DOC_STEP
 from aim.agents.persona import Persona, Aspect
@@ -553,11 +553,16 @@ class TestDialogueScenarioExecution:
         # Use the model name set in scenario.start() - let _select_model run naturally
         model_name = scenario.state.model
 
+        # Create a mock cache instance
+        mock_cache_instance = Mock()
+        mock_cache_instance.update_api_activity = Mock()
+
         with patch(
-            'aim.dreamer.dialogue.scenario.LanguageModelV2.index_models',
+            'aim.dreamer.core.dialogue.scenario.LanguageModelV2.index_models',
             return_value={model_name: mock_model}
         ), patch(
-            'aim.utils.redis_cache.RedisCache'
+            'aim.dreamer.core.dialogue.scenario.RedisCache',
+            return_value=mock_cache_instance
         ):
             turn = await scenario.execute_step("step1")
 
@@ -600,11 +605,16 @@ class TestDialogueScenarioExecution:
         # Use the model name set in scenario.start() - let _select_model run naturally
         model_name = scenario.state.model
 
+        # Create a mock cache instance
+        mock_cache_instance = Mock()
+        mock_cache_instance.update_api_activity = Mock()
+
         with patch(
-            'aim.dreamer.dialogue.scenario.LanguageModelV2.index_models',
+            'aim.dreamer.core.dialogue.scenario.LanguageModelV2.index_models',
             return_value={model_name: mock_model}
         ), patch(
-            'aim.utils.redis_cache.RedisCache'
+            'aim.dreamer.core.dialogue.scenario.RedisCache',
+            return_value=mock_cache_instance
         ):
             # Execute all steps in order
             turn1 = await scenario.execute_step("step1")
@@ -653,11 +663,16 @@ class TestDialogueScenarioExecution:
         # Use the model name set in scenario.start() - let _select_model run naturally
         model_name = scenario.state.model
 
+        # Create a mock cache instance
+        mock_cache_instance = Mock()
+        mock_cache_instance.update_api_activity = Mock()
+
         with patch(
-            'aim.dreamer.dialogue.scenario.LanguageModelV2.index_models',
+            'aim.dreamer.core.dialogue.scenario.LanguageModelV2.index_models',
             return_value={model_name: mock_model}
         ), patch(
-            'aim.utils.redis_cache.RedisCache'
+            'aim.dreamer.core.dialogue.scenario.RedisCache',
+            return_value=mock_cache_instance
         ):
             turns = await scenario.run()
 

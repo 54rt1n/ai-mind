@@ -338,6 +338,7 @@ class TestMediatorEventRouting:
             return_value={
                 b"turn_id": b"prev-turn-123",
                 b"status": b"ready",
+                b"sequence_id": b"1",
             }
         )
 
@@ -382,7 +383,7 @@ class TestMediatorEventRouting:
             ).encode("utf-8")
         )
         mock_redis.hgetall = AsyncMock(
-            return_value={b"status": b"in_progress", b"turn_id": b"abc"}
+            return_value={b"status": b"in_progress", b"turn_id": b"abc", b"sequence_id": b"1"}
         )
 
         data = {b"data": json.dumps(sample_speech_event).encode()}
@@ -697,6 +698,7 @@ class TestMediatorPauseCheck:
             return_value={
                 b"turn_id": b"prev-turn-123",
                 b"status": b"ready",
+                b"sequence_id": b"1",
             }
         )
 
@@ -726,6 +728,7 @@ class TestMediatorPauseCheck:
             return_value={
                 b"turn_id": b"prev-turn-123",
                 b"status": b"ready",
+                b"sequence_id": b"1",
             }
         )
 
@@ -758,6 +761,7 @@ class TestMediatorPauseCheck:
             return_value={
                 b"turn_id": b"prev-turn-123",
                 b"status": b"ready",
+                b"sequence_id": b"1",
             }
         )
 
@@ -842,6 +846,7 @@ class TestMediatorPauseCheck:
                 b"status": b"fail",
                 b"next_attempt_at": past_time.isoformat().encode(),
                 b"attempt_count": b"1",
+                b"sequence_id": b"1",
             }
         )
 

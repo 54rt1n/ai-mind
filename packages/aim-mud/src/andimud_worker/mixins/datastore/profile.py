@@ -125,7 +125,7 @@ class ProfileMixin:
         time_val = _decode(data.get(b"time") or data.get("time"))
 
         inventory = [
-            InventoryItem.from_dict(i)
+            InventoryItem.model_validate(i)
             for i in inventory_items
             if isinstance(i, dict)
         ]
@@ -171,7 +171,7 @@ class ProfileMixin:
 
         if room_state_raw:
             try:
-                room_state = RoomState.from_dict(json.loads(room_state_raw))
+                room_state = RoomState.model_validate(json.loads(room_state_raw))
             except Exception:
                 logger.warning("Invalid room_state JSON in room profile")
 
@@ -180,7 +180,7 @@ class ProfileMixin:
                 parsed = json.loads(entities_raw)
                 if isinstance(parsed, list):
                     entities_present = [
-                        EntityState.from_dict(e) for e in parsed if isinstance(e, dict)
+                        EntityState.model_validate(e) for e in parsed if isinstance(e, dict)
                     ]
             except Exception:
                 logger.warning("Invalid entities_present JSON in room profile")

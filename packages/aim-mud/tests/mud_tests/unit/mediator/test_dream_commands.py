@@ -425,6 +425,7 @@ class TestHandleAnalysisCommand:
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"crashed",
             b"turn_id": b"old-turn",
+            b"sequence_id": b"1",
         })
 
         result = await mediator._handle_analysis_command(
@@ -445,6 +446,7 @@ class TestHandleAnalysisCommand:
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"in_progress",
             b"turn_id": b"current-turn",
+            b"sequence_id": b"1",
         })
 
         result = await mediator._handle_analysis_command(
@@ -465,6 +467,7 @@ class TestHandleAnalysisCommand:
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"assigned",
             b"turn_id": b"assigned-turn",
+            b"sequence_id": b"1",
         })
 
         result = await mediator._handle_analysis_command(
@@ -485,6 +488,7 @@ class TestHandleAnalysisCommand:
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"ready",
             b"turn_id": b"prev-turn",
+            b"sequence_id": b"1",
         })
         mock_redis.eval = AsyncMock(return_value=1)  # CAS success
 
@@ -498,23 +502,28 @@ class TestHandleAnalysisCommand:
         assert result is True
         mock_redis.eval.assert_called_once()
 
-        # Verify Lua script arguments
+        # Verify the update was attempted with correct key
         eval_call = mock_redis.eval.call_args
         args = eval_call[0]
-
-        # Script is first arg, then key count, then keys, then remaining args
         assert args[1] == 1  # One key
         assert args[2] == RedisKeys.agent_turn_request("andi")  # The key
-        assert args[3] == "prev-turn"  # Expected turn_id
-        assert args[4] == "ready"  # Expected status
-        # args[5] is new turn_id (UUID)
-        assert args[6] == "assigned"  # new status
-        assert args[7] == "dream"  # reason (NEW FIELD)
-        # args[8] is assigned_at timestamp
-        assert args[9] == "1800000"  # deadline_ms for dreams
-        assert args[10] == "analysis_dialogue"  # scenario
-        assert args[11] == "conv_123"  # conversation_id
-        assert args[12] == "Focus on emotional patterns"  # guidance
+
+        # Verify CAS field and value are passed
+        assert args[3] == "turn_id"  # CAS field
+        assert args[4] == "prev-turn"  # CAS value
+
+        # Verify fields include scenario, conversation_id, and guidance
+        # Fields start at args[5] as name-value pairs
+        field_args = args[5:]
+        fields_dict = {field_args[i]: field_args[i+1] for i in range(0, len(field_args), 2)}
+        assert "scenario" in fields_dict
+        assert fields_dict["scenario"] == "analysis_dialogue"
+        assert "conversation_id" in fields_dict
+        assert fields_dict["conversation_id"] == "conv_123"
+        assert "guidance" in fields_dict
+        assert fields_dict["guidance"] == "Focus on emotional patterns"
+        assert "status" in fields_dict
+        assert fields_dict["status"] == "assigned"
 
         # Verify TTL is NOT set (default turn_request_ttl_seconds=0)
         mock_redis.expire.assert_not_called()
@@ -527,6 +536,7 @@ class TestHandleAnalysisCommand:
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"ready",
             b"turn_id": b"prev-turn",
+            b"sequence_id": b"1",
         })
         mock_redis.eval = AsyncMock(return_value=1)
 
@@ -539,12 +549,15 @@ class TestHandleAnalysisCommand:
 
         assert result is True
 
-        # Verify empty string for guidance
+        # Verify fields in the update
         eval_call = mock_redis.eval.call_args
         args = eval_call[0]
-        assert args[10] == "summarizer"
-        assert args[11] == "conv_456"
-        assert args[12] == ""  # Empty guidance
+        field_args = args[5:]
+        fields_dict = {field_args[i]: field_args[i+1] for i in range(0, len(field_args), 2)}
+        assert fields_dict["scenario"] == "summarizer"
+        assert fields_dict["conversation_id"] == "conv_456"
+        # When guidance is None, it's not included in the serialized update
+        assert "guidance" not in fields_dict
 
     @pytest.mark.asyncio
     async def test_handles_cas_failure(self, mock_redis, mediator_config):
@@ -554,6 +567,7 @@ class TestHandleAnalysisCommand:
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"ready",
             b"turn_id": b"prev-turn",
+            b"sequence_id": b"1",
         })
         mock_redis.eval = AsyncMock(return_value=0)  # CAS failure
 
@@ -575,6 +589,7 @@ class TestHandleAnalysisCommand:
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"ready",
             b"turn_id": b"prev-turn",
+            b"sequence_id": b"1",
         })
         mock_redis.eval = AsyncMock(return_value=1)
 
@@ -632,6 +647,7 @@ class TestHandleCreativeCommand:
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"crashed",
             b"turn_id": b"old-turn",
+            b"sequence_id": b"1",
         })
 
         result = await mediator._handle_creative_command(
@@ -652,6 +668,7 @@ class TestHandleCreativeCommand:
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"in_progress",
             b"turn_id": b"current-turn",
+            b"sequence_id": b"1",
         })
 
         result = await mediator._handle_creative_command(
@@ -672,6 +689,7 @@ class TestHandleCreativeCommand:
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"assigned",
             b"turn_id": b"assigned-turn",
+            b"sequence_id": b"1",
         })
 
         result = await mediator._handle_creative_command(
@@ -692,6 +710,7 @@ class TestHandleCreativeCommand:
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"ready",
             b"turn_id": b"prev-turn",
+            b"sequence_id": b"1",
         })
         mock_redis.eval = AsyncMock(return_value=1)  # CAS success
 
@@ -705,23 +724,27 @@ class TestHandleCreativeCommand:
         assert result is True
         mock_redis.eval.assert_called_once()
 
-        # Verify Lua script arguments
+        # Verify the update was attempted with correct key
         eval_call = mock_redis.eval.call_args
         args = eval_call[0]
-
-        # Script is first arg, then key count, then keys, then remaining args
         assert args[1] == 1  # One key
         assert args[2] == RedisKeys.agent_turn_request("andi")  # The key
-        assert args[3] == "prev-turn"  # Expected turn_id
-        assert args[4] == "ready"  # Expected status
-        # args[5] is new turn_id (UUID)
-        assert args[6] == "assigned"  # new status
-        assert args[7] == "dream"  # reason (NEW FIELD)
-        # args[8] is assigned_at timestamp
-        assert args[9] == "1800000"  # deadline_ms for dreams
-        assert args[10] == "journaler_dialogue"  # scenario
-        assert args[11] == "What did I learn today?"  # query
-        assert args[12] == "Focus on emotional growth"  # guidance
+
+        # Verify CAS field and value are passed
+        assert args[3] == "turn_id"  # CAS field
+        assert args[4] == "prev-turn"  # CAS value
+
+        # Verify fields include scenario, query, and guidance
+        field_args = args[5:]
+        fields_dict = {field_args[i]: field_args[i+1] for i in range(0, len(field_args), 2)}
+        assert "scenario" in fields_dict
+        assert fields_dict["scenario"] == "journaler_dialogue"
+        assert "query" in fields_dict
+        assert fields_dict["query"] == "What did I learn today?"
+        assert "guidance" in fields_dict
+        assert fields_dict["guidance"] == "Focus on emotional growth"
+        assert "status" in fields_dict
+        assert fields_dict["status"] == "assigned"
 
         # Verify TTL is NOT set (default turn_request_ttl_seconds=0)
         mock_redis.expire.assert_not_called()
@@ -734,6 +757,7 @@ class TestHandleCreativeCommand:
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"ready",
             b"turn_id": b"prev-turn",
+            b"sequence_id": b"1",
         })
         mock_redis.eval = AsyncMock(return_value=1)
 
@@ -746,12 +770,15 @@ class TestHandleCreativeCommand:
 
         assert result is True
 
-        # Verify empty string for guidance
+        # Verify fields in the update
         eval_call = mock_redis.eval.call_args
         args = eval_call[0]
-        assert args[10] == "philosopher_dialogue"
-        assert args[11] == "What is the meaning of life?"
-        assert args[12] == ""  # Empty guidance
+        field_args = args[5:]
+        fields_dict = {field_args[i]: field_args[i+1] for i in range(0, len(field_args), 2)}
+        assert fields_dict["scenario"] == "philosopher_dialogue"
+        assert fields_dict["query"] == "What is the meaning of life?"
+        # When guidance is None, it's not included in the serialized update
+        assert "guidance" not in fields_dict
 
     @pytest.mark.asyncio
     async def test_assigns_creative_turn_no_params(self, mock_redis, mediator_config):
@@ -761,6 +788,7 @@ class TestHandleCreativeCommand:
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"ready",
             b"turn_id": b"prev-turn",
+            b"sequence_id": b"1",
         })
         mock_redis.eval = AsyncMock(return_value=1)
 
@@ -773,12 +801,15 @@ class TestHandleCreativeCommand:
 
         assert result is True
 
-        # Verify empty strings for both
+        # Verify fields in the update
         eval_call = mock_redis.eval.call_args
         args = eval_call[0]
-        assert args[10] == "daydream_dialogue"
-        assert args[11] == ""  # Empty query
-        assert args[12] == ""  # Empty guidance
+        field_args = args[5:]
+        fields_dict = {field_args[i]: field_args[i+1] for i in range(0, len(field_args), 2)}
+        assert fields_dict["scenario"] == "daydream_dialogue"
+        # When query and guidance are None, they're not included in the serialized update
+        assert "query" not in fields_dict
+        assert "guidance" not in fields_dict
 
     @pytest.mark.asyncio
     async def test_handles_cas_failure(self, mock_redis, mediator_config):
@@ -788,6 +819,7 @@ class TestHandleCreativeCommand:
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"ready",
             b"turn_id": b"prev-turn",
+            b"sequence_id": b"1",
         })
         mock_redis.eval = AsyncMock(return_value=0)  # CAS failure
 
@@ -809,6 +841,7 @@ class TestHandleCreativeCommand:
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"ready",
             b"turn_id": b"prev-turn",
+            b"sequence_id": b"1",
         })
         mock_redis.eval = AsyncMock(return_value=1)
 
@@ -845,6 +878,7 @@ class TestHandleDreamerCommand:
         mediator = MediatorService(mock_redis, mediator_config)
         mediator.register_agent("andi")
         mock_redis.hgetall = AsyncMock(return_value={})  # No existing state
+        mock_redis.eval = AsyncMock(return_value=1)  # Update success
 
         result = await mediator._handle_dreamer_command(
             agent_id="andi",
@@ -852,15 +886,24 @@ class TestHandleDreamerCommand:
         )
 
         assert result is True
-        mock_redis.hset.assert_called_once()
+        # Verify eval was called (via update_dreamer_state_fields)
+        mock_redis.eval.assert_called()
 
-        # Verify the hash key and mapping
-        call_args = mock_redis.hset.call_args
-        assert call_args[0][0] == RedisKeys.agent_dreamer("andi")
-        mapping = call_args[1]["mapping"]
-        assert mapping["enabled"] == "true"
-        assert mapping["idle_threshold_seconds"] == "3600"
-        assert mapping["token_threshold"] == "10000"
+        # Verify the correct Redis key was used
+        eval_call = mock_redis.eval.call_args
+        args = eval_call[0]
+        assert args[1] == 1  # One key
+        assert args[2] == RedisKeys.agent_dreamer("andi")  # The key
+
+        # Verify fields include enabled and default thresholds
+        field_args = args[3:]
+        fields_dict = {field_args[i]: field_args[i+1] for i in range(0, len(field_args), 2)}
+        assert "enabled" in fields_dict
+        assert fields_dict["enabled"] == "true"
+        assert "idle_threshold_seconds" in fields_dict
+        assert fields_dict["idle_threshold_seconds"] == "3600"
+        assert "token_threshold" in fields_dict
+        assert fields_dict["token_threshold"] == "10000"
 
     @pytest.mark.asyncio
     async def test_disables_dreamer(self, mock_redis, mediator_config):
@@ -871,6 +914,7 @@ class TestHandleDreamerCommand:
             b"enabled": b"true",
             b"idle_threshold_seconds": b"7200",
         })
+        mock_redis.eval = AsyncMock(return_value=1)  # Update success
 
         result = await mediator._handle_dreamer_command(
             agent_id="andi",
@@ -878,14 +922,17 @@ class TestHandleDreamerCommand:
         )
 
         assert result is True
-        mock_redis.hset.assert_called_once()
+        mock_redis.eval.assert_called()
 
-        # Verify only enabled is set (no defaults)
-        call_args = mock_redis.hset.call_args
-        mapping = call_args[1]["mapping"]
-        assert mapping["enabled"] == "false"
-        assert "idle_threshold_seconds" not in mapping
-        assert "token_threshold" not in mapping
+        # Verify only enabled field is set (no defaults)
+        eval_call = mock_redis.eval.call_args
+        args = eval_call[0]
+        field_args = args[3:]
+        fields_dict = {field_args[i]: field_args[i+1] for i in range(0, len(field_args), 2)}
+        assert "enabled" in fields_dict
+        assert fields_dict["enabled"] == "false"
+        assert "idle_threshold_seconds" not in fields_dict
+        assert "token_threshold" not in fields_dict
 
     @pytest.mark.asyncio
     async def test_preserves_existing_thresholds_on_reenable(self, mock_redis, mediator_config):
@@ -897,6 +944,7 @@ class TestHandleDreamerCommand:
             b"idle_threshold_seconds": b"7200",
             b"token_threshold": b"20000",
         })
+        mock_redis.eval = AsyncMock(return_value=1)  # Update success
 
         result = await mediator._handle_dreamer_command(
             agent_id="andi",
@@ -905,12 +953,15 @@ class TestHandleDreamerCommand:
 
         assert result is True
 
-        # Verify only enabled is set (existing thresholds preserved)
-        call_args = mock_redis.hset.call_args
-        mapping = call_args[1]["mapping"]
-        assert mapping["enabled"] == "true"
-        assert "idle_threshold_seconds" not in mapping
-        assert "token_threshold" not in mapping
+        # Verify only enabled field is set (existing thresholds preserved)
+        eval_call = mock_redis.eval.call_args
+        args = eval_call[0]
+        field_args = args[3:]
+        fields_dict = {field_args[i]: field_args[i+1] for i in range(0, len(field_args), 2)}
+        assert "enabled" in fields_dict
+        assert fields_dict["enabled"] == "true"
+        assert "idle_threshold_seconds" not in fields_dict
+        assert "token_threshold" not in fields_dict
 
     @pytest.mark.asyncio
     async def test_allows_empty_registered_agents(self, mock_redis, mediator_config):
@@ -973,6 +1024,7 @@ class TestTryHandleControlCommand:
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"ready",
             b"turn_id": b"prev-turn",
+            b"sequence_id": b"1",
         })
         mock_redis.eval = AsyncMock(return_value=1)
 
@@ -997,6 +1049,7 @@ class TestTryHandleControlCommand:
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"ready",
             b"turn_id": b"prev-turn",
+            b"sequence_id": b"1",
         })
         mock_redis.eval = AsyncMock(return_value=1)
 
@@ -1021,6 +1074,7 @@ class TestTryHandleControlCommand:
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"ready",
             b"turn_id": b"prev-turn",
+            b"sequence_id": b"1",
         })
         mock_redis.eval = AsyncMock(return_value=1)
 
@@ -1045,6 +1099,7 @@ class TestTryHandleControlCommand:
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"ready",
             b"turn_id": b"prev-turn",
+            b"sequence_id": b"1",
         })
         mock_redis.eval = AsyncMock(return_value=1)
 
@@ -1069,6 +1124,7 @@ class TestTryHandleControlCommand:
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"ready",
             b"turn_id": b"prev-turn",
+            b"sequence_id": b"1",
         })
         mock_redis.eval = AsyncMock(return_value=1)
 
@@ -1093,6 +1149,7 @@ class TestTryHandleControlCommand:
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"ready",
             b"turn_id": b"prev-turn",
+            b"sequence_id": b"1",
         })
         mock_redis.eval = AsyncMock(return_value=1)
 
@@ -1117,6 +1174,7 @@ class TestTryHandleControlCommand:
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"ready",
             b"turn_id": b"prev-turn",
+            b"sequence_id": b"1",
         })
         mock_redis.eval = AsyncMock(return_value=1)
 
@@ -1139,6 +1197,7 @@ class TestTryHandleControlCommand:
         mediator = MediatorService(mock_redis, mediator_config)
         mediator.register_agent("andi")
         mock_redis.hgetall = AsyncMock(return_value={})
+        mock_redis.eval = AsyncMock(return_value=1)  # Update success
 
         event = MUDEvent(
             event_type=EventType.SYSTEM,
@@ -1151,7 +1210,8 @@ class TestTryHandleControlCommand:
         result = await mediator._try_handle_control_command(event)
 
         assert result is True
-        mock_redis.hset.assert_called_once()
+        # Uses eval now (via update_dreamer_state_fields)
+        mock_redis.eval.assert_called()
 
     @pytest.mark.asyncio
     async def test_returns_false_for_non_command_system_event(self, mock_redis, mediator_config):
@@ -1182,6 +1242,7 @@ class TestProcessEventWithDreamCommands:
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"ready",
             b"turn_id": b"prev-turn",
+            b"sequence_id": b"1",
         })
         mock_redis.eval = AsyncMock(return_value=1)
 
@@ -1215,6 +1276,7 @@ class TestProcessEventWithDreamCommands:
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"ready",
             b"turn_id": b"prev-turn",
+            b"sequence_id": b"1",
         })
         mock_redis.eval = AsyncMock(return_value=1)
 

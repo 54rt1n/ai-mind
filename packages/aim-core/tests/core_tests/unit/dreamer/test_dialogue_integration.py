@@ -7,14 +7,14 @@ import json
 from datetime import datetime, timezone
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
-from aim.dreamer.worker import DreamerWorker
-from aim.dreamer.api import start_pipeline
-from aim.dreamer.state import StateStore
-from aim.dreamer.scheduler import Scheduler
-from aim.dreamer.models import StepJob, StepStatus
-from aim.dreamer.dialogue.models import DialogueState, DialogueTurn
-from aim.dreamer.dialogue.strategy import DialogueStrategy
-from aim.dreamer.dialogue.scenario import DialogueScenario
+from aim.dreamer.server.worker import DreamerWorker
+from aim.dreamer.server.api import start_pipeline
+from aim.dreamer.server.state import StateStore
+from aim.dreamer.server.scheduler import Scheduler
+from aim.dreamer.core.models import StepJob, StepStatus
+from aim.dreamer.core.dialogue.models import DialogueState, DialogueTurn
+from aim.dreamer.core.dialogue.strategy import DialogueStrategy
+from aim.dreamer.core.dialogue.scenario import DialogueScenario
 from aim.config import ChatConfig
 from aim.agents.persona import Persona
 
@@ -224,7 +224,7 @@ class TestWorkerDialogueRouting:
 
         # Mock the dialogue execution path
         with patch.object(worker, "_process_dialogue_step", new_callable=AsyncMock) as mock_process:
-            with patch("aim.dreamer.worker.load_scenario") as mock_load:
+            with patch("aim.dreamer.server.worker.load_scenario") as mock_load:
                 mock_scenario = Mock()
                 mock_scenario.name = "analysis_dialogue"
                 mock_scenario.flow = "dialogue"
@@ -245,7 +245,7 @@ class TestWorkerDialogueRouting:
         mock_scheduler = AsyncMock()
 
         # Create pipeline state
-        from aim.dreamer.models import PipelineState, Scenario, ScenarioContext, StepDefinition, StepOutput
+        from aim.dreamer.core.models import PipelineState, Scenario, ScenarioContext, StepDefinition, StepOutput
 
         pipeline_state = PipelineState(
             pipeline_id="test-pipeline-456",
@@ -308,7 +308,7 @@ class TestWorkerDialogueRouting:
         )
 
         # Mock execute_step (standard path)
-        from aim.dreamer.models import StepResult
+        from aim.dreamer.core.models import StepResult
         step_result = StepResult(
             step_id="summarize",
             response="Summary text",
@@ -319,9 +319,9 @@ class TestWorkerDialogueRouting:
             timestamp=datetime.now(timezone.utc),
         )
 
-        with patch("aim.dreamer.worker.load_scenario", return_value=scenario):
-            with patch("aim.dreamer.worker.execute_step", new_callable=AsyncMock) as mock_execute:
-                with patch("aim.dreamer.worker.create_message") as mock_create:
+        with patch("aim.dreamer.server.worker.load_scenario", return_value=scenario):
+            with patch("aim.dreamer.server.worker.execute_step", new_callable=AsyncMock) as mock_execute:
+                with patch("aim.dreamer.server.worker.create_message") as mock_create:
                     mock_execute.return_value = (step_result, [], False)
                     mock_create.return_value = Mock()
 
@@ -351,11 +351,11 @@ class TestStartPipelineDialogue:
         mock_persona.persona_id = "Andi"
         mock_roster.personas = {"Andi": mock_persona}
 
-        with patch("aim.dreamer.api.load_scenario") as mock_load_scenario:
-            with patch("aim.dreamer.api.ConversationModel") as mock_cvm_class:
-                with patch("aim.dreamer.api.Roster") as mock_roster_class:
-                    with patch("aim.dreamer.api.LanguageModelV2") as mock_lm:
-                        with patch("aim.dreamer.api.DialogueStrategy") as mock_strategy_class:
+        with patch("aim.dreamer.server.api.load_scenario") as mock_load_scenario:
+            with patch("aim.dreamer.server.api.ConversationModel") as mock_cvm_class:
+                with patch("aim.dreamer.server.api.Roster") as mock_roster_class:
+                    with patch("aim.dreamer.server.api.LanguageModelV2") as mock_lm:
+                        with patch("aim.dreamer.server.api.DialogueStrategy") as mock_strategy_class:
                             # Setup scenario with flow=dialogue
                             mock_scenario = Mock()
                             mock_scenario.name = "analysis_dialogue"

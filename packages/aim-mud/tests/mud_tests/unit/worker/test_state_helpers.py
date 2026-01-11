@@ -63,6 +63,7 @@ class TestCheckAbortRequested:
             b"turn_id": b"test_turn_123",
             b"reason": b"events",
             b"heartbeat_at": _utc_now().isoformat().encode(),
+            b"sequence_id": b"1",
         })
 
         # Track state transitions
@@ -88,6 +89,7 @@ class TestCheckAbortRequested:
             b"turn_id": b"test_turn_456",
             b"reason": b"events",
             b"heartbeat_at": _utc_now().isoformat().encode(),
+            b"sequence_id": b"1",
         })
 
         test_worker._set_turn_request_state = AsyncMock()
@@ -108,6 +110,7 @@ class TestCheckAbortRequested:
             b"status": b"abort_requested",
             b"reason": b"events",
             b"heartbeat_at": _utc_now().isoformat().encode(),
+            b"sequence_id": b"1",
             # No turn_id - will cause validation failure
         })
 

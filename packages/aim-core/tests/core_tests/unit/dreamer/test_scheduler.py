@@ -7,9 +7,9 @@ import fakeredis.aioredis
 from datetime import datetime, timezone
 import asyncio
 
-from aim.dreamer.scheduler import Scheduler
-from aim.dreamer.state import StateStore
-from aim.dreamer.models import (
+from aim.dreamer.server.scheduler import Scheduler
+from aim.dreamer.server.state import StateStore
+from aim.dreamer.core.models import (
     StepJob,
     StepStatus,
     Scenario,
@@ -183,7 +183,7 @@ async def test_process_delayed_jobs_with_due_jobs(scheduler, redis_client):
     # Manually add jobs to delayed queue with past timestamps
     # (simulating jobs that were delayed but are now due)
     from datetime import datetime, timezone
-    from aim.dreamer.models import StepJob
+    from aim.dreamer.core.models import StepJob
 
     # Create jobs with current time
     job1 = StepJob(

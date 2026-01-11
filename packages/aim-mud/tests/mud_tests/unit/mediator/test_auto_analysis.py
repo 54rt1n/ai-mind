@@ -47,12 +47,16 @@ def mock_redis():
 
 @pytest.fixture
 def ready_turn_request():
-    """Fixture for a ready turn request."""
+    """Fixture for a ready turn request with completed_at timestamp."""
+    # Completed 400 seconds ago (past idle threshold of 300)
+    completed_time = _utc_now() - timedelta(seconds=400)
     return {
         b"status": b"ready",
         b"turn_id": b"prev-turn-123",
         b"reason": b"events",
         b"heartbeat_at": _utc_now().isoformat().encode(),
+        b"sequence_id": b"1",
+        b"completed_at": completed_time.isoformat().encode(),
     }
 
 
@@ -128,7 +132,7 @@ class TestIdleDetection:
 
         # Mock _is_paused
         with patch.object(mediator, '_is_paused', return_value=False):
-            # andi is sleeping, val is ready
+            # andi is sleeping, val is ready with completed_at in past
             def hgetall_side_effect(key):
                 # Handle both bytes and string keys
                 key_str = key.decode() if isinstance(key, bytes) else key
@@ -142,9 +146,7 @@ class TestIdleDetection:
 
             mock_redis.hgetall = AsyncMock(side_effect=hgetall_side_effect)
 
-            # Set idle timer to past threshold and cooldown
-            past_time = _utc_now() - timedelta(seconds=400)
-            mediator._auto_analysis_idle_start = past_time
+            # Set cooldown to allow check
             mediator._last_auto_analysis_check = _utc_now() - timedelta(seconds=120)
 
             # Mock _scan_for_unanalyzed_conversations
@@ -153,7 +155,7 @@ class TestIdleDetection:
             ) as mock_scan:
                 await mediator._check_auto_analysis_trigger()
 
-                # Should trigger (andi is sleeping, val is idle)
+                # Should trigger (andi is sleeping, val is idle with completed_at)
                 mock_scan.assert_called_once()
 
     @pytest.mark.asyncio
@@ -188,39 +190,54 @@ class TestIdleDetection:
             b"turn_id": b"current-turn",
         })
 
-        with patch.object(mediator, '_is_paused', return_value=False):
-            await mediator._check_auto_analysis_trigger()
-
-        # Should reset idle timer
-        assert mediator._auto_analysis_idle_start is None
-
-    @pytest.mark.asyncio
-    async def test_auto_analysis_idle_threshold_not_reached(
-        self, mock_redis, mediator_config, ready_turn_request
-    ):
-        """Test that trigger does not fire before idle threshold is reached."""
-        mediator = MediatorService(mock_redis, mediator_config)
-        mediator.register_agent("andi")
-
-        # Mock ready agent and no sleeping state
-        def hgetall_side_effect(key):
-            if b"profile" in key or "profile" in key:
-                return {}  # Not sleeping
-            return ready_turn_request
-
-        mock_redis.hgetall = AsyncMock(side_effect=hgetall_side_effect)
+        # Set cooldown to allow check
+        mediator._last_auto_analysis_check = _utc_now() - timedelta(seconds=120)
 
         with patch.object(mediator, '_is_paused', return_value=False):
-            # Set idle timer to just 200 seconds ago (threshold is 300)
-            past_time = _utc_now() - timedelta(seconds=200)
-            mediator._auto_analysis_idle_start = past_time
-
             with patch.object(
                 mediator, '_scan_for_unanalyzed_conversations'
             ) as mock_scan:
                 await mediator._check_auto_analysis_trigger()
 
-                # Should not trigger yet
+                # Should not trigger (agent busy)
+                mock_scan.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_auto_analysis_idle_threshold_not_reached(
+        self, mock_redis, mediator_config
+    ):
+        """Test that trigger does not fire before idle threshold is reached."""
+        mediator = MediatorService(mock_redis, mediator_config)
+        mediator.register_agent("andi")
+
+        # Completed just 200 seconds ago (threshold is 300)
+        completed_time = _utc_now() - timedelta(seconds=200)
+        turn_request_data = {
+            b"status": b"ready",
+            b"turn_id": b"prev-turn",
+            b"sequence_id": b"1",
+            b"completed_at": completed_time.isoformat().encode(),
+        }
+
+        # Mock ready agent and no sleeping state
+        def hgetall_side_effect(key):
+            key_str = key.decode() if isinstance(key, bytes) else key
+            if "profile" in key_str:
+                return {}  # Not sleeping
+            return turn_request_data
+
+        mock_redis.hgetall = AsyncMock(side_effect=hgetall_side_effect)
+
+        # Set cooldown to allow check
+        mediator._last_auto_analysis_check = _utc_now() - timedelta(seconds=120)
+
+        with patch.object(mediator, '_is_paused', return_value=False):
+            with patch.object(
+                mediator, '_scan_for_unanalyzed_conversations'
+            ) as mock_scan:
+                await mediator._check_auto_analysis_trigger()
+
+                # Should not trigger yet (only 200s idle, need 300s)
                 mock_scan.assert_not_called()
 
     @pytest.mark.asyncio
@@ -231,6 +248,8 @@ class TestIdleDetection:
         mediator = MediatorService(mock_redis, mediator_config)
         mediator.register_agent("andi")
 
+        # ready_turn_request fixture has completed_at 400 seconds ago (past threshold)
+
         # Mock ready agent and no sleeping state
         def hgetall_side_effect(key):
             key_str = key.decode() if isinstance(key, bytes) else key
@@ -240,19 +259,16 @@ class TestIdleDetection:
 
         mock_redis.hgetall = AsyncMock(side_effect=hgetall_side_effect)
 
-        with patch.object(mediator, '_is_paused', return_value=False):
-            # Set idle timer to past threshold (400 seconds ago, threshold is 300)
-            # And set last check to pass cooldown
-            past_time = _utc_now() - timedelta(seconds=400)
-            mediator._auto_analysis_idle_start = past_time
-            mediator._last_auto_analysis_check = _utc_now() - timedelta(seconds=120)
+        # Set cooldown to allow check
+        mediator._last_auto_analysis_check = _utc_now() - timedelta(seconds=120)
 
+        with patch.object(mediator, '_is_paused', return_value=False):
             with patch.object(
                 mediator, '_scan_for_unanalyzed_conversations'
             ) as mock_scan:
                 await mediator._check_auto_analysis_trigger()
 
-                # Should trigger
+                # Should trigger (400s idle, threshold is 300s)
                 mock_scan.assert_called_once()
 
     @pytest.mark.asyncio
@@ -271,38 +287,116 @@ class TestIdleDetection:
             b"next_attempt_at": future_time.isoformat().encode(),
         })
 
-        with patch.object(mediator, '_is_paused', return_value=False):
-            await mediator._check_auto_analysis_trigger()
+        # Set cooldown to allow check
+        mediator._last_auto_analysis_check = _utc_now() - timedelta(seconds=120)
 
-        # Should reset idle timer (agent not truly idle)
-        assert mediator._auto_analysis_idle_start is None
+        with patch.object(mediator, '_is_paused', return_value=False):
+            with patch.object(
+                mediator, '_scan_for_unanalyzed_conversations'
+            ) as mock_scan:
+                await mediator._check_auto_analysis_trigger()
+
+                # Should not trigger (agent in backoff, not truly idle)
+                mock_scan.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_idle_detection_with_retry_turn_in_backoff(
+        self, mock_redis, mediator_config
+    ):
+        """Test that RETRY turns in backoff are not considered idle."""
+        mediator = MediatorService(mock_redis, mediator_config)
+        mediator.register_agent("andi")
+
+        # Mock retry turn still in backoff
+        future_time = _utc_now() + timedelta(seconds=120)
+        mock_redis.hgetall = AsyncMock(return_value={
+            b"status": b"retry",
+            b"turn_id": b"retry-turn",
+            b"next_attempt_at": future_time.isoformat().encode(),
+        })
+
+        # Set cooldown to allow check
+        mediator._last_auto_analysis_check = _utc_now() - timedelta(seconds=120)
+
+        with patch.object(mediator, '_is_paused', return_value=False):
+            with patch.object(
+                mediator, '_scan_for_unanalyzed_conversations'
+            ) as mock_scan:
+                await mediator._check_auto_analysis_trigger()
+
+                # Should not trigger (agent in backoff, not truly idle)
+                mock_scan.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_idle_detection_with_retry_turn_past_backoff(
+        self, mock_redis, mediator_config
+    ):
+        """Test that RETRY turns past backoff don't block idle detection."""
+        mediator = MediatorService(mock_redis, mediator_config)
+        mediator.register_agent("andi")
+
+        # Mock retry turn past backoff time
+        past_time = _utc_now() - timedelta(seconds=10)
+        completed_time = _utc_now() - timedelta(seconds=400)
+
+        def hgetall_side_effect(key):
+            key_str = key.decode() if isinstance(key, bytes) else key
+            if "profile" in key_str:
+                return {}  # Not sleeping
+            return {
+                b"status": b"retry",
+                b"turn_id": b"retry-turn",
+                b"next_attempt_at": past_time.isoformat().encode(),
+                b"completed_at": completed_time.isoformat().encode(),
+            }
+
+        mock_redis.hgetall = AsyncMock(side_effect=hgetall_side_effect)
+
+        # Set cooldown to allow check
+        mediator._last_auto_analysis_check = _utc_now() - timedelta(seconds=120)
+
+        with patch.object(mediator, '_is_paused', return_value=False):
+            with patch.object(
+                mediator, '_scan_for_unanalyzed_conversations'
+            ) as mock_scan:
+                await mediator._check_auto_analysis_trigger()
+
+                # Should not trigger - RETRY status blocks idle detection
+                # even if past backoff time (agent not truly "ready")
+                mock_scan.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_idle_detection_with_crashed_agent(
         self, mock_redis, mediator_config
     ):
-        """Test that crashed agents don't prevent idle detection."""
+        """Test that crashed/offline agents block idle detection."""
         mediator = MediatorService(mock_redis, mediator_config)
         mediator.register_agent("andi")
 
         # Mock crashed agent (no turn_request)
         mock_redis.hgetall = AsyncMock(return_value={})
 
-        with patch.object(mediator, '_is_paused', return_value=False):
-            await mediator._check_auto_analysis_trigger()
+        # Set cooldown to allow check
+        mediator._last_auto_analysis_check = _utc_now() - timedelta(seconds=120)
 
-        # Should reset idle timer (agent offline/crashed)
-        assert mediator._auto_analysis_idle_start is None
+        with patch.object(mediator, '_is_paused', return_value=False):
+            with patch.object(
+                mediator, '_scan_for_unanalyzed_conversations'
+            ) as mock_scan:
+                await mediator._check_auto_analysis_trigger()
+
+                # Should not trigger (agent offline/crashed)
+                mock_scan.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_sleeping_agents_excluded_from_idle_check(
         self, mock_redis, mediator_config, ready_turn_request
     ):
-        """Test that only sleeping agents result in idle state."""
+        """Test that only sleeping agents result in idle state and can trigger auto-analysis."""
         mediator = MediatorService(mock_redis, mediator_config)
         mediator.register_agent("andi")
 
-        # Mock sleeping agent
+        # Mock sleeping agent with completed_at in past
         def hgetall_side_effect(key):
             key_str = key.decode() if isinstance(key, bytes) else key
             if "profile" in key_str:
@@ -311,13 +405,18 @@ class TestIdleDetection:
 
         mock_redis.hgetall = AsyncMock(side_effect=hgetall_side_effect)
 
-        with patch.object(mediator, '_is_paused', return_value=False):
-            # Set cooldown to allow check
-            mediator._last_auto_analysis_check = _utc_now() - timedelta(seconds=120)
+        # Set cooldown to allow check
+        mediator._last_auto_analysis_check = _utc_now() - timedelta(seconds=120)
 
-            # First call should start idle timer
-            await mediator._check_auto_analysis_trigger()
-            assert mediator._auto_analysis_idle_start is not None
+        with patch.object(mediator, '_is_paused', return_value=False):
+            with patch.object(
+                mediator, '_scan_for_unanalyzed_conversations'
+            ) as mock_scan:
+                # Should trigger since only agent is sleeping
+                await mediator._check_auto_analysis_trigger()
+
+                # Should trigger (sleeping agents excluded, system considered idle)
+                mock_scan.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_sleeping_agents_can_receive_analysis_tasks(
@@ -685,6 +784,7 @@ class TestTurnAssignment:
         mock_redis.hgetall = AsyncMock(return_value={
             b"status": b"ready",
             b"turn_id": b"prev-turn",
+            b"sequence_id": b"1",
         })
         mock_redis.eval = AsyncMock(return_value=0)  # CAS failure
 
@@ -733,15 +833,17 @@ class TestTurnAssignment:
 # =============================================================================
 
 class TestStateManagement:
-    """Test state management for idle timer and cooldown."""
+    """Test state management for cooldown and idle detection."""
 
     @pytest.mark.asyncio
-    async def test_idle_timer_starts_when_idle(
+    async def test_idle_detection_uses_completed_at(
         self, mock_redis, mediator_config, ready_turn_request
     ):
-        """Test that idle timer starts when all agents become idle."""
+        """Test that idle detection uses completed_at from turn_request."""
         mediator = MediatorService(mock_redis, mediator_config)
         mediator.register_agent("andi")
+
+        # ready_turn_request has completed_at 400 seconds ago
 
         # Mock idle agent
         def hgetall_side_effect(key):
@@ -752,28 +854,25 @@ class TestStateManagement:
 
         mock_redis.hgetall = AsyncMock(side_effect=hgetall_side_effect)
 
+        # Set cooldown to allow check
+        mediator._last_auto_analysis_check = _utc_now() - timedelta(seconds=120)
+
         with patch.object(mediator, '_is_paused', return_value=False):
-            # Initially no idle timer
-            assert mediator._auto_analysis_idle_start is None
+            with patch.object(
+                mediator, '_scan_for_unanalyzed_conversations'
+            ) as mock_scan:
+                await mediator._check_auto_analysis_trigger()
 
-            # Set cooldown to allow check
-            mediator._last_auto_analysis_check = _utc_now() - timedelta(seconds=120)
-
-            await mediator._check_auto_analysis_trigger()
-
-            # Should start idle timer
-            assert mediator._auto_analysis_idle_start is not None
+                # Should trigger based on completed_at timestamp
+                mock_scan.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_idle_timer_resets_when_busy(
+    async def test_busy_agent_blocks_idle_detection(
         self, mock_redis, mediator_config
     ):
-        """Test that idle timer resets when agents become busy."""
+        """Test that busy agents block idle detection."""
         mediator = MediatorService(mock_redis, mediator_config)
         mediator.register_agent("andi")
-
-        # Set existing idle timer
-        mediator._auto_analysis_idle_start = _utc_now() - timedelta(seconds=100)
 
         # Set cooldown to allow check
         mediator._last_auto_analysis_check = _utc_now() - timedelta(seconds=120)
@@ -791,10 +890,13 @@ class TestStateManagement:
         mock_redis.hgetall = AsyncMock(side_effect=hgetall_side_effect)
 
         with patch.object(mediator, '_is_paused', return_value=False):
-            await mediator._check_auto_analysis_trigger()
+            with patch.object(
+                mediator, '_scan_for_unanalyzed_conversations'
+            ) as mock_scan:
+                await mediator._check_auto_analysis_trigger()
 
-            # Should reset idle timer
-            assert mediator._auto_analysis_idle_start is None
+                # Should not trigger (agent busy)
+                mock_scan.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_cooldown_prevents_rapid_retrigger(
@@ -804,7 +906,7 @@ class TestStateManagement:
         mediator = MediatorService(mock_redis, mediator_config)
         mediator.register_agent("andi")
 
-        # Mock idle agent
+        # Mock idle agent with completed_at in past
         def hgetall_side_effect(key):
             key_str = key.decode() if isinstance(key, bytes) else key
             if "profile" in key_str:
@@ -817,20 +919,15 @@ class TestStateManagement:
             with patch.object(
                 mediator, '_scan_for_unanalyzed_conversations'
             ) as mock_scan:
-                # Set idle timer to past threshold and cooldown for first trigger
-                past_time = _utc_now() - timedelta(seconds=400)
-                mediator._auto_analysis_idle_start = past_time
+                # Set cooldown to allow first check
                 mediator._last_auto_analysis_check = _utc_now() - timedelta(seconds=120)
 
                 # First trigger should work
                 await mediator._check_auto_analysis_trigger()
                 assert mock_scan.call_count == 1
 
-                # Reset idle timer (simulating new idle period)
-                # But last_auto_analysis_check was updated, so cooldown is active
-                mediator._auto_analysis_idle_start = past_time
-
                 # Second trigger within cooldown should not work
+                # (last_auto_analysis_check was just updated)
                 await mediator._check_auto_analysis_trigger()
                 # Still only 1 call (cooldown prevented second trigger)
                 assert mock_scan.call_count == 1
@@ -842,6 +939,8 @@ class TestStateManagement:
         """Test that last check timestamp is updated on trigger."""
         mediator = MediatorService(mock_redis, mediator_config)
         mediator.register_agent("andi")
+
+        # ready_turn_request has completed_at 400 seconds ago (past threshold)
 
         # Mock idle agent
         def hgetall_side_effect(key):
@@ -860,14 +959,267 @@ class TestStateManagement:
                 old_time = _utc_now() - timedelta(seconds=120)
                 mediator._last_auto_analysis_check = old_time
 
-                # Set idle timer to past threshold
-                past_time = _utc_now() - timedelta(seconds=400)
-                mediator._auto_analysis_idle_start = past_time
-
                 await mediator._check_auto_analysis_trigger()
 
                 # Last check timestamp should be updated
                 assert mediator._last_auto_analysis_check > old_time
+
+
+# =============================================================================
+# 5. REPORT REFRESH TESTS
+# =============================================================================
+
+class TestReportRefresh:
+    """Test conversation report refresh before scanning."""
+
+    @pytest.mark.asyncio
+    async def test_refresh_conversation_reports_called_before_scan(
+        self, mock_redis, mediator_config, sample_conversation_report
+    ):
+        """Test that _refresh_conversation_reports is called before scanning."""
+        mediator = MediatorService(mock_redis, mediator_config)
+        mediator.register_agent("andi")
+
+        with patch.object(
+            mediator, '_refresh_conversation_reports'
+        ) as mock_refresh:
+            mock_refresh.return_value = None
+
+            # Mock conversation report and analysis command
+            mock_redis.get = AsyncMock(
+                return_value=json.dumps(sample_conversation_report).encode()
+            )
+            with patch.object(
+                mediator, '_handle_analysis_command', return_value=True
+            ):
+                await mediator._scan_for_unanalyzed_conversations()
+
+                # Should call refresh before scanning
+                mock_refresh.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_refresh_uses_agent_profile_persona_id(
+        self, mock_redis, mediator_config
+    ):
+        """Test that refresh uses persona_id from agent profile."""
+        from aim_mud_types.profile import AgentProfile
+
+        mediator = MediatorService(mock_redis, mediator_config)
+        mediator.register_agent("andi")
+
+        # Track which memory path was used
+        memory_paths_used = []
+
+        def mock_conversation_model_init(self, memory_path, **kwargs):
+            memory_paths_used.append(memory_path)
+            # Create a mock DataFrame for get_conversation_report
+            import pandas as pd
+            self.get_conversation_report = MagicMock(
+                return_value=pd.DataFrame()
+            )
+
+        mock_redis.set = AsyncMock(return_value=True)
+
+        # Mock RedisMUDClient.get_agent_profile to return profile with different persona_id
+        async def mock_get_agent_profile(agent_id):
+            if agent_id == "andi":
+                return AgentProfile(agent_id="andi", persona_id="nova")
+            return None
+
+        with patch(
+            'aim_mud_types.client.RedisMUDClient.get_agent_profile',
+            side_effect=mock_get_agent_profile
+        ):
+            with patch(
+                'andimud_mediator.mixins.agents.ConversationModel.__init__',
+                mock_conversation_model_init
+            ):
+                await mediator._refresh_conversation_reports()
+
+                # Should use persona_id from profile
+                assert len(memory_paths_used) == 1
+                assert memory_paths_used[0] == "memory/nova"
+
+    @pytest.mark.asyncio
+    async def test_refresh_handles_missing_profile(
+        self, mock_redis, mediator_config
+    ):
+        """Test that refresh handles missing agent profile gracefully."""
+        mediator = MediatorService(mock_redis, mediator_config)
+        mediator.register_agent("andi")
+
+        # Mock missing profile
+        async def mock_get_agent_profile(agent_id):
+            return None
+
+        with patch(
+            'aim_mud_types.client.RedisMUDClient.get_agent_profile',
+            side_effect=mock_get_agent_profile
+        ):
+            # Should not crash
+            await mediator._refresh_conversation_reports()
+
+    @pytest.mark.asyncio
+    async def test_refresh_stores_report_in_redis(
+        self, mock_redis, mediator_config
+    ):
+        """Test that refresh stores generated report in Redis."""
+        from aim_mud_types.profile import AgentProfile
+
+        mediator = MediatorService(mock_redis, mediator_config)
+        mediator.register_agent("andi")
+
+        # Mock conversation report DataFrame
+        import pandas as pd
+        mock_df = pd.DataFrame([
+            {
+                'conversation_id': 'conv_001',
+                'mud-world': 5,
+                'mud-agent': 3,
+                'analysis': 0,
+            }
+        ])
+
+        mock_redis.set = AsyncMock(return_value=True)
+
+        # Mock RedisMUDClient.get_agent_profile
+        async def mock_get_agent_profile(agent_id):
+            if agent_id == "andi":
+                return AgentProfile(agent_id="andi", persona_id="andi")
+            return None
+
+        with patch(
+            'aim_mud_types.client.RedisMUDClient.get_agent_profile',
+            side_effect=mock_get_agent_profile
+        ):
+            with patch(
+                'andimud_mediator.mixins.agents.ConversationModel'
+            ) as mock_cvm_class:
+                mock_cvm = MagicMock()
+                mock_cvm.get_conversation_report.return_value = mock_df
+                mock_cvm_class.return_value = mock_cvm
+
+                await mediator._refresh_conversation_reports()
+
+                # Should store report in Redis
+                mock_redis.set.assert_called_once()
+                call_args = mock_redis.set.call_args
+                assert call_args[0][0] == RedisKeys.agent_conversation_report("andi")
+                # Verify JSON structure
+                stored_json = call_args[0][1]
+                stored_data = json.loads(stored_json)
+                assert 'conv_001' in stored_data
+
+    @pytest.mark.asyncio
+    async def test_refresh_handles_empty_dataframe(
+        self, mock_redis, mediator_config
+    ):
+        """Test that refresh handles empty DataFrame correctly."""
+        from aim_mud_types.profile import AgentProfile
+
+        mediator = MediatorService(mock_redis, mediator_config)
+        mediator.register_agent("andi")
+
+        # Mock empty DataFrame
+        import pandas as pd
+        mock_df = pd.DataFrame()
+
+        mock_redis.set = AsyncMock(return_value=True)
+
+        # Mock RedisMUDClient.get_agent_profile
+        async def mock_get_agent_profile(agent_id):
+            if agent_id == "andi":
+                return AgentProfile(agent_id="andi", persona_id="andi")
+            return None
+
+        with patch(
+            'aim_mud_types.client.RedisMUDClient.get_agent_profile',
+            side_effect=mock_get_agent_profile
+        ):
+            with patch(
+                'andimud_mediator.mixins.agents.ConversationModel'
+            ) as mock_cvm_class:
+                mock_cvm = MagicMock()
+                mock_cvm.get_conversation_report.return_value = mock_df
+                mock_cvm_class.return_value = mock_cvm
+
+                await mediator._refresh_conversation_reports()
+
+                # Should store empty dict
+                mock_redis.set.assert_called_once()
+                call_args = mock_redis.set.call_args
+                stored_json = call_args[0][1]
+                stored_data = json.loads(stored_json)
+                assert stored_data == {}
+
+    @pytest.mark.asyncio
+    async def test_refresh_handles_multiple_agents(
+        self, mock_redis, mediator_config
+    ):
+        """Test that refresh processes multiple agents."""
+        from aim_mud_types.profile import AgentProfile
+
+        mediator = MediatorService(mock_redis, mediator_config)
+        mediator.register_agent("andi")
+        mediator.register_agent("val")
+
+        # Mock agent profiles via RedisMUDClient
+        async def mock_get_agent_profile(agent_id):
+            if agent_id == "andi":
+                return AgentProfile(agent_id="andi", persona_id="andi")
+            elif agent_id == "val":
+                return AgentProfile(agent_id="val", persona_id="val")
+            return None
+
+        mock_redis.set = AsyncMock(return_value=True)
+
+        import pandas as pd
+        mock_df = pd.DataFrame()
+
+        with patch(
+            'aim_mud_types.client.RedisMUDClient.get_agent_profile',
+            side_effect=mock_get_agent_profile
+        ):
+            with patch(
+                'andimud_mediator.mixins.agents.ConversationModel'
+            ) as mock_cvm_class:
+                mock_cvm = MagicMock()
+                mock_cvm.get_conversation_report.return_value = mock_df
+                mock_cvm_class.return_value = mock_cvm
+
+                await mediator._refresh_conversation_reports()
+
+                # Should create ConversationModel for both agents
+                assert mock_cvm_class.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_refresh_handles_exception_gracefully(
+        self, mock_redis, mediator_config
+    ):
+        """Test that refresh handles exceptions without crashing."""
+        from aim_mud_types.profile import AgentProfile
+
+        mediator = MediatorService(mock_redis, mediator_config)
+        mediator.register_agent("andi")
+
+        # Mock RedisMUDClient.get_agent_profile
+        async def mock_get_agent_profile(agent_id):
+            if agent_id == "andi":
+                return AgentProfile(agent_id="andi", persona_id="andi")
+            return None
+
+        # Mock ConversationModel to raise exception
+        with patch(
+            'aim_mud_types.client.RedisMUDClient.get_agent_profile',
+            side_effect=mock_get_agent_profile
+        ):
+            with patch(
+                'andimud_mediator.mixins.agents.ConversationModel'
+            ) as mock_cvm_class:
+                mock_cvm_class.side_effect = Exception("Test error")
+
+                # Should not crash
+                await mediator._refresh_conversation_reports()
 
 
 if __name__ == "__main__":

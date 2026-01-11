@@ -4,15 +4,12 @@
 
 from datetime import datetime
 from enum import Enum
-from typing import Optional, TYPE_CHECKING
+from typing import Optional
 
 from pydantic import BaseModel, Field
 
 from .helper import _utc_now
 from .redis_keys import RedisKeys
-
-if TYPE_CHECKING:
-    import redis.asyncio as redis
 
 
 class TurnRequestStatus(str, Enum):
@@ -20,7 +17,8 @@ class TurnRequestStatus(str, Enum):
     ASSIGNED = "assigned"
     IN_PROGRESS = "in_progress"
     DONE = "done"
-    FAIL = "fail"
+    RETRY = "retry"            # Temporary failure, will retry after backoff
+    FAIL = "fail"              # Permanent failure after max attempts
     READY = "ready"
     CRASHED = "crashed"
     ABORTED = "aborted"
@@ -69,7 +67,8 @@ class MUDTurnRequest(BaseModel):
         message: Optional status message
         heartbeat_at: Last heartbeat from worker
         assigned_at: When turn was assigned by mediator
-        sequence_id: Event sequence ID for chronological ordering
+        completed_at: When turn execution finished (set on terminal states)
+        sequence_id: Event sequence ID for chronological ordering (REQUIRED)
         attempt_count: Number of retry attempts for this turn
         scenario: For dream turns, the scenario to run
         query: For dream turns, optional query text
@@ -83,7 +82,8 @@ class MUDTurnRequest(BaseModel):
     message: Optional[str] = None
     heartbeat_at: datetime = Field(default_factory=_utc_now)
     assigned_at: datetime = Field(default_factory=_utc_now)
-    sequence_id: Optional[int] = None
+    completed_at: Optional[datetime] = None  # When turn execution finished
+    sequence_id: int  # REQUIRED: Every turn must have a sequence_id
     attempt_count: int = 0
 
     # Retry coordination
@@ -97,38 +97,6 @@ class MUDTurnRequest(BaseModel):
     guidance: Optional[str] = None
     conversation_id: Optional[str] = None
 
-    @classmethod
-    async def from_redis(cls, redis_client: "redis.Redis", agent_id: str) -> Optional["MUDTurnRequest"]:
-        """Fetch and deserialize turn request from Redis.
-
-        Args:
-            redis_client: Async Redis client
-            agent_id: Agent identifier
-
-        Returns:
-            MUDTurnRequest object, or None if not found or invalid
-        """
-        key = RedisKeys.agent_turn_request(agent_id)
-        data = await redis_client.hgetall(key)
-
-        if not data:
-            return None
-
-        # Decode bytes to strings
-        decoded: dict[str, str] = {}
-        for k, v in data.items():
-            if isinstance(k, bytes):
-                k = k.decode("utf-8")
-            if isinstance(v, bytes):
-                v = v.decode("utf-8")
-            decoded[str(k)] = str(v)
-
-        # Deserialize to MUDTurnRequest object
-        try:
-            return cls.model_validate(decoded)
-        except Exception:
-            return None
-
 
 class DreamerState(BaseModel):
     """Automatic dreaming configuration.
@@ -139,10 +107,14 @@ class DreamerState(BaseModel):
         enabled: Whether automatic dreaming is enabled
         idle_threshold_seconds: Seconds of idle before triggering dream
         token_threshold: Minimum tokens accumulated before dream
-        last_dream_time: When the last automatic dream occurred
+        last_dream_at: When the last automatic dream occurred (ISO format)
+        last_dream_scenario: Scenario that was last executed
+        pending_pipeline_id: Pipeline ID if dream is currently running
     """
 
     enabled: bool = False
     idle_threshold_seconds: int = 600
     token_threshold: int = 5000
-    last_dream_time: Optional[datetime] = None
+    last_dream_at: Optional[str] = None  # ISO datetime string
+    last_dream_scenario: Optional[str] = None
+    pending_pipeline_id: Optional[str] = None

@@ -50,11 +50,10 @@ class StateMixin:
             return False
 
         if turn_request.status == TurnRequestStatus.ABORT_REQUESTED:
-            await self._set_turn_request_state(
-                turn_request.turn_id,
-                TurnRequestStatus.ABORTED,
-                message="Aborted by user request"
-            )
+            turn_request.status = TurnRequestStatus.ABORTED
+            turn_request.message = "Aborted by user request"
+            turn_request.heartbeat_at = _utc_now()
+            await self.update_turn_request(turn_request, expected_turn_id=turn_request.turn_id)
             return True
         return False
 

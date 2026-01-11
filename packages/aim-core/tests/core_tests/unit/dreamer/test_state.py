@@ -7,8 +7,8 @@ import pytest_asyncio
 from datetime import datetime
 from fakeredis import aioredis
 
-from aim.dreamer.state import StateStore
-from aim.dreamer.models import (
+from aim.dreamer.server.state import StateStore
+from aim.dreamer.core.models import (
     PipelineState,
     StepStatus,
     StepResult,

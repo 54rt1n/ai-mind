@@ -17,6 +17,7 @@ from ..core.models import PipelineState, Scenario, StepStatus
 from ..core.scenario import load_scenario
 from ..core.dialogue.models import DialogueState
 from ..core.dialogue.strategy import DialogueStrategy
+from ..core.memory_dsl import execute_memory_actions
 
 from .scheduler import Scheduler
 from .state import StateStore
@@ -110,8 +111,6 @@ async def run_seed_actions(
     """
     if not scenario.seed:
         return state
-
-    from .memory_dsl import execute_memory_actions
 
     # Execute all seed actions using unified executor
     doc_ids = execute_memory_actions(

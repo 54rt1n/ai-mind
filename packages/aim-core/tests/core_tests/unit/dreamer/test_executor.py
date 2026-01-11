@@ -6,7 +6,7 @@ import pytest
 from datetime import datetime, timezone
 from unittest.mock import Mock, MagicMock, patch
 
-from aim.dreamer.executor import (
+from aim.dreamer.core.executor import (
     select_model_name,
     build_turns,
     format_memories_xml,
@@ -15,7 +15,7 @@ from aim.dreamer.executor import (
     RetryableError,
     execute_step,
 )
-from aim.dreamer.models import (
+from aim.dreamer.core.models import (
     PipelineState,
     StepDefinition,
     StepConfig,
@@ -47,7 +47,7 @@ class TestSelectModelName:
         This is an integration test that loads the actual analyst.yaml scenario
         and verifies the codex step is properly configured to use the codex_model.
         """
-        from aim.dreamer.scenario import load_scenario
+        from aim.dreamer.core.scenario import load_scenario
 
         # Load the actual analyst scenario
         scenario = load_scenario("analyst")
@@ -86,7 +86,7 @@ class TestSelectModelName:
         but codex_model is not set in the config/state - the step will still run
         but use the default model instead of a specialized codex model.
         """
-        from aim.dreamer.scenario import load_scenario
+        from aim.dreamer.core.scenario import load_scenario
 
         scenario = load_scenario("analyst")
         codex_step = scenario.steps["codex"]
@@ -573,7 +573,7 @@ class TestExecuteStep:
         )
 
         # Mock the LLM provider
-        with patch("aim.dreamer.executor.LanguageModelV2") as mock_model_v2:
+        with patch("aim.dreamer.core.executor.LanguageModelV2") as mock_model_v2:
             mock_model_instance = Mock()
             mock_model_instance.max_output_tokens = 4096
             mock_model_instance.max_tokens = 32768
@@ -647,7 +647,7 @@ class TestExecuteStep:
             output=StepOutput(document_type="test", weight=1.0),
         )
 
-        with patch("aim.dreamer.executor.LanguageModelV2") as mock_model_v2:
+        with patch("aim.dreamer.core.executor.LanguageModelV2") as mock_model_v2:
             mock_model_instance = Mock()
             mock_model_instance.max_output_tokens = 4096
             mock_model_instance.max_tokens = 32768
@@ -737,7 +737,7 @@ class TestExecuteStep:
             ],
         )
 
-        with patch("aim.dreamer.executor.LanguageModelV2") as mock_model_v2:
+        with patch("aim.dreamer.core.executor.LanguageModelV2") as mock_model_v2:
             mock_model_instance = Mock()
             mock_model_instance.max_output_tokens = 4096
             mock_model_instance.max_tokens = 32768

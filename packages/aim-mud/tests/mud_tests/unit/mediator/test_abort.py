@@ -53,6 +53,7 @@ class TestMediatorMaybeAssignTurn:
             b"turn_id": b"abort_turn_123",
             b"reason": b"events",
             b"heartbeat_at": _utc_now().isoformat().encode(),
+            b"sequence_id": b"1",
         })
 
         result = await mediator._maybe_assign_turn("test_agent", reason="events")
@@ -74,6 +75,7 @@ class TestMediatorMaybeAssignTurn:
             b"turn_id": b"current_turn_456",
             b"reason": b"events",
             b"heartbeat_at": _utc_now().isoformat().encode(),
+            b"sequence_id": b"1",
         })
 
         result = await mediator._maybe_assign_turn("test_agent", reason="events")
@@ -95,6 +97,7 @@ class TestMediatorMaybeAssignTurn:
             b"turn_id": b"active_turn_789",
             b"reason": b"events",
             b"heartbeat_at": _utc_now().isoformat().encode(),
+            b"sequence_id": b"1",
         })
 
         result = await mediator._maybe_assign_turn("test_agent", reason="events")
@@ -116,6 +119,7 @@ class TestMediatorMaybeAssignTurn:
             b"turn_id": b"previous_turn",
             b"reason": b"events",
             b"heartbeat_at": _utc_now().isoformat().encode(),
+            b"sequence_id": b"1",
         })
 
         result = await mediator._maybe_assign_turn("test_agent", reason="events")
@@ -145,6 +149,7 @@ class TestMediatorMaybeAssignTurn:
             b"turn_id": b"completed_turn",
             b"reason": b"events",
             b"heartbeat_at": _utc_now().isoformat().encode(),
+            b"sequence_id": b"1",
         })
 
         result = await mediator._maybe_assign_turn("test_agent", reason="events")
@@ -180,6 +185,7 @@ class TestMediatorMaybeAssignTurn:
             "turn_id": "abort_turn_str",
             "reason": "events",
             "heartbeat_at": _utc_now().isoformat(),
+            "sequence_id": "1",
         })
 
         result = await mediator._maybe_assign_turn("test_agent", reason="events")
@@ -216,6 +222,7 @@ class TestMediatorAbortEventProcessing:
             b"turn_id": b"abort_turn",
             b"reason": b"events",
             b"heartbeat_at": _utc_now().isoformat().encode(),
+            b"sequence_id": b"1",
         })
 
         sample_event = {
@@ -271,6 +278,7 @@ class TestMediatorAbortEventProcessing:
             b"turn_id": b"old_abort_turn",
             b"reason": b"events",
             b"heartbeat_at": _utc_now().isoformat().encode(),
+            b"sequence_id": b"1",
         })
 
         sample_event = {

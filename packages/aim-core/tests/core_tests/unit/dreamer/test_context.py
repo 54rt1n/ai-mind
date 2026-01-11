@@ -7,14 +7,14 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 import pandas as pd
 
-from aim.dreamer.models import (
+from aim.dreamer.core.models import (
     MemoryAction,
     StepDefinition,
     StepConfig,
     StepOutput,
     PipelineState,
 )
-from aim.dreamer.context import (
+from aim.dreamer.core.context import (
     prepare_step_context,
     _load_conversation,
     _query_documents,

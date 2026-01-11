@@ -68,25 +68,25 @@ class TestRoomState:
         assert room.description == "A serene garden with a fountain."
         assert room.exits == {"north": "#124", "south": "#122"}
 
-    def test_room_state_from_dict(self):
-        """Test RoomState.from_dict factory method."""
+    def test_room_state_model_validate(self):
+        """Test RoomState.model_validate factory method."""
         data = {
             "room_id": "#123",
             "name": "The Garden",
             "description": "A garden",
             "exits": {"north": "#124"},
         }
-        room = RoomState.from_dict(data)
+        room = RoomState.model_validate(data)
 
         assert room.room_id == "#123"
         assert room.name == "The Garden"
         assert room.description == "A garden"
         assert room.exits == {"north": "#124"}
 
-    def test_room_state_from_dict_missing_fields(self):
-        """Test RoomState.from_dict with missing optional fields."""
+    def test_room_state_model_validate_missing_fields(self):
+        """Test RoomState.model_validate with missing optional fields."""
         data = {"room_id": "#123", "name": "Minimal Room"}
-        room = RoomState.from_dict(data)
+        room = RoomState.model_validate(data)
 
         assert room.room_id == "#123"
         assert room.name == "Minimal Room"
@@ -123,8 +123,8 @@ class TestEntityState:
         assert entity.description == "A young woman with a silver band."
         assert entity.is_self is True
 
-    def test_entity_state_from_dict(self):
-        """Test EntityState.from_dict factory method."""
+    def test_entity_state_model_validate(self):
+        """Test EntityState.model_validate factory method."""
         data = {
             "entity_id": "char123",
             "name": "Prax",
@@ -132,17 +132,17 @@ class TestEntityState:
             "description": "The creator.",
             "is_self": False,
         }
-        entity = EntityState.from_dict(data)
+        entity = EntityState.model_validate(data)
 
         assert entity.entity_id == "char123"
         assert entity.name == "Prax"
         assert entity.entity_type == "player"
         assert entity.is_self is False
 
-    def test_entity_state_from_dict_missing_fields(self):
-        """Test EntityState.from_dict with missing optional fields."""
+    def test_entity_state_model_validate_missing_fields(self):
+        """Test EntityState.model_validate with missing optional fields."""
         data = {"entity_id": "obj1", "name": "Key"}
-        entity = EntityState.from_dict(data)
+        entity = EntityState.model_validate(data)
 
         assert entity.entity_id == "obj1"
         assert entity.name == "Key"

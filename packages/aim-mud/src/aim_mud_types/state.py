@@ -4,7 +4,7 @@
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class RoomState(BaseModel):
@@ -27,25 +27,11 @@ class RoomState(BaseModel):
     exits: dict[str, str] = Field(default_factory=dict)
     tags: list[str] = Field(default_factory=list)
 
+    @field_validator("tags", mode="before")
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "RoomState":
-        """Create RoomState from a dictionary.
-
-        Handles missing optional fields gracefully.
-
-        Args:
-            data: Dictionary with room data (e.g., from JSON).
-
-        Returns:
-            RoomState instance.
-        """
-        return cls(
-            room_id=data.get("room_id", ""),
-            name=data.get("name", ""),
-            description=data.get("description", ""),
-            exits=data.get("exits", {}),
-            tags=data.get("tags", []) or [],
-        )
+    def ensure_tags_list(cls, v):
+        """Ensure tags is a list, converting None to []."""
+        return v if v else []
 
 
 class EntityState(BaseModel):
@@ -70,24 +56,14 @@ class EntityState(BaseModel):
     tags: list[str] = Field(default_factory=list)
     agent_id: str = ""
 
+    @field_validator("tags", mode="before")
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "EntityState":
-        """Create EntityState from a dictionary.
+    def ensure_tags_list(cls, v):
+        """Ensure tags is a list, converting None to []."""
+        return v if v else []
 
-        Handles missing optional fields gracefully.
-
-        Args:
-            data: Dictionary with entity data (e.g., from JSON).
-
-        Returns:
-            EntityState instance.
-        """
-        return cls(
-            entity_id=data.get("entity_id", ""),
-            name=data.get("name", ""),
-            entity_type=data.get("entity_type", "object"),
-            description=data.get("description", ""),
-            is_self=data.get("is_self", False),
-            tags=data.get("tags", []) or [],
-            agent_id=data.get("agent_id", "") or "",
-        )
+    @field_validator("agent_id", mode="before")
+    @classmethod
+    def ensure_agent_id(cls, v):
+        """Ensure agent_id is a string, converting None to empty string."""
+        return v if v else ""

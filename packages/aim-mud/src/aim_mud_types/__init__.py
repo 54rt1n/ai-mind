@@ -23,6 +23,7 @@ from .redis_keys import RedisKeys
 from .session import MUDTurn, MUDSession
 from .state import RoomState, EntityState
 from .world_state import WorldState, InventoryItem, WhoEntry
+from .client import RedisMUDClient
 
 __all__ = [
     # Enums
@@ -52,6 +53,8 @@ __all__ = [
     "RoomProfile",
     # Redis Keys
     "RedisKeys",
+    # Redis Client
+    "RedisMUDClient",
 ]
 
 __version__ = "0.1.0"

@@ -53,6 +53,7 @@ class TestCheckAbortRequested:
             b"turn_id": b"test_turn_123",
             b"reason": b"events",
             b"heartbeat_at": _utc_now().isoformat().encode(),
+            b"sequence_id": b"1",
         })
 
         result = await worker._check_abort_requested()
@@ -78,6 +79,7 @@ class TestCheckAbortRequested:
             b"turn_id": b"test_turn_456",
             b"reason": b"events",
             b"heartbeat_at": _utc_now().isoformat().encode(),
+            b"sequence_id": b"1",
         })
 
         result = await worker._check_abort_requested()
@@ -98,6 +100,7 @@ class TestCheckAbortRequested:
             b"turn_id": b"test_turn_789",
             b"reason": b"events",
             b"heartbeat_at": _utc_now().isoformat().encode(),
+            b"sequence_id": b"1",
         })
 
         result = await worker._check_abort_requested()
@@ -133,6 +136,7 @@ class TestCheckAbortRequested:
             "turn_id": "test_turn_abc",
             "reason": "events",
             "heartbeat_at": _utc_now().isoformat(),
+            "sequence_id": "1",
         })
 
         result = await worker._check_abort_requested()
@@ -157,6 +161,7 @@ class TestWorkerAbortInLoop:
             b"turn_id": b"abort_turn",
             b"reason": b"events",
             b"heartbeat_at": _utc_now().isoformat().encode(),
+            b"sequence_id": b"1",
         })
 
         result = await worker._check_abort_requested()
@@ -217,6 +222,7 @@ class TestWorkerAbortEmote:
             b"turn_id": b"abort_turn",
             b"reason": b"events",
             b"heartbeat_at": _utc_now().isoformat().encode(),
+            b"sequence_id": b"1",
         })
 
         # In the actual worker, when abort is detected, it should call:

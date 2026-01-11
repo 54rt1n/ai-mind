@@ -6,7 +6,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field, field_serializer
+from pydantic import BaseModel, Field, field_serializer, field_validator, AliasChoices
 
 from .enums import EventType, ActorType
 from .world_state import WorldState
@@ -43,9 +43,15 @@ class MUDEvent(BaseModel):
         world_state: Optional world snapshot payload (legacy).
     """
 
-    event_id: str = ""
+    event_id: str = Field(
+        default="",
+        validation_alias=AliasChoices("id", "event_id")
+    )
     sequence_id: Optional[int] = None
-    event_type: EventType
+    event_type: EventType = Field(
+        serialization_alias="type",
+        validation_alias=AliasChoices("type", "event_type")
+    )
     actor: str
     actor_id: str = ""
     actor_type: ActorType = ActorType.PLAYER
@@ -62,6 +68,19 @@ class MUDEvent(BaseModel):
     entities_present: list[dict[str, Any]] = Field(default_factory=list)
     world_state: Optional[WorldState] = None
 
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def parse_timestamp(cls, v):
+        """Parse timestamp from various formats."""
+        if isinstance(v, str):
+            if not v:
+                logger.warning("Event data contains empty timestamp string, defaulting to current time")
+                return _utc_now()
+            return datetime.fromisoformat(v.replace("Z", "+00:00"))
+        if v is None:
+            return _utc_now()
+        return v
+
     @field_serializer("timestamp")
     def serialize_timestamp(self, dt: datetime, _info: Any) -> str:
         """Serialize datetime to ISO format string."""
@@ -69,83 +88,35 @@ class MUDEvent(BaseModel):
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "MUDEvent":
-        """Create MUDEvent from a dictionary.
+        """Create MUDEvent from dictionary.
 
-        Handles both raw events (from Evennia) and enriched events
-        (from mediator). Supports multiple key naming conventions.
-
-        Args:
-            data: Dictionary with event data (e.g., from Redis JSON).
-
-        Returns:
-            MUDEvent instance.
+        Deprecated: Prefer using model_validate() directly.
+        This wrapper is kept for backward compatibility.
         """
-        # Parse timestamp if string
-        timestamp = data.get("timestamp")
-        if isinstance(timestamp, str):
-            if timestamp:  # Non-empty string
-                # Handle both Z suffix and explicit offset
-                timestamp = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-            else:  # Empty string - log warning since this is always a data error
-                logger.warning("Event data contains empty timestamp string, defaulting to current time")
-                timestamp = _utc_now()
-        elif timestamp is None:
-            timestamp = _utc_now()
-
-        world_state_data = data.get("world_state")
-        world_state = (
-            WorldState.from_dict(world_state_data)
-            if world_state_data is not None
-            else None
-        )
-
-        return cls(
-            # Support both 'id' (Redis) and 'event_id' (normalized)
-            event_id=data.get("id", data.get("event_id", "")),
-            sequence_id=data.get("sequence_id"),
-            # Support both 'type' (compact) and 'event_type' (explicit)
-            event_type=EventType(data.get("type", data.get("event_type", "system"))),
-            actor=data.get("actor", ""),
-            actor_id=data.get("actor_id", ""),
-            actor_type=ActorType(data.get("actor_type", "player")),
-            room_id=data.get("room_id", ""),
-            room_name=data.get("room_name", ""),
-            content=data.get("content", ""),
-            target=data.get("target"),
-            target_id=data.get("target_id", ""),
-            timestamp=timestamp,
-            metadata=data.get("metadata", {}),
-            # Enrichment fields
-            room_state=data.get("room_state"),
-            entities_present=data.get("entities_present", []),
-            world_state=world_state,
-        )
+        return cls.model_validate(data)
 
     def to_redis_dict(self) -> dict[str, Any]:
         """Convert to dictionary for Redis stream publishing.
 
-        Uses compact key names for efficiency.
+        Uses compact key names via aliases and excludes enrichment fields.
 
-        Returns:
-            Dictionary ready for JSON serialization to Redis.
+        Architectural note on sequence_id:
+        - Evennia events: Created without sequence_id (mediator assigns it externally)
+        - Self-actions: Created with sequence_id from turn_request (required field)
+
+        This method handles both cases by conditionally excluding sequence_id when None.
         """
-        result = {
-            "type": self.event_type.value,
-            "actor": self.actor,
-            "actor_id": self.actor_id,
-            "actor_type": self.actor_type.value,
-            "room_id": self.room_id,
-            "room_name": self.room_name,
-            "content": self.content,
-            "target": self.target,
-            "target_id": self.target_id,
-            "timestamp": self.timestamp.isoformat(),
-            "metadata": self.metadata,
-        }
+        result = self.model_dump(
+            by_alias=True,
+            mode="json",
+            exclude={"event_id", "room_state", "entities_present", "world_state"}
+        )
 
-        # Include sequence_id if set (for self-actions written directly to agent streams)
-        if self.sequence_id is not None:
-            result["sequence_id"] = self.sequence_id
+        # Exclude sequence_id if None (Evennia events before mediator assignment)
+        # Self-actions always have sequence_id from turn_request, so this is a no-op
+        # Note: Can't use exclude_none=True globally because target=None must be included
+        if self.sequence_id is None:
+            result.pop("sequence_id", None)
 
         return result
 

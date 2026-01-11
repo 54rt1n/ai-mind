@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Optional, TYPE_CHECKING, Union
 
 from ...config import MUDConfig
-from aim_mud_types import RedisKeys, MUDTurnRequest, TurnRequestStatus
+from aim_mud_types import RedisKeys, MUDTurnRequest, TurnRequestStatus, TurnReason
 from aim_mud_types.helper import _utc_now
 
 if TYPE_CHECKING:
@@ -34,94 +34,116 @@ class TurnRequestMixin:
 
     async def get_turn_request(self: "MUDAgentWorker") -> Optional[MUDTurnRequest]:
         """Fetch the current turn request hash from Redis."""
-        return await MUDTurnRequest.from_redis(self.redis, self.config.agent_id)
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
+        return await client.get_turn_request(self.config.agent_id)
 
-    async def _set_turn_request_state(
+    async def create_turn_request(
         self: "MUDAgentWorker",
-        turn_id: str,
-        status: Union[str, TurnRequestStatus],
-        message: Optional[str] = None,
-        extra_fields: Optional[dict] = None,
-        expected_turn_id: Optional[str] = None,
+        turn_request: MUDTurnRequest
     ) -> bool:
-        """Set turn request status with CAS pattern (private method)."""
-        return await self.set_turn_request_state(turn_id, status, message, extra_fields, expected_turn_id)
-
-    async def set_turn_request_state(
-        self: "MUDAgentWorker",
-        turn_id: str,
-        status: Union[str, TurnRequestStatus],
-        message: Optional[str] = None,
-        extra_fields: Optional[dict] = None,
-        expected_turn_id: Optional[str] = None,
-    ) -> bool:
-        """Set turn request status with CAS (Compare-And-Swap) pattern.
-
-        Uses Lua script for atomic update. If expected_turn_id is provided,
-        only updates if current turn_id matches (preventing race conditions).
+        """Create a new turn_request from a MUDTurnRequest object.
 
         Args:
-            turn_id: Turn ID to set
-            status: New status (TurnRequestStatus enum or string)
-            message: Optional status message
-            extra_fields: Optional additional fields to set
-            expected_turn_id: If provided, only update if current turn_id matches (CAS)
+            turn_request: Complete MUDTurnRequest object with all required fields
 
         Returns:
-            True if update succeeded, False if CAS check failed
+            True if created, False if turn_request already exists
         """
-
         key = RedisKeys.agent_turn_request(self.config.agent_id)
 
-        # Lua script for atomic CAS
+        # Lua script to create only if key doesn't exist
+        lua_script = """
+            local key = KEYS[1]
+
+            -- Fail if key already exists
+            if redis.call('EXISTS', key) == 1 then
+                return 0
+            end
+
+            -- Create with all fields (passed as key-value pairs)
+            for i = 1, #ARGV, 2 do
+                redis.call('HSET', key, ARGV[i], ARGV[i+1])
+            end
+
+            return 1
+        """
+
+        # Convert MUDTurnRequest to field list
+        fields = []
+        for field_name, field_value in turn_request.model_dump().items():
+            if field_value is not None:
+                # Convert to string for Redis
+                if isinstance(field_value, datetime):
+                    value_str = field_value.isoformat()
+                elif isinstance(field_value, (TurnRequestStatus, TurnReason)):
+                    value_str = field_value.value
+                else:
+                    value_str = str(field_value)
+                fields.extend([field_name, value_str])
+
+        result = await self.redis.eval(lua_script, 1, key, *fields)
+
+        return result == 1
+
+    async def update_turn_request(
+        self: "MUDAgentWorker",
+        turn_request: MUDTurnRequest,
+        expected_turn_id: str
+    ) -> bool:
+        """Update an existing turn_request with CAS.
+
+        Args:
+            turn_request: Complete MUDTurnRequest object with updated fields
+            expected_turn_id: The turn_id that must match for update to succeed (CAS)
+
+        Returns:
+            True if updated, False if CAS failed
+        """
+        key = RedisKeys.agent_turn_request(self.config.agent_id)
+
+        # Lua script for atomic CAS update
         lua_script = """
             local key = KEYS[1]
             local expected_turn_id = ARGV[1]
-            local new_turn_id = ARGV[2]
 
-            -- If CAS check requested, verify current turn_id matches
-            if expected_turn_id ~= "" then
-                local current = redis.call('HGET', key, 'turn_id')
-                if current ~= expected_turn_id then
-                    return 0  -- CAS failed
-                end
+            -- Verify turn_id matches (CAS check)
+            local current = redis.call('HGET', key, 'turn_id')
+            if current ~= expected_turn_id then
+                return 0  -- CAS failed
             end
 
-            -- Update fields (passed as key-value pairs starting at ARGV[3])
-            for i = 3, #ARGV, 2 do
+            -- Update fields (passed as key-value pairs starting at ARGV[2])
+            for i = 2, #ARGV, 2 do
                 redis.call('HSET', key, ARGV[i], ARGV[i+1])
             end
 
             return 1  -- Success
         """
 
-        # Build field updates (convert enum to string value for Redis)
-        status_str = status.value if isinstance(status, TurnRequestStatus) else status
-        fields = [
-            "turn_id", turn_id,
-            "status", status_str,
-            "heartbeat_at", _utc_now().isoformat()
-        ]
-        if message:
-            fields.extend(["message", message])
-        if extra_fields:
-            for k, v in extra_fields.items():
-                fields.extend([k, str(v)])
+        # Convert MUDTurnRequest to field list
+        fields = []
+        for field_name, field_value in turn_request.model_dump().items():
+            if field_value is not None:
+                # Convert to string for Redis
+                if isinstance(field_value, datetime):
+                    value_str = field_value.isoformat()
+                elif isinstance(field_value, (TurnRequestStatus, TurnReason)):
+                    value_str = field_value.value
+                else:
+                    value_str = str(field_value)
+                fields.extend([field_name, value_str])
 
         # Execute CAS update
         result = await self.redis.eval(
             lua_script,
             1,  # number of keys
             key,
-            expected_turn_id or "",  # Empty string = no CAS check
-            turn_id,
+            expected_turn_id,
             *fields
         )
 
         if result == 1:
-            # Success - conditionally update TTL (0 = no TTL)
-            if self.config.turn_request_ttl_seconds > 0:
-                await self.redis.expire(key, self.config.turn_request_ttl_seconds)
             return True
         else:
             logger.warning(f"CAS failed: expected turn_id {expected_turn_id}, update aborted")
@@ -129,7 +151,6 @@ class TurnRequestMixin:
 
     async def atomic_heartbeat_update(
         self: "MUDAgentWorker",
-        update_ttl: bool = True,
     ) -> int:
         """Atomically update heartbeat timestamp with validation.
 
@@ -137,13 +158,9 @@ class TurnRequestMixin:
         1. Check key exists
         2. Verify required fields (status, turn_id) are present
         3. Update heartbeat_at timestamp
-        4. Optionally refresh TTL
 
         This prevents TOCTOU race conditions where the key could be deleted
         between EXISTS check and HSET write, which would create a partial hash.
-
-        Args:
-            update_ttl: If True, refresh TTL after updating heartbeat
 
         Returns:
             1: Success - heartbeat updated
@@ -156,7 +173,6 @@ class TurnRequestMixin:
         lua_script = """
             local key = KEYS[1]
             local heartbeat_at = ARGV[1]
-            local ttl = ARGV[2]
 
             -- Check key exists
             if redis.call('EXISTS', key) == 0 then
@@ -174,24 +190,15 @@ class TurnRequestMixin:
             -- Update heartbeat
             redis.call('HSET', key, 'heartbeat_at', heartbeat_at)
 
-            -- Optional TTL refresh
-            if ttl ~= "" then
-                redis.call('EXPIRE', key, tonumber(ttl))
-            end
-
             return 1
         """
-
-        # Build arguments
-        ttl_arg = str(self.config.turn_request_ttl_seconds) if update_ttl and self.config.turn_request_ttl_seconds > 0 else ""
 
         # Execute atomic update
         result = await self.redis.eval(
             lua_script,
             1,  # number of keys
             key,
-            _utc_now().isoformat(),
-            ttl_arg
+            _utc_now().isoformat()
         )
 
         return result
@@ -214,7 +221,7 @@ class TurnRequestMixin:
                     return
 
                 # Atomic heartbeat update with validation
-                result = await self.atomic_heartbeat_update(update_ttl=True)
+                result = await self.atomic_heartbeat_update()
 
                 if result == 0:
                     # Key doesn't exist (turn completed or deleted during shutdown)

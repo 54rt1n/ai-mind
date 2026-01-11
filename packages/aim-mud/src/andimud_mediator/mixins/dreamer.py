@@ -6,7 +6,7 @@ import logging
 from typing import Optional
 import uuid
 
-from aim_mud_types import MUDEvent, EventType, RedisKeys, TurnRequestStatus, TurnReason
+from aim_mud_types import MUDEvent, EventType, RedisKeys, MUDTurnRequest, TurnRequestStatus, TurnReason
 from aim_mud_types.helper import _utc_now
 
 from ..patterns import (
@@ -70,69 +70,44 @@ class DreamerMixin:
             logger.error(f"@{cmd_name}: Missing required parameter 'conversation_id'")
             return False
 
-        # Block if agent is busy or crashed
+        # Block if agent is busy, crashed, or retrying
         if status == TurnRequestStatus.CRASHED:
             logger.warning(f"@{cmd_name}: Agent '{agent_id}' is crashed")
             return False
 
-        if status in (TurnRequestStatus.ASSIGNED, TurnRequestStatus.IN_PROGRESS, TurnRequestStatus.ABORT_REQUESTED):
-            logger.warning(f"@{cmd_name}: Agent '{agent_id}' is busy (status={status})")
+        if status in (TurnRequestStatus.ASSIGNED, TurnRequestStatus.IN_PROGRESS,
+                      TurnRequestStatus.ABORT_REQUESTED, TurnRequestStatus.EXECUTING,
+                      TurnRequestStatus.RETRY):
+            logger.warning(f"@{cmd_name}: Agent '{agent_id}' is busy (status={status.value})")
             return False
 
-        # Create dream turn assignment
-        turn_id = str(uuid.uuid4())
-        assigned_at = _utc_now().isoformat()
-        current_turn_id = current.turn_id or ""
+        # Build complete MUDTurnRequest with dream fields
         # Dreams get 30 minutes (1800000ms) - they're slow pipeline operations
-        deadline_ms = "1800000"
-
-        # Use extended Lua script to set dream-specific fields
-        lua_script = """
-            local key = KEYS[1]
-            local expected_turn_id = ARGV[1]
-            local expected_status = ARGV[2]
-
-            -- Check current state matches expectations
-            local current_turn_id = redis.call('HGET', key, 'turn_id')
-            local current_status = redis.call('HGET', key, 'status')
-
-            if current_turn_id ~= expected_turn_id or current_status ~= expected_status then
-                return 0  -- State changed, CAS failed
-            end
-
-            -- Atomically assign dream turn
-            redis.call('HSET', key, 'turn_id', ARGV[3])
-            redis.call('HSET', key, 'status', ARGV[4])
-            redis.call('HSET', key, 'reason', ARGV[5])
-            redis.call('HSET', key, 'assigned_at', ARGV[6])
-            redis.call('HSET', key, 'heartbeat_at', ARGV[6])
-            redis.call('HSET', key, 'deadline_ms', ARGV[7])
-            redis.call('HSET', key, 'attempt_count', '0')
-            redis.call('HSET', key, 'scenario', ARGV[8])
-            redis.call('HSET', key, 'conversation_id', ARGV[9])
-            redis.call('HSET', key, 'guidance', ARGV[10])
-
-            return 1  -- Success
-        """
-
-        result = await self.redis.eval(
-            lua_script,
-            1,  # number of keys
-            RedisKeys.agent_turn_request(agent_id),
-            current_turn_id or "",
-            status.value if isinstance(status, TurnRequestStatus) else status,  # Convert enum to string
-            turn_id,
-            TurnRequestStatus.ASSIGNED.value,
-            TurnReason.DREAM.value,
-            assigned_at,
-            deadline_ms,
-            scenario,  # Already validated above
-            conversation_id,  # Already validated above
-            guidance or "",  # Optional field
+        turn_request = MUDTurnRequest(
+            turn_id=str(uuid.uuid4()),
+            sequence_id=await self._next_sequence_id(),  # CRITICAL - was missing
+            status=TurnRequestStatus.ASSIGNED,
+            reason=TurnReason.DREAM,
+            assigned_at=_utc_now(),
+            heartbeat_at=_utc_now(),
+            deadline_ms="1800000",
+            attempt_count=0,
+            scenario=scenario,
+            conversation_id=conversation_id,
+            guidance=guidance,
         )
 
-        if result == 1:
-            # CAS succeeded - conditionally set TTL (0 = no TTL)
+        # Use RedisMUDClient for atomic CAS update
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
+        success = await client.update_turn_request(
+            agent_id,
+            turn_request,
+            expected_turn_id=current.turn_id
+        )
+
+        if success:
+            # Conditionally set TTL (0 = no TTL)
             if self.config.turn_request_ttl_seconds > 0:
                 await self.redis.expire(
                     RedisKeys.agent_turn_request(agent_id),
@@ -140,7 +115,8 @@ class DreamerMixin:
                 )
             logger.info(
                 f"@{cmd_name}: Assigned dream turn to {agent_id} "
-                f"(scenario={scenario}, conversation_id={conversation_id}, "
+                f"(sequence_id={turn_request.sequence_id}, "
+                f"scenario={scenario}, conversation_id={conversation_id}, "
                 f"guidance={guidance or 'none'})"
             )
             return True
@@ -200,69 +176,44 @@ class DreamerMixin:
             logger.error(f"@{cmd_name}: Missing required parameter 'scenario'")
             return False
 
-        # Block if agent is busy or crashed
+        # Block if agent is busy, crashed, or retrying
         if status == TurnRequestStatus.CRASHED:
             logger.warning(f"@{cmd_name}: Agent '{agent_id}' is crashed")
             return False
 
-        if status in (TurnRequestStatus.ASSIGNED, TurnRequestStatus.IN_PROGRESS, TurnRequestStatus.ABORT_REQUESTED):
-            logger.warning(f"@{cmd_name}: Agent '{agent_id}' is busy (status={status})")
+        if status in (TurnRequestStatus.ASSIGNED, TurnRequestStatus.IN_PROGRESS,
+                      TurnRequestStatus.ABORT_REQUESTED, TurnRequestStatus.EXECUTING,
+                      TurnRequestStatus.RETRY):
+            logger.warning(f"@{cmd_name}: Agent '{agent_id}' is busy (status={status.value})")
             return False
 
-        # Create dream turn assignment
-        turn_id = str(uuid.uuid4())
-        assigned_at = _utc_now().isoformat()
-        current_turn_id = current.turn_id or ""
+        # Build complete MUDTurnRequest with dream fields
         # Dreams get 30 minutes (1800000ms) - they're slow pipeline operations
-        deadline_ms = "1800000"
-
-        # Use extended Lua script to set dream-specific fields
-        lua_script = """
-            local key = KEYS[1]
-            local expected_turn_id = ARGV[1]
-            local expected_status = ARGV[2]
-
-            -- Check current state matches expectations
-            local current_turn_id = redis.call('HGET', key, 'turn_id')
-            local current_status = redis.call('HGET', key, 'status')
-
-            if current_turn_id ~= expected_turn_id or current_status ~= expected_status then
-                return 0  -- State changed, CAS failed
-            end
-
-            -- Atomically assign dream turn
-            redis.call('HSET', key, 'turn_id', ARGV[3])
-            redis.call('HSET', key, 'status', ARGV[4])
-            redis.call('HSET', key, 'reason', ARGV[5])
-            redis.call('HSET', key, 'assigned_at', ARGV[6])
-            redis.call('HSET', key, 'heartbeat_at', ARGV[6])
-            redis.call('HSET', key, 'deadline_ms', ARGV[7])
-            redis.call('HSET', key, 'attempt_count', '0')
-            redis.call('HSET', key, 'scenario', ARGV[8])
-            redis.call('HSET', key, 'query', ARGV[9])
-            redis.call('HSET', key, 'guidance', ARGV[10])
-
-            return 1  -- Success
-        """
-
-        result = await self.redis.eval(
-            lua_script,
-            1,  # number of keys
-            RedisKeys.agent_turn_request(agent_id),
-            current_turn_id or "",
-            status.value if isinstance(status, TurnRequestStatus) else status,  # Convert enum to string
-            turn_id,
-            TurnRequestStatus.ASSIGNED.value,
-            TurnReason.DREAM.value,
-            assigned_at,
-            deadline_ms,
-            scenario,  # Already validated above
-            query or "",  # Optional field
-            guidance or "",  # Optional field
+        turn_request = MUDTurnRequest(
+            turn_id=str(uuid.uuid4()),
+            sequence_id=await self._next_sequence_id(),  # CRITICAL - was missing
+            status=TurnRequestStatus.ASSIGNED,
+            reason=TurnReason.DREAM,
+            assigned_at=_utc_now(),
+            heartbeat_at=_utc_now(),
+            deadline_ms="1800000",
+            attempt_count=0,
+            scenario=scenario,
+            query=query,
+            guidance=guidance,
         )
 
-        if result == 1:
-            # CAS succeeded - conditionally set TTL (0 = no TTL)
+        # Use RedisMUDClient for atomic CAS update
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
+        success = await client.update_turn_request(
+            agent_id,
+            turn_request,
+            expected_turn_id=current.turn_id
+        )
+
+        if success:
+            # Conditionally set TTL (0 = no TTL)
             if self.config.turn_request_ttl_seconds > 0:
                 await self.redis.expire(
                     RedisKeys.agent_turn_request(agent_id),
@@ -270,7 +221,8 @@ class DreamerMixin:
                 )
             logger.info(
                 f"@{cmd_name}: Assigned dream turn to {agent_id} "
-                f"(scenario={scenario}, query={query or 'none'}, "
+                f"(sequence_id={turn_request.sequence_id}, "
+                f"scenario={scenario}, query={query or 'none'}, "
                 f"guidance={guidance or 'none'})"
             )
             return True
@@ -302,21 +254,22 @@ class DreamerMixin:
             logger.warning(f"@dreamer: Agent '{agent_id}' not registered")
             return False
 
-        key = RedisKeys.agent_dreamer(agent_id)
+        # Use RedisMUDClient for updates
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
 
         # Get current state to check if first enable
-        current = await self.redis.hgetall(key)
+        current = await client.get_dreamer_state(agent_id)
 
-        mapping: dict[str, str] = {
-            "enabled": "true" if enabled else "false",
-        }
+        # Build fields to update
+        fields = {"enabled": enabled}
 
         # If enabling and no existing thresholds, set defaults
         if enabled and not current:
-            mapping["idle_threshold_seconds"] = "3600"
-            mapping["token_threshold"] = "10000"
+            fields["idle_threshold_seconds"] = 3600
+            fields["token_threshold"] = 10000
 
-        await self.redis.hset(key, mapping=mapping)
+        await client.update_dreamer_state_fields(agent_id, **fields)
 
         logger.info(f"@dreamer: Set {agent_id} dreamer enabled={enabled}")
         return True

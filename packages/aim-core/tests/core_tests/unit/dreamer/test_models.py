@@ -6,7 +6,7 @@ import pytest
 from datetime import datetime, timezone
 from pydantic import ValidationError
 
-from aim.dreamer.models import (
+from aim.dreamer.core.models import (
     StepStatus,
     StepConfig,
     StepOutput,

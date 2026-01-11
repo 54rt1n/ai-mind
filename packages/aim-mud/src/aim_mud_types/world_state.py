@@ -18,16 +18,6 @@ class InventoryItem(BaseModel):
     quantity: int = 1
     tags: list[str] = Field(default_factory=list)
 
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "InventoryItem":
-        return cls(
-            item_id=data.get("item_id", ""),
-            name=data.get("name", ""),
-            description=data.get("description", ""),
-            quantity=data.get("quantity", 1),
-            tags=data.get("tags", []) or [],
-        )
-
 
 class WhoEntry(BaseModel):
     """An entry in the who list."""
@@ -36,15 +26,6 @@ class WhoEntry(BaseModel):
     status: str = ""
     location: str = ""
     is_self: bool = False
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "WhoEntry":
-        return cls(
-            name=data.get("name", ""),
-            status=data.get("status", ""),
-            location=data.get("location", ""),
-            is_self=data.get("is_self", False),
-        )
 
 
 class WorldState(BaseModel):
@@ -56,43 +37,6 @@ class WorldState(BaseModel):
     who: list[WhoEntry] = Field(default_factory=list)
     time: Optional[str] = None
     home: Optional[str] = None
-
-    @classmethod
-    def from_dict(cls, data: Optional[dict[str, Any]]) -> "WorldState":
-        if not data:
-            return cls()
-
-        room_state = data.get("room_state")
-        if isinstance(room_state, dict):
-            room_state = RoomState.from_dict(room_state)
-
-        entities = data.get("entities_present", [])
-        entities_present = [
-            EntityState.from_dict(e) for e in entities if isinstance(e, dict)
-        ]
-
-        inventory_data = data.get("inventory", [])
-        inventory = [
-            InventoryItem.from_dict(item)
-            for item in inventory_data
-            if isinstance(item, dict)
-        ]
-
-        who_data = data.get("who", [])
-        who = [
-            WhoEntry.from_dict(entry)
-            for entry in who_data
-            if isinstance(entry, dict)
-        ]
-
-        return cls(
-            room_state=room_state,
-            entities_present=entities_present,
-            inventory=inventory,
-            who=who,
-            time=data.get("time"),
-            home=data.get("home"),
-        )
 
     def to_xml(self, include_self: bool = False) -> str:
         """Render the world state as an XML string."""

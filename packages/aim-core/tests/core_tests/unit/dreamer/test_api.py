@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import pandas as pd
 import uuid
 
-from aim.dreamer.api import (
+from aim.dreamer.server.api import (
     generate_pipeline_id,
     run_seed_actions,
     start_pipeline,
@@ -19,7 +19,7 @@ from aim.dreamer.api import (
     PipelineStatus,
     ResumeResult,
 )
-from aim.dreamer.models import (
+from aim.dreamer.core.models import (
     PipelineState,
     Scenario,
     ScenarioContext,
@@ -28,8 +28,8 @@ from aim.dreamer.models import (
     StepStatus,
     MemoryAction,
 )
-from aim.dreamer.state import StateStore
-from aim.dreamer.scheduler import Scheduler
+from aim.dreamer.server.state import StateStore
+from aim.dreamer.server.scheduler import Scheduler
 from aim.config import ChatConfig
 
 
@@ -289,11 +289,11 @@ async def test_run_seed_actions_search_memories():
 @pytest.mark.asyncio
 async def test_start_pipeline_success(mock_config, mock_state_store, mock_scheduler, simple_scenario):
     """Test successful pipeline start."""
-    with patch('aim.dreamer.api.load_scenario') as mock_load_scenario, \
-         patch('aim.dreamer.api.ConversationModel') as mock_cvm_class, \
-         patch('aim.dreamer.api.Roster') as mock_roster_class, \
-         patch('aim.dreamer.api.LanguageModelV2') as mock_model_class, \
-         patch('aim.dreamer.api.run_seed_actions') as mock_run_seed:
+    with patch('aim.dreamer.server.api.load_scenario') as mock_load_scenario, \
+         patch('aim.dreamer.server.api.ConversationModel') as mock_cvm_class, \
+         patch('aim.dreamer.server.api.Roster') as mock_roster_class, \
+         patch('aim.dreamer.server.api.LanguageModelV2') as mock_model_class, \
+         patch('aim.dreamer.server.api.run_seed_actions') as mock_run_seed:
 
         # Setup mocks
         mock_load_scenario.return_value = simple_scenario
@@ -350,10 +350,10 @@ async def test_start_pipeline_success(mock_config, mock_state_store, mock_schedu
 @pytest.mark.asyncio
 async def test_start_pipeline_model_not_found(mock_config, mock_state_store, mock_scheduler, simple_scenario):
     """Test start_pipeline with invalid model name."""
-    with patch('aim.dreamer.api.load_scenario') as mock_load_scenario, \
-         patch('aim.dreamer.api.ConversationModel') as mock_cvm_class, \
-         patch('aim.dreamer.api.Roster') as mock_roster_class, \
-         patch('aim.dreamer.api.LanguageModelV2') as mock_model_class:
+    with patch('aim.dreamer.server.api.load_scenario') as mock_load_scenario, \
+         patch('aim.dreamer.server.api.ConversationModel') as mock_cvm_class, \
+         patch('aim.dreamer.server.api.Roster') as mock_roster_class, \
+         patch('aim.dreamer.server.api.LanguageModelV2') as mock_model_class:
 
         # Setup mocks
         mock_load_scenario.return_value = simple_scenario
@@ -480,7 +480,7 @@ async def test_get_status_failed_pipeline(mock_state_store, simple_scenario, moc
 @pytest.mark.asyncio
 async def test_cancel_pipeline_success(mock_state_store, mock_pipeline_state, simple_scenario):
     """Test successful pipeline cancellation."""
-    with patch('aim.dreamer.api.load_scenario') as mock_load_scenario:
+    with patch('aim.dreamer.server.api.load_scenario') as mock_load_scenario:
         # Setup mocks
         mock_state_store.load_state.return_value = mock_pipeline_state
         mock_load_scenario.return_value = simple_scenario
@@ -522,7 +522,7 @@ async def test_cancel_pipeline_not_found(mock_state_store):
 @pytest.mark.asyncio
 async def test_resume_pipeline_success(mock_state_store, mock_scheduler, mock_pipeline_state, simple_scenario, mock_cvm):
     """Test successful pipeline resume."""
-    with patch('aim.dreamer.api.load_scenario') as mock_load_scenario:
+    with patch('aim.dreamer.server.api.load_scenario') as mock_load_scenario:
         # Setup mocks
         mock_state_store.load_state.return_value = mock_pipeline_state
         mock_load_scenario.return_value = simple_scenario
@@ -614,7 +614,7 @@ async def test_resume_complete_pipeline_with_new_step(mock_state_store, mock_sch
         },
     )
 
-    with patch('aim.dreamer.api.load_scenario') as mock_load_scenario:
+    with patch('aim.dreamer.server.api.load_scenario') as mock_load_scenario:
         # Setup mocks
         # Pipeline state shows only step1, step2 were completed
         mock_pipeline_state.completed_steps = ["step1", "step2"]
@@ -680,7 +680,7 @@ async def test_resume_complete_pipeline_with_new_step(mock_state_store, mock_sch
 @pytest.mark.asyncio
 async def test_resume_pipeline_resets_steps_with_missing_documents(mock_state_store, mock_scheduler, mock_pipeline_state, simple_scenario, mock_cvm):
     """Test that resume_pipeline resets COMPLETE steps when their documents are missing from CVM."""
-    with patch('aim.dreamer.api.load_scenario') as mock_load_scenario:
+    with patch('aim.dreamer.server.api.load_scenario') as mock_load_scenario:
         # Setup mocks
         mock_pipeline_state.completed_steps = ["step1"]
         mock_pipeline_state.step_doc_ids = {"step1": "doc-step1"}
@@ -725,7 +725,7 @@ async def test_resume_pipeline_resets_steps_with_missing_documents(mock_state_st
 @pytest.mark.asyncio
 async def test_resume_pipeline_enqueues_after_document_verification(mock_state_store, mock_scheduler, mock_pipeline_state, simple_scenario, mock_cvm):
     """Test that resume_pipeline DOES enqueue steps after verifying documents."""
-    with patch('aim.dreamer.api.load_scenario') as mock_load_scenario:
+    with patch('aim.dreamer.server.api.load_scenario') as mock_load_scenario:
         # Setup mocks
         mock_pipeline_state.completed_steps = []
         mock_pipeline_state.step_doc_ids = {}
@@ -762,7 +762,7 @@ async def test_resume_pipeline_enqueues_after_document_verification(mock_state_s
 @pytest.mark.asyncio
 async def test_refresh_pipeline_does_not_enqueue(mock_state_store, mock_scheduler, mock_pipeline_state, simple_scenario, mock_cvm):
     """Test that refresh_pipeline does NOT enqueue any steps - it only syncs state."""
-    with patch('aim.dreamer.api.load_scenario') as mock_load_scenario:
+    with patch('aim.dreamer.server.api.load_scenario') as mock_load_scenario:
         # Setup mocks
         mock_pipeline_state.completed_steps = ["step1"]
         mock_pipeline_state.step_doc_ids = {"step1": "doc-step1"}
@@ -799,7 +799,7 @@ async def test_refresh_pipeline_does_not_enqueue(mock_state_store, mock_schedule
 @pytest.mark.asyncio
 async def test_refresh_pipeline_resets_steps_with_missing_documents(mock_state_store, mock_scheduler, mock_pipeline_state, simple_scenario, mock_cvm):
     """Test that refresh_pipeline resets COMPLETE steps when their documents are missing from CVM."""
-    with patch('aim.dreamer.api.load_scenario') as mock_load_scenario:
+    with patch('aim.dreamer.server.api.load_scenario') as mock_load_scenario:
         # Setup mocks
         mock_pipeline_state.completed_steps = ["step1"]
         mock_pipeline_state.step_doc_ids = {"step1": "doc-step1"}
@@ -892,7 +892,7 @@ async def test_refresh_pipeline_adds_new_steps_without_enqueue(mock_state_store,
         },
     )
 
-    with patch('aim.dreamer.api.load_scenario') as mock_load_scenario:
+    with patch('aim.dreamer.server.api.load_scenario') as mock_load_scenario:
         # Setup mocks
         mock_pipeline_state.completed_steps = ["step1", "step2"]
         mock_pipeline_state.step_doc_ids = {"step1": "doc-step1", "step2": "doc-step2"}
@@ -948,8 +948,8 @@ async def test_list_pipelines_empty(mock_state_store):
 @pytest.mark.asyncio
 async def test_list_pipelines_with_results(mock_state_store, mock_pipeline_state, simple_scenario):
     """Test list_pipelines with results."""
-    with patch('aim.dreamer.api.load_scenario') as mock_load_scenario, \
-         patch('aim.dreamer.api.get_status') as mock_get_status:
+    with patch('aim.dreamer.server.api.load_scenario') as mock_load_scenario, \
+         patch('aim.dreamer.server.api.get_status') as mock_get_status:
 
         # Mock scan result
         keys = [
@@ -1001,8 +1001,8 @@ async def test_list_pipelines_with_results(mock_state_store, mock_pipeline_state
 @pytest.mark.asyncio
 async def test_list_pipelines_with_status_filter(mock_state_store, mock_pipeline_state, simple_scenario):
     """Test list_pipelines with status filter."""
-    with patch('aim.dreamer.api.load_scenario') as mock_load_scenario, \
-         patch('aim.dreamer.api.get_status') as mock_get_status:
+    with patch('aim.dreamer.server.api.load_scenario') as mock_load_scenario, \
+         patch('aim.dreamer.server.api.get_status') as mock_get_status:
 
         # Mock scan result
         keys = [
@@ -1057,7 +1057,7 @@ async def test_list_pipelines_with_status_filter(mock_state_store, mock_pipeline
 @pytest.fixture
 def mock_dialogue_state():
     """Create a mock DialogueState."""
-    from aim.dreamer.dialogue.models import DialogueState, DialogueTurn
+    from aim.dreamer.core.dialogue.models import DialogueState, DialogueTurn
     from datetime import datetime, timezone
 
     return DialogueState(
@@ -1089,7 +1089,7 @@ async def test_resume_dialogue_pipeline_success(mock_state_store, mock_scheduler
     """Test successful dialogue pipeline resume."""
     from aim.conversation.message import ConversationMessage
 
-    with patch('aim.dreamer.api.load_scenario') as mock_load_scenario:
+    with patch('aim.dreamer.server.api.load_scenario') as mock_load_scenario:
         # Setup mocks
         mock_state_store.get_state_type.return_value = 'dialogue'
         mock_state_store.load_dialogue_state.return_value = mock_dialogue_state
@@ -1130,7 +1130,7 @@ async def test_resume_dialogue_pipeline_success(mock_state_store, mock_scheduler
 @pytest.mark.asyncio
 async def test_resume_dialogue_pipeline_resets_missing_docs(mock_state_store, mock_scheduler, mock_dialogue_state, simple_scenario, mock_cvm):
     """Test dialogue pipeline resume resets steps with missing documents."""
-    with patch('aim.dreamer.api.load_scenario') as mock_load_scenario:
+    with patch('aim.dreamer.server.api.load_scenario') as mock_load_scenario:
         # Setup mocks
         mock_state_store.get_state_type.return_value = 'dialogue'
         mock_state_store.load_dialogue_state.return_value = mock_dialogue_state
@@ -1167,7 +1167,7 @@ async def test_refresh_dialogue_pipeline_success(mock_state_store, mock_schedule
     """Test successful dialogue pipeline refresh."""
     from aim.conversation.message import ConversationMessage
 
-    with patch('aim.dreamer.api.load_scenario') as mock_load_scenario:
+    with patch('aim.dreamer.server.api.load_scenario') as mock_load_scenario:
         # Setup mocks
         mock_state_store.get_state_type.return_value = 'dialogue'
         mock_state_store.load_dialogue_state.return_value = mock_dialogue_state
@@ -1245,7 +1245,7 @@ async def test_refresh_dialogue_pipeline_adds_new_steps(mock_state_store, mock_s
         },
     )
 
-    with patch('aim.dreamer.api.load_scenario') as mock_load_scenario:
+    with patch('aim.dreamer.server.api.load_scenario') as mock_load_scenario:
         # Setup mocks
         mock_state_store.get_state_type.return_value = 'dialogue'
         mock_state_store.load_dialogue_state.return_value = mock_dialogue_state

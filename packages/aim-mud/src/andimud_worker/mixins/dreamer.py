@@ -106,7 +106,7 @@ class DreamerMixin:
 
             Uses atomic update to prevent partial hash creation during shutdown.
             """
-            result = await self.atomic_heartbeat_update(update_ttl=True)
+            result = await self.atomic_heartbeat_update()
 
             if result == 0:
                 logger.debug("Turn request deleted during dream, stopping heartbeat")
@@ -136,25 +136,23 @@ class DreamerMixin:
         Args:
             result: DreamResult from completed pipeline
         """
-        key = RedisKeys.agent_dreamer(self.config.agent_id)
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
+
         now = datetime.now(timezone.utc).isoformat()
 
         if result.success:
-            await self.redis.hset(
-                key,
-                mapping={
-                    "last_dream_at": now,
-                    "last_dream_scenario": result.scenario or "",
-                    "pending_pipeline_id": "",
-                },
+            await client.update_dreamer_state_fields(
+                self.config.agent_id,
+                last_dream_at=now,
+                last_dream_scenario=result.scenario or "",
+                pending_pipeline_id="",
             )
         else:
             # On failure, just clear pending_pipeline_id
-            await self.redis.hset(
-                key,
-                mapping={
-                    "pending_pipeline_id": "",
-                },
+            await client.update_dreamer_state_fields(
+                self.config.agent_id,
+                pending_pipeline_id="",
             )
 
     async def check_auto_dream_triggers(
@@ -170,40 +168,29 @@ class DreamerMixin:
         Returns:
             DreamRequest if triggers met, None otherwise
         """
-        key = RedisKeys.agent_dreamer(self.config.agent_id)
-        state = await self.redis.hgetall(key)
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
+
+        state = await client.get_dreamer_state(self.config.agent_id)
 
         if not state:
             return None
 
-        # Helper to get value from state dict (handles both bytes and string keys)
-        def get_state(field: str, default: str = "") -> str:
-            # Try bytes key first (real Redis), then string key (tests)
-            value = state.get(field.encode(), state.get(field, default.encode()))
-            if isinstance(value, bytes):
-                return value.decode()
-            return str(value) if value else default
-
         # Check if dreamer is enabled
-        enabled = get_state("enabled", "false") == "true"
-        if not enabled:
+        if not state.enabled:
             return None
 
         # Check idle time threshold
-        last_dream_at = get_state("last_dream_at", "")
-        idle_threshold = int(get_state("idle_threshold_seconds", "3600"))
-
-        if last_dream_at:
-            last = datetime.fromisoformat(last_dream_at)
+        if state.last_dream_at:
+            last = datetime.fromisoformat(state.last_dream_at)
             elapsed = (datetime.now(timezone.utc) - last).total_seconds()
-            if elapsed < idle_threshold:
+            if elapsed < state.idle_threshold_seconds:
                 return None
 
         # Check token accumulation
-        token_threshold = int(get_state("token_threshold", "10000"))
         if self.conversation_manager:
             tokens = await self.conversation_manager.get_total_tokens()
-            if tokens < token_threshold:
+            if tokens < state.token_threshold:
                 return None
 
         # Triggers met - select a scenario

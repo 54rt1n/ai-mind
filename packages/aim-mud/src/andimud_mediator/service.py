@@ -88,7 +88,6 @@ class MediatorService(AgentsMixin, EventsMixin, DreamerMixin):
 
         # Auto-analysis state tracking
         self._last_auto_analysis_check: datetime = _utc_now()
-        self._auto_analysis_idle_start: Optional[datetime] = None
 
     async def _next_sequence_id(self) -> int:
         """Get next global sequence ID for event/turn ordering.

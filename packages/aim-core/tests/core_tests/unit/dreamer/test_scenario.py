@@ -9,13 +9,13 @@ from unittest.mock import Mock
 from jinja2 import UndefinedError, TemplateSyntaxError
 import yaml
 
-from aim.dreamer.scenario import (
+from aim.dreamer.core.scenario import (
     load_scenario,
     get_jinja_environment,
     render_template,
     build_template_context,
 )
-from aim.dreamer.models import (
+from aim.dreamer.core.models import (
     Scenario,
     PipelineState,
     StepDefinition,

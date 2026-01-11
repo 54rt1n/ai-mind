@@ -28,7 +28,7 @@ class AgentProfile(BaseModel):
     """
 
     agent_id: str
-    persona_id: str
+    persona_id: Optional[str] = None
     last_event_id: str = "0"
     last_action_id: Optional[str] = None
     conversation_id: Optional[str] = None
@@ -46,13 +46,15 @@ class RoomProfile(BaseModel):
         name: Room name
         desc: Room description
         room_state: Full room state (exits, etc.)
-        entities: Entities currently in the room
+        entities: Entities currently in the room (stored as 'entities_present' in Redis)
         updated_at: When profile was last updated
     """
+
+    model_config = {"populate_by_name": True}  # Allow both field name and alias
 
     room_id: str
     name: str = ""
     desc: str = ""
     room_state: Optional[RoomState] = None
-    entities: list[EntityState] = Field(default_factory=list)
+    entities: list[EntityState] = Field(default_factory=list, alias="entities_present")
     updated_at: datetime = Field(default_factory=_utc_now)

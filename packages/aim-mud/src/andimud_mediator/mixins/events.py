@@ -199,14 +199,14 @@ class EventsMixin:
             agents_to_notify = [a for a in agents_to_notify if a != actor_agent_id]
 
         # Filter out sleeping agents (they receive NO events while sleeping)
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
+
         sleeping_agents = []
         for agent_id in agents_to_notify:
-            agent_profile = await self.redis.hgetall(RedisKeys.agent_profile(agent_id))
-            is_sleeping_raw = agent_profile.get(b"is_sleeping") or agent_profile.get("is_sleeping")
-            if is_sleeping_raw:
-                is_sleeping = is_sleeping_raw.decode() if isinstance(is_sleeping_raw, bytes) else is_sleeping_raw
-                if is_sleeping.lower() == "true":
-                    sleeping_agents.append(agent_id)
+            is_sleeping = await client.get_agent_is_sleeping(agent_id)
+            if is_sleeping:
+                sleeping_agents.append(agent_id)
         agents_to_notify = [a for a in agents_to_notify if a not in sleeping_agents]
         if sleeping_agents:
             logger.debug(f"Filtered out sleeping agents: {sleeping_agents}")

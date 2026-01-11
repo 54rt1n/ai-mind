@@ -22,6 +22,7 @@ class TestGetTurnRequest:
             b"turn_id": b"turn123",
             b"reason": b"events",
             b"heartbeat_at": _utc_now().isoformat().encode(),
+            b"sequence_id": b"1",
         }
         test_worker.redis.hgetall = AsyncMock(return_value=expected)
 

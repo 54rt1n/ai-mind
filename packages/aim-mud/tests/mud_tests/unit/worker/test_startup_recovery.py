@@ -118,6 +118,7 @@ class TestTTLRemoval:
             b"turn_id": turn_id.encode(),
             b"status": b"ready",
             b"heartbeat_at": _utc_now().isoformat().encode(),
+            b"sequence_id": b"1",
         }
 
         # Use a shorter heartbeat interval for testing
@@ -161,6 +162,7 @@ class TestTTLRemoval:
             b"turn_id": turn_id.encode(),
             b"status": b"ready",
             b"heartbeat_at": _utc_now().isoformat().encode(),
+            b"sequence_id": b"1",
         }
 
         # Use a shorter heartbeat interval for testing
@@ -239,31 +241,32 @@ class TestStartupRecoveryBranch1:
 
 
 class TestStartupRecoveryBranch2:
-    """Tests for Branch 2: Problem states → convert to 'fail' with recovery."""
+    """Tests for Branch 2: Problem states → convert to 'retry' or 'fail' with recovery."""
 
     @pytest.mark.asyncio
-    async def test_in_progress_converts_to_fail_with_retry(self, worker_with_no_ttl, mock_redis_with_expire):
-        """When status='in_progress', convert to 'fail' with retry."""
+    async def test_in_progress_converts_to_retry(self, worker_with_no_ttl, mock_redis_with_expire):
+        """When status='in_progress', convert to 'retry' with backoff (below max attempts)."""
         # Setup: turn_request in "in_progress" state
         turn_id = str(uuid.uuid4())
         mock_redis_with_expire.hgetall.return_value = {
             b"turn_id": turn_id.encode(),
             b"status": b"in_progress",
             b"attempt_count": b"0",
+            b"sequence_id": b"1",
         }
         worker_with_no_ttl.session = None
 
         await worker_with_no_ttl._announce_presence()
 
-        # Verify eval was called to set fail state
+        # Verify eval was called to set retry state
         assert mock_redis_with_expire.eval.called
         lua_call = mock_redis_with_expire.eval.call_args
         args = lua_call[0][3:]  # Skip script, num_keys, key
 
-        # Verify status was set to "fail"
+        # Verify status was set to "retry" (not "fail")
         assert "status" in args
         status_idx = args.index("status")
-        assert args[status_idx + 1] == "fail"
+        assert args[status_idx + 1] == "retry"
 
         # Verify attempt_count was incremented to 1
         assert "attempt_count" in args
@@ -278,91 +281,127 @@ class TestStartupRecoveryBranch2:
         # Verify it's a valid ISO timestamp
         datetime.fromisoformat(next_attempt_at)
 
+        # Verify completed_at was set
+        assert "completed_at" in args
+        completed_at_idx = args.index("completed_at")
+        completed_at = args[completed_at_idx + 1]
+        assert completed_at != ""
+        datetime.fromisoformat(completed_at)
+
     @pytest.mark.asyncio
-    async def test_crashed_converts_to_fail_with_retry(self, worker_with_no_ttl, mock_redis_with_expire):
-        """When status='crashed', convert to 'fail' with retry."""
+    async def test_crashed_converts_to_retry(self, worker_with_no_ttl, mock_redis_with_expire):
+        """When status='crashed', convert to 'retry' with backoff (below max attempts)."""
         turn_id = str(uuid.uuid4())
         mock_redis_with_expire.hgetall.return_value = {
             b"turn_id": turn_id.encode(),
             b"status": b"crashed",
             b"attempt_count": b"1",
+            b"sequence_id": b"1",
         }
         worker_with_no_ttl.session = None
 
         await worker_with_no_ttl._announce_presence()
 
-        # Verify status was set to "fail"
+        # Verify status was set to "retry" (not "fail")
         lua_call = mock_redis_with_expire.eval.call_args
         args = lua_call[0][3:]
         assert "status" in args
         status_idx = args.index("status")
-        assert args[status_idx + 1] == "fail"
+        assert args[status_idx + 1] == "retry"
 
         # Verify attempt_count was incremented to 2
         assert "attempt_count" in args
         attempt_idx = args.index("attempt_count")
         assert args[attempt_idx + 1] == "2"
 
+        # Verify completed_at was set
+        assert "completed_at" in args
+        completed_at_idx = args.index("completed_at")
+        completed_at = args[completed_at_idx + 1]
+        assert completed_at != ""
+        datetime.fromisoformat(completed_at)
+
     @pytest.mark.asyncio
-    async def test_assigned_converts_to_fail_with_retry(self, worker_with_no_ttl, mock_redis_with_expire):
-        """When status='assigned', convert to 'fail' with retry."""
+    async def test_assigned_converts_to_retry(self, worker_with_no_ttl, mock_redis_with_expire):
+        """When status='assigned', convert to 'retry' with backoff (below max attempts)."""
         turn_id = str(uuid.uuid4())
         mock_redis_with_expire.hgetall.return_value = {
             b"turn_id": turn_id.encode(),
             b"status": b"assigned",
             b"attempt_count": b"0",
+            b"sequence_id": b"1",
         }
         worker_with_no_ttl.session = None
 
         await worker_with_no_ttl._announce_presence()
 
-        # Verify conversion to fail
+        # Verify conversion to retry (not fail)
         lua_call = mock_redis_with_expire.eval.call_args
         args = lua_call[0][3:]
         assert "status" in args
         status_idx = args.index("status")
-        assert args[status_idx + 1] == "fail"
+        assert args[status_idx + 1] == "retry"
+
+        # Verify completed_at was set
+        assert "completed_at" in args
 
     @pytest.mark.asyncio
-    async def test_abort_requested_converts_to_fail_with_retry(self, worker_with_no_ttl, mock_redis_with_expire):
-        """When status='abort_requested', convert to 'fail' with retry."""
+    async def test_abort_requested_converts_to_retry(self, worker_with_no_ttl, mock_redis_with_expire):
+        """When status='abort_requested', convert to 'retry' with backoff (below max attempts)."""
         turn_id = str(uuid.uuid4())
         mock_redis_with_expire.hgetall.return_value = {
             b"turn_id": turn_id.encode(),
             b"status": b"abort_requested",
             b"attempt_count": b"0",
+            b"sequence_id": b"1",
         }
         worker_with_no_ttl.session = None
 
         await worker_with_no_ttl._announce_presence()
 
-        # Verify conversion to fail
+        # Verify conversion to retry (not fail)
         lua_call = mock_redis_with_expire.eval.call_args
         args = lua_call[0][3:]
         assert "status" in args
         status_idx = args.index("status")
-        assert args[status_idx + 1] == "fail"
+        assert args[status_idx + 1] == "retry"
+
+        # Verify completed_at was set
+        assert "completed_at" in args
 
     @pytest.mark.asyncio
-    async def test_max_attempts_reached_no_retry(self, worker_with_no_ttl, mock_redis_with_expire):
-        """When max attempts reached, set fail with empty next_attempt_at."""
+    async def test_max_attempts_reached_sets_fail(self, worker_with_no_ttl, mock_redis_with_expire):
+        """When max attempts reached, set FAIL status with empty next_attempt_at."""
         worker_with_no_ttl.config.llm_failure_max_attempts = 3
         turn_id = str(uuid.uuid4())
         mock_redis_with_expire.hgetall.return_value = {
             b"turn_id": turn_id.encode(),
             b"status": b"in_progress",
             b"attempt_count": b"2",  # Will increment to 3
+            b"sequence_id": b"1",
         }
         worker_with_no_ttl.session = None
 
         await worker_with_no_ttl._announce_presence()
 
-        # Verify next_attempt_at is empty (no retry)
+        # Verify status was set to "fail" (not "retry")
         lua_call = mock_redis_with_expire.eval.call_args
         args = lua_call[0][3:]
+        assert "status" in args
+        status_idx = args.index("status")
+        assert args[status_idx + 1] == "fail"
+
+        # Verify next_attempt_at is empty (no retry)
         assert "next_attempt_at" in args
         next_attempt_idx = args.index("next_attempt_at")
         assert args[next_attempt_idx + 1] == ""
+
+        # Verify completed_at was set
+        assert "completed_at" in args
+        completed_at_idx = args.index("completed_at")
+        completed_at = args[completed_at_idx + 1]
+        assert completed_at != ""
+        datetime.fromisoformat(completed_at)
 
     @pytest.mark.asyncio
     async def test_exponential_backoff_calculation(self, worker_with_no_ttl, mock_redis_with_expire):
@@ -375,6 +414,7 @@ class TestStartupRecoveryBranch2:
             b"turn_id": turn_id.encode(),
             b"status": b"in_progress",
             b"attempt_count": b"1",  # Will increment to 2
+            b"sequence_id": b"1",
         }
         worker_with_no_ttl.session = None
 
@@ -408,6 +448,7 @@ class TestStartupRecoveryBranch2:
             b"turn_id": turn_id.encode(),
             b"status": b"in_progress",
             b"attempt_count": b"5",  # Will increment to 6, exponential would be huge
+            b"sequence_id": b"1",
         }
         worker_with_no_ttl.session = None
 
@@ -439,6 +480,7 @@ class TestStartupRecoveryBranch2:
             b"turn_id": turn_id.encode(),
             b"status": b"crashed",
             b"attempt_count": b"0",
+            b"sequence_id": b"1",
         }
         worker_with_no_ttl.session = None
 
@@ -458,6 +500,7 @@ class TestStartupRecoveryBranch3:
         mock_redis_with_expire.hgetall.return_value = {
             b"turn_id": turn_id.encode(),
             b"status": b"ready",
+            b"sequence_id": b"1",
         }
         mock_redis_with_expire.eval = AsyncMock(return_value=1)  # Success
         worker_with_no_ttl.session = None
@@ -484,6 +527,7 @@ class TestStartupRecoveryBranch3:
         mock_redis_with_expire.hgetall.return_value = {
             b"turn_id": turn_id.encode(),
             b"status": b"done",
+            b"sequence_id": b"1",
         }
         mock_redis_with_expire.eval = AsyncMock(return_value=1)  # Success
         worker_with_no_ttl.session = None
@@ -501,6 +545,7 @@ class TestStartupRecoveryBranch3:
             b"turn_id": turn_id.encode(),
             b"status": b"fail",
             b"next_attempt_at": (_utc_now() + timedelta(seconds=60)).isoformat(),
+            b"sequence_id": b"1",
         }
         mock_redis_with_expire.eval = AsyncMock(return_value=1)  # Success
         worker_with_no_ttl.session = None
@@ -520,6 +565,7 @@ class TestStartupRecoveryBranch3:
         mock_redis_with_expire.hgetall.return_value = {
             b"turn_id": turn_id.encode(),
             b"status": b"ready",
+            b"sequence_id": b"1",
         }
         mock_redis_with_expire.eval = AsyncMock(return_value=1)  # Success
         worker_with_no_ttl.session = None
@@ -540,6 +586,7 @@ class TestStartupRecoveryEdgeCases:
         mock_redis_with_expire.hgetall.return_value = {
             b"turn_id": turn_id.encode(),
             b"status": b"in_progress",
+            b"sequence_id": b"1",
             # No attempt_count field
         }
         worker_with_no_ttl.session = None
@@ -557,6 +604,7 @@ class TestStartupRecoveryEdgeCases:
         """When turn_id is missing, generate a new UUID."""
         mock_redis_with_expire.hgetall.return_value = {
             b"status": b"in_progress",
+            b"sequence_id": b"1",
             # No turn_id field
         }
         worker_with_no_ttl.session = None
@@ -580,6 +628,7 @@ class TestStartupRecoveryEdgeCases:
             b"turn_id": turn_id.encode(),
             b"status": b"crashed",
             b"attempt_count": b"0",
+            b"sequence_id": b"1",
         }
         worker_with_no_ttl.session = None
 
