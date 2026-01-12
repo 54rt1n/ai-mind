@@ -19,11 +19,13 @@ logger = logging.getLogger(__name__)
 class ModelSet:
     """Manages LLM providers for different roles/tasks.
 
-    Supports 10 model roles:
+    Supports 12 model roles:
     - default: Master fallback (always populated)
     - chat: General chat + MUD Phase 2 response
     - thought: Chat completions thought generation
-    - tool: MUD Phase 1 decision (fast tool selection)
+    - tool: General-purpose tool execution
+    - decision: MUD Phase 1 decision (fast tool selection)
+    - agent: MUD agent commands (structured actions)
     - code: Coding agent
     - codex: Librarian (technical/knowledge)
     - analysis: Coder (code analysis)
@@ -44,6 +46,8 @@ class ModelSet:
     chat_model: str
     thought_model: str
     tool_model: str
+    decision_model: str
+    agent_model: str
     code_model: str
     codex_model: str
     analysis_model: str
@@ -99,6 +103,8 @@ class ModelSet:
             chat_model=get_model("chat"),
             thought_model=get_model("thought", config.thought_model),
             tool_model=get_model("tool"),
+            decision_model=get_model("decision", config.decision_model),
+            agent_model=get_model("agent", config.agent_model),
             code_model=get_model("code"),
             codex_model=get_model("codex", config.codex_model),
             analysis_model=get_model("analysis"),
@@ -111,8 +117,8 @@ class ModelSet:
         """Get LLM provider for the specified role.
 
         Args:
-            role: One of the 10 roles (default, chat, thought, tool, code, codex,
-                  analysis, writing, research, planning)
+            role: One of the 12 roles (default, chat, thought, tool, decision, agent,
+                  code, codex, analysis, writing, research, planning)
 
         Returns:
             LLMProvider instance (cached)
@@ -154,7 +160,7 @@ class ModelSet:
         """Get the model name for the specified role.
 
         Args:
-            role: One of the 10 roles
+            role: One of the 12 roles
 
         Returns:
             Model name string
@@ -164,6 +170,8 @@ class ModelSet:
             "chat": self.chat_model,
             "thought": self.thought_model,
             "tool": self.tool_model,
+            "decision": self.decision_model,
+            "agent": self.agent_model,
             "code": self.code_model,
             "codex": self.codex_model,
             "analysis": self.analysis_model,

@@ -76,6 +76,8 @@ def get_env(dotenv_path: Optional[str] = None) -> Dict[str, str]:
         "discord_public_key": os.getenv("DISCORD_PUBLIC_KEY", None),
         "thought_model": os.getenv("THOUGHT_MODEL", None),
         "codex_model": os.getenv("CODEX_MODEL", None),
+        "decision_model": os.getenv("DECISION_MODEL", None),
+        "agent_model": os.getenv("AGENT_MODEL", None),
         "default_model": os.getenv("DEFAULT_MODEL", None),
     }
 
@@ -113,6 +115,8 @@ class ChatConfig:
 
     thought_model: Optional[str] = None
     codex_model: Optional[str] = None
+    decision_model: Optional[str] = None
+    agent_model: Optional[str] = None
     default_model: Optional[str] = None
 
     # Redis cache configuration

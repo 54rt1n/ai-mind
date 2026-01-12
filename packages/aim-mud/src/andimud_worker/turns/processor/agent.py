@@ -199,8 +199,8 @@ class AgentTurnProcessor(BaseTurnProcessor):
                 if await self.worker._check_abort_requested():
                     raise AbortRequestedException("Turn aborted before @agent action")
 
-                # @agent uses tool role (tool model - structured actions)
-                response = await self.worker._call_llm(chat_turns, role="tool")
+                # @agent uses agent role (structured agent actions)
+                response = await self.worker._call_llm(chat_turns, role="agent")
                 cleaned, think_content = extract_think_tags(response)
                 cleaned = sanitize_response(cleaned)
                 cleaned = cleaned.strip()

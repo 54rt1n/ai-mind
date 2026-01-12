@@ -119,11 +119,11 @@ class PhasedTurnProcessor(BaseTurnProcessor):
             if await self.worker._check_abort_requested():
                 raise AbortRequestedException("Turn aborted before decision")
 
-            # Phase 1: Decision (use tool role - fast)
+            # Phase 1: Decision (use decision role - fast tool selection)
             decision_tool, decision_args, decision_raw, decision_thinking, decision_cleaned = (
                 await self.worker._decide_action(
                     idle_mode=idle_mode,
-                    role="tool",
+                    role="decision",
                     action_guidance="",
                     user_guidance=self.user_guidance,
                 )

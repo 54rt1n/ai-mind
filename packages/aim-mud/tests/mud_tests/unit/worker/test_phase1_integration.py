@@ -861,22 +861,22 @@ class TestPhase1CompletePayload:
 
 
 class TestPhase1ModelSetUsage:
-    """Test that Phase 1 decision calls correctly use the tool modelset."""
+    """Test that Phase 1 decision calls correctly use the decision modelset."""
 
     @pytest.mark.asyncio
-    async def test_phase1_uses_tool_role(
+    async def test_phase1_uses_decision_role(
         self, initialized_strategy, mock_persona, sample_session
     ):
-        """Test that Phase 1 decision strategy uses role='tool' for LLM calls."""
+        """Test that Phase 1 decision strategy uses role='decision' for LLM calls."""
         # Build turns (this is what gets called during Phase 1)
         turns = await initialized_strategy.build_turns(mock_persona, sample_session)
 
-        # Verify the strategy is configured to use tool role
+        # Verify the strategy is configured to use decision role
         # The actual role is passed when _call_llm is invoked in the worker
-        # This test verifies the turns are built correctly for tool-based decision making
+        # This test verifies the turns are built correctly for decision-based decision making
         assert len(turns) > 0
 
-        # Verify system message contains tool definitions (required for tool role)
+        # Verify system message contains tool definitions (required for decision role)
         system_message = initialized_strategy.chat.config.system_message
         assert "<Tools>" in system_message
         assert "speak" in system_message
@@ -906,17 +906,17 @@ class TestPhase1ModelSetUsage:
         assert "parameters" in system_message or "properties" in system_message
 
     @pytest.mark.asyncio
-    async def test_modelset_resolves_tool_role_from_persona(
+    async def test_modelset_resolves_decision_role_from_persona(
         self, initialized_strategy, mock_persona
     ):
-        """Test that ModelSet correctly resolves tool role from persona configuration."""
+        """Test that ModelSet correctly resolves decision role from persona configuration."""
         from aim.llm.model_set import ModelSet
         from aim.config import ChatConfig
 
-        # Create a test persona with tool model override
+        # Create a test persona with decision model override
         test_persona = MagicMock()
         test_persona.persona_id = "test_andi"
-        test_persona.models = {"tool": "deepseek-ai/DeepSeek-V3-0324"}
+        test_persona.models = {"decision": "deepseek-ai/DeepSeek-V3-0324"}
 
         # Create a test config
         test_config = ChatConfig()
@@ -925,8 +925,54 @@ class TestPhase1ModelSetUsage:
         # Create ModelSet with persona
         model_set = ModelSet.from_config(test_config, persona=test_persona)
 
-        # Verify tool role resolves to persona's tool model
+        # Verify decision role resolves to persona's decision model
+        assert model_set.get_model_name("decision") == "deepseek-ai/DeepSeek-V3-0324"
+
+    @pytest.mark.asyncio
+    async def test_modelset_resolves_agent_role_from_persona(
+        self, initialized_strategy, mock_persona
+    ):
+        """Test that ModelSet correctly resolves agent role from persona configuration."""
+        from aim.llm.model_set import ModelSet
+        from aim.config import ChatConfig
+
+        # Create persona with agent model override
+        test_persona = MagicMock()
+        test_persona.persona_id = "test_andi"
+        test_persona.models = {"agent": "anthropic/claude-3.5-haiku"}
+
+        test_config = ChatConfig()
+        test_config.default_model = "anthropic/claude-sonnet-4-5-20250929"
+
+        model_set = ModelSet.from_config(test_config, persona=test_persona)
+
+        # Verify agent role resolves to persona's agent model
+        assert model_set.get_model_name("agent") == "anthropic/claude-3.5-haiku"
+
+    @pytest.mark.asyncio
+    async def test_modelset_backward_compatibility_tool_override(
+        self, initialized_strategy, mock_persona
+    ):
+        """Test backward compatibility: personas with 'tool' model override still work."""
+        from aim.llm.model_set import ModelSet
+        from aim.config import ChatConfig
+
+        # Create persona with legacy tool override
+        test_persona = MagicMock()
+        test_persona.persona_id = "legacy_andi"
+        test_persona.models = {"tool": "deepseek-ai/DeepSeek-V3-0324"}
+
+        test_config = ChatConfig()
+        test_config.default_model = "anthropic/claude-sonnet-4-5-20250929"
+
+        model_set = ModelSet.from_config(test_config, persona=test_persona)
+
+        # Tool role still uses persona override
         assert model_set.get_model_name("tool") == "deepseek-ai/DeepSeek-V3-0324"
+
+        # Decision and agent roles fall back to default
+        assert model_set.get_model_name("decision") == "anthropic/claude-sonnet-4-5-20250929"
+        assert model_set.get_model_name("agent") == "anthropic/claude-sonnet-4-5-20250929"
 
 
 if __name__ == "__main__":

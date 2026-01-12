@@ -18,6 +18,8 @@ def mock_config():
     config.default_model = "gpt-4o"
     config.thought_model = "o1-mini"
     config.codex_model = "gpt-4o-mini"
+    config.decision_model = "gpt-3.5-turbo"
+    config.agent_model = "gpt-4-turbo"
     config.model_config_path = "config/models.yaml"
     return config
 
@@ -44,6 +46,8 @@ class TestModelSetCreation:
         assert model_set.default_model == "gpt-4o"
         assert model_set.thought_model == "o1-mini"
         assert model_set.codex_model == "gpt-4o-mini"
+        assert model_set.decision_model == "gpt-3.5-turbo"
+        assert model_set.agent_model == "gpt-4-turbo"
         # Roles without env variables should fallback to default
         assert model_set.chat_model == "gpt-4o"
         assert model_set.tool_model == "gpt-4o"
@@ -98,6 +102,8 @@ class TestModelSelection:
         assert model_set.get_model_name("chat") == "gpt-4o"
         assert model_set.get_model_name("thought") == "o1-mini"
         assert model_set.get_model_name("codex") == "gpt-4o-mini"
+        assert model_set.get_model_name("decision") == "gpt-3.5-turbo"
+        assert model_set.get_model_name("agent") == "gpt-4-turbo"
         assert model_set.get_model_name("tool") == "gpt-4o"
         assert model_set.get_model_name("code") == "gpt-4o"
         assert model_set.get_model_name("analysis") == "gpt-4o"
