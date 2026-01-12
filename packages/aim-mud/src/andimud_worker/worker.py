@@ -417,6 +417,16 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                     # SAVE pre-drain event position for potential rollback
                     saved_event_id = self.session.last_event_id
 
+                    # Ensure Phase 1 tools include plan tools whenever a plan is active
+                    try:
+                        active_plan = await self.check_active_plan()
+                        if active_plan:
+                            self.set_active_plan(active_plan)
+                        elif self.get_active_plan():
+                            self.clear_active_plan()
+                    except Exception as e:
+                        logger.error(f"Failed to refresh active plan state: {e}", exc_info=True)
+
                     # Get turn's sequence_id for filtering
                     if not turn_request.sequence_id:
                         logger.warning(f"Turn {turn_id} missing sequence_id, cannot filter drain")

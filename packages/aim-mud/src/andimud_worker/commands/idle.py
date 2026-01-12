@@ -41,23 +41,12 @@ class IdleCommand(Command):
         """
         turn_id = kwargs.get("turn_id", "unknown")
 
-        # Priority 1: Check for active plan
-        plan = await worker.check_active_plan()
+        # Priority 1: Use active plan already loaded by worker
+        plan = worker.get_active_plan()
         if plan:
             logger.info(f"[{turn_id}] Active plan detected: {plan.summary}")
 
-            # Set plan on worker for context injection
-            worker.set_active_plan(plan)
-
-            # Set Redis context on decision strategy for plan tool execution
-            # This must happen BEFORE init_tools() is called (which happens in start())
-            # but also before any plan tool execution in this turn
-            if hasattr(worker, "_decision_strategy") and worker._decision_strategy:
-                worker._decision_strategy.set_context(worker.redis, worker.config.agent_id)
-
-            # Add plan tools to tool helper if available
-            if hasattr(worker, "_tool_helper") and worker._tool_helper:
-                worker._tool_helper.add_plan_tools(plan, worker.chat_config.tools_path)
+            # set_active_plan handles decision-strategy context and tool refresh
 
             # Build plan guidance for user footer
             plan_guidance = ""

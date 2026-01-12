@@ -558,6 +558,8 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
             tool_file: Path to tool definition file (absolute or relative)
             tools_path: Base path for resolving relative tool files
         """
+        # Reset plan tool implementation before (re)loading tools
+        self._plan_tool_impl = None
         tool_path = Path(tool_file)
         if not tool_path.is_absolute():
             # Resolve relative to tools_path

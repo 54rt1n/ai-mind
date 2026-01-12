@@ -45,15 +45,19 @@ class EventsMixin:
         """
         events_unsorted: list[tuple[int, MUDEvent]] = []
         max_id = None
+        scan_last_id: Optional[str] = None
+        last_consumed_id: Optional[str] = None
 
         def _parse_result(result) -> None:
+            nonlocal scan_last_id, last_consumed_id
             for _stream_name, messages in result:
                 for msg_id, data in messages:
-                    # Update last event ID for resumption
+                    # Track last seen id for scan cursor (always advance scan)
                     # msg_id may be bytes or str depending on Redis client config
                     if isinstance(msg_id, bytes):
                         msg_id = msg_id.decode("utf-8")
-                    self.session.last_event_id = msg_id
+                    scan_last_id = msg_id
+                    should_consume = True
 
                     # Parse event data
                     try:
@@ -76,6 +80,7 @@ class EventsMixin:
                         # Skip events with sequence_id >= max_sequence_id
                         if max_sequence_id is not None and sequence_id >= max_sequence_id:
                             logger.debug(f"Skipping event {msg_id} (seq={sequence_id} >= {max_sequence_id})")
+                            should_consume = False
                             continue
 
                         # Check for self-action flag (set by mediator for actor's own events)
@@ -103,7 +108,11 @@ class EventsMixin:
 
                     except (json.JSONDecodeError, KeyError, ValueError) as e:
                         logger.error(f"Failed to parse event {msg_id}: {e}")
-                        continue
+                        # Still consume malformed events to avoid stalling the stream
+                        should_consume = True
+                    finally:
+                        if should_consume:
+                            last_consumed_id = msg_id
 
         # Snapshot the max stream id at drain start to avoid chasing new events
         try:
@@ -137,10 +146,13 @@ class EventsMixin:
                 break
 
             _parse_result([(self.config.agent_stream, result)])
-            last_msg_id = self.session.last_event_id
+            last_msg_id = scan_last_id
             if not last_msg_id or last_msg_id == max_id:
                 break
             min_id = f"({last_msg_id}"
+
+        if last_consumed_id:
+            self.session.last_event_id = last_consumed_id
 
         # NOTE: Do NOT persist last_event_id here. Persistence happens after the speech
         # check determines whether events should be consumed:

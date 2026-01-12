@@ -26,7 +26,8 @@ class PlannerMixin:
 
     Expected attributes from MUDAgentWorker:
     - self.redis: Async Redis client
-    - self.config: MUDConfig (has agent_id)
+    - self.config: MUDConfig (has agent_id, decision_tool_file)
+    - self.chat_config: ChatConfig (has tools_path)
     - self._decision_strategy: Optional strategy with _active_plan attribute
     """
 
@@ -72,6 +73,14 @@ class PlannerMixin:
         # Also set on decision strategy for consciousness block
         if hasattr(self, "_decision_strategy") and self._decision_strategy:
             self._decision_strategy._active_plan = plan
+            # Ensure plan tool execution has Redis context
+            self._decision_strategy.set_context(self.redis, self.config.agent_id)
+            # Reload decision tools once to merge in plan tools
+            if self._decision_strategy.get_plan_tool_impl() is None:
+                self._decision_strategy.init_tools(
+                    tool_file=self.config.decision_tool_file,
+                    tools_path=self.chat_config.tools_path,
+                )
 
     def clear_active_plan(self: "MUDAgentWorker") -> None:
         """Clear the active plan context after turn completes."""
@@ -79,6 +88,12 @@ class PlannerMixin:
 
         if hasattr(self, "_decision_strategy") and self._decision_strategy:
             self._decision_strategy._active_plan = None
+            # Drop plan tools when no plan is active
+            if self._decision_strategy.get_plan_tool_impl() is not None:
+                self._decision_strategy.init_tools(
+                    tool_file=self.config.decision_tool_file,
+                    tools_path=self.chat_config.tools_path,
+                )
 
     def get_active_plan(self: "MUDAgentWorker") -> Optional["AgentPlan"]:
         """Get the currently active plan.
