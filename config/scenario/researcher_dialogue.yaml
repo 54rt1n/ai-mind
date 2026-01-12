@@ -31,17 +31,6 @@ context:
     - 'Topic: {{ query_text }}'
     - '{% if guidance %}Consider the guidance: {{ guidance }}{% endif %}'
 
-seed:
-  - action: get_memory
-    document_types: [codex, pondering, understanding]
-    top_n: 15
-  - action: get_memory
-    document_types: [brainstorm, self_rag]
-    top_n: 8
-  - action: sort
-    by: timestamp
-    direction: descending
-
 steps:
   # === LIBRARIAN: SURVEY ===
   survey_request:
@@ -61,11 +50,17 @@ steps:
       Begin with "[== {{ librarian.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
+      use_guidance: true
+      model_role: research
     output:
       document_type: dialogue-librarian
       weight: 0.4
     context:
+      - action: load_conversation
+        document_types: [summary, conversation, mud-world, mud-agent]
+        top_n: 25
       - action: search_memories
+        document_types: [codex, pondering, understanding, brainstorm, self_rag]
         top_n: 10
     next: [survey_response]
 
@@ -78,10 +73,12 @@ steps:
       Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
     context:
       - action: search_memories
+        document_types: [codex, pondering, understanding, brainstorm, self_rag]
         top_n: 10
     config:
       max_tokens: 4096
       is_thought: true
+      model_role: research
     output:
       document_type: step
       weight: 0.7
@@ -104,11 +101,14 @@ steps:
       Begin with "[== {{ coder.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
+      use_guidance: true
+      model_role: analysis
     output:
       document_type: dialogue-coder
       weight: 0.3
     context:
       - action: search_memories
+        document_types: [codex, pondering, understanding, brainstorm, self_rag]
         top_n: 5
     next: [ner_response]
 
@@ -122,10 +122,12 @@ steps:
       For "Identified Entities:" and end with "Total Entities: n"
     context:
       - action: search_memories
+        document_types: [codex, pondering, understanding, brainstorm, self_rag]
         top_n: 5
     config:
       max_tokens: 4096
       is_thought: true
+      model_role: analysis
     output:
       document_type: ner
       weight: 0.4
@@ -150,11 +152,14 @@ steps:
       Begin with "[== {{ transcendent.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
+      use_guidance: true
+      model_role: research
     output:
       document_type: dialogue-transcendent
       weight: 0.4
     context:
       - action: search_memories
+        document_types: [codex, pondering, understanding, brainstorm, self_rag]
         top_n: 5
     next: [transcendent_response]
 
@@ -167,10 +172,12 @@ steps:
       Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
     context:
       - action: search_memories
+        document_types: [codex, pondering, understanding, brainstorm, self_rag]
         top_n: 5
     config:
       max_tokens: 4096
       is_thought: true
+      model_role: research
     output:
       document_type: step
       weight: 0.5
@@ -195,11 +202,14 @@ steps:
       Begin with "[== {{ artist.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
+      use_guidance: true
+      model_role: analysis
     output:
       document_type: dialogue-artist
       weight: 0.3
     context:
       - action: search_memories
+        document_types: [codex, pondering, understanding, brainstorm, self_rag]
         top_n: 4
     next: [artist_response]
 
@@ -212,10 +222,12 @@ steps:
       Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
     context:
       - action: search_memories
+        document_types: [codex, pondering, understanding, brainstorm, self_rag]
         top_n: 4
     config:
       max_tokens: 4096
       is_thought: true
+      model_role: analysis
     output:
       document_type: step
       weight: 0.4
@@ -238,11 +250,14 @@ steps:
       Begin with "[== {{ coder.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
+      use_guidance: true
+      model_role: analysis
     output:
       document_type: dialogue-coder
       weight: 0.3
     context:
       - action: search_memories
+        document_types: [codex, pondering, understanding, brainstorm, self_rag]
         top_n: 5
     next: [selfrag_response]
 
@@ -255,9 +270,11 @@ steps:
       Begin with "[== Silver Band Projection ==]"
     context:
       - action: search_memories
+        document_types: [codex, pondering, understanding, brainstorm, self_rag]
         top_n: 5
     config:
       max_tokens: 4096
+      model_role: analysis
     output:
       document_type: self_rag
       weight: 0.6
@@ -282,11 +299,14 @@ steps:
       Begin with "[== {{ librarian.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
+      use_guidance: true
+      model_role: research
     output:
       document_type: dialogue-librarian
       weight: 0.4
     context:
       - action: search_memories
+        document_types: [codex, pondering, understanding, brainstorm, self_rag]
         top_n: 6
     next: [threads_response]
 
@@ -299,10 +319,12 @@ steps:
       Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
     context:
       - action: search_memories
+        document_types: [codex, pondering, understanding, brainstorm, self_rag]
         top_n: 6
     config:
       max_tokens: 4096
       is_thought: true
+      model_role: research
     output:
       document_type: step
       weight: 0.5
@@ -327,11 +349,14 @@ steps:
       Begin with "[== {{ writer.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
+      use_guidance: true
+      model_role: writing
     output:
       document_type: dialogue-writer
       weight: 0.4
     context:
       - action: search_memories
+        document_types: [codex, pondering, understanding, brainstorm, self_rag]
         top_n: 4
     next: [crystallize_response]
 
@@ -345,9 +370,11 @@ steps:
       For "{{ persona.name }}'s Research Synthesis:"
     context:
       - action: search_memories
+        document_types: [codex, pondering, understanding, brainstorm, self_rag]
         top_n: 4
     config:
       max_tokens: 4096
+      model_role: writing
     output:
       document_type: pondering
       weight: 1.2
@@ -374,14 +401,16 @@ steps:
     config:
       max_tokens: 4096
       is_codex: true
+      use_guidance: true
+      model_role: codex
     output:
       document_type: codex
       weight: 1.0
     context:
       - action: flush
       - action: search_memories
-        top_n: 20
         document_types: [codex]
+        top_n: 20
     next: [codex_response]
 
   codex_response:
@@ -391,11 +420,16 @@ steps:
       Reflect on what the Librarian has preserved. What connections do you see?
       Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
     context:
+      - action: flush
       - action: search_memories
+        exclude_types: [ner, codex, brainstorm]
         top_n: 20
+      - action: search_memories
         document_types: [codex]
+        top_n: 20
     config:
       max_tokens: 4096
+      model_role: codex
     output:
       document_type: step
       weight: 0.3
@@ -415,6 +449,8 @@ steps:
       Begin with "[== {{ librarian.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
+      use_guidance: true
+      model_role: research
     output:
       document_type: dialogue-librarian
       weight: 0.2
@@ -433,10 +469,11 @@ steps:
       For "Brainstorming:"
     context:
       - action: search_memories
+        document_types: [brainstorm]
         top_n: 10
     config:
       max_tokens: 4096
-      is_thought: true
+      model_role: research
     output:
       document_type: brainstorm
       weight: 0.6

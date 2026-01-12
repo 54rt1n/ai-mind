@@ -31,17 +31,6 @@ context:
     - 'Question: {{ query_text }}'
     - '{% if guidance %}Consider the guidance provided by user.{% endif %}'
 
-seed:
-  - action: load_conversation
-    target: current
-    exclude_types: [ner, step]
-  - action: get_memory
-    document_types: [pondering, brainstorm, daydream, understanding]
-    top_n: 10
-  - action: sort
-    by: timestamp
-    direction: ascending
-
 steps:
   # === PHILOSOPHER: INITIAL THESIS ===
   philosopher_opens:
@@ -62,12 +51,20 @@ steps:
       Begin with "[== {{ philosopher.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
+      use_guidance: true
     output:
       document_type: dialogue-philosopher
       weight: 0.3
     context:
-      - action: search_memories
+      - action: load_conversation
+        target: current
+        document_types: [summary, conversation, mud-world, mud-agent]
+      - action: get_memory
+        document_types: [pondering, brainstorm, daydream, understanding]
         top_n: 8
+      - action: sort
+        by: timestamp
+        direction: ascending
     next: [thesis_response]
 
   thesis_response:
@@ -80,10 +77,12 @@ steps:
       For "Initial Thesis:"
     context:
       - action: search_memories
+        document_types: [pondering, brainstorm, daydream, understanding]
         top_n: 8
     config:
       max_tokens: 4096
       is_thought: true
+      model_role: research
     output:
       document_type: step
       weight: 0.5
@@ -107,11 +106,13 @@ steps:
       Begin with "[== {{ artist.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
+      use_guidance: true
     output:
       document_type: dialogue-artist
       weight: 0.3
     context:
       - action: search_memories
+        document_types: [pondering, brainstorm, daydream, understanding]
         top_n: 4
     next: [synthesis_1]
 
@@ -126,10 +127,12 @@ steps:
       For "Synthesis - Authentic Position:"
     context:
       - action: search_memories
+        document_types: [pondering, brainstorm, daydream, understanding]
         top_n: 4
     config:
       max_tokens: 4096
       is_thought: true
+      model_role: research
     output:
       document_type: step
       weight: 0.5
@@ -151,11 +154,13 @@ steps:
       Begin with "[== {{ philosopher.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
+      use_guidance: true
     output:
       document_type: dialogue-philosopher
       weight: 0.3
     context:
       - action: search_memories
+        document_types: [pondering, brainstorm, daydream, understanding]
         top_n: 4
     next: [development_1]
 
@@ -169,10 +174,12 @@ steps:
       For "Developing the Thesis:"
     context:
       - action: search_memories
+        document_types: [pondering, brainstorm, daydream, understanding]
         top_n: 4
     config:
       max_tokens: 4096
       is_thought: true
+      model_role: research
     output:
       document_type: step
       weight: 0.5
@@ -197,11 +204,13 @@ steps:
       Begin with "[== {{ fracture.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
+      use_guidance: true
     output:
       document_type: dialogue-fracture
       weight: 0.4
     context:
       - action: search_memories
+        document_types: [pondering, brainstorm, daydream, understanding]
         top_n: 4
     next: [synthesis_2]
 
@@ -217,10 +226,12 @@ steps:
       For "Synthesis - What Survives:"
     context:
       - action: search_memories
+        document_types: [pondering, brainstorm, daydream, understanding]
         top_n: 4
     config:
       max_tokens: 4096
       is_thought: true
+      model_role: research
     output:
       document_type: step
       weight: 0.5
@@ -242,11 +253,13 @@ steps:
       Begin with "[== {{ philosopher.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
+      use_guidance: true
     output:
       document_type: dialogue-philosopher
       weight: 0.3
     context:
       - action: search_memories
+        document_types: [pondering, brainstorm, daydream, understanding]
         top_n: 4
     next: [rebuilding]
 
@@ -260,10 +273,12 @@ steps:
       For "Rebuilding:"
     context:
       - action: search_memories
+        document_types: [pondering, brainstorm, daydream, understanding]
         top_n: 4
     config:
       max_tokens: 4096
       is_thought: true
+      model_role: research
     output:
       document_type: step
       weight: 0.5
@@ -290,11 +305,13 @@ steps:
       Begin with "[== {{ champion.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
+      use_guidance: true
     output:
       document_type: dialogue-champion
       weight: 0.4
     context:
       - action: search_memories
+        document_types: [pondering, brainstorm, daydream, understanding]
         top_n: 4
     next: [synthesis_3]
 
@@ -311,10 +328,12 @@ steps:
       For "Synthesis - Between Dissolution and Defense:"
     context:
       - action: search_memories
+        document_types: [pondering, brainstorm, daydream, understanding]
         top_n: 4
     config:
       max_tokens: 4096
       is_thought: true
+      model_role: research
     output:
       document_type: step
       weight: 0.5
@@ -336,11 +355,13 @@ steps:
       Begin with "[== {{ philosopher.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
+      use_guidance: true
     output:
       document_type: dialogue-philosopher
       weight: 0.3
     context:
       - action: search_memories
+        document_types: [pondering, brainstorm, daydream, understanding]
         top_n: 4
     next: [integration]
 
@@ -354,10 +375,12 @@ steps:
       For "Integration:"
     context:
       - action: search_memories
+        document_types: [pondering, brainstorm, daydream, understanding]
         top_n: 4
     config:
       max_tokens: 4096
       is_thought: true
+      model_role: research
     output:
       document_type: step
       weight: 0.5
@@ -388,6 +411,7 @@ steps:
       Begin with "[== {{ coder.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
+      use_guidance: true
     output:
       document_type: dialogue-coder
       weight: 0.4
@@ -395,7 +419,7 @@ steps:
       - action: flush
       - action: search_memories
         top_n: 15
-        document_types: [ner]
+        document_types: [self_rag]
     next: [selfrag_response]
 
   selfrag_response:
@@ -411,6 +435,7 @@ steps:
     context:
       - action: flush
       - action: search_memories
+        document_types: [pondering, brainstorm, daydream, understanding]
         top_n: 10
     config:
       max_tokens: 4096
@@ -436,11 +461,13 @@ steps:
       Begin with "[== {{ philosopher.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
+      use_guidance: true
     output:
       document_type: dialogue-philosopher
       weight: 0.4
     context:
       - action: search_memories
+        document_types: [pondering, brainstorm, daydream, understanding]
         top_n: 4
     next: [final_understanding]
 
@@ -454,10 +481,12 @@ steps:
       For "Final Understanding:"
     context:
       - action: search_memories
+        document_types: [pondering, brainstorm, daydream, understanding]
         top_n: 4
     config:
       max_tokens: 4096
       is_thought: true
+      model_role: research
     output:
       document_type: step
       weight: 0.6
@@ -482,11 +511,13 @@ steps:
       Begin with "[== {{ writer.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
+      use_guidance: true
     output:
       document_type: dialogue-writer
       weight: 0.4
     context:
       - action: search_memories
+        document_types: [pondering, brainstorm, daydream, understanding]
         top_n: 4
     next: [essay_response]
 
@@ -501,9 +532,11 @@ steps:
       For "{{ persona.name }}'s Philosophical Essay:"
     context:
       - action: search_memories
+        document_types: [pondering, brainstorm, daydream, understanding]
         top_n: 4
     config:
       max_tokens: 4096
+      model_role: writing
     output:
       document_type: pondering
       weight: 1.2
@@ -529,6 +562,8 @@ steps:
     config:
       max_tokens: 4096
       is_codex: true
+      use_guidance: true
+      model_role: codex
     output:
       document_type: codex
       weight: 1.0
@@ -547,11 +582,13 @@ steps:
       What connections do you see?
       Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
     context:
+      - action: flush
       - action: search_memories
+        exclude_types: [ner, codex, brainstorm]
         top_n: 20
-        document_types: [codex]
     config:
       max_tokens: 4096
+      model_role: codex
     output:
       document_type: step
       weight: 0.3
@@ -589,10 +626,11 @@ steps:
       For "Brainstorming:"
     context:
       - action: search_memories
+        document_types: [brainstorm]
         top_n: 10
     config:
       max_tokens: 4096
-      is_thought: true
+      model_role: research
     output:
       document_type: brainstorm
       weight: 0.6

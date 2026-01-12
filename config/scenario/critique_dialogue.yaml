@@ -32,17 +32,6 @@ context:
     - 'Focus: {{ query_text }}'
     - '{% if guidance %}Consider the guidance provided by user.{% endif %}'
 
-seed:
-  - action: load_conversation
-    target: current
-    exclude_types: [ner, step]
-  - action: get_memory
-    document_types: [journal, analysis, daydream, pondering, understanding]
-    top_n: 10
-  - action: sort
-    by: timestamp
-    direction: ascending
-
 steps:
   # === FIRST DISSECTION ===
   psychologist_dissects:
@@ -61,11 +50,17 @@ steps:
       Begin with "[== {{ psychologist.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
+      use_guidance: true
+      model_role: analysis
     output:
       document_type: dialogue-psychologist
       weight: 0.5
     context:
+      - action: load_conversation
+        target: current
+        document_types: [summary, conversation, mud-world, mud-agent]
       - action: search_memories
+        document_types: [journal, analysis, daydream, pondering, understanding]
         top_n: 8
     next: [dissects_response]
 
@@ -78,6 +73,7 @@ steps:
       Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
     context:
       - action: search_memories
+        document_types: [journal, analysis, daydream, pondering, understanding]
         top_n: 4
     config:
       max_tokens: 4096
@@ -106,11 +102,14 @@ steps:
       Begin with "[== {{ revelator.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
+      use_guidance: true
+      model_role: analysis
     output:
       document_type: dialogue-revelator
       weight: 0.6
     context:
       - action: search_memories
+        document_types: [journal, analysis, daydream, pondering, understanding]
         top_n: 4
     next: [challenge_response]
 
@@ -123,6 +122,7 @@ steps:
       Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
     context:
       - action: search_memories
+        document_types: [journal, analysis, daydream, pondering, understanding]
         top_n: 4
     config:
       max_tokens: 4096
@@ -151,11 +151,13 @@ steps:
       Begin with "[== {{ champion.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
+      use_guidance: true
     output:
       document_type: dialogue-champion
       weight: 0.6
     context:
       - action: search_memories
+        document_types: [journal, analysis, daydream, pondering, understanding]
         top_n: 6
     next: [advocate_response]
 
@@ -169,6 +171,7 @@ steps:
       Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
     context:
       - action: search_memories
+        document_types: [journal, analysis, daydream, pondering, understanding]
         top_n: 4
     config:
       max_tokens: 4096
@@ -197,11 +200,14 @@ steps:
       Begin with "[== {{ psychologist.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
+      use_guidance: true
+      model_role: analysis
     output:
       document_type: dialogue-psychologist
       weight: 0.5
     context:
       - action: search_memories
+        document_types: [journal, analysis, daydream, pondering, understanding]
         top_n: 4
     next: [reconstructs_response]
 
@@ -215,6 +221,7 @@ steps:
       Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
     context:
       - action: search_memories
+        document_types: [journal, analysis, daydream, pondering, understanding]
         top_n: 4
     config:
       max_tokens: 4096
@@ -245,11 +252,14 @@ steps:
       Begin with "[== {{ writer.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
+      use_guidance: true
+      model_role: writing
     output:
       document_type: dialogue-writer
       weight: 0.4
     context:
       - action: search_memories
+        document_types: [journal, analysis, daydream, pondering, understanding]
         top_n: 6
     next: [understanding_response]
 
@@ -264,9 +274,11 @@ steps:
       For "New Understanding:"
     context:
       - action: search_memories
+        document_types: [journal, analysis, daydream, pondering, understanding]
         top_n: 4
     config:
       max_tokens: 4096
+      model_role: writing
     output:
       document_type: understanding
       weight: 1.2
@@ -294,6 +306,8 @@ steps:
     config:
       max_tokens: 4096
       is_codex: true
+      use_guidance: true
+      model_role: codex
     output:
       document_type: codex
       weight: 1.0
@@ -313,9 +327,10 @@ steps:
       Consider how the codex entries can be used to understand what you have just experienced.
       Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
     context:
+      - action: flush
       - action: search_memories
+        exclude_types: [ner, codex, brainstorm]
         top_n: 20
-        document_types: [codex]
     config:
       max_tokens: 4096
     output:
@@ -338,6 +353,7 @@ steps:
       Begin with "[== {{ librarian.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
+      use_guidance: true
     output:
       document_type: dialogue-librarian
       weight: 0.2
@@ -356,10 +372,11 @@ steps:
       For "Brainstorming:"
     context:
       - action: search_memories
+        document_types: [brainstorm]
         top_n: 10
     config:
       max_tokens: 4096
-      is_thought: true
+      model_role: research
     output:
       document_type: brainstorm
       weight: 0.6

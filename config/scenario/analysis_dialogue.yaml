@@ -28,11 +28,6 @@ context:
   thoughts:
     - 'Task: Analysis and Synthesis'
 
-seed:
-  - action: load_conversation
-    target: current
-    document_types: [summary, conversation]
-
 steps:
   # === NER TASK ===
   # Step 1: Coder requests NER
@@ -43,10 +38,7 @@ steps:
     context:
       - action: load_conversation
         target: current
-        document_types: [summary]
-      - action: load_conversation
-        target: current
-        document_types: [conversation]
+        document_types: [summary, conversation, mud-world, mud-agent]
       - action: sort
         by: timestamp
         direction: ascending
@@ -78,6 +70,7 @@ steps:
     config:
       max_tokens: 4096
       is_thought: true
+      model_role: analysis
     output:
       document_type: ner-task
       weight: 0.7
@@ -379,6 +372,7 @@ steps:
     config:
       max_tokens: 4096
       is_codex: true
+      model_role: codex
     output:
       document_type: codex
       weight: 1.0
@@ -405,6 +399,7 @@ steps:
         document_types: [codex]
     config:
       max_tokens: 4096
+      model_role: codex
     output:
       document_type: step
       weight: 0.3
@@ -443,6 +438,7 @@ steps:
       For "Brainstorming:"
     context:
       - action: search_memories
+        document_types: [brainstorm]
         top_n: 10
     config:
       max_tokens: 4096
