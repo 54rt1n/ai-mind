@@ -3,12 +3,9 @@
 """Planner mixin for the mediator service."""
 
 import logging
-import uuid
-
-from aim_mud_types import MUDEvent, EventType, RedisKeys, MUDTurnRequest, TurnRequestStatus, TurnReason
+from aim_mud_types import MUDEvent, EventType, TurnRequestStatus, TurnReason
 from aim_mud_types.client import RedisMUDClient
 from aim_mud_types.plan import PlanStatus
-from aim_mud_types.helper import _utc_now
 
 from ..patterns import PLANNER_PATTERN, PLAN_PATTERN, UPDATE_PATTERN
 
@@ -100,41 +97,27 @@ class PlannerMixin:
             "objective": objective,
         }
 
-        # Build turn request
-        # Planner pipeline gets 30 minutes (1800000ms) - involves deliberation scenario
-        turn_request = MUDTurnRequest(
-            turn_id=str(uuid.uuid4()),
-            sequence_id=await self._next_sequence_id(),
-            status=TurnRequestStatus.ASSIGNED,
-            reason=TurnReason.DREAM,
-            assigned_at=_utc_now(),
-            heartbeat_at=_utc_now(),
-            deadline_ms="1800000",
-            attempt_count=0,
-            metadata=metadata,
-        )
-
-        # Atomic CAS update
-        client = RedisMUDClient(self.redis)
-        success = await client.update_turn_request(
+        from aim_mud_types.turn_request_helpers import assign_turn_request_async
+        success, turn_request, result = await assign_turn_request_async(
+            self.redis,
             agent_id,
-            turn_request,
+            TurnReason.DREAM,
+            attempt_count=0,
+            deadline_ms=1800000,
+            status=TurnRequestStatus.ASSIGNED,
             expected_turn_id=current.turn_id,
+            skip_availability_check=True,
+            **metadata,
         )
 
-        if success:
-            if self.config.turn_request_ttl_seconds > 0:
-                await self.redis.expire(
-                    RedisKeys.agent_turn_request(agent_id),
-                    self.config.turn_request_ttl_seconds,
-                )
+        if success and turn_request:
             logger.info(
                 f"@plan: Assigned planner turn to {agent_id} "
                 f"(sequence_id={turn_request.sequence_id}, objective={objective[:50]}...)"
             )
             return True
         else:
-            logger.debug(f"@plan: CAS failed for {agent_id}")
+            logger.debug(f"@plan: Assign failed for {agent_id}: {result}")
             return False
 
     async def _handle_update_command(
@@ -195,34 +178,24 @@ class PlannerMixin:
             "plan_guidance": guidance,
         }
 
-        turn_request = MUDTurnRequest(
-            turn_id=str(uuid.uuid4()),
-            sequence_id=await self._next_sequence_id(),
-            status=TurnRequestStatus.ASSIGNED,
-            reason=TurnReason.IDLE,
-            assigned_at=_utc_now(),
-            heartbeat_at=_utc_now(),
-            deadline_ms="300000",  # 5 minutes
-            attempt_count=0,
-            metadata=metadata,
-        )
-
-        success = await client.update_turn_request(
+        from aim_mud_types.turn_request_helpers import assign_turn_request_async
+        success, turn_request, result = await assign_turn_request_async(
+            self.redis,
             agent_id,
-            turn_request,
+            TurnReason.IDLE,
+            attempt_count=0,
+            deadline_ms=300000,
+            status=TurnRequestStatus.ASSIGNED,
             expected_turn_id=current.turn_id,
+            skip_availability_check=True,
+            **metadata,
         )
 
-        if success:
-            if self.config.turn_request_ttl_seconds > 0:
-                await self.redis.expire(
-                    RedisKeys.agent_turn_request(agent_id),
-                    self.config.turn_request_ttl_seconds,
-                )
+        if success and turn_request:
             logger.info(f"@update: Assigned update turn to {agent_id} with guidance")
             return True
         else:
-            logger.debug(f"@update: CAS failed for {agent_id}")
+            logger.debug(f"@update: Assign failed for {agent_id}: {result}")
             return False
 
     async def _try_handle_planner_command(self, event: MUDEvent) -> bool:

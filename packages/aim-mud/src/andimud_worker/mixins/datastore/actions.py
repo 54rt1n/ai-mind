@@ -10,8 +10,6 @@ import json
 import logging
 from typing import TYPE_CHECKING
 
-import redis.asyncio as redis
-
 from aim_mud_types import MUDAction
 
 if TYPE_CHECKING:
@@ -35,6 +33,8 @@ class ActionsMixin:
         Args:
             actions: List of MUDAction objects to emit.
         """
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
         for action in actions:
             try:
                 command = action.to_command().strip()
@@ -46,25 +46,23 @@ class ActionsMixin:
                     )
                     continue
                 data = action.to_redis_dict(self.config.agent_id)
-                action_id = await self.redis.xadd(
-                    self.config.action_stream,
+                action_id = await client.append_mud_action(
                     {"data": json.dumps(data)},
+                    stream_key=self.config.action_stream,
                 )
-                if isinstance(action_id, bytes):
-                    action_id = action_id.decode("utf-8")
                 await self._update_agent_profile(last_action_id=str(action_id))
                 logger.info(
                     f"Emitted action: {action.tool} -> {command}"
                 )
-            except redis.RedisError as e:
+            except Exception as e:
                 logger.error(f"Failed to emit action {action.tool}: {e}")
 
         # Trim old actions from stream (keep last 1000)
         try:
-            await self.redis.xtrim(
-                self.config.action_stream,
+            await client.trim_mud_actions_maxlen(
                 maxlen=1000,
                 approximate=True,
+                stream_key=self.config.action_stream,
             )
-        except redis.RedisError as e:
+        except Exception as e:
             logger.warning(f"Failed to trim action stream: {e}")

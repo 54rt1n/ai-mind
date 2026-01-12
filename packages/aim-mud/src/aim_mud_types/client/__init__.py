@@ -379,19 +379,33 @@ class BaseRedisMUDClient:
 
 # Import mixins
 from .mixins.turn_request import TurnRequestMixin
+from .mixins.mud_events import MudEventsStreamMixin
+from .mixins.agent_events import AgentEventsStreamMixin
+from .mixins.mud_actions import MudActionsStreamMixin
+from .mixins.conversation import ConversationMixin
+from .mixins.conversation_report import ConversationReportMixin
 from .mixins.agent_profile import AgentProfileMixin
 from .mixins.room_profile import RoomProfileMixin
 from .mixins.dreamer_state import DreamerStateMixin
+from .mixins.pause import PauseMixin
 from .mixins.plan import PlanMixin
+from .mixins.sequence import SequenceMixin
 
 
 class RedisMUDClient(
     BaseRedisMUDClient,
     TurnRequestMixin,
+    MudEventsStreamMixin,
+    AgentEventsStreamMixin,
+    MudActionsStreamMixin,
+    ConversationMixin,
+    ConversationReportMixin,
     AgentProfileMixin,
     RoomProfileMixin,
     DreamerStateMixin,
+    PauseMixin,
     PlanMixin,
+    SequenceMixin,
 ):
     """Complete Redis MUD client with all type-specific operations.
 
@@ -406,6 +420,14 @@ class RedisMUDClient(
         await client.create_turn_request("andi", new_request)
         await client.update_turn_request("andi", updated, expected_turn_id)
         await client.heartbeat_turn_request("andi")
+
+        # Events/actions streams
+        await client.append_mud_event({"data": "..."})
+        await client.read_mud_events("0", block_ms=1000)
+
+        # Conversation list
+        await client.append_conversation_entry("andi", "entry_json")
+        entries = await client.get_conversation_entries("andi", 0, -1)
 
         # Agent profiles
         profile = await client.get_agent_profile("andi")

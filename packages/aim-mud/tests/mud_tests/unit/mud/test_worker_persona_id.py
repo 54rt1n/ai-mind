@@ -35,46 +35,51 @@ class TestPersonaIdFix:
     @pytest.mark.asyncio
     async def test_update_agent_profile_includes_persona_id(self, mud_config, mock_redis):
         """Test _update_agent_profile writes persona_id when provided."""
+        from unittest.mock import patch, AsyncMock
+
         worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
 
-        await worker._update_agent_profile(
-            persona_id="Andi",
-            agent_id="andi"
-        )
+        # Mock the client's update method
+        with patch('aim_mud_types.client.RedisMUDClient') as mock_client_class:
+            mock_client = mock_client_class.return_value
+            mock_client.update_agent_profile_fields = AsyncMock(return_value=True)
 
-        # Verify hset was called with persona_id in the mapping
-        mock_redis.hset.assert_called_once()
-        call_args = mock_redis.hset.call_args
-        key = call_args[0][0]
-        mapping = call_args[1]["mapping"]
+            await worker._update_agent_profile(persona_id="Andi")
 
-        assert key == RedisKeys.agent_profile("andi")
-        assert "persona_id" in mapping
-        assert mapping["persona_id"] == "Andi"
-        assert "agent_id" in mapping
-        assert mapping["agent_id"] == "andi"
-        assert "updated_at" in mapping
+            # Verify update_agent_profile_fields was called with persona_id
+            mock_client.update_agent_profile_fields.assert_called_once()
+            call_kwargs = mock_client.update_agent_profile_fields.call_args[1]
+            assert "persona_id" in call_kwargs
+            assert call_kwargs["persona_id"] == "Andi"
+            assert call_kwargs["touch_updated_at"] is True
 
     @pytest.mark.asyncio
     async def test_update_agent_profile_skips_none_persona_id(self, mud_config, mock_redis):
         """Test _update_agent_profile doesn't write persona_id when None."""
+        from unittest.mock import patch, AsyncMock
+
         worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
 
-        await worker._update_agent_profile(agent_id="andi")
+        # Mock the client's update method
+        with patch('aim_mud_types.client.RedisMUDClient') as mock_client_class:
+            mock_client = mock_client_class.return_value
+            mock_client.update_agent_profile_fields = AsyncMock(return_value=True)
 
-        # Verify persona_id is not in the mapping when None
-        call_args = mock_redis.hset.call_args
-        mapping = call_args[1]["mapping"]
+            await worker._update_agent_profile()
 
-        assert "persona_id" not in mapping
-        assert "agent_id" in mapping
-        assert "updated_at" in mapping
+            # Verify persona_id is not in kwargs when None
+            mock_client.update_agent_profile_fields.assert_called_once()
+            call_kwargs = mock_client.update_agent_profile_fields.call_args[1]
+            assert "persona_id" not in call_kwargs
+            assert call_kwargs["touch_updated_at"] is True
 
     @pytest.mark.asyncio
     async def test_load_agent_profile_writes_persona_id_on_empty_profile(
         self, mud_config, mock_redis
     ):
         """Test _load_agent_profile writes persona_id when initializing empty profile."""
+        from unittest.mock import patch, AsyncMock
+
         # Mock empty profile (no data in Redis)
         mock_redis.hgetall = AsyncMock(return_value={})
 
@@ -86,17 +91,19 @@ class TestPersonaIdFix:
         mock_persona.persona_id = "Andi"
         worker.persona = mock_persona
 
-        await worker._load_agent_profile()
+        # Mock the client's methods
+        with patch('aim_mud_types.client.RedisMUDClient') as mock_client_class:
+            mock_client = mock_client_class.return_value
+            mock_client.get_agent_profile_raw = AsyncMock(return_value=None)  # Empty profile
+            mock_client.update_agent_profile_fields = AsyncMock(return_value=True)
 
-        # Verify hset was called with persona_id in the mapping
-        mock_redis.hset.assert_called_once()
-        call_args = mock_redis.hset.call_args
-        mapping = call_args[1]["mapping"]
+            await worker._load_agent_profile()
 
-        assert "persona_id" in mapping
-        assert mapping["persona_id"] == "Andi"
-        assert "agent_id" in mapping
-        assert mapping["agent_id"] == "andi"
+            # Verify update_agent_profile_fields was called with persona_id
+            mock_client.update_agent_profile_fields.assert_called_once()
+            call_kwargs = mock_client.update_agent_profile_fields.call_args[1]
+            assert "persona_id" in call_kwargs
+            assert call_kwargs["persona_id"] == "Andi"
 
     @pytest.mark.asyncio
     async def test_load_agent_profile_preserves_existing_data(
@@ -132,6 +139,8 @@ class TestPersonaIdFix:
         self, mud_config, mock_redis
     ):
         """Test that worker uses persona loaded from roster for persona_id."""
+        from unittest.mock import patch, AsyncMock
+
         mock_redis.hgetall = AsyncMock(return_value={})
 
         worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
@@ -142,12 +151,17 @@ class TestPersonaIdFix:
         mock_persona.persona_id = "Andi"  # Capital A from config/persona/Andi.json
         worker.persona = mock_persona
 
-        await worker._load_agent_profile()
+        # Mock the client's methods
+        with patch('aim_mud_types.client.RedisMUDClient') as mock_client_class:
+            mock_client = mock_client_class.return_value
+            mock_client.get_agent_profile_raw = AsyncMock(return_value=None)  # Empty profile
+            mock_client.update_agent_profile_fields = AsyncMock(return_value=True)
 
-        # Verify persona_id from Roster is used, not lowercased agent_id
-        call_args = mock_redis.hset.call_args
-        mapping = call_args[1]["mapping"]
-        assert mapping["persona_id"] == "Andi"  # Not "andi"
+            await worker._load_agent_profile()
+
+            # Verify persona_id from Roster is used, not lowercased agent_id
+            call_kwargs = mock_client.update_agent_profile_fields.call_args[1]
+            assert call_kwargs["persona_id"] == "Andi"  # Not "andi"
 
 
 if __name__ == "__main__":

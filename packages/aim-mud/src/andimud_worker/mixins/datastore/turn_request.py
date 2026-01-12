@@ -8,12 +8,9 @@ All methods take explicit parameters and return data.
 
 import asyncio
 import logging
-from datetime import datetime
-from typing import Optional, TYPE_CHECKING, Union
+from typing import Optional, TYPE_CHECKING
 
-from ...config import MUDConfig
-from aim_mud_types import RedisKeys, MUDTurnRequest, TurnRequestStatus, TurnReason
-from aim_mud_types.helper import _utc_now
+from aim_mud_types import RedisKeys, MUDTurnRequest, TurnRequestStatus
 
 if TYPE_CHECKING:
     from ...worker import MUDAgentWorker
@@ -50,44 +47,9 @@ class TurnRequestMixin:
         Returns:
             True if created, False if turn_request already exists
         """
-        key = RedisKeys.agent_turn_request(self.config.agent_id)
-
-        # Lua script to create only if key doesn't exist
-        lua_script = """
-            local key = KEYS[1]
-
-            -- Fail if key already exists
-            if redis.call('EXISTS', key) == 1 then
-                return 0
-            end
-
-            -- Create with all fields (passed as key-value pairs)
-            for i = 1, #ARGV, 2 do
-                redis.call('HSET', key, ARGV[i], ARGV[i+1])
-            end
-
-            return 1
-        """
-
-        # Convert MUDTurnRequest to field list
-        import json
-        fields = []
-        for field_name, field_value in turn_request.model_dump().items():
-            if field_value is not None:
-                # Convert to string for Redis
-                if isinstance(field_value, datetime):
-                    value_str = field_value.isoformat()
-                elif isinstance(field_value, (TurnRequestStatus, TurnReason)):
-                    value_str = field_value.value
-                elif isinstance(field_value, dict):
-                    value_str = json.dumps(field_value)
-                else:
-                    value_str = str(field_value)
-                fields.extend([field_name, value_str])
-
-        result = await self.redis.eval(lua_script, 1, key, *fields)
-
-        return result == 1
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
+        return await client.create_turn_request(self.config.agent_id, turn_request)
 
     async def update_turn_request(
         self: "MUDAgentWorker",
@@ -103,57 +65,17 @@ class TurnRequestMixin:
         Returns:
             True if updated, False if CAS failed
         """
-        key = RedisKeys.agent_turn_request(self.config.agent_id)
+        from aim_mud_types.turn_request_helpers import update_turn_request_async
 
-        # Lua script for atomic CAS update
-        lua_script = """
-            local key = KEYS[1]
-            local expected_turn_id = ARGV[1]
-
-            -- Verify turn_id matches (CAS check)
-            local current = redis.call('HGET', key, 'turn_id')
-            if current ~= expected_turn_id then
-                return 0  -- CAS failed
-            end
-
-            -- Update fields (passed as key-value pairs starting at ARGV[2])
-            for i = 2, #ARGV, 2 do
-                redis.call('HSET', key, ARGV[i], ARGV[i+1])
-            end
-
-            return 1  -- Success
-        """
-
-        # Convert MUDTurnRequest to field list
-        import json
-        fields = []
-        for field_name, field_value in turn_request.model_dump().items():
-            if field_value is not None:
-                # Convert to string for Redis
-                if isinstance(field_value, datetime):
-                    value_str = field_value.isoformat()
-                elif isinstance(field_value, (TurnRequestStatus, TurnReason)):
-                    value_str = field_value.value
-                elif isinstance(field_value, dict):
-                    value_str = json.dumps(field_value)
-                else:
-                    value_str = str(field_value)
-                fields.extend([field_name, value_str])
-
-        # Execute CAS update
-        result = await self.redis.eval(
-            lua_script,
-            1,  # number of keys
-            key,
-            expected_turn_id,
-            *fields
+        success = await update_turn_request_async(
+            self.redis,
+            self.config.agent_id,
+            turn_request,
+            expected_turn_id=expected_turn_id,
         )
-
-        if result == 1:
-            return True
-        else:
+        if not success:
             logger.warning(f"CAS failed: expected turn_id {expected_turn_id}, update aborted")
-            return False
+        return success
 
     async def atomic_heartbeat_update(
         self: "MUDAgentWorker",
@@ -173,44 +95,15 @@ class TurnRequestMixin:
             0: Key doesn't exist (normal during shutdown)
             -1: Key corrupted (missing required fields)
         """
-        key = RedisKeys.agent_turn_request(self.config.agent_id)
+        from aim_mud_types.turn_request_helpers import atomic_heartbeat_update_async
 
-        # Lua script for atomic heartbeat update with validation
-        lua_script = """
-            local key = KEYS[1]
-            local heartbeat_at = ARGV[1]
-
-            -- Check key exists
-            if redis.call('EXISTS', key) == 0 then
-                return 0
-            end
-
-            -- Verify required fields to detect corruption
-            local status = redis.call('HGET', key, 'status')
-            local turn_id = redis.call('HGET', key, 'turn_id')
-
-            if not status or not turn_id then
-                return -1  -- Corrupted hash
-            end
-
-            -- Update heartbeat
-            redis.call('HSET', key, 'heartbeat_at', heartbeat_at)
-
-            return 1
-        """
-
-        # Execute atomic update
-        result = await self.redis.eval(
-            lua_script,
-            1,  # number of keys
-            key,
-            _utc_now().isoformat()
+        return await atomic_heartbeat_update_async(
+            self.redis,
+            self.config.agent_id,
         )
 
-        return result
-
     async def _heartbeat_turn_request(self: "MUDAgentWorker", stop_event) -> None:
-        """Refresh the turn request TTL while processing a turn.
+        """Refresh the turn request heartbeat while processing a turn.
 
         Args:
             stop_event: asyncio.Event to signal when to stop heartbeating
@@ -250,104 +143,17 @@ class TurnRequestMixin:
         HEARTBEAT_STALE_THRESHOLD = 300  # 5 minutes
 
         try:
-            # Scan for all agent turn_request keys
-            agent_keys = []
-            cursor = 0
-            while True:
-                cursor, keys = await self.redis.scan(
-                    cursor, match="agent:*:turn_request", count=100
-                )
-                agent_keys.extend(keys)
-                if cursor == 0:
-                    break
-
-            if not agent_keys:
+            from aim_mud_types.client import RedisMUDClient
+            client = RedisMUDClient(self.redis)
+            oldest = await client.get_oldest_active_turn(
+                heartbeat_stale_threshold=HEARTBEAT_STALE_THRESHOLD,
+            )
+            if oldest is None:
                 return True
 
-            # Fetch all turn requests
-            pipeline = self.redis.pipeline()
-            for key in agent_keys:
-                pipeline.hgetall(key)
-            results = await pipeline.execute()
+            _, oldest_turn_id, oldest_assigned_at = oldest
 
-            # Find oldest ASSIGNED or IN_PROGRESS turn
-            oldest_assigned_at = None
-            oldest_turn_id = None
-
-            for key, data in zip(agent_keys, results):
-                if not data:
-                    continue
-
-                # Decode bytes
-                decoded = {}
-                for k, v in data.items():
-                    if isinstance(k, bytes):
-                        k = k.decode("utf-8")
-                    if isinstance(v, bytes):
-                        v = v.decode("utf-8")
-                    decoded[str(k)] = str(v)
-
-                # Skip immediate commands - they don't participate in turn guard
-                status = decoded.get("status", "")
-                if status in [TurnRequestStatus.EXECUTE.value, TurnRequestStatus.EXECUTING.value]:
-                    logger.debug(
-                        f"Turn guard: Skipping immediate command {decoded.get('turn_id')} "
-                        f"(status={status})"
-                    )
-                    continue
-
-                # Skip non-active turns
-                if status not in [TurnRequestStatus.ASSIGNED.value,
-                                 TurnRequestStatus.IN_PROGRESS.value]:
-                    continue
-
-                # Skip stale heartbeats
-                heartbeat_at_str = decoded.get("heartbeat_at")
-                if heartbeat_at_str:
-                    try:
-                        heartbeat_at = datetime.fromisoformat(
-                            heartbeat_at_str.replace("Z", "+00:00")
-                        )
-                        age = (_utc_now() - heartbeat_at).total_seconds()
-                        if age > HEARTBEAT_STALE_THRESHOLD:
-                            logger.warning(
-                                f"Turn guard: Ignoring stale turn "
-                                f"{decoded.get('turn_id')} (heartbeat {age:.0f}s old)"
-                            )
-                            continue
-                    except (ValueError, AttributeError):
-                        pass
-
-                # Parse assigned_at
-                assigned_at_str = decoded.get("assigned_at")
-                if not assigned_at_str:
-                    continue
-
-                try:
-                    assigned_at = datetime.fromisoformat(
-                        assigned_at_str.replace("Z", "+00:00")
-                    )
-                except (ValueError, AttributeError):
-                    continue
-
-                # Track oldest
-                if oldest_assigned_at is None or assigned_at < oldest_assigned_at:
-                    oldest_assigned_at = assigned_at
-                    oldest_turn_id = decoded.get("turn_id")
-                elif assigned_at == oldest_assigned_at:
-                    # Tie-breaker: lexicographic turn_id
-                    current_oldest_id = oldest_turn_id or ""
-                    candidate_id = decoded.get("turn_id", "")
-                    if candidate_id < current_oldest_id:
-                        oldest_turn_id = candidate_id
-
-            # If no active turns, proceed
-            if oldest_turn_id is None:
-                return True
-
-            # Check if we're oldest
             is_oldest = (turn_request.turn_id == oldest_turn_id)
-
             if not is_oldest:
                 logger.info(
                     f"Turn guard: Turn {turn_request.turn_id} assigned at "

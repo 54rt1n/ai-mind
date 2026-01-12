@@ -31,13 +31,16 @@ class AgentCommand(Command):
 
         Args:
             worker: MUDAgentWorker instance
-            **kwargs: Contains turn_id, guidance, sequence_id, attempt_count, etc.
+        **kwargs: Contains turn_id, metadata, sequence_id, attempt_count, etc.
 
         Returns:
             CommandResult with complete=True, flush_drain=True
         """
         turn_id = kwargs.get("turn_id", "unknown")
-        guidance = kwargs.get("guidance", "")
+        guidance = ""
+        metadata = kwargs.get("metadata") or {}
+        if isinstance(metadata, dict):
+            guidance = metadata.get("guidance", "") or ""
 
         # Construct MUDTurnRequest from kwargs
         turn_request = MUDTurnRequest.model_validate(kwargs)

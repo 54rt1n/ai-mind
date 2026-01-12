@@ -30,7 +30,6 @@ from typing import Optional
 
 import redis.asyncio as redis
 
-from aim_mud_types import RedisKeys
 from aim_mud_types.helper import _utc_now
 
 from .config import MediatorConfig
@@ -99,8 +98,9 @@ class MediatorService(AgentsMixin, EventsMixin, DreamerMixin, PlannerMixin):
         Returns:
             Monotonically increasing integer for chronological ordering.
         """
-        sequence_id = await self.redis.incr(RedisKeys.SEQUENCE_COUNTER)
-        return sequence_id
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
+        return await client.next_sequence_id()
 
     async def start(self) -> None:
         """Start the event router task.
@@ -147,8 +147,9 @@ class MediatorService(AgentsMixin, EventsMixin, DreamerMixin, PlannerMixin):
         Returns:
             bool: True if paused, False if running.
         """
-        value = await self.redis.get(self.config.pause_key)
-        return value == b"1"
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
+        return await client.is_paused(self.config.pause_key)
 
     def setup_signal_handlers(self) -> None:
         """Setup handlers for graceful shutdown.

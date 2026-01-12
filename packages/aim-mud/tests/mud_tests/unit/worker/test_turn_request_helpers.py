@@ -152,6 +152,9 @@ class TestCheckAbortRequestedDuplicate:
     @pytest.mark.asyncio
     async def test_check_abort_clears_flag_when_set(self, test_worker):
         """Test that abort status triggers state transition."""
+        from aim_mud_types import TurnRequestStatus
+        from unittest.mock import patch
+
         # Arrange
         turn_request = MUDTurnRequest(
             status="abort_requested",
@@ -161,19 +164,21 @@ class TestCheckAbortRequestedDuplicate:
             sequence_id="1",
         )
         test_worker._get_turn_request = AsyncMock(return_value=turn_request)
-        test_worker.update_turn_request = AsyncMock(return_value=True)
 
-        # Act
-        result = await test_worker._check_abort_requested()
+        # Mock the helper function from aim_mud_types where it's imported
+        with patch('aim_mud_types.turn_request_helpers.transition_turn_request_and_update_async') as mock_transition:
+            mock_transition.return_value = None  # Async function
 
-        # Assert
-        assert result is True
-        # Verify update was called
-        assert test_worker.update_turn_request.called
-        # Verify the updated turn request has status=aborted
-        call_args = test_worker.update_turn_request.call_args[0]
-        updated_turn_request = call_args[0]
-        assert updated_turn_request.status == "aborted"
+            # Act
+            result = await test_worker._check_abort_requested()
+
+            # Assert
+            assert result is True
+            # Verify transition was called with correct arguments
+            assert mock_transition.called
+            call_kwargs = mock_transition.call_args[1]
+            assert call_kwargs['status'] == TurnRequestStatus.ABORTED
+            assert call_kwargs['message'] == "Aborted by user request"
 
     @pytest.mark.asyncio
     async def test_check_abort_returns_false_when_not_set(self, test_worker):

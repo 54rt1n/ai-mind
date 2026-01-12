@@ -5,6 +5,7 @@
 from typing import Optional, TYPE_CHECKING
 
 from ...redis_keys import RedisKeys
+from ...helper import _utc_now
 from ...profile import AgentProfile
 
 if TYPE_CHECKING:
@@ -33,6 +34,22 @@ class AgentProfileMixin:
         key = RedisKeys.agent_profile(agent_id)
         return await self._get_hash(AgentProfile, key)
 
+    async def get_agent_profile_raw(
+        self: "BaseRedisMUDClient",
+        agent_id: str
+    ) -> dict[str, str]:
+        """Fetch agent profile hash and decode to string values."""
+        key = RedisKeys.agent_profile(agent_id)
+        data = await self.redis.hgetall(key)
+        decoded: dict[str, str] = {}
+        for k, v in (data or {}).items():
+            if isinstance(k, bytes):
+                k = k.decode("utf-8")
+            if isinstance(v, bytes):
+                v = v.decode("utf-8")
+            decoded[str(k)] = str(v)
+        return decoded
+
     async def create_agent_profile(
         self: "BaseRedisMUDClient",
         profile: AgentProfile
@@ -51,7 +68,8 @@ class AgentProfileMixin:
     async def update_agent_profile_fields(
         self: "BaseRedisMUDClient",
         agent_id: str,
-        **fields
+        touch_updated_at: bool = False,
+        **fields,
     ) -> bool:
         """Partial update of agent profile fields.
 
@@ -69,6 +87,8 @@ class AgentProfileMixin:
                 last_event_id="12345-0"
             )
         """
+        if touch_updated_at and "updated_at" not in fields:
+            fields["updated_at"] = _utc_now()
         key = RedisKeys.agent_profile(agent_id)
         return await self._update_fields(key, fields)
 

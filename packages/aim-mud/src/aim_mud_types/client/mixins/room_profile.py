@@ -32,3 +32,19 @@ class RoomProfileMixin:
         """
         key = RedisKeys.room_profile(room_id)
         return await self._get_hash(RoomProfile, key)
+
+    async def get_room_profile_raw(
+        self: "BaseRedisMUDClient",
+        room_id: str
+    ) -> dict[str, str]:
+        """Fetch room profile hash and decode to string values."""
+        key = RedisKeys.room_profile(room_id)
+        data = await self.redis.hgetall(key)
+        decoded: dict[str, str] = {}
+        for k, v in (data or {}).items():
+            if isinstance(k, bytes):
+                k = k.decode("utf-8")
+            if isinstance(v, bytes):
+                v = v.decode("utf-8")
+            decoded[str(k)] = str(v)
+        return decoded

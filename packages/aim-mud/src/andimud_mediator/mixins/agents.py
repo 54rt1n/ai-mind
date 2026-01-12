@@ -2,14 +2,12 @@
 # AI-Mind (C) 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
 """Agents mixin for the mediator service."""
 
-import json
 import logging
 from datetime import datetime, timezone
 from typing import Optional
-import uuid
 
 from aim.conversation.model import ConversationModel
-from aim_mud_types import RedisKeys, MUDTurnRequest, TurnRequestStatus, TurnReason
+from aim_mud_types import MUDTurnRequest, TurnRequestStatus, TurnReason
 from aim_mud_types.helper import _utc_now
 
 logger = logging.getLogger(__name__)
@@ -54,40 +52,27 @@ class AgentsMixin:
                         if stale_seconds > 300:  # 5 minutes
                             stale_duration = f"{int(stale_seconds // 60)}m{int(stale_seconds % 60)}s"
 
-                            # Mark as crashed - use Lua script to prevent partial hash creation
-                            lua_script = """
-                                local key = KEYS[1]
-                                local status_value = ARGV[1]
-                                local status_reason = ARGV[2]
-                                local completed_at = ARGV[3]
-
-                                -- Only mark crashed if turn_request exists
-                                if redis.call('EXISTS', key) == 1 then
-                                    redis.call('HSET', key, 'status', status_value)
-                                    redis.call('HSET', key, 'status_reason', status_reason)
-                                    redis.call('HSET', key, 'completed_at', completed_at)
-                                    return 1
-                                else
-                                    return 0
-                                end
-                            """
-
-                            result = await self.redis.eval(
-                                lua_script,
-                                1,  # number of keys
-                                RedisKeys.agent_turn_request(agent_id),
-                                TurnRequestStatus.CRASHED.value,
-                                f"Heartbeat stale for {stale_duration}",
-                                _utc_now().isoformat()  # NEW - completion timestamp
+                            from aim_mud_types.turn_request_helpers import (
+                                transition_turn_request_and_update_async,
+                            )
+                            updated = await transition_turn_request_and_update_async(
+                                self.redis,
+                                agent_id,
+                                turn_request,
+                                expected_turn_id=turn_request.turn_id,
+                                status=TurnRequestStatus.CRASHED,
+                                status_reason=f"Heartbeat stale for {stale_duration}",
+                                set_completed=True,
+                                update_heartbeat=False,
                             )
 
-                            if result == 1:
+                            if updated:
                                 logger.error(
                                     f"Worker {agent_id} crashed (no heartbeat for {stale_seconds:.0f}s)"
                                 )
                             else:
                                 logger.debug(
-                                    f"Agent '{agent_id}' turn_request missing, skipping crash detection"
+                                    f"Agent '{agent_id}' turn_request missing or changed, skipping crash detection"
                                 )
             except Exception as e:
                 logger.error(f"Error checking state for {agent_id}: {e}", exc_info=True)
@@ -141,9 +126,10 @@ class AgentsMixin:
             return False
 
         # Check if agent is paused via Redis key
-        pause_key = RedisKeys.agent_pause(agent_id)
-        is_paused = await self.redis.get(pause_key)
-        if is_paused == b"1":
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
+        is_paused = await client.is_agent_paused(agent_id)
+        if is_paused:
             logger.debug(f"Agent {agent_id} paused, not assigning turn")
             return False
 
@@ -172,9 +158,7 @@ class AgentsMixin:
         # Convert reason to TurnReason enum
         turn_reason_enum = reason if isinstance(reason, TurnReason) else TurnReason(reason)
 
-        # Create client once for all operations
-        from aim_mud_types.client import RedisMUDClient
-        client = RedisMUDClient(self.redis)
+        from aim_mud_types.turn_request_helpers import assign_turn_request_async
 
         # Determine initial status based on reason
         # Immediate commands (FLUSH, CLEAR, NEW) get EXECUTE status for priority handling
@@ -195,54 +179,53 @@ class AgentsMixin:
                 logger.warning(
                     f"DREAM turn for {agent_id} has no metadata, marking as FAIL"
                 )
-                # Mark as permanently FAIL so it doesn't retry again
-                current.status = TurnRequestStatus.FAIL
-                current.message = "Dream turn missing metadata"
-                current.next_attempt_at = None  # Don't retry
-                current.completed_at = _utc_now()
-                await client.update_turn_request(agent_id, current, expected_turn_id=current.turn_id)
+                from aim_mud_types.turn_request_helpers import (
+                    transition_turn_request_and_update_async,
+                )
+                await transition_turn_request_and_update_async(
+                    self.redis,
+                    agent_id,
+                    current,
+                    expected_turn_id=current.turn_id,
+                    status=TurnRequestStatus.FAIL,
+                    message="Dream turn missing metadata",
+                    next_attempt_at=None,
+                    set_completed=True,
+                    update_heartbeat=False,
+                )
                 return False
             if current.reason == TurnReason.DREAM and metadata and not metadata.get("scenario"):
                 logger.warning(
                     f"DREAM turn for {agent_id} metadata missing scenario, marking as FAIL"
                 )
-                # Mark as permanently FAIL
-                current.status = TurnRequestStatus.FAIL
-                current.message = "Dream turn missing scenario in metadata"
-                current.next_attempt_at = None
-                current.completed_at = _utc_now()
-                await client.update_turn_request(agent_id, current, expected_turn_id=current.turn_id)
+                from aim_mud_types.turn_request_helpers import (
+                    transition_turn_request_and_update_async,
+                )
+                await transition_turn_request_and_update_async(
+                    self.redis,
+                    agent_id,
+                    current,
+                    expected_turn_id=current.turn_id,
+                    status=TurnRequestStatus.FAIL,
+                    message="Dream turn missing scenario in metadata",
+                    next_attempt_at=None,
+                    set_completed=True,
+                    update_heartbeat=False,
+                )
                 return False
 
-        # Build complete MUDTurnRequest object with ALL required fields
-        # This ensures Pydantic validation catches missing fields
-        turn_request = MUDTurnRequest(
-            turn_id=str(uuid.uuid4()),
-            sequence_id=await self._next_sequence_id(),  # CRITICAL - was missing before
-            status=initial_status,
-            reason=turn_reason_enum,
-            assigned_at=_utc_now(),
-            heartbeat_at=_utc_now(),
-            completed_at=None,  # NEW - clear on new assignment
-            deadline_ms=str(self.config.turn_request_ttl_seconds * 1000),
-            attempt_count=attempt_count,
-            metadata=metadata,  # Preserve metadata from previous turn or None for new turns
-        )
-
-        # Use RedisMUDClient for atomic CAS update
-        success = await client.update_turn_request(
+        success, turn_request, result = await assign_turn_request_async(
+            self.redis,
             agent_id,
-            turn_request,
-            expected_turn_id=current.turn_id
+            turn_reason_enum,
+            attempt_count=attempt_count,
+            status=initial_status,
+            expected_turn_id=current.turn_id,
+            skip_availability_check=True,
+            **(metadata or {}),
         )
 
-        if success:
-            # Conditionally set TTL (0 = no TTL)
-            if self.config.turn_request_ttl_seconds > 0:
-                await self.redis.expire(
-                    RedisKeys.agent_turn_request(agent_id),
-                    self.config.turn_request_ttl_seconds
-                )
+        if success and turn_request:
             logger.info(
                 f"Assigned turn to {agent_id} "
                 f"(sequence_id={turn_request.sequence_id}, "
@@ -253,7 +236,7 @@ class AgentsMixin:
             return True
         else:
             # CAS failed - state changed between check and assign
-            logger.debug(f"CAS failed for {agent_id}, state changed during assignment")
+            logger.debug(f"Assign failed for {agent_id}: {result}")
             return False
 
     async def _get_turn_request(self, agent_id: str) -> Optional[MUDTurnRequest]:
@@ -467,14 +450,13 @@ class AgentsMixin:
 
                 # Generate fresh conversation report
                 report_df = cvm.get_conversation_report()
-                report_key = RedisKeys.agent_conversation_report(agent_id)
 
                 if not report_df.empty:
                     report_dict = report_df.set_index('conversation_id').T.to_dict()
                 else:
                     report_dict = {}
 
-                await self.redis.set(report_key, json.dumps(report_dict))
+                await client.set_conversation_report(agent_id, report_dict)
                 refreshed_count += 1
 
             except Exception as e:
@@ -498,6 +480,9 @@ class AgentsMixin:
         # Refresh conversation reports before scanning
         await self._refresh_conversation_reports()
 
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
+
         # Convert set to list for indexing
         agents_list = list(self.registered_agents)
         if not agents_list:
@@ -513,17 +498,10 @@ class AgentsMixin:
 
             try:
                 # Load cached conversation report from Redis
-                report_key = RedisKeys.agent_conversation_report(agent_id)
-                report_json = await self.redis.get(report_key)
-
-                if not report_json:
+                report = await client.get_conversation_report(agent_id)
+                if not report:
                     logger.debug(f"Auto-analysis: no conversation report for {agent_id}")
                     continue
-
-                if isinstance(report_json, bytes):
-                    report_json = report_json.decode("utf-8")
-
-                report = json.loads(report_json)
 
                 if not isinstance(report, dict):
                     logger.warning(

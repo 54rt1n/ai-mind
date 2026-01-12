@@ -179,6 +179,7 @@ class TestRoomProfile:
 class TestRoomProfileIntegration:
     """Integration tests for RoomProfile with Redis client."""
 
+    @pytest.mark.asyncio
     async def test_agents_from_room_profile_with_real_data(self):
         """Test extracting agent_ids from RoomProfile with EntityState objects."""
         # Create a RoomProfile with EntityState objects (not dicts)

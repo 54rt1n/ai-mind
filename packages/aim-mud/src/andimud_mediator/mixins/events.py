@@ -8,7 +8,6 @@ import logging
 from typing import Any, Optional
 
 from aim_mud_types import EventType, MUDEvent, RedisKeys, TurnReason, TurnRequestStatus
-from aim_mud_types.helper import _utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -19,29 +18,22 @@ class EventsMixin:
     async def load_last_event_id_from_hash(self) -> None:
         """Load last processed event ID from processing hash."""
         try:
-            # Get all processed event IDs
-            processed = await self.redis.hkeys(RedisKeys.EVENTS_PROCESSED)
+            from aim_mud_types.client import RedisMUDClient
+            client = RedisMUDClient(self.redis)
+            max_id = await client.get_max_processed_mud_event_id()
 
-            if not processed:
+            if not max_id:
                 logger.info("No processed events hash found, starting from 0")
                 self.last_event_id = "0"
                 return
 
-            # Decode and find maximum event ID
-            event_ids = []
-            for key in processed:
-                if isinstance(key, bytes):
-                    key = key.decode("utf-8")
-                event_ids.append(key)
-
-            # Event IDs are like "1704297296123-0" - max() works on string sort
-            max_id = max(event_ids)
             self.last_event_id = max_id
 
+            processed_count = len(await client.get_mud_event_processed_ids())
             logger.info(
                 "Loaded last_event_id from processed hash: %s (%d events in hash)",
                 self.last_event_id,
-                len(event_ids),
+                processed_count,
             )
         except Exception as e:
             logger.error(f"Failed to load last_event_id from hash: {e}")
@@ -80,6 +72,8 @@ class EventsMixin:
         3. Track agent locations from movement events
         """
         logger.info("Event router started")
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
 
         while self.running:
             try:
@@ -90,31 +84,29 @@ class EventsMixin:
                     continue
 
                 # Block-read from event stream
-                result = await self.redis.xread(
-                    {self.config.event_stream: self.last_event_id},
-                    block=int(self.config.event_poll_timeout * 1000),
+                messages = await client.read_mud_events(
+                    self.last_event_id,
+                    block_ms=int(self.config.event_poll_timeout * 1000),
                     count=100,
+                    stream_key=self.config.event_stream,
                 )
 
-                if not result:
+                if not messages:
                     # No events, check agent states for retry/crash
                     await self._check_agent_states()
                     continue
 
-                for stream_name, messages in result:
-                    for msg_id, data in messages:
-                        # Update last event ID
-                        if isinstance(msg_id, bytes):
-                            msg_id = msg_id.decode("utf-8")
-                        self.last_event_id = msg_id
+                for msg_id, data in messages:
+                    # Update last event ID
+                    self.last_event_id = msg_id
 
-                        try:
-                            await self._process_event(msg_id, data)
-                        except Exception as e:
-                            logger.error(
-                                f"Error processing event {msg_id}: {e}",
-                                exc_info=True,
-                            )
+                    try:
+                        await self._process_event(msg_id, data)
+                    except Exception as e:
+                        logger.error(
+                            f"Error processing event {msg_id}: {e}",
+                            exc_info=True,
+                        )
 
                 # Trim processed events from stream (based on hash)
                 await self._trim_processed_events()
@@ -137,12 +129,11 @@ class EventsMixin:
             msg_id: Redis stream message ID.
             data: Raw event data from Redis.
         """
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
         # Check if already processed (idempotency check)
         try:
-            already_processed = await self.redis.hexists(
-                RedisKeys.EVENTS_PROCESSED,
-                msg_id,
-            )
+            already_processed = await client.is_mud_event_processed(msg_id)
             if already_processed:
                 logger.debug(f"Event {msg_id} already processed, skipping")
                 return
@@ -218,9 +209,6 @@ class EventsMixin:
                 agents_to_notify = [a for a in agents_to_notify if a != actor_agent_id]
 
         # Filter out sleeping agents (they receive NO events while sleeping)
-        from aim_mud_types.client import RedisMUDClient
-        client = RedisMUDClient(self.redis)
-
         sleeping_agents = []
         for agent_id in agents_to_notify:
             is_sleeping = await client.get_agent_is_sleeping(agent_id)
@@ -239,11 +227,12 @@ class EventsMixin:
         # Phase 1: Distribute event to ALL agents in room (broadcast)
         for agent_id in agents_to_notify:
             stream_key = RedisKeys.agent_events(agent_id)
-            await self.redis.xadd(
-                stream_key,
+            await client.append_agent_event(
+                agent_id,
                 {"data": json.dumps(enriched)},
                 maxlen=self.config.agent_events_maxlen,
                 approximate=True,
+                stream_key=stream_key,
             )
             logger.debug(f"Distributed event {msg_id} (seq={sequence_id}) to {agent_id}")
 
@@ -317,16 +306,11 @@ class EventsMixin:
             agents: List of agent IDs that received the event.
         """
         try:
-            timestamp = _utc_now().isoformat()
+            from aim_mud_types.client import RedisMUDClient
+            client = RedisMUDClient(self.redis)
+            await client.mark_mud_event_processed(msg_id, agents)
+
             agent_list = ",".join(agents) if agents else ""
-            value = f"{timestamp}|{agent_list}"
-
-            await self.redis.hset(
-                RedisKeys.EVENTS_PROCESSED,
-                msg_id,
-                value,
-            )
-
             logger.debug(
                 f"Marked event {msg_id} as processed (agents: {agent_list or 'none'})"
             )
@@ -343,25 +327,15 @@ class EventsMixin:
             return
 
         try:
-            # Get all processed event IDs
-            processed_ids = await self.redis.hkeys(RedisKeys.EVENTS_PROCESSED)
-
-            if not processed_ids:
+            from aim_mud_types.client import RedisMUDClient
+            client = RedisMUDClient(self.redis)
+            min_id = await client.get_min_processed_mud_event_id()
+            if not min_id:
                 return
-
-            # Decode and find minimum
-            ids = []
-            for key in processed_ids:
-                if isinstance(key, bytes):
-                    key = key.decode("utf-8")
-                ids.append(key)
-
-            # Trim stream up to minimum processed event
-            min_id = min(ids)
-            await self.redis.xtrim(
-                self.config.event_stream,
-                minid=min_id,
+            await client.trim_mud_events_minid(
+                min_id=min_id,
                 approximate=True,
+                stream_key=self.config.event_stream,
             )
             logger.debug(f"Trimmed event stream up to {min_id}")
         except Exception as e:
@@ -373,28 +347,13 @@ class EventsMixin:
         Called periodically to prevent unbounded hash growth.
         """
         try:
-            # Get all processed event IDs
-            processed_ids = await self.redis.hkeys(RedisKeys.EVENTS_PROCESSED)
-
             keep_count = self.config.events_processed_hash_max
-            if len(processed_ids) <= keep_count:
-                return  # No cleanup needed
-
-            # Decode and sort
-            ids = []
-            for key in processed_ids:
-                if isinstance(key, bytes):
-                    key = key.decode("utf-8")
-                ids.append(key)
-
-            ids.sort()  # Event IDs are sortable timestamps
-
-            # Remove oldest entries
-            to_remove = ids[:-keep_count]
-            if to_remove:
-                await self.redis.hdel(RedisKeys.EVENTS_PROCESSED, *to_remove)
+            from aim_mud_types.client import RedisMUDClient
+            client = RedisMUDClient(self.redis)
+            removed = await client.trim_processed_mud_event_ids(keep_count)
+            if removed:
                 logger.info(
-                    f"Cleaned up {len(to_remove)} old processed event entries"
+                    f"Cleaned up {removed} old processed event entries"
                 )
         except Exception as e:
             logger.error(f"Failed to cleanup processed hash: {e}")

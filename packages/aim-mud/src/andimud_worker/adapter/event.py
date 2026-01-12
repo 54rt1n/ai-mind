@@ -40,21 +40,15 @@ def format_event(event: MUDEvent, first_person: bool = False) -> str:
         # Determine if this is an arrival or departure based on content
         content_lower = event.content.lower()
         if "enter" in content_lower or "arrive" in content_lower:
-            # Arrival: use source_room_name from metadata, fall back to parsing
-            source = (
-                event.metadata.get("source_room_name") or
-                (event.content.split("from", 1)[1].strip() if "from" in event.content else None)
-            )
-            if source and source != "somewhere":
+            # Arrival: rely on source_room_name metadata
+            source = event.metadata.get("source_room_name")
+            if source:
                 return f"*You see {event.actor} arriving from {source}.*"
             return f"*You see {event.actor} has arrived.*"
         else:
-            # Departure: use destination_room_name from metadata, fall back to parsing
-            destination = (
-                event.metadata.get("destination_room_name") or
-                (event.content.split("to", 1)[1].strip() if "to" in event.content else None)
-            )
-            if destination and destination != "somewhere":
+            # Departure: rely on destination_room_name metadata
+            destination = event.metadata.get("destination_room_name")
+            if destination:
                 return f"*You see {event.actor} leaving toward {destination}.*"
             return f"*You see {event.actor} leave.*"
 
@@ -119,11 +113,7 @@ def format_self_event(event: MUDEvent) -> str:
     """
     if event.event_type == EventType.MOVEMENT:
         # For movement, use destination from metadata
-        room_name = (
-            event.metadata.get("destination_room_name") or
-            event.room_name or
-            event.metadata.get("room_name", "somewhere")
-        )
+        room_name = event.metadata.get("destination_room_name", "somewhere")
         return f"You moved to {room_name}."
 
     elif event.event_type == EventType.OBJECT:
@@ -212,11 +202,7 @@ def format_self_action_guidance(self_actions: list[MUDEvent], world_state=None) 
         # Add action type and details
         if event.event_type == EventType.MOVEMENT:
             source = event.metadata.get("source_room_name", "somewhere")
-            destination = (
-                event.metadata.get("destination_room_name")
-                or event.room_name
-                or event.metadata.get("room_name", "somewhere")
-            )
+            destination = event.metadata.get("destination_room_name", "somewhere")
             lines.extend([
                 "Action Type: MOVEMENT",
                 "",
@@ -304,11 +290,7 @@ def format_self_action_guidance(self_actions: list[MUDEvent], world_state=None) 
             if event.event_type == EventType.MOVEMENT:
                 movement_occurred = True
                 source = event.metadata.get("source_room_name", "somewhere")
-                destination = (
-                    event.metadata.get("destination_room_name")
-                    or event.room_name
-                    or event.metadata.get("room_name", "somewhere")
-                )
+                destination = event.metadata.get("destination_room_name", "somewhere")
                 final_location = destination
                 lines.append(f"{idx}. MOVEMENT: You moved from {source} to {destination}")
                 lines.append(f"   → Current Location: {destination}")
@@ -387,4 +369,3 @@ def _get_current_inventory_summary(world_state) -> str:
 
     item_names = [item.name for item in world_state.inventory]
     return ", ".join(item_names)
-

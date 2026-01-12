@@ -280,8 +280,8 @@ class AgentTurnProcessor(BaseTurnProcessor):
                             target=resolved,
                         )
                         # Store source and destination in metadata for formatting
-                        event.metadata["source_location"] = source_location
-                        event.metadata["destination_location"] = resolved
+                        event.metadata["source_room_name"] = source_location
+                        event.metadata["destination_room_name"] = resolved
 
                         await self.worker._write_self_event(event)
                         await self.worker._emit_actions(actions_taken)

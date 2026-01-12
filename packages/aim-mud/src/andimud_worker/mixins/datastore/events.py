@@ -11,8 +11,6 @@ import json
 import logging
 from typing import TYPE_CHECKING, Optional
 
-import redis.asyncio as redis
-
 from aim_mud_types import MUDEvent
 
 if TYPE_CHECKING:
@@ -47,6 +45,8 @@ class EventsMixin:
         max_id = None
         scan_last_id: Optional[str] = None
         last_consumed_id: Optional[str] = None
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
 
         def _parse_result(result) -> None:
             nonlocal scan_last_id, last_consumed_id
@@ -116,15 +116,15 @@ class EventsMixin:
 
         # Snapshot the max stream id at drain start to avoid chasing new events
         try:
-            info = await self.redis.xinfo_stream(self.config.agent_stream)
-            max_id = info.get("last-generated-id") or info.get(b"last-generated-id")
-            if isinstance(max_id, bytes):
-                max_id = max_id.decode("utf-8")
-        except redis.RedisError as e:
+            max_id = await client.get_agent_events_last_id(
+                self.config.agent_id,
+                stream_key=self.config.agent_stream,
+            )
+        except Exception as e:
             logger.error(f"Redis error in drain_events (xinfo): {e}")
             return []
 
-        if not max_id or max_id == "0":
+        if not max_id:
             return []
 
         # Drain events up to snapshot max_id
@@ -132,13 +132,14 @@ class EventsMixin:
         min_id = f"({start_id}" if start_id != "0" else "-"
         while True:
             try:
-                result = await self.redis.xrange(
-                    self.config.agent_stream,
-                    min=min_id,
-                    max=max_id,
+                result = await client.range_agent_events(
+                    self.config.agent_id,
+                    min_id,
+                    max_id,
                     count=100,
+                    stream_key=self.config.agent_stream,
                 )
-            except redis.RedisError as e:
+            except Exception as e:
                 logger.error(f"Redis error in drain_events (xrange): {e}")
                 break
 

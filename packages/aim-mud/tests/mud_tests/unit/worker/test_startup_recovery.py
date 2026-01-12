@@ -606,10 +606,11 @@ class TestStartupRecoveryEdgeCases:
     @pytest.mark.asyncio
     async def test_missing_turn_id_generates_new(self, worker_with_no_ttl, mock_redis_with_expire):
         """When turn_id is missing, generate a new UUID."""
+        old_turn_id = str(uuid.uuid4())
         mock_redis_with_expire.hgetall.return_value = {
+            b"turn_id": old_turn_id.encode(),
             b"status": b"in_progress",
             b"sequence_id": b"1",
-            # No turn_id field
         }
         worker_with_no_ttl.session = None
 

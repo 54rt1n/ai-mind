@@ -14,6 +14,9 @@ class MockWorker:
         self.redis = AsyncMock()
         self.config = MagicMock()
         self.config.agent_id = "andi"
+        self.chat_config = MagicMock()
+        self.chat_config.tools_path = "config/tools"
+        self.config.decision_tool_file = "config/tools/mud_phase1.yaml"
         self._decision_strategy = MagicMock()
         self._active_plan = None
 

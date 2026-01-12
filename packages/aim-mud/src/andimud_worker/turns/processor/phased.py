@@ -152,9 +152,9 @@ class PhasedTurnProcessor(BaseTurnProcessor):
                     f"moved from {source_location} to {destination_location}",
                     target=destination_location,
                 )
-                # Store source in metadata for formatting
-                event.metadata["source_location"] = source_location
-                event.metadata["destination_location"] = destination_location
+                # Store source/destination in metadata for formatting
+                event.metadata["source_room_name"] = source_location
+                event.metadata["destination_room_name"] = destination_location
 
                 await self.worker._write_self_event(event)
 
@@ -212,6 +212,7 @@ class PhasedTurnProcessor(BaseTurnProcessor):
                         f"gave {obj} to {target}",
                         target=obj
                     )
+                    event.metadata["target_name"] = target
                     await self.worker._write_self_event(event)
 
                     await self.worker._emit_actions(actions_taken)

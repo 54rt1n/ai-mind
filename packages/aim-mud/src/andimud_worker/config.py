@@ -59,7 +59,7 @@ class MUDConfig:
     agent_tool_file: str = "config/tools/mud_agent.yaml"
 
     # Turn request coordination
-    turn_request_ttl_seconds: int = 0  # 0 = no TTL (persistent turn_request)
+    turn_request_ttl_seconds: int = 0  # Deprecated: TTL no longer used (turn_request is persistent)
     turn_request_heartbeat_seconds: int = 20
     turn_request_poll_interval: float = 0.5
 

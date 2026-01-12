@@ -5,7 +5,7 @@
 import logging
 from typing import TYPE_CHECKING
 
-from aim_mud_types import MUDTurnRequest, TurnRequestStatus
+from aim_mud_types import TurnRequestStatus
 from .base import Command
 from .result import CommandResult
 
@@ -31,32 +31,23 @@ class ChooseCommand(Command):
 
         Args:
             worker: MUDAgentWorker instance
-            **kwargs: Contains turn_id, guidance, sequence_id, attempt_count, etc.
+            **kwargs: Contains turn_id, metadata, sequence_id, attempt_count, etc.
 
         Returns:
-            CommandResult with complete=True, flush_drain=True
+            CommandResult with complete=False (falls through to process_turn)
         """
         turn_id = kwargs.get("turn_id", "unknown")
-        guidance = kwargs.get("guidance", "")
-
-        # Construct MUDTurnRequest from kwargs
-        turn_request = MUDTurnRequest.model_validate(kwargs)
-
-        # Worker has already drained events into worker.pending_events
-        events = worker.pending_events
 
         logger.info(
             "Processing @choose turn %s with %d events",
             turn_id,
-            len(events),
+            len(worker.pending_events),
         )
-        # Use standard phased turn with user guidance
-        await worker.process_turn(turn_request, events, user_guidance=guidance)
 
         return CommandResult(
-            complete=True,
-            flush_drain=True,
+            complete=False,
+            flush_drain=False,
             saved_event_id=None,
             status=TurnRequestStatus.DONE,
-            message="Choose turn processed"
+            message="Choose turn ready"
         )

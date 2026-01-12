@@ -18,7 +18,6 @@ The design follows the plan in CODEX_PHASE_2_4_MUD_Retrieval.md.
 import json
 import logging
 import secrets
-from datetime import datetime, timezone
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
@@ -259,8 +258,11 @@ class MUDConversationManager:
         Returns:
             List of entries in chronological order.
         """
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
+
         # Get all entries from Redis
-        raw_entries = await self.redis.lrange(self.key, 0, -1)
+        raw_entries = await client.get_conversation_entries(self.agent_id, 0, -1)
 
         if not raw_entries:
             return []
@@ -303,7 +305,9 @@ class MUDConversationManager:
         Returns:
             Number of entries flushed.
         """
-        raw_entries = await self.redis.lrange(self.key, 0, -1)
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
+        raw_entries = await client.get_conversation_entries(self.agent_id, 0, -1)
 
         if not raw_entries:
             return 0
@@ -347,7 +351,11 @@ class MUDConversationManager:
             entry.doc_id = doc_id
 
             # Update in Redis
-            await self.redis.lset(self.key, i, entry.model_dump_json())
+            await client.set_conversation_entry(
+                self.agent_id,
+                i,
+                entry.model_dump_json(),
+            )
             flushed += 1
 
             logger.debug(f"Flushed entry {doc_id} to CVM")
@@ -367,25 +375,27 @@ class MUDConversationManager:
             entry: The entry to push.
         """
         # Push the entry
-        await self.redis.rpush(self.key, entry.model_dump_json())
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
+        await client.append_conversation_entry(
+            self.agent_id,
+            entry.model_dump_json(),
+        )
 
         # Check if we need to trim
         total_tokens = await self.get_total_tokens()
 
         while total_tokens > self.max_tokens:
             # Get the oldest entry
-            raw = await self.redis.lindex(self.key, 0)
+            raw = await client.get_conversation_entry(self.agent_id, 0)
             if not raw:
                 break
-
-            if isinstance(raw, bytes):
-                raw = raw.decode("utf-8")
 
             try:
                 oldest = MUDConversationEntry.model_validate_json(raw)
             except Exception:
                 # Can't parse, remove it anyway
-                await self.redis.lpop(self.key)
+                await client.pop_conversation_entry(self.agent_id)
                 continue
 
             # Only trim saved entries
@@ -399,7 +409,7 @@ class MUDConversationManager:
                 break
 
             # Remove the oldest saved entry
-            await self.redis.lpop(self.key)
+            await client.pop_conversation_entry(self.agent_id)
             total_tokens -= oldest.tokens
             logger.debug(
                 f"Trimmed saved entry {oldest.doc_id}, now at {total_tokens} tokens"
@@ -411,7 +421,9 @@ class MUDConversationManager:
         Returns:
             Total token count.
         """
-        raw_entries = await self.redis.lrange(self.key, 0, -1)
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
+        raw_entries = await client.get_conversation_entries(self.agent_id, 0, -1)
 
         total = 0
         for raw in raw_entries:
@@ -431,14 +443,18 @@ class MUDConversationManager:
         Returns:
             Number of entries.
         """
-        return await self.redis.llen(self.key)
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
+        return await client.get_conversation_length(self.agent_id)
 
     async def clear(self) -> None:
         """Clear the conversation list.
 
         Used for testing or session reset.
         """
-        await self.redis.delete(self.key)
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
+        await client.delete_conversation(self.agent_id)
         self._sequence_no = 0
         self._conversation_id = None
         logger.info(f"Cleared conversation list for agent {self.agent_id}")
@@ -475,7 +491,9 @@ class MUDConversationManager:
         Returns:
             Number of entries re-tagged.
         """
-        raw_entries = await self.redis.lrange(self.key, 0, -1)
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
+        raw_entries = await client.get_conversation_entries(self.agent_id, 0, -1)
 
         if not raw_entries:
             return 0
@@ -506,11 +524,10 @@ class MUDConversationManager:
 
         # Replace entire list atomically
         if updated_entries:
-            pipe = self.redis.pipeline()
-            pipe.delete(self.key)
-            for entry_json in updated_entries:
-                pipe.rpush(self.key, entry_json)
-            await pipe.execute()
+            await client.replace_conversation_entries(
+                self.agent_id,
+                updated_entries,
+            )
 
         # Update internal sequence counter
         self._sequence_no = new_sequence_no

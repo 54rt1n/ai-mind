@@ -14,7 +14,7 @@ from aim_mud_types import TurnRequestStatus
 def mock_worker():
     """Create a mock worker with PlannerMixin methods."""
     worker = MagicMock()
-    worker.check_active_plan = AsyncMock(return_value=None)
+    worker.get_active_plan = MagicMock(return_value=None)
     worker.check_auto_dream_triggers = AsyncMock(return_value=None)
     worker.set_active_plan = MagicMock()
     worker.chat_config = MagicMock()
@@ -62,55 +62,50 @@ class TestIdlePlanPriority:
 
     @pytest.mark.asyncio
     async def test_no_plan_no_dream(self, command, mock_worker):
-        """Test idle with no plan and no dream triggers."""
+        """Test idle with no plan returns idle message."""
         result = await command.execute(mock_worker, turn_id="test-turn")
 
         assert result.complete is False
         assert result.status == TurnRequestStatus.DONE
         assert "Idle turn ready" in result.message
-        mock_worker.check_active_plan.assert_called_once()
-        mock_worker.check_auto_dream_triggers.assert_called_once()
+        mock_worker.get_active_plan.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_plan_takes_priority(self, command, mock_worker, sample_plan):
-        """Test that active plan takes priority over dream."""
-        mock_worker.check_active_plan.return_value = sample_plan
+    async def test_plan_detected(self, command, mock_worker, sample_plan):
+        """Test that active plan is detected and message includes task."""
+        mock_worker.get_active_plan.return_value = sample_plan
 
         result = await command.execute(mock_worker, turn_id="test-turn")
 
         assert result.complete is False
         assert "Plan active" in result.message or "Task 1" in result.message
-        mock_worker.set_active_plan.assert_called_once_with(sample_plan)
-        # Dream triggers should NOT be checked when plan is active
-        mock_worker.check_auto_dream_triggers.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_plan_tools_added(self, command, mock_worker, sample_plan):
-        """Test that plan tools are added when plan is active."""
-        mock_worker.check_active_plan.return_value = sample_plan
+        """Test that plan context is set when plan is active."""
+        mock_worker.get_active_plan.return_value = sample_plan
 
-        await command.execute(mock_worker, turn_id="test-turn")
+        result = await command.execute(mock_worker, turn_id="test-turn")
 
-        mock_worker._tool_helper.add_plan_tools.assert_called_once()
+        # IdleCommand doesn't directly add tools, just detects plan
+        assert result.complete is False
+        assert "Plan active" in result.message
 
     @pytest.mark.asyncio
     async def test_sets_context_on_decision_strategy(self, command, mock_worker, sample_plan):
-        """Test that set_context is called on decision strategy when plan is active."""
-        mock_worker.check_active_plan.return_value = sample_plan
-        mock_worker._decision_strategy.set_context = MagicMock()
-        mock_worker.redis = MagicMock()
-        mock_worker.config.agent_id = "test-agent-id"
+        """Test that plan guidance is available when plan is active."""
+        mock_worker.get_active_plan.return_value = sample_plan
+        mock_worker._decision_strategy.get_plan_guidance = MagicMock(return_value="Test guidance")
 
-        await command.execute(mock_worker, turn_id="test-turn")
+        result = await command.execute(mock_worker, turn_id="test-turn")
 
-        mock_worker._decision_strategy.set_context.assert_called_once_with(
-            mock_worker.redis, "test-agent-id"
-        )
+        # Guidance is retrieved from strategy
+        assert result.plan_guidance == "Test guidance"
 
     @pytest.mark.asyncio
     async def test_handles_no_tool_helper(self, command, mock_worker, sample_plan):
         """Test graceful handling when no tool helper."""
-        mock_worker.check_active_plan.return_value = sample_plan
+        mock_worker.get_active_plan.return_value = sample_plan
         mock_worker._tool_helper = None
 
         # Should not raise
@@ -120,7 +115,7 @@ class TestIdlePlanPriority:
     @pytest.mark.asyncio
     async def test_plan_guidance_returned(self, command, mock_worker, sample_plan):
         """Test that plan guidance is returned in result."""
-        mock_worker.check_active_plan.return_value = sample_plan
+        mock_worker.get_active_plan.return_value = sample_plan
         mock_worker._decision_strategy.get_plan_guidance.return_value = "Execute task 1"
 
         result = await command.execute(mock_worker, turn_id="test-turn")
@@ -130,7 +125,7 @@ class TestIdlePlanPriority:
     @pytest.mark.asyncio
     async def test_handles_no_decision_strategy(self, command, mock_worker, sample_plan):
         """Test graceful handling when no decision strategy."""
-        mock_worker.check_active_plan.return_value = sample_plan
+        mock_worker.get_active_plan.return_value = sample_plan
         mock_worker._decision_strategy = None
 
         # Should not raise
@@ -141,7 +136,7 @@ class TestIdlePlanPriority:
     @pytest.mark.asyncio
     async def test_message_includes_current_task(self, command, mock_worker, sample_plan):
         """Test that message includes current task summary."""
-        mock_worker.check_active_plan.return_value = sample_plan
+        mock_worker.get_active_plan.return_value = sample_plan
 
         result = await command.execute(mock_worker, turn_id="test-turn")
 
@@ -153,7 +148,7 @@ class TestIdlePlanPriority:
     ):
         """Test message when all tasks complete (current_task_id out of range)."""
         sample_plan.current_task_id = 5  # Out of range
-        mock_worker.check_active_plan.return_value = sample_plan
+        mock_worker.get_active_plan.return_value = sample_plan
 
         result = await command.execute(mock_worker, turn_id="test-turn")
 
@@ -162,49 +157,23 @@ class TestIdlePlanPriority:
 
 
 class TestIdleDreamFallback:
-    """Tests for dream fallback when no plan."""
+    """Tests for IdleCommand behavior - no dream logic in command itself."""
 
     @pytest.mark.asyncio
-    async def test_dream_triggered_when_no_plan(self, command, mock_worker):
-        """Test that dream triggers are checked when no plan."""
-        mock_dream_request = MagicMock()
-        mock_dream_request.scenario = "analysis_dialogue"
-        mock_dream_request.query = None
-        mock_dream_request.guidance = None
-        mock_worker.check_auto_dream_triggers.return_value = mock_dream_request
-
-        mock_result = MagicMock()
-        mock_result.success = True
-        mock_result.pipeline_id = "dream-123"
-        mock_result.duration_seconds = 5.0
-        mock_worker.process_dream_turn = AsyncMock(return_value=mock_result)
-        mock_worker._update_conversation_report = AsyncMock()
-
-        result = await command.execute(mock_worker, turn_id="test-turn")
-
-        mock_worker.process_dream_turn.assert_called_once()
-        assert result.complete is False
-
-    @pytest.mark.asyncio
-    async def test_dream_failure_logged(self, command, mock_worker):
-        """Test that dream failure is handled gracefully."""
-        mock_dream_request = MagicMock()
-        mock_dream_request.scenario = "analysis_dialogue"
-        mock_dream_request.query = None
-        mock_dream_request.guidance = None
-        mock_worker.check_auto_dream_triggers.return_value = mock_dream_request
-
-        mock_result = MagicMock()
-        mock_result.success = False
-        mock_result.error = "Test error"
-        mock_worker.process_dream_turn = AsyncMock(return_value=mock_result)
-
-        # Should not raise
+    async def test_no_plan_returns_idle_ready(self, command, mock_worker):
+        """Test that IdleCommand returns idle ready when no plan."""
         result = await command.execute(mock_worker, turn_id="test-turn")
 
         assert result.complete is False
-        # _update_conversation_report should NOT be called on failure
-        mock_worker._update_conversation_report.assert_not_called()
+        assert result.flush_drain is True
+        assert "Idle turn ready" in result.message
+
+    @pytest.mark.asyncio
+    async def test_flush_drain_always_true(self, command, mock_worker):
+        """Test that flush_drain is always True for idle."""
+        result = await command.execute(mock_worker, turn_id="test-turn")
+
+        assert result.flush_drain is True
 
 
 class TestIdleCommandResult:
@@ -225,7 +194,7 @@ class TestIdleCommandResult:
         assert result.complete is False
 
         # With plan
-        mock_worker.check_active_plan.return_value = sample_plan
+        mock_worker.get_active_plan.return_value = sample_plan
         result = await command.execute(mock_worker, turn_id="test-turn")
         assert result.complete is False
 

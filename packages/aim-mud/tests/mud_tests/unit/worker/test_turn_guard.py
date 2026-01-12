@@ -147,7 +147,7 @@ class TestTurnGuard:
         )
 
         # Act - mock _utc_now to control current time
-        with patch('andimud_worker.mixins.datastore.turn_request._utc_now', return_value=now):
+        with patch('aim_mud_types.client.mixins.turn_request._utc_now', return_value=now):
             result = await worker._should_process_turn(turn_request)
 
         # Assert
@@ -190,7 +190,7 @@ class TestTurnGuard:
         )
 
         # Act - mock _utc_now to control current time
-        with patch('andimud_worker.mixins.datastore.turn_request._utc_now', return_value=now):
+        with patch('aim_mud_types.client.mixins.turn_request._utc_now', return_value=now):
             result = await worker._should_process_turn(turn_request)
 
         # Assert
@@ -517,7 +517,7 @@ class TestTurnGuard:
         )
 
         # Act - mock _utc_now to control current time
-        with patch('andimud_worker.mixins.datastore.turn_request._utc_now', return_value=now):
+        with patch('aim_mud_types.client.mixins.turn_request._utc_now', return_value=now):
             result = await worker._should_process_turn(turn_request)
 
         # Assert
@@ -643,7 +643,7 @@ class TestTurnGuard:
         )
 
         # Act - mock _utc_now to control current time
-        with patch('andimud_worker.mixins.datastore.turn_request._utc_now', return_value=now):
+        with patch('aim_mud_types.client.mixins.turn_request._utc_now', return_value=now):
             result = await worker._should_process_turn(turn_request)
 
         # Assert
@@ -685,7 +685,7 @@ class TestTurnGuard:
         )
 
         # Act - mock _utc_now to control current time
-        with patch('andimud_worker.mixins.datastore.turn_request._utc_now', return_value=now):
+        with patch('aim_mud_types.client.mixins.turn_request._utc_now', return_value=now):
             result = await worker._should_process_turn(turn_request)
 
         # Assert

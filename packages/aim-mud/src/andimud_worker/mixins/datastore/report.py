@@ -6,11 +6,8 @@ Handles generating and caching conversation reports in Redis.
 Extracted from worker.py lines 841-860
 """
 
-import json
 import logging
 from typing import TYPE_CHECKING
-
-from aim_mud_types import RedisKeys
 
 if TYPE_CHECKING:
     from ...worker import MUDAgentWorker
@@ -35,14 +32,15 @@ class ReportMixin:
         """
         try:
             report_df = self.cvm.get_conversation_report()
-            report_key = RedisKeys.agent_conversation_report(self.config.agent_id)
 
             if not report_df.empty:
                 report_dict = report_df.set_index('conversation_id').T.to_dict()
             else:
                 report_dict = {}
 
-            await self.redis.set(report_key, json.dumps(report_dict))
+            from aim_mud_types.client import RedisMUDClient
+            client = RedisMUDClient(self.redis)
+            await client.set_conversation_report(self.config.agent_id, report_dict)
             logger.debug(f"Updated conversation report: {len(report_dict)} conversations")
         except Exception as e:
             logger.error(f"Failed to update conversation report: {e}", exc_info=True)

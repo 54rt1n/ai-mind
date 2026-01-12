@@ -358,7 +358,7 @@ class TestMultiTurnSelfActionAwareness:
 
         # Mock Phase 1 LLM to decide "move north"
         async def mock_call_llm_turn1(turns, role):
-            if role == "tool":
+            if role == "decision":
                 return '<decision><tool>move</tool><args>{"direction": "north"}</args></decision>'
             return "Shouldn't get here in Turn 1"
 
@@ -405,7 +405,7 @@ class TestMultiTurnSelfActionAwareness:
 
         async def mock_call_llm_turn2(turns, role):
             nonlocal captured_turns
-            if role == "tool":
+            if role == "decision":
                 # Phase 1: decide to speak
                 return '<decision><tool>speak</tool><args>{}</args></decision>'
             elif role == "chat":
@@ -457,7 +457,7 @@ class TestMultiTurnSelfActionAwareness:
         """
         # Turn 1: Move
         async def mock_call_llm_turn1(turns, role):
-            if role == "tool":
+            if role == "decision":
                 return '<decision><tool>move</tool><args>{"direction": "north"}</args></decision>'
             return ""
 
@@ -477,7 +477,7 @@ class TestMultiTurnSelfActionAwareness:
 
         # Turn 2: Take object
         async def mock_call_llm_turn2(turns, role):
-            if role == "tool":
+            if role == "decision":
                 return '<decision><tool>take</tool><args>{"object": "Silver Spoon"}</args></decision>'
             return ""
 
@@ -502,7 +502,7 @@ class TestMultiTurnSelfActionAwareness:
 
         async def mock_call_llm_turn3(turns, role):
             nonlocal captured_turns
-            if role == "tool":
+            if role == "decision":
                 return '<decision><tool>speak</tool><args>{}</args></decision>'
             elif role == "chat":
                 captured_turns = turns
@@ -537,7 +537,7 @@ class TestMultiTurnSelfActionAwareness:
 
         async def mock_call_llm(turns, role):
             nonlocal captured_turns
-            if role == "tool":
+            if role == "decision":
                 return '<decision><tool>speak</tool><args>{}</args></decision>'
             elif role == "chat":
                 captured_turns = turns
@@ -584,7 +584,7 @@ class TestSelfActionInConversationHistory:
         """
         # Turn 1: Move
         async def mock_call_llm_turn1(turns, role):
-            if role == "tool":
+            if role == "decision":
                 return '<decision><tool>move</tool><args>{"direction": "north"}</args></decision>'
             return ""
 

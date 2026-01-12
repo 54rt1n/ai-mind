@@ -24,7 +24,7 @@ class MediatorConfig:
     # Stream bounds and turn coordination
     mud_events_maxlen: int = 1000
     agent_events_maxlen: int = 200
-    turn_request_ttl_seconds: int = 0  # 0 = no TTL (persistent turn_request)
+    turn_request_ttl_seconds: int = 0  # Deprecated: TTL no longer used (turn_request is persistent)
     # Event processing hash
     events_processed_hash_max: int = 10000  # Max entries to keep in hash
     events_processed_cleanup_interval: int = 86400  # Seconds between cleanups (24h)

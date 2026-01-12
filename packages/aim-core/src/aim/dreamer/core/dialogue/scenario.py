@@ -29,6 +29,7 @@ from ....conversation.model import ConversationModel
 from ....conversation.message import ConversationMessage
 from ....llm.models import LanguageModelV2
 from ....utils.tokens import count_tokens
+from ....utils.redis_cache import RedisCache
 
 from ..executor import load_prior_outputs, format_memories_xml
 

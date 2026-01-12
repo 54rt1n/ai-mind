@@ -33,8 +33,9 @@ class StateMixin:
         Returns:
             bool: True if paused, False if running.
         """
-        value = await self.redis.get(self.config.pause_key)
-        return value == b"1"
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
+        return await client.is_paused(self.config.pause_key)
 
     async def _check_abort_requested(self: "MUDAgentWorker") -> bool:
         """Check if current turn has abort requested.
@@ -50,10 +51,18 @@ class StateMixin:
             return False
 
         if turn_request.status == TurnRequestStatus.ABORT_REQUESTED:
-            turn_request.status = TurnRequestStatus.ABORTED
-            turn_request.message = "Aborted by user request"
-            turn_request.heartbeat_at = _utc_now()
-            await self.update_turn_request(turn_request, expected_turn_id=turn_request.turn_id)
+            from aim_mud_types.turn_request_helpers import (
+                transition_turn_request_and_update_async,
+            )
+            await transition_turn_request_and_update_async(
+                self.redis,
+                self.config.agent_id,
+                turn_request,
+                expected_turn_id=turn_request.turn_id,
+                status=TurnRequestStatus.ABORTED,
+                message="Aborted by user request",
+                update_heartbeat=True,
+            )
             return True
         return False
 

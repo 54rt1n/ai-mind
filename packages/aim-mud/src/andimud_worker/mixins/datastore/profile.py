@@ -10,11 +10,7 @@ import json
 import logging
 from typing import TYPE_CHECKING, Optional
 
-import redis.asyncio as redis
-
-from aim_mud_types import RedisKeys
 from aim_mud_types import RoomState, EntityState, WorldState, InventoryItem
-from aim_mud_types.helper import _utc_now
 
 if TYPE_CHECKING:
     from ...worker import MUDAgentWorker
@@ -29,17 +25,8 @@ class ProfileMixin:
     These methods are mixed into MUDAgentWorker in main.py.
     """
 
-    def _agent_profile_key(self: "MUDAgentWorker") -> str:
-        """Return the Redis key for this agent's profile hash.
-
-        Originally from worker.py lines 664-669
-        """
-        return RedisKeys.agent_profile(self.config.agent_id)
-
     async def _save_agent_profile(self: "MUDAgentWorker") -> None:
         """Save agent profile state to Redis."""
-        key = RedisKeys.agent_profile(self.config.agent_id)
-
         # Get current conversation_id from manager
         conversation_id = None
         if self.conversation_manager:
@@ -52,7 +39,9 @@ class ProfileMixin:
         if conversation_id:
             fields["conversation_id"] = conversation_id
 
-        await self.redis.hset(key, mapping=fields)
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
+        await client.update_agent_profile_fields(self.config.agent_id, **fields)
 
     async def _load_agent_profile(self: "MUDAgentWorker") -> None:
         """Load agent profile state from Redis.
@@ -61,21 +50,15 @@ class ProfileMixin:
         """
         if not self.session:
             return
-        data = await self.redis.hgetall(self._agent_profile_key())
-        if not data:
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
+        decoded = await client.get_agent_profile_raw(self.config.agent_id)
+        if not decoded:
             # Initialize profile with persona metadata
             await self._update_agent_profile(
                 persona_id=self.persona.persona_id,
-                agent_id=self.config.agent_id,
             )
             return
-        decoded: dict[str, str] = {}
-        for k, v in data.items():
-            if isinstance(k, bytes):
-                k = k.decode("utf-8")
-            if isinstance(v, bytes):
-                v = v.decode("utf-8")
-            decoded[str(k)] = str(v)
 
         last_event_id = decoded.get("last_event_id")
         if last_event_id:
@@ -97,23 +80,15 @@ class ProfileMixin:
         """
         if not self.session:
             return None, None
-        try:
-            data = await self.redis.hgetall(self._agent_profile_key())
-        except redis.RedisError as e:
-            logger.error(f"Redis error loading agent profile: {e}")
-            return None, None
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
+        data = await client.get_agent_profile_raw(self.config.agent_id)
         if not data:
             return None, None
+        room_id = data.get("room_id")
+        character_id = data.get("character_id")
 
-        def _decode(value):
-            if isinstance(value, bytes):
-                return value.decode("utf-8")
-            return value
-
-        room_id = _decode(data.get(b"room_id") or data.get("room_id"))
-        character_id = _decode(data.get(b"character_id") or data.get("character_id"))
-
-        inventory_raw = _decode(data.get(b"inventory") or data.get("inventory"))
+        inventory_raw = data.get("inventory")
         inventory_items: list = []
         if inventory_raw:
             try:
@@ -121,8 +96,8 @@ class ProfileMixin:
             except json.JSONDecodeError:
                 logger.warning("Invalid inventory JSON in agent profile")
 
-        home = _decode(data.get(b"home") or data.get("home"))
-        time_val = _decode(data.get(b"time") or data.get("time"))
+        home = data.get("home")
+        time_val = data.get("time")
 
         inventory = [
             InventoryItem.model_validate(i)
@@ -150,21 +125,13 @@ class ProfileMixin:
         """
         if not self.session or not room_id:
             return
-        try:
-            data = await self.redis.hgetall(RedisKeys.room_profile(room_id))
-        except redis.RedisError as e:
-            logger.error(f"Redis error loading room profile {room_id}: {e}")
-            return
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
+        data = await client.get_room_profile_raw(room_id)
         if not data:
             return
-
-        def _decode(value):
-            if isinstance(value, bytes):
-                return value.decode("utf-8")
-            return value
-
-        room_state_raw = _decode(data.get(b"room_state") or data.get("room_state"))
-        entities_raw = _decode(data.get(b"entities_present") or data.get("entities_present"))
+        room_state_raw = data.get("room_state")
+        entities_raw = data.get("entities_present")
 
         room_state = None
         entities_present: list[EntityState] = []
@@ -223,8 +190,14 @@ class ProfileMixin:
             persona_id: Persona identifier (e.g., "Andi").
             **fields: Additional profile fields to update.
         """
-        payload = {"updated_at": _utc_now().isoformat()}
+        payload: dict[str, str] = {}
         if persona_id is not None:
             payload["persona_id"] = persona_id
         payload.update({k: v for k, v in fields.items() if v is not None})
-        await self.redis.hset(self._agent_profile_key(), mapping=payload)
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
+        await client.update_agent_profile_fields(
+            self.config.agent_id,
+            touch_updated_at=True,
+            **payload,
+        )

@@ -26,7 +26,10 @@ from aim.config import ChatConfig
 from aim.llm.llm import LLMProvider
 
 from aim_mud_types import MUDAction, MUDTurnRequest, RedisKeys, TurnRequestStatus, TurnReason
-from aim_mud_types.helper import _utc_now
+from aim_mud_types.turn_request_helpers import (
+    compute_next_attempt_at,
+    transition_turn_request,
+)
 
 from .config import MUDConfig
 from .exceptions import AbortRequestedException
@@ -298,8 +301,11 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                         f"(reason={turn_request.reason}, turn_id={turn_request.turn_id})"
                     )
                     # Transition to EXECUTING
-                    turn_request.status = TurnRequestStatus.EXECUTING
-                    turn_request.heartbeat_at = _utc_now()
+                    transition_turn_request(
+                        turn_request,
+                        status=TurnRequestStatus.EXECUTING,
+                        update_heartbeat=True,
+                    )
                     await self.update_turn_request(turn_request, expected_turn_id=turn_request.turn_id)
 
                     # Execute command directly - NO event drain, NO turn guard
@@ -315,28 +321,37 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                         if result.complete:
                             current = await self._get_turn_request()
                             if current:
-                                current.status = result.status
-                                current.message = result.message or ""
-                                current.completed_at = _utc_now()
-                                current.heartbeat_at = _utc_now()
+                                transition_turn_request(
+                                    current,
+                                    status=result.status,
+                                    message=result.message or "",
+                                    set_completed=True,
+                                    update_heartbeat=True,
+                                )
                                 await self.update_turn_request(current, expected_turn_id=turn_request.turn_id)
                         else:
                             # Command returned incomplete - transition to DONE
                             current = await self._get_turn_request()
                             if current:
-                                current.status = TurnRequestStatus.DONE
-                                current.completed_at = _utc_now()
-                                current.heartbeat_at = _utc_now()
+                                transition_turn_request(
+                                    current,
+                                    status=TurnRequestStatus.DONE,
+                                    set_completed=True,
+                                    update_heartbeat=True,
+                                )
                                 await self.update_turn_request(current, expected_turn_id=turn_request.turn_id)
 
                     except AbortRequestedException:
                         logger.info(f"Immediate command {turn_request.turn_id} aborted by user request")
                         current = await self._get_turn_request()
                         if current:
-                            current.status = TurnRequestStatus.ABORTED
-                            current.message = "Aborted by user"
-                            current.completed_at = _utc_now()
-                            current.heartbeat_at = _utc_now()
+                            transition_turn_request(
+                                current,
+                                status=TurnRequestStatus.ABORTED,
+                                message="Aborted by user",
+                                set_completed=True,
+                                update_heartbeat=True,
+                            )
                             await self.update_turn_request(current, expected_turn_id=turn_request.turn_id)
                     except Exception as e:
                         logger.error(f"Error during immediate command {turn_request.turn_id}: {e}", exc_info=True)
@@ -357,17 +372,20 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                         if final_turn_request:
                             final_status = final_turn_request.status
                             if final_status in (TurnRequestStatus.DONE, TurnRequestStatus.ABORTED):
-                                final_turn_request.turn_id = str(uuid.uuid4())
-                                final_turn_request.status = TurnRequestStatus.READY
-                                final_turn_request.status_reason = f"Immediate command completed ({final_status.value})"
-                                final_turn_request.heartbeat_at = _utc_now()
+                                transition_turn_request(
+                                    final_turn_request,
+                                    status=TurnRequestStatus.READY,
+                                    status_reason=f"Immediate command completed ({final_status.value})",
+                                    new_turn_id=True,
+                                    update_heartbeat=True,
+                                )
                                 await self.update_turn_request(final_turn_request, expected_turn_id=turn_request.turn_id)
 
                     continue
 
                 # If not assigned, refresh heartbeat and wait
                 if turn_request.status != TurnRequestStatus.ASSIGNED:
-                    # Keep turn_request alive when ready but idle - refresh TTL and heartbeat
+                    # Keep turn_request alive when ready but idle - refresh heartbeat
                     if turn_request.status == TurnRequestStatus.READY:
                         # Atomic heartbeat update with validation
                         result = await self.atomic_heartbeat_update()
@@ -377,10 +395,13 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                             logger.warning("Idle heartbeat detected corrupted hash, recreating state")
                             current = await self._get_turn_request()
                             if current:
-                                current.turn_id = str(uuid.uuid4())
-                                current.status = TurnRequestStatus.READY
-                                current.status_reason = "Recovered from corrupted hash during idle"
-                                current.heartbeat_at = _utc_now()
+                                transition_turn_request(
+                                    current,
+                                    status=TurnRequestStatus.READY,
+                                    status_reason="Recovered from corrupted hash during idle",
+                                    new_turn_id=True,
+                                    update_heartbeat=True,
+                                )
                                 await self.update_turn_request(current, expected_turn_id=turn_request.turn_id)
 
                     await asyncio.sleep(self.config.turn_request_poll_interval)
@@ -389,8 +410,11 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                 turn_id = turn_request.turn_id
                 reason = turn_request.reason
 
-                turn_request.status = TurnRequestStatus.IN_PROGRESS
-                turn_request.heartbeat_at = _utc_now()
+                transition_turn_request(
+                    turn_request,
+                    status=TurnRequestStatus.IN_PROGRESS,
+                    update_heartbeat=True,
+                )
                 await self.update_turn_request(turn_request, expected_turn_id=turn_id)
                 heartbeat_stop = asyncio.Event()
                 heartbeat_task = asyncio.create_task(
@@ -404,9 +428,12 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                     )
                     current = await self._get_turn_request()
                     if current:
-                        current.status = TurnRequestStatus.ASSIGNED
-                        current.message = "Delayed (waiting for older turn)"
-                        current.heartbeat_at = _utc_now()
+                        transition_turn_request(
+                            current,
+                            status=TurnRequestStatus.ASSIGNED,
+                            message="Delayed (waiting for older turn)",
+                            update_heartbeat=True,
+                        )
                         await self.update_turn_request(current, expected_turn_id=turn_id)
                     heartbeat_stop.set()
                     await heartbeat_task
@@ -456,10 +483,13 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                             # Non-failure status (DONE, ABORTED, etc.)
                             current = await self._get_turn_request()
                             if current:
-                                current.status = result.status
-                                current.message = result.message or ""
-                                current.completed_at = _utc_now()
-                                current.heartbeat_at = _utc_now()
+                                transition_turn_request(
+                                    current,
+                                    status=result.status,
+                                    message=result.message or "",
+                                    set_completed=True,
+                                    update_heartbeat=True,
+                                )
                                 await self.update_turn_request(current, expected_turn_id=turn_id)
                         self._last_turn_request_id = turn_id
                         continue
@@ -472,7 +502,17 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                         reason,
                         len(events),
                     )
-                    await self.process_turn(turn_request, events)
+                    user_guidance = ""
+                    if turn_request.reason == TurnReason.CHOOSE and turn_request.metadata:
+                        action_desc = turn_request.metadata.get("action", "") or ""
+                        guidance = turn_request.metadata.get("guidance", "") or ""
+                        if action_desc and guidance:
+                            user_guidance = f"Action: {action_desc}\nGuidance: {guidance}"
+                        elif action_desc:
+                            user_guidance = f"Action: {action_desc}"
+                        else:
+                            user_guidance = guidance
+                    await self.process_turn(turn_request, events, user_guidance=user_guidance)
 
                     # CHECK: Did this turn include a speech event?
                     has_speech = False
@@ -503,19 +543,25 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
 
                     current = await self._get_turn_request()
                     if current:
-                        current.status = TurnRequestStatus.DONE
-                        current.completed_at = _utc_now()
-                        current.heartbeat_at = _utc_now()
+                        transition_turn_request(
+                            current,
+                            status=TurnRequestStatus.DONE,
+                            set_completed=True,
+                            update_heartbeat=True,
+                        )
                         await self.update_turn_request(current, expected_turn_id=turn_id)
                     self._last_turn_request_id = turn_id
                 except AbortRequestedException:
                     logger.info(f"Turn {turn_id} aborted by user request")
                     current = await self._get_turn_request()
                     if current:
-                        current.status = TurnRequestStatus.ABORTED
-                        current.message = "Aborted by user"
-                        current.completed_at = _utc_now()
-                        current.heartbeat_at = _utc_now()
+                        transition_turn_request(
+                            current,
+                            status=TurnRequestStatus.ABORTED,
+                            message="Aborted by user",
+                            set_completed=True,
+                            update_heartbeat=True,
+                        )
                         await self.update_turn_request(current, expected_turn_id=turn_id)
                     await self._restore_event_position(saved_event_id)
                 except Exception as e:
@@ -542,16 +588,22 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                             status = turn_request.status
                             # Transition to ready if we completed or aborted (not if failed)
                             if status == TurnRequestStatus.DONE:
-                                turn_request.turn_id = str(uuid.uuid4())
-                                turn_request.status = TurnRequestStatus.READY
-                                turn_request.status_reason = "Turn completed"
-                                turn_request.heartbeat_at = _utc_now()
+                                transition_turn_request(
+                                    turn_request,
+                                    status=TurnRequestStatus.READY,
+                                    status_reason="Turn completed",
+                                    new_turn_id=True,
+                                    update_heartbeat=True,
+                                )
                                 await self.update_turn_request(turn_request, expected_turn_id=turn_id)
                             elif status == TurnRequestStatus.ABORTED:
-                                turn_request.turn_id = str(uuid.uuid4())
-                                turn_request.status = TurnRequestStatus.READY
-                                turn_request.status_reason = "Turn aborted"
-                                turn_request.heartbeat_at = _utc_now()
+                                transition_turn_request(
+                                    turn_request,
+                                    status=TurnRequestStatus.READY,
+                                    status_reason="Turn aborted",
+                                    new_turn_id=True,
+                                    update_heartbeat=True,
+                                )
                                 await self.update_turn_request(turn_request, expected_turn_id=turn_id)
 
             except asyncio.CancelledError:
@@ -591,7 +643,7 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                 self.config.llm_failure_backoff_base_seconds * (2 ** (attempt_count - 1)),
                 self.config.llm_failure_backoff_max_seconds
             )
-            next_attempt_at = (_utc_now() + timedelta(seconds=backoff_seconds)).isoformat()
+            next_attempt_at = compute_next_attempt_at(backoff_seconds)
             status = TurnRequestStatus.RETRY
             logger.info(
                 f"Turn {turn_id} failed (attempt {attempt_count}/{self.config.llm_failure_max_attempts}), "
@@ -605,13 +657,16 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
         # Set failure/retry state with metadata
         status_reason = f"LLM call failed: {error_type}" if error_type else "Command failed"
         if turn_request:
-            turn_request.status = status
-            turn_request.message = error_message
-            turn_request.attempt_count = attempt_count
-            turn_request.next_attempt_at = next_attempt_at
-            turn_request.status_reason = status_reason
-            turn_request.completed_at = _utc_now()
-            turn_request.heartbeat_at = _utc_now()
+            transition_turn_request(
+                turn_request,
+                status=status,
+                message=error_message,
+                attempt_count=attempt_count,
+                next_attempt_at=next_attempt_at,
+                status_reason=status_reason,
+                set_completed=True,
+                update_heartbeat=True,
+            )
             await self.update_turn_request(turn_request, expected_turn_id=turn_id)
 
     async def stop(self) -> None:
@@ -639,7 +694,9 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
         turn_request = await self._get_turn_request()
         if turn_request:
             logger.info("Deleting turn_request on shutdown")
-            await self.redis.delete(self._turn_request_key())
+            from aim_mud_types.client import RedisMUDClient
+            client = RedisMUDClient(self.redis)
+            await client.delete_turn_request(self.config.agent_id)
 
     async def _announce_presence(self) -> None:
         """Announce worker online with ready status and wakeup message.
@@ -658,17 +715,20 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
         # Branch 1: No turn_request → create with status=READY
         if not turn_request:
             logger.info("No turn_request found, creating fresh ready state")
-            new_turn_request = MUDTurnRequest(
-                turn_id=str(uuid.uuid4()),
+            from aim_mud_types.turn_request_helpers import initialize_turn_request_async
+
+            created, new_turn_request, result = await initialize_turn_request_async(
+                self.redis,
+                self.config.agent_id,
                 status=TurnRequestStatus.READY,
                 reason=TurnReason.EVENTS,
-                sequence_id=-1,
-                attempt_count=0,
-                status_reason="Worker online (fresh start)"
+                status_reason="Worker online (fresh start)",
             )
-            success = await self.create_turn_request(new_turn_request)
-            if not success:
-                logger.debug("turn_request already exists (created by concurrent process), skipping creation")
+            if not created:
+                logger.debug(
+                    "turn_request already exists or invalid (result=%s), skipping creation",
+                    result,
+                )
                 return
 
         # Branch 2: Problem states → convert to FAIL with recovery logic
@@ -690,13 +750,16 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                 logger.error(
                     f"Turn {turn_id} abandoned after {attempt_count} attempts (startup recovery)"
                 )
-                turn_request.status = TurnRequestStatus.FAIL
-                turn_request.message = f"Abandoned after {attempt_count} attempts (startup recovery from {status})"
-                turn_request.attempt_count = attempt_count
-                turn_request.next_attempt_at = ""  # Empty = no retry
-                turn_request.status_reason = f"Max attempts reached during startup recovery from {status}"
-                turn_request.completed_at = _utc_now()
-                turn_request.heartbeat_at = _utc_now()
+                transition_turn_request(
+                    turn_request,
+                    status=TurnRequestStatus.FAIL,
+                    message=f"Abandoned after {attempt_count} attempts (startup recovery from {status})",
+                    attempt_count=attempt_count,
+                    next_attempt_at="",
+                    status_reason=f"Max attempts reached during startup recovery from {status}",
+                    set_completed=True,
+                    update_heartbeat=True,
+                )
                 await self.update_turn_request(turn_request, expected_turn_id=turn_id)
             else:
                 # Will retry - use RETRY status
@@ -704,20 +767,23 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                     self.config.llm_failure_backoff_base_seconds * (2 ** (attempt_count - 1)),
                     self.config.llm_failure_backoff_max_seconds
                 )
-                next_attempt_at = (_utc_now() + timedelta(seconds=backoff_seconds)).isoformat()
+                next_attempt_at = compute_next_attempt_at(backoff_seconds)
 
                 logger.info(
                     f"Turn {turn_id} marked for retry (attempt {attempt_count}/{self.config.llm_failure_max_attempts}), "
                     f"will retry in {backoff_seconds}s (startup recovery from {status})"
                 )
 
-                turn_request.status = TurnRequestStatus.RETRY
-                turn_request.message = f"Worker restart during {status} state"
-                turn_request.attempt_count = attempt_count
-                turn_request.next_attempt_at = next_attempt_at
-                turn_request.status_reason = f"Startup recovery from {status}"
-                turn_request.completed_at = _utc_now()
-                turn_request.heartbeat_at = _utc_now()
+                transition_turn_request(
+                    turn_request,
+                    status=TurnRequestStatus.RETRY,
+                    message=f"Worker restart during {status} state",
+                    attempt_count=attempt_count,
+                    next_attempt_at=next_attempt_at,
+                    status_reason=f"Startup recovery from {status}",
+                    set_completed=True,
+                    update_heartbeat=True,
+                )
                 await self.update_turn_request(turn_request, expected_turn_id=turn_id)
 
         # Branch 3: Normal states (ready/done/fail) → update heartbeat or fix corruption
@@ -730,10 +796,13 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                 logger.error(
                     "Startup: turn_request corrupted (status is None), recreating with fresh state"
                 )
-                turn_request.turn_id = str(uuid.uuid4())
-                turn_request.status = TurnRequestStatus.READY
-                turn_request.status_reason = "Recovered from corrupted state during startup"
-                turn_request.heartbeat_at = _utc_now()
+                transition_turn_request(
+                    turn_request,
+                    status=TurnRequestStatus.READY,
+                    status_reason="Recovered from corrupted state during startup",
+                    new_turn_id=True,
+                    update_heartbeat=True,
+                )
                 await self.update_turn_request(turn_request, expected_turn_id=turn_id)
             else:
                 logger.info(f"Startup: turn_request in normal state '{status}', updating heartbeat")
@@ -744,10 +813,13 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                 if result == -1:
                     # Corrupted hash detected during atomic update - recreate with fresh state
                     logger.warning("Startup: atomic update detected corrupted hash, recreating state")
-                    turn_request.turn_id = str(uuid.uuid4())
-                    turn_request.status = TurnRequestStatus.READY
-                    turn_request.status_reason = "Recovered from corrupted hash during startup"
-                    turn_request.heartbeat_at = _utc_now()
+                    transition_turn_request(
+                        turn_request,
+                        status=TurnRequestStatus.READY,
+                        status_reason="Recovered from corrupted hash during startup",
+                        new_turn_id=True,
+                        update_heartbeat=True,
+                    )
                     await self.update_turn_request(turn_request, expected_turn_id=turn_id)
 
         # Get wakeup message with room context
@@ -829,11 +901,14 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
 
         event_data = event.to_redis_dict()
         stream_key = RedisKeys.agent_events(self.config.agent_id)
-        await self.redis.xadd(
-            stream_key,
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
+        await client.append_agent_event(
+            self.config.agent_id,
             {"data": json.dumps(event_data)},
             maxlen=100,
             approximate=True,
+            stream_key=stream_key,
         )
         logger.info(
             f"Wrote self-event: {event.event_type.value} (seq={event.sequence_id})"

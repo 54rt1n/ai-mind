@@ -38,9 +38,11 @@ class NewConversationCommand(Command):
             CommandResult with complete=True (no fall-through)
         """
         conversation_id = ""
+        metadata = kwargs.get("metadata") or {}
 
         if worker.conversation_manager:
-            conversation_id = kwargs.get("conversation_id", "")
+            if isinstance(metadata, dict):
+                conversation_id = metadata.get("conversation_id", "")
 
             if not conversation_id:
                 # Generate new conversation_id

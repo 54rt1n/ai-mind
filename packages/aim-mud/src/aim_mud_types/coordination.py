@@ -121,6 +121,40 @@ class MUDTurnRequest(BaseModel):
                 raise ValueError(f"Invalid JSON in metadata field: {e}")
         return v
 
+    def is_available_for_assignment(self, now: Optional[datetime] = None) -> bool:
+        """Return True if a new turn can be assigned to this agent.
+
+        Mirrors mediator availability rules:
+        - Busy: ASSIGNED, IN_PROGRESS, ABORT_REQUESTED, EXECUTING, EXECUTE
+        - Crashed: CRASHED
+        - Retry/Fail: available only after next_attempt_at (if set)
+        """
+        status = self.status
+        if status == TurnRequestStatus.CRASHED:
+            return False
+
+        if status in (
+            TurnRequestStatus.ASSIGNED,
+            TurnRequestStatus.IN_PROGRESS,
+            TurnRequestStatus.ABORT_REQUESTED,
+            TurnRequestStatus.EXECUTING,
+            TurnRequestStatus.EXECUTE,
+        ):
+            return False
+
+        if status in (TurnRequestStatus.RETRY, TurnRequestStatus.FAIL):
+            if self.next_attempt_at:
+                try:
+                    next_attempt_at = datetime.fromisoformat(self.next_attempt_at)
+                except (TypeError, ValueError):
+                    # If malformed, be conservative and treat as unavailable
+                    return False
+                current = now or datetime.now(next_attempt_at.tzinfo)
+                if current < next_attempt_at:
+                    return False
+
+        return True
+
 
 class DreamerState(BaseModel):
     """Automatic dreaming configuration.

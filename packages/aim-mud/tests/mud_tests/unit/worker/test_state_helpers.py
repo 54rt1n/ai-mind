@@ -57,28 +57,32 @@ class TestCheckAbortRequested:
     async def test_returns_true_when_abort_requested(self, test_worker, mock_redis):
         """Test returns True and clears flag when abort_requested."""
         from aim_mud_types.helper import _utc_now
-        # _get_turn_request returns abort_requested status
-        mock_redis.hgetall = AsyncMock(return_value={
-            b"status": b"abort_requested",
-            b"turn_id": b"test_turn_123",
-            b"reason": b"events",
-            b"heartbeat_at": _utc_now().isoformat().encode(),
-            b"sequence_id": b"1",
-        })
+        from aim_mud_types.coordination import MUDTurnRequest
+        from aim_mud_types import TurnRequestStatus
+        from unittest.mock import patch
 
-        # Mock the update_turn_request method to succeed
-        test_worker.update_turn_request = AsyncMock(return_value=True)
+        # Mock _get_turn_request to return abort_requested turn request
+        turn_request = MUDTurnRequest(
+            status="abort_requested",
+            turn_id="test_turn_123",
+            reason="events",
+            heartbeat_at=_utc_now(),
+            sequence_id="1",
+        )
+        test_worker._get_turn_request = AsyncMock(return_value=turn_request)
 
-        result = await test_worker._check_abort_requested()
+        # Mock the helper function from aim_mud_types where it's imported
+        with patch('aim_mud_types.turn_request_helpers.transition_turn_request_and_update_async') as mock_transition:
+            mock_transition.return_value = None  # Async function
 
-        assert result is True
-        # Verify update_turn_request was called
-        assert test_worker.update_turn_request.called
-        # Verify the updated turn request has status=aborted
-        call_args = test_worker.update_turn_request.call_args[0]
-        updated_turn_request = call_args[0]
-        assert updated_turn_request.status == "aborted"
-        assert updated_turn_request.turn_id == "test_turn_123"
+            result = await test_worker._check_abort_requested()
+
+            assert result is True
+            # Verify transition was called with correct arguments
+            assert mock_transition.called
+            call_kwargs = mock_transition.call_args[1]
+            assert call_kwargs['status'] == TurnRequestStatus.ABORTED
+            assert call_kwargs['message'] == "Aborted by user request"
 
     @pytest.mark.asyncio
     async def test_returns_false_when_not_abort_requested(self, test_worker, mock_redis):
