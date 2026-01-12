@@ -37,11 +37,12 @@ from .config import MediatorConfig
 from .mixins.agents import AgentsMixin
 from .mixins.events import EventsMixin
 from .mixins.dreamer import DreamerMixin
+from .mixins.planner import PlannerMixin
 
 logger = logging.getLogger(__name__)
 
 
-class MediatorService(AgentsMixin, EventsMixin, DreamerMixin):
+class MediatorService(AgentsMixin, EventsMixin, DreamerMixin, PlannerMixin):
     """Central coordination service between Evennia and AIM agents.
 
     The mediator runs the Event Router task:

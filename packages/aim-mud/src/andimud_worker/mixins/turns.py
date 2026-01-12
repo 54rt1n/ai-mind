@@ -260,6 +260,37 @@ class TurnsMixin:
                     )
                     continue
 
+                if tool_name == "plan_update":
+                    # Plan update requires async execution via PlanExecutionTool
+                    plan_tool_impl = self._decision_strategy.get_plan_tool_impl()
+                    if plan_tool_impl is None:
+                        error_guidance = (
+                            "plan_update tool not available. "
+                            "This tool requires an active plan. Use speak, wait, move, take, drop, or give."
+                        )
+                        turns.append({"role": "assistant", "content": response})
+                        turns.append({"role": "user", "content": error_guidance})
+                        logger.warning(
+                            "plan_update called but no plan tool impl (attempt %d/%d)",
+                            attempt + 1, self.config.decision_max_retries,
+                        )
+                        continue
+
+                    # Execute async tool
+                    tool_result = await plan_tool_impl.execute_async(tool_name, args)
+                    if "error" in tool_result:
+                        error_guidance = f"plan_update failed: {tool_result['error']}"
+                        turns.append({"role": "assistant", "content": response})
+                        turns.append({"role": "user", "content": error_guidance})
+                        logger.warning(
+                            "plan_update error (attempt %d/%d): %s",
+                            attempt + 1, self.config.decision_max_retries, tool_result["error"],
+                        )
+                        continue
+
+                    # Return plan_update result - processor will handle appropriately
+                    return "plan_update", tool_result, last_response, last_thinking, last_cleaned
+
                 # Unexpected tool - give guidance and retry
                 error_guidance = (
                     f"Unknown tool '{tool_name}'. "

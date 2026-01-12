@@ -61,3 +61,22 @@ COMMAND_TO_SCENARIO = {
     "critique": "critique_dialogue",
     "research": "researcher_dialogue",
 }
+
+# Planner commands
+# @planner <agent-id> on/off
+PLANNER_PATTERN = re.compile(
+    r"^@planner\s+(\w+)\s+(on|off)$",
+    re.IGNORECASE,
+)
+
+# @plan <agent> = <objective>
+PLAN_PATTERN = re.compile(
+    r"^@plan\s+(\w+)\s*=\s*(.+)$",
+    re.IGNORECASE,
+)
+
+# @update <agent> = <guidance>
+UPDATE_PATTERN = re.compile(
+    r"^@update\s+(\w+)\s*=\s*(.+)$",
+    re.IGNORECASE,
+)

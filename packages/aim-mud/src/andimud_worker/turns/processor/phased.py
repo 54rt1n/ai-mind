@@ -319,6 +319,32 @@ class PhasedTurnProcessor(BaseTurnProcessor):
                 else:
                     logger.info("No response content to emit")
 
+            elif decision_tool == "plan_update":
+                # Plan task status was updated - emit emote about progress
+                plan_status = decision_args.get("plan_status", "unknown")
+                next_task = decision_args.get("next_task")
+
+                if plan_status == "completed":
+                    emote_text = "completed the plan successfully."
+                elif next_task:
+                    emote_text = f"completed a task and moved on to: {next_task}"
+                else:
+                    emote_text = "updated the plan status."
+
+                logger.info(f"Plan update: status={plan_status}, next_task={next_task}")
+                action = MUDAction(tool="emote", args={"action": emote_text})
+                actions_taken.append(action)
+
+                # Create and write self-action event immediately
+                event = self._create_event(
+                    turn_request,
+                    EventType.EMOTE,
+                    emote_text
+                )
+                await self.worker._write_self_event(event)
+
+                await self.worker._emit_actions(actions_taken)
+
             elif decision_tool == "confused":
                 # Phase 1 failed to parse a valid decision - emit confused emote
                 logger.info("Phase 1 returned confused; emitting confused emote")

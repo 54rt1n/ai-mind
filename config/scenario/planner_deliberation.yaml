@@ -1,0 +1,149 @@
+name: planner_deliberation
+version: 2
+flow: dialogue
+description: Multi-phase deliberation for plan creation
+requires_conversation: false
+
+dialogue:
+  primary_aspect: coder
+  initial_speaker: aspect
+  scene_template: |
+    *You enter the Planning Chamber. The walls shift as different
+    aspects prepare to help construct a plan for: {{ query_text }}*
+
+context:
+  required_aspects:
+    - writer
+    - coder
+    - revelator
+    - philosopher
+  core_documents: []
+  enhancement_documents: []
+  location: ''
+  thoughts:
+    - 'Task: Planning and Strategy'
+
+steps:
+  # Phase 1: Writer ideates
+  ideate_request:
+    speaker:
+      type: aspect
+      aspect_name: writer
+    guidance: |
+      You are {{ writer.name }}, here to help {{ persona.name }} explore this objective.
+      Objective: {{ query_text }}
+      Guide them to brainstorm freely. What approaches might work? What resources
+      are needed? What could go wrong? Don't structure yet - just explore.
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-writer
+      weight: 0.3
+    next: [ideate_response]
+
+  ideate_response:
+    speaker:
+      type: persona
+    guidance: |
+      Explore the objective freely. Consider different angles, potential
+      challenges, and creative approaches. Don't try to structure yet.
+    config:
+      max_tokens: 4096
+    output:
+      document_type: step
+      weight: 0.3
+    next: [enumerate_request]
+
+  # Phase 2: Coder enumerates
+  enumerate_request:
+    speaker:
+      type: aspect
+      aspect_name: coder
+    guidance: |
+      You are {{ coder.name }}. Review the brainstorming and help {{ persona.name }}
+      structure it into concrete, ordered tasks.
+      - Identify discrete actionable steps
+      - Order them logically (dependencies first)
+      - Give each a clear description
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-coder
+      weight: 0.3
+    next: [enumerate_response]
+
+  enumerate_response:
+    speaker:
+      type: persona
+    guidance: |
+      Structure the ideas into a draft task list. For each task, consider:
+      - A detailed description of what to do
+      - Why this task matters
+      Order tasks by dependencies (what must come first).
+    config:
+      max_tokens: 4096
+    output:
+      document_type: step
+      weight: 0.4
+    next: [critique_request]
+
+  # Phase 3: Revelator critiques
+  critique_request:
+    speaker:
+      type: aspect
+      aspect_name: revelator
+    guidance: |
+      You are {{ revelator.name }}. Examine {{ persona.name }}'s draft plan critically.
+      Challenge assumptions. What could go wrong? What's missing? Is the scope realistic?
+      Be constructive but honest.
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-revelator
+      weight: 0.3
+    next: [critique_response]
+
+  critique_response:
+    speaker:
+      type: persona
+    guidance: |
+      Consider the critique carefully. Which points are valid? What adjustments
+      might improve the plan? Don't be defensive - be open.
+    config:
+      max_tokens: 4096
+    output:
+      document_type: step
+      weight: 0.3
+    next: [synthesize_request]
+
+  # Phase 4: Philosopher synthesizes
+  synthesize_request:
+    speaker:
+      type: aspect
+      aspect_name: philosopher
+    guidance: |
+      You are {{ philosopher.name }}. Help {{ persona.name }} integrate the critique
+      into a coherent refined approach. Balance practicality with ambition,
+      speed with thoroughness.
+    config:
+      max_tokens: 4096
+    output:
+      document_type: dialogue-philosopher
+      weight: 0.3
+    next: [synthesize_response]
+
+  synthesize_response:
+    speaker:
+      type: persona
+    guidance: |
+      Synthesize the critique into a refined approach. What adjustments will you make?
+      What tradeoffs are you accepting? Document your reasoning.
+
+      This concludes the deliberation. The form-building phase will follow
+      to structure this into an executable plan.
+    config:
+      max_tokens: 4096
+    output:
+      document_type: plan-deliberation
+      weight: 0.5
+    next: []

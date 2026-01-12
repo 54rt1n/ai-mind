@@ -7,16 +7,19 @@ Each mixin provides domain-specific CRUD operations for a MUD type:
 - AgentProfileMixin: AgentProfile operations
 - RoomProfileMixin: RoomProfile operations (read-only)
 - DreamerStateMixin: DreamerState operations
+- PlanMixin: AgentPlan operations
 """
 
 from .turn_request import TurnRequestMixin
 from .agent_profile import AgentProfileMixin
 from .room_profile import RoomProfileMixin
 from .dreamer_state import DreamerStateMixin
+from .plan import PlanMixin
 
 __all__ = [
     "TurnRequestMixin",
     "AgentProfileMixin",
     "RoomProfileMixin",
     "DreamerStateMixin",
+    "PlanMixin",
 ]

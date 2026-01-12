@@ -9,6 +9,7 @@ from .memory import MemoryTool
 from .self_rag import SelfRagTool
 from .schedule import ScheduleTool
 from .mud import MudTool
+from .plan import PlanExecutionTool
 
 __all__ = [
     'WeatherTool',
@@ -19,4 +20,5 @@ __all__ = [
     'SelfRagTool',
     'ScheduleTool',
     'MudTool',
+    'PlanExecutionTool',
 ]

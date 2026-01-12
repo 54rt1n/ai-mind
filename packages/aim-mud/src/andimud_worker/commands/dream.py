@@ -1,6 +1,6 @@
 # andimud_worker/commands/dream.py
 # AI-Mind (C) 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
-"""Dream command - run dreamer pipeline."""
+"""Dream command - run dreamer pipeline or planner pipeline."""
 
 import logging
 from typing import TYPE_CHECKING
@@ -17,9 +17,11 @@ logger = logging.getLogger(__name__)
 
 
 class DreamCommand(Command):
-    """@dream console command - run a dreamer pipeline.
+    """@dream console command - run a dreamer pipeline or planner pipeline.
 
-    Extracted from worker.py lines 359-398
+    Handles two pipeline types:
+    1. Planner: metadata["pipeline"] == "planner" - creates a plan
+    2. Dream: metadata["scenario"] - runs a dreamer scenario
     """
 
     @property
@@ -27,19 +29,105 @@ class DreamCommand(Command):
         return "dream"
 
     async def execute(self, worker: "MUDAgentWorker", **kwargs) -> CommandResult:
+        """Execute dream or planner pipeline.
+
+        Args:
+            worker: MUDAgentWorker instance
+            **kwargs: Contains turn_id, metadata
+
+        Returns:
+            CommandResult with complete=True, status=TurnRequestStatus.DONE or FAIL
+        """
+        turn_id = kwargs.get("turn_id", "unknown")
+        metadata = kwargs.get("metadata") or {}
+
+        # Check for planner pipeline
+        if metadata.get("pipeline") == "planner":
+            return await self._execute_planner(worker, metadata, turn_id)
+
+        # Otherwise, execute dream pipeline
+        return await self._execute_dream(worker, metadata, turn_id)
+
+    async def _execute_planner(
+        self,
+        worker: "MUDAgentWorker",
+        metadata: dict,
+        turn_id: str,
+    ) -> CommandResult:
+        """Execute planner pipeline.
+
+        Args:
+            worker: MUDAgentWorker instance
+            metadata: Turn request metadata with objective
+            turn_id: Turn identifier for logging
+
+        Returns:
+            CommandResult with pipeline status
+        """
+        objective = metadata.get("objective", "")
+        if not objective:
+            logger.error("Planner pipeline missing objective")
+            return CommandResult(
+                complete=True,
+                flush_drain=False,
+                saved_event_id=None,
+                status=TurnRequestStatus.FAIL,
+                message="Planner pipeline missing objective",
+            )
+
+        logger.info(f"[{turn_id}] Starting planner pipeline: {objective[:50]}...")
+
+        # Import and create PlannerEngine
+        from aim.planner import PlannerEngine
+        from dream_agent.client import DreamerClient
+
+        # Create DreamerClient for the planner to use
+        async with DreamerClient.direct(worker.chat_config) as dreamer_client:
+            engine = PlannerEngine(
+                config=worker.chat_config,
+                dreamer_client=dreamer_client,
+                redis_client=worker.redis,
+            )
+
+            plan = await engine.create_plan(worker.config.agent_id, objective)
+
+        if plan:
+            logger.info(f"[{turn_id}] Plan created: {plan.plan_id}")
+            # Refresh CVM to include new deliberation documents
+            worker.cvm.refresh()
+            return CommandResult(
+                complete=True,
+                flush_drain=False,
+                saved_event_id=None,
+                status=TurnRequestStatus.DONE,
+                message=f"Plan created: {plan.summary}",
+            )
+        else:
+            logger.error(f"[{turn_id}] Plan creation failed")
+            return CommandResult(
+                complete=True,
+                flush_drain=False,
+                saved_event_id=None,
+                status=TurnRequestStatus.FAIL,
+                message="Plan creation failed",
+            )
+
+    async def _execute_dream(
+        self,
+        worker: "MUDAgentWorker",
+        metadata: dict,
+        turn_id: str,
+    ) -> CommandResult:
         """Execute dream pipeline.
 
         Args:
             worker: MUDAgentWorker instance
-            **kwargs: Contains turn_id, metadata (with scenario, query, guidance, conversation_id)
+            metadata: Turn request metadata with scenario, query, guidance
+            turn_id: Turn identifier for logging
 
         Returns:
-            CommandResult with complete=True, status=TurnRequestStatus.DONE or "fail"
+            CommandResult with pipeline status
         """
-        turn_id = kwargs.get("turn_id", "unknown")
-
-        # Read from metadata
-        metadata = kwargs.get("metadata") or {}
         scenario = metadata.get("scenario", "")
         query = metadata.get("query")
         guidance = metadata.get("guidance")
@@ -53,7 +141,7 @@ class DreamCommand(Command):
                 flush_drain=False,
                 saved_event_id=None,
                 status=TurnRequestStatus.FAIL,
-                message="Dream turn missing scenario in metadata"
+                message="Dream turn missing scenario in metadata",
             )
 
         logger.info(f"Processing dream turn: {scenario}")
@@ -78,7 +166,7 @@ class DreamCommand(Command):
                 flush_drain=False,
                 saved_event_id=None,
                 status=TurnRequestStatus.DONE,
-                message=f"Dream completed: {scenario}"
+                message=f"Dream completed: {scenario}",
             )
         else:
             logger.error(f"Dream failed: {result.error}")
@@ -87,5 +175,5 @@ class DreamCommand(Command):
                 flush_drain=False,
                 saved_event_id=None,
                 status=TurnRequestStatus.FAIL,
-                message=result.error or "Dream failed"
+                message=result.error or "Dream failed",
             )

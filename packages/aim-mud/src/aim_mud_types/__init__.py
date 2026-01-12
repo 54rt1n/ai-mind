@@ -18,6 +18,7 @@ from .conversation import MUDConversationEntry
 from .coordination import MUDTurnRequest, DreamerState, TurnRequestStatus, TurnReason
 from .enums import EventType, ActorType
 from .events import MUDEvent
+from .plan import AgentPlan, PlanTask, PlanStatus, TaskStatus
 from .profile import AgentProfile, RoomProfile
 from .redis_keys import RedisKeys
 from .session import MUDTurn, MUDSession
@@ -31,6 +32,8 @@ __all__ = [
     "ActorType",
     "TurnRequestStatus",
     "TurnReason",
+    "PlanStatus",
+    "TaskStatus",
     # State
     "RoomState",
     "EntityState",
@@ -48,6 +51,9 @@ __all__ = [
     # Coordination
     "MUDTurnRequest",
     "DreamerState",
+    # Plans
+    "AgentPlan",
+    "PlanTask",
     # Profiles
     "AgentProfile",
     "RoomProfile",

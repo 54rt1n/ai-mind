@@ -168,8 +168,14 @@ class EventsMixin:
             f"from {event.actor} in {event.room_id}"
         )
 
-        # Check for control commands (@dream, @dreamer)
+        # Check for control commands (@dream, @dreamer, @planner, @plan, @update)
         if await self._try_handle_control_command(event):
+            # Command was handled - mark processed and don't distribute
+            await self._mark_event_processed(msg_id, [])
+            return
+
+        # Check for planner commands (@planner, @plan, @update)
+        if await self._try_handle_planner_command(event):
             # Command was handled - mark processed and don't distribute
             await self._mark_event_processed(msg_id, [])
             return

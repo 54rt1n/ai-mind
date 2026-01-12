@@ -382,6 +382,7 @@ from .mixins.turn_request import TurnRequestMixin
 from .mixins.agent_profile import AgentProfileMixin
 from .mixins.room_profile import RoomProfileMixin
 from .mixins.dreamer_state import DreamerStateMixin
+from .mixins.plan import PlanMixin
 
 
 class RedisMUDClient(
@@ -390,11 +391,12 @@ class RedisMUDClient(
     AgentProfileMixin,
     RoomProfileMixin,
     DreamerStateMixin,
+    PlanMixin,
 ):
     """Complete Redis MUD client with all type-specific operations.
 
     Combines base serialization/deserialization with domain-specific
-    methods for turn requests, profiles, and dreamer state.
+    methods for turn requests, profiles, dreamer state, and plans.
 
     Usage:
         client = RedisMUDClient(redis_client)
@@ -416,6 +418,13 @@ class RedisMUDClient(
         # Dreamer state
         state = await client.get_dreamer_state("andi")
         await client.update_dreamer_state_fields("andi", enabled=True)
+
+        # Plans
+        plan = await client.get_plan("andi")
+        await client.create_plan(new_plan)
+        await client.update_plan_fields("andi", status=PlanStatus.ACTIVE)
+        await client.delete_plan("andi")
+        await client.set_planner_enabled("andi", True)
     """
     pass
 

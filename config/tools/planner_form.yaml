@@ -1,0 +1,67 @@
+type: planner_form
+functions:
+  - name: plan_add_task
+    description: Add a task to the plan being built.
+    parameters:
+      type: object
+      properties:
+        description:
+          type: string
+          description: Detailed explanation of what to do
+        summary:
+          type: string
+          description: One-line summary shown during execution
+        context:
+          type: string
+          description: Why this task matters
+      required: [description, summary, context]
+
+  - name: plan_done_adding
+    description: Signal that all tasks have been added. Moves to verification.
+    parameters:
+      type: object
+      properties: {}
+
+  - name: plan_verify_task
+    description: Approve or request revision of the current task.
+    parameters:
+      type: object
+      properties:
+        approved:
+          type: boolean
+          description: True to approve, false to revise
+        revision:
+          type: string
+          description: If not approved, the revised description
+      required: [approved]
+
+  - name: plan_edit_task
+    description: Edit a specific task field.
+    parameters:
+      type: object
+      properties:
+        task_id:
+          type: integer
+          description: Task ID to edit (0-indexed)
+        field:
+          type: string
+          enum: [description, summary, context]
+        new_value:
+          type: string
+      required: [task_id, field, new_value]
+
+  - name: plan_set_summary
+    description: Set the one-sentence plan summary.
+    parameters:
+      type: object
+      properties:
+        summary:
+          type: string
+          description: One-sentence summary of the plan
+      required: [summary]
+
+  - name: plan_confirm
+    description: Confirm and activate the plan. Requires all tasks verified and summary set.
+    parameters:
+      type: object
+      properties: {}

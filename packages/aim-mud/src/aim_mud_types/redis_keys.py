@@ -196,3 +196,40 @@ class RedisKeys:
             Formatted stream ID (e.g., "1704096000000-0").
         """
         return f"{timestamp_ms}-{sequence}"
+
+    @staticmethod
+    def agent_plan(agent_id: str) -> str:
+        """Get the plan hash key for a specific agent.
+
+        Hash fields:
+        - plan_id: UUID of current plan
+        - agent_id: Agent identifier
+        - objective: High-level goal
+        - summary: One-line summary
+        - status: PlanStatus enum value
+        - tasks: JSON array of PlanTask objects
+        - current_task_id: Index into tasks
+        - created_at: ISO timestamp
+        - updated_at: ISO timestamp
+
+        Args:
+            agent_id: Unique identifier for the agent.
+
+        Returns:
+            Redis hash key for the agent's plan.
+        """
+        return f"agent:{agent_id}:plan"
+
+    @staticmethod
+    def agent_planner_enabled(agent_id: str) -> str:
+        """Get the planner enabled flag for a specific agent.
+
+        Value: "true" | "false"
+
+        Args:
+            agent_id: Unique identifier for the agent.
+
+        Returns:
+            Redis key for the agent's planner enabled flag.
+        """
+        return f"agent:{agent_id}:planner:enabled"

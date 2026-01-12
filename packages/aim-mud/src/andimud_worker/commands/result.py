@@ -18,6 +18,7 @@ class CommandResult:
         saved_event_id: Event ID before draining (for rollback on failure)
         status: TurnRequestStatus.DONE or TurnRequestStatus.FAIL (only used if complete=True)
         message: Optional status message (for "fail" status)
+        plan_guidance: Optional guidance string when plan is active (for user footer)
     """
 
     complete: bool
@@ -25,3 +26,4 @@ class CommandResult:
     saved_event_id: Optional[str] = None
     status: TurnRequestStatus = TurnRequestStatus.DONE
     message: Optional[str] = None
+    plan_guidance: Optional[str] = None

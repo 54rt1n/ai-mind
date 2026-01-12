@@ -1,0 +1,21 @@
+type: plan
+functions:
+  - name: plan_update
+    description: |
+      Update the status of your current task. Use when you have completed,
+      become blocked on, or need to skip the current task.
+    parameters:
+      type: object
+      properties:
+        status:
+          type: string
+          description: New status for the current task
+          enum: [completed, blocked, skipped]
+        resolution:
+          type: string
+          description: What happened - explain the outcome or blocker.
+      required: [status, resolution]
+
+implementation:
+  module: aim.tool.impl.plan
+  class: PlanExecutionTool

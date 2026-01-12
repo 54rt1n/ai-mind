@@ -172,6 +172,10 @@ class AgentsMixin:
         # Convert reason to TurnReason enum
         turn_reason_enum = reason if isinstance(reason, TurnReason) else TurnReason(reason)
 
+        # Create client once for all operations
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
+
         # Determine initial status based on reason
         # Immediate commands (FLUSH, CLEAR, NEW) get EXECUTE status for priority handling
         if turn_reason_enum.is_immediate_command():
@@ -185,6 +189,30 @@ class AgentsMixin:
         if status in (TurnRequestStatus.RETRY, TurnRequestStatus.FAIL):
             attempt_count = current.attempt_count
             metadata = current.metadata  # Preserve metadata on retry
+
+            # Validate: DREAM turns require metadata with scenario
+            if current.reason == TurnReason.DREAM and not metadata:
+                logger.warning(
+                    f"DREAM turn for {agent_id} has no metadata, marking as FAIL"
+                )
+                # Mark as permanently FAIL so it doesn't retry again
+                current.status = TurnRequestStatus.FAIL
+                current.message = "Dream turn missing metadata"
+                current.next_attempt_at = None  # Don't retry
+                current.completed_at = _utc_now()
+                await client.update_turn_request(agent_id, current, expected_turn_id=current.turn_id)
+                return False
+            if current.reason == TurnReason.DREAM and metadata and not metadata.get("scenario"):
+                logger.warning(
+                    f"DREAM turn for {agent_id} metadata missing scenario, marking as FAIL"
+                )
+                # Mark as permanently FAIL
+                current.status = TurnRequestStatus.FAIL
+                current.message = "Dream turn missing scenario in metadata"
+                current.next_attempt_at = None
+                current.completed_at = _utc_now()
+                await client.update_turn_request(agent_id, current, expected_turn_id=current.turn_id)
+                return False
 
         # Build complete MUDTurnRequest object with ALL required fields
         # This ensures Pydantic validation catches missing fields
@@ -202,8 +230,6 @@ class AgentsMixin:
         )
 
         # Use RedisMUDClient for atomic CAS update
-        from aim_mud_types.client import RedisMUDClient
-        client = RedisMUDClient(self.redis)
         success = await client.update_turn_request(
             agent_id,
             turn_request,

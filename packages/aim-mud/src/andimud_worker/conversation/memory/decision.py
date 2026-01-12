@@ -17,7 +17,10 @@ with Phase 2 extending XMLMemoryTurnStrategy for memory-augmented responses.
 
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from aim_mud_types.plan import AgentPlan
 
 from ...adapter import build_current_context, entries_to_chat_turns
 from ..manager import MUDConversationManager
@@ -64,6 +67,12 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
         self._cached_system_message = None
         # Conversation manager
         self.conversation_manager: Optional[MUDConversationManager] = None
+        # Plan context for injection
+        self._active_plan: Optional["AgentPlan"] = None
+        # Redis context for plan tool execution
+        self._redis_client = None
+        self._agent_id: Optional[str] = None
+        self._plan_tool_impl = None
 
     def set_conversation_manager(self, cm: MUDConversationManager) -> None:
         """Set the conversation manager for Redis history access.
@@ -81,6 +90,26 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
         """
         self.tool_user = tool_user
         self._cached_system_message = None  # Clear cache to rebuild with new tools
+
+    def set_context(self, redis_client, agent_id: str) -> None:
+        """Set Redis context for plan tool execution.
+
+        Must be called before init_tools() if plan tools are needed.
+
+        Args:
+            redis_client: Async Redis client.
+            agent_id: Current agent ID.
+        """
+        self._redis_client = redis_client
+        self._agent_id = agent_id
+
+    def get_plan_tool_impl(self):
+        """Get the PlanExecutionTool instance if available.
+
+        Returns:
+            PlanExecutionTool instance or None if not loaded.
+        """
+        return self._plan_tool_impl
 
     # Tool loading is handled by init_tools() method below
 
@@ -185,6 +214,80 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
             )
 
         return formatter
+
+    def get_consciousness_head(self, formatter: XmlFormatter) -> XmlFormatter:
+        """Add plan context at head of consciousness block.
+
+        Overrides parent hook to inject active plan XML when a plan is set.
+        Includes objective, summary, status, current task details, and task overview.
+
+        Args:
+            formatter: XmlFormatter instance to extend.
+
+        Returns:
+            Modified formatter with plan context added, or unchanged if no plan.
+        """
+        if not self._active_plan:
+            return formatter
+
+        plan = self._active_plan
+
+        formatter.add_element(
+            self.hud_name, "Active Plan",
+            content=f"Objective: {plan.objective}",
+            priority=3,
+        )
+        formatter.add_element(
+            self.hud_name, "Active Plan", "Summary",
+            content=plan.summary, priority=3,
+        )
+        formatter.add_element(
+            self.hud_name, "Active Plan", "Status",
+            content=plan.status.value, priority=3,
+        )
+
+        if plan.current_task_id < len(plan.tasks):
+            current = plan.tasks[plan.current_task_id]
+            formatter.add_element(
+                self.hud_name, "Active Plan", "Current Task",
+                content=current.summary, priority=3,
+            )
+            formatter.add_element(
+                self.hud_name, "Active Plan", "Current Task", "Description",
+                content=current.description, priority=3,
+            )
+            formatter.add_element(
+                self.hud_name, "Active Plan", "Current Task", "Context",
+                content=current.context, priority=3,
+            )
+
+        task_overview = []
+        for task in plan.tasks:
+            marker = {"pending": "[ ]", "in_progress": "[>]", "completed": "[x]",
+                      "blocked": "[!]", "skipped": "[-]"}.get(task.status.value, "[?]")
+            task_overview.append(f"{marker} {task.id + 1}. {task.summary}")
+        formatter.add_element(
+            self.hud_name, "Active Plan", "All Tasks",
+            content="\n".join(task_overview), priority=2, noindent=True,
+        )
+        return formatter
+
+    def get_plan_guidance(self) -> str:
+        """Generate user footer guidance for active plan.
+
+        Returns a brief string describing the current plan state for inclusion
+        in user-facing guidance. Returns empty string if no plan is active.
+
+        Returns:
+            Guidance string or empty string if no plan.
+        """
+        if not self._active_plan:
+            return ""
+        plan = self._active_plan
+        if plan.current_task_id >= len(plan.tasks):
+            return f"Plan '{plan.summary}' - All tasks complete!"
+        current = plan.tasks[plan.current_task_id]
+        return f"Executing plan: {plan.summary} | Current task: {current.summary}"
 
     async def build_turns(
         self,
@@ -447,6 +550,10 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
     def init_tools(self, tool_file: str, tools_path: str):
         """Initialize decision tools from file.
 
+        Conditionally includes plan tools if a plan is active and Redis context
+        is set. Call set_context() and set _active_plan before this method
+        if plan tools are needed.
+
         Args:
             tool_file: Path to tool definition file (absolute or relative)
             tools_path: Base path for resolving relative tool files
@@ -462,11 +569,24 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
                     tool_path = candidate
 
         loader = ToolLoader(tools_path)
-        tools = loader.load_tool_file(str(tool_path))
-        if not tools:
+        base_tools = loader.load_tool_file(str(tool_path))
+        if not base_tools:
             raise ValueError(f"No tools loaded from {tool_path}")
 
-        self.tool_user = ToolUser(tools)
+        # If plan is active and Redis context is set, also load plan execution tools
+        if self._active_plan and self._redis_client and self._agent_id:
+            plan_tool_file = Path(tools_path) / "plan.yaml"
+            if plan_tool_file.exists():
+                plan_tools = loader.load_tool_file(str(plan_tool_file))
+                if plan_tools:
+                    # Create and configure PlanExecutionTool
+                    from aim.tool.impl.plan import PlanExecutionTool
+                    self._plan_tool_impl = PlanExecutionTool()
+                    self._plan_tool_impl.set_context(self._redis_client, self._agent_id)
+                    base_tools = base_tools + plan_tools
+                    logger.info(f"Added {len(plan_tools)} plan tools to decision strategy")
+
+        self.tool_user = ToolUser(base_tools)
         self._cached_system_message = None  # Clear cache to rebuild with new tools
 
     def get_system_message(self, persona: "Persona") -> str:

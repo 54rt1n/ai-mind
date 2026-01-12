@@ -70,6 +70,7 @@ class TurnRequestMixin:
         """
 
         # Convert MUDTurnRequest to field list
+        import json
         fields = []
         for field_name, field_value in turn_request.model_dump().items():
             if field_value is not None:
@@ -78,6 +79,8 @@ class TurnRequestMixin:
                     value_str = field_value.isoformat()
                 elif isinstance(field_value, (TurnRequestStatus, TurnReason)):
                     value_str = field_value.value
+                elif isinstance(field_value, dict):
+                    value_str = json.dumps(field_value)
                 else:
                     value_str = str(field_value)
                 fields.extend([field_name, value_str])
@@ -122,6 +125,7 @@ class TurnRequestMixin:
         """
 
         # Convert MUDTurnRequest to field list
+        import json
         fields = []
         for field_name, field_value in turn_request.model_dump().items():
             if field_value is not None:
@@ -130,6 +134,8 @@ class TurnRequestMixin:
                     value_str = field_value.isoformat()
                 elif isinstance(field_value, (TurnRequestStatus, TurnReason)):
                     value_str = field_value.value
+                elif isinstance(field_value, dict):
+                    value_str = json.dumps(field_value)
                 else:
                     value_str = str(field_value)
                 fields.extend([field_name, value_str])
