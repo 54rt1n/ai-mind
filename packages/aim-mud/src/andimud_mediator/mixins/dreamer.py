@@ -81,6 +81,11 @@ class DreamerMixin:
             logger.warning(f"@{cmd_name}: Agent '{agent_id}' is busy (status={status.value})")
             return False
 
+        # Build metadata dict (exclude None values)
+        metadata = {"scenario": scenario, "conversation_id": conversation_id}
+        if guidance:
+            metadata["guidance"] = guidance
+
         # Build complete MUDTurnRequest with dream fields
         # Dreams get 30 minutes (1800000ms) - they're slow pipeline operations
         turn_request = MUDTurnRequest(
@@ -92,9 +97,7 @@ class DreamerMixin:
             heartbeat_at=_utc_now(),
             deadline_ms="1800000",
             attempt_count=0,
-            scenario=scenario,
-            conversation_id=conversation_id,
-            guidance=guidance,
+            metadata=metadata,
         )
 
         # Use RedisMUDClient for atomic CAS update
@@ -187,6 +190,13 @@ class DreamerMixin:
             logger.warning(f"@{cmd_name}: Agent '{agent_id}' is busy (status={status.value})")
             return False
 
+        # Build metadata dict (exclude None values)
+        metadata = {"scenario": scenario}
+        if query:
+            metadata["query"] = query
+        if guidance:
+            metadata["guidance"] = guidance
+
         # Build complete MUDTurnRequest with dream fields
         # Dreams get 30 minutes (1800000ms) - they're slow pipeline operations
         turn_request = MUDTurnRequest(
@@ -198,9 +208,7 @@ class DreamerMixin:
             heartbeat_at=_utc_now(),
             deadline_ms="1800000",
             attempt_count=0,
-            scenario=scenario,
-            query=query,
-            guidance=guidance,
+            metadata=metadata,
         )
 
         # Use RedisMUDClient for atomic CAS update

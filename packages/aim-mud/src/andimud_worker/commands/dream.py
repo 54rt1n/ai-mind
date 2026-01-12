@@ -31,26 +31,29 @@ class DreamCommand(Command):
 
         Args:
             worker: MUDAgentWorker instance
-            **kwargs: Contains turn_id, scenario, query, guidance, conversation_id
+            **kwargs: Contains turn_id, metadata (with scenario, query, guidance, conversation_id)
 
         Returns:
             CommandResult with complete=True, status=TurnRequestStatus.DONE or "fail"
         """
         turn_id = kwargs.get("turn_id", "unknown")
-        scenario = kwargs.get("scenario", "")
-        query = kwargs.get("query") or None
-        guidance = kwargs.get("guidance") or None
+
+        # Read from metadata
+        metadata = kwargs.get("metadata") or {}
+        scenario = metadata.get("scenario", "")
+        query = metadata.get("query")
+        guidance = metadata.get("guidance")
         # Explicit conversation_id for analysis commands
-        target_conversation_id = kwargs.get("conversation_id") or None
+        target_conversation_id = metadata.get("conversation_id")
 
         if not scenario:
-            logger.error("Dream turn missing scenario")
+            logger.error("Dream turn missing scenario in metadata")
             return CommandResult(
                 complete=True,
                 flush_drain=False,
                 saved_event_id=None,
                 status=TurnRequestStatus.FAIL,
-                message="Dream turn missing scenario"
+                message="Dream turn missing scenario in metadata"
             )
 
         logger.info(f"Processing dream turn: {scenario}")

@@ -512,16 +512,15 @@ class TestHandleAnalysisCommand:
         assert args[3] == "turn_id"  # CAS field
         assert args[4] == "prev-turn"  # CAS value
 
-        # Verify fields include scenario, conversation_id, and guidance
+        # Verify fields include metadata with scenario, conversation_id, and guidance
         # Fields start at args[5] as name-value pairs
         field_args = args[5:]
         fields_dict = {field_args[i]: field_args[i+1] for i in range(0, len(field_args), 2)}
-        assert "scenario" in fields_dict
-        assert fields_dict["scenario"] == "analysis_dialogue"
-        assert "conversation_id" in fields_dict
-        assert fields_dict["conversation_id"] == "conv_123"
-        assert "guidance" in fields_dict
-        assert fields_dict["guidance"] == "Focus on emotional patterns"
+        assert "metadata" in fields_dict
+        metadata = json.loads(fields_dict["metadata"])
+        assert metadata["scenario"] == "analysis_dialogue"
+        assert metadata["conversation_id"] == "conv_123"
+        assert metadata["guidance"] == "Focus on emotional patterns"
         assert "status" in fields_dict
         assert fields_dict["status"] == "assigned"
 
@@ -554,10 +553,12 @@ class TestHandleAnalysisCommand:
         args = eval_call[0]
         field_args = args[5:]
         fields_dict = {field_args[i]: field_args[i+1] for i in range(0, len(field_args), 2)}
-        assert fields_dict["scenario"] == "summarizer"
-        assert fields_dict["conversation_id"] == "conv_456"
-        # When guidance is None, it's not included in the serialized update
-        assert "guidance" not in fields_dict
+        assert "metadata" in fields_dict
+        metadata = json.loads(fields_dict["metadata"])
+        assert metadata["scenario"] == "summarizer"
+        assert metadata["conversation_id"] == "conv_456"
+        # When guidance is None, it's not included in the metadata
+        assert "guidance" not in metadata
 
     @pytest.mark.asyncio
     async def test_handles_cas_failure(self, mock_redis, mediator_config):
@@ -734,15 +735,14 @@ class TestHandleCreativeCommand:
         assert args[3] == "turn_id"  # CAS field
         assert args[4] == "prev-turn"  # CAS value
 
-        # Verify fields include scenario, query, and guidance
+        # Verify fields include metadata with scenario, query, and guidance
         field_args = args[5:]
         fields_dict = {field_args[i]: field_args[i+1] for i in range(0, len(field_args), 2)}
-        assert "scenario" in fields_dict
-        assert fields_dict["scenario"] == "journaler_dialogue"
-        assert "query" in fields_dict
-        assert fields_dict["query"] == "What did I learn today?"
-        assert "guidance" in fields_dict
-        assert fields_dict["guidance"] == "Focus on emotional growth"
+        assert "metadata" in fields_dict
+        metadata = json.loads(fields_dict["metadata"])
+        assert metadata["scenario"] == "journaler_dialogue"
+        assert metadata["query"] == "What did I learn today?"
+        assert metadata["guidance"] == "Focus on emotional growth"
         assert "status" in fields_dict
         assert fields_dict["status"] == "assigned"
 
@@ -775,10 +775,12 @@ class TestHandleCreativeCommand:
         args = eval_call[0]
         field_args = args[5:]
         fields_dict = {field_args[i]: field_args[i+1] for i in range(0, len(field_args), 2)}
-        assert fields_dict["scenario"] == "philosopher_dialogue"
-        assert fields_dict["query"] == "What is the meaning of life?"
-        # When guidance is None, it's not included in the serialized update
-        assert "guidance" not in fields_dict
+        assert "metadata" in fields_dict
+        metadata = json.loads(fields_dict["metadata"])
+        assert metadata["scenario"] == "philosopher_dialogue"
+        assert metadata["query"] == "What is the meaning of life?"
+        # When guidance is None, it's not included in the metadata
+        assert "guidance" not in metadata
 
     @pytest.mark.asyncio
     async def test_assigns_creative_turn_no_params(self, mock_redis, mediator_config):
@@ -806,10 +808,12 @@ class TestHandleCreativeCommand:
         args = eval_call[0]
         field_args = args[5:]
         fields_dict = {field_args[i]: field_args[i+1] for i in range(0, len(field_args), 2)}
-        assert fields_dict["scenario"] == "daydream_dialogue"
-        # When query and guidance are None, they're not included in the serialized update
-        assert "query" not in fields_dict
-        assert "guidance" not in fields_dict
+        assert "metadata" in fields_dict
+        metadata = json.loads(fields_dict["metadata"])
+        assert metadata["scenario"] == "daydream_dialogue"
+        # When query and guidance are None, they're not included in the metadata
+        assert "query" not in metadata
+        assert "guidance" not in metadata
 
     @pytest.mark.asyncio
     async def test_handles_cas_failure(self, mock_redis, mediator_config):

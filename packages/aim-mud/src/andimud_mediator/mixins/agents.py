@@ -179,10 +179,12 @@ class AgentsMixin:
         else:
             initial_status = TurnRequestStatus.ASSIGNED
 
-        # Preserve attempt_count if retrying a failed turn
+        # Preserve attempt_count and metadata if retrying a failed turn
         attempt_count = 0
+        metadata = None
         if status in (TurnRequestStatus.RETRY, TurnRequestStatus.FAIL):
             attempt_count = current.attempt_count
+            metadata = current.metadata  # Preserve metadata on retry
 
         # Build complete MUDTurnRequest object with ALL required fields
         # This ensures Pydantic validation catches missing fields
@@ -196,6 +198,7 @@ class AgentsMixin:
             completed_at=None,  # NEW - clear on new assignment
             deadline_ms=str(self.config.turn_request_ttl_seconds * 1000),
             attempt_count=attempt_count,
+            metadata=metadata,  # Preserve metadata from previous turn or None for new turns
         )
 
         # Use RedisMUDClient for atomic CAS update

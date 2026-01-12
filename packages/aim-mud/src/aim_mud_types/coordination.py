@@ -2,11 +2,12 @@
 # AI-Mind (C) 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
 """Coordination and control structures stored in Redis."""
 
+import json
 from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .helper import _utc_now
 from .redis_keys import RedisKeys
@@ -70,10 +71,10 @@ class MUDTurnRequest(BaseModel):
         completed_at: When turn execution finished (set on terminal states)
         sequence_id: Event sequence ID for chronological ordering (REQUIRED)
         attempt_count: Number of retry attempts for this turn
-        scenario: For dream turns, the scenario to run
-        query: For dream turns, optional query text
-        guidance: Optional guidance text
-        conversation_id: For @new command, the new conversation ID
+        next_attempt_at: ISO format datetime string for retry timing
+        status_reason: Human-readable reason for current status
+        deadline_ms: Deadline in milliseconds (used by mediator)
+        metadata: Turn-specific context (scenario, query, guidance, conversation_id, etc.)
     """
 
     turn_id: str
@@ -91,11 +92,34 @@ class MUDTurnRequest(BaseModel):
     status_reason: Optional[str] = None  # Human-readable reason for current status
     deadline_ms: Optional[str] = None  # Deadline in milliseconds (used by mediator)
 
-    # Optional fields for specific turn types
-    scenario: Optional[str] = None
-    query: Optional[str] = None
-    guidance: Optional[str] = None
-    conversation_id: Optional[str] = None
+    # Metadata for turn-specific context
+    metadata: Optional[dict] = None
+
+    @field_validator("metadata", mode="before")
+    @classmethod
+    def parse_metadata(cls, v):
+        """Parse metadata from JSON string (Redis) or dict (Python).
+
+        When metadata is retrieved from Redis, it comes as a JSON string.
+        This validator converts it back to a dict for Pydantic validation.
+
+        Args:
+            v: Either a JSON string (from Redis) or dict (from Python code)
+
+        Returns:
+            Dict or None
+
+        Raises:
+            ValueError: If v is a string but not valid JSON
+        """
+        if v is None:
+            return None
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except json.JSONDecodeError as e:
+                raise ValueError(f"Invalid JSON in metadata field: {e}")
+        return v
 
 
 class DreamerState(BaseModel):

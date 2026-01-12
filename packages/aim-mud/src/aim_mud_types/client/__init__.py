@@ -19,6 +19,7 @@ Usage:
 
 from typing import Any, Callable, Optional, Type, TypeVar
 import logging
+import json
 from datetime import datetime
 from enum import Enum
 
@@ -57,6 +58,7 @@ class BaseRedisMUDClient:
         - None → None (field will be skipped)
         - datetime → ISO format string
         - Enum → .value attribute
+        - dict → JSON string
         - bool → "true" or "false" (lowercase)
         - int/float → string representation
         - str → unchanged
@@ -73,6 +75,8 @@ class BaseRedisMUDClient:
             return value.isoformat()
         elif isinstance(value, Enum):
             return value.value
+        elif isinstance(value, dict):
+            return json.dumps(value)
         elif isinstance(value, bool):
             return "true" if value else "false"
         elif isinstance(value, (int, float)):
