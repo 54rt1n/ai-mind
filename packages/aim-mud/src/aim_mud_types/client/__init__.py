@@ -18,10 +18,13 @@ Usage:
 """
 
 from typing import Any, Callable, Optional, Type, TypeVar
+import logging
 from datetime import datetime
 from enum import Enum
 
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 import redis.asyncio as redis
 
 from ..redis_keys import RedisKeys
@@ -123,7 +126,11 @@ class BaseRedisMUDClient:
         # Deserialize to model
         try:
             return model_class.model_validate(decoded)
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                f"Failed to validate {model_class.__name__} from Redis key '{key}': {e}",
+                exc_info=True
+            )
             return None
 
     async def _create_hash(

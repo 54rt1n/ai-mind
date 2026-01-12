@@ -4,8 +4,9 @@
 
 from datetime import datetime
 from typing import Optional
+import json
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .helper import _utc_now
 from .state import EntityState, RoomState
@@ -52,9 +53,43 @@ class RoomProfile(BaseModel):
 
     model_config = {"populate_by_name": True}  # Allow both field name and alias
 
-    room_id: str
+    room_id: str = ""
     name: str = ""
     desc: str = ""
     room_state: Optional[RoomState] = None
     entities: list[EntityState] = Field(default_factory=list, alias="entities_present")
     updated_at: datetime = Field(default_factory=_utc_now)
+
+    @field_validator('room_state', mode='before')
+    @classmethod
+    def parse_room_state(cls, v):
+        """Parse room_state if stored as JSON string by Evennia."""
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except json.JSONDecodeError:
+                return None
+        return v
+
+    @field_validator('entities', mode='before')
+    @classmethod
+    def parse_entities(cls, v):
+        """Parse entities_present if stored as JSON string by Evennia."""
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except json.JSONDecodeError:
+                return []
+        return v
+
+    @model_validator(mode='after')
+    def extract_room_info(self):
+        """Extract room_id and name from room_state if not set directly."""
+        if self.room_state:
+            # Extract room_id if not already set
+            if not self.room_id and hasattr(self.room_state, 'room_id'):
+                self.room_id = self.room_state.room_id
+            # Extract name if not already set
+            if not self.name and hasattr(self.room_state, 'name'):
+                self.name = self.room_state.name
+        return self

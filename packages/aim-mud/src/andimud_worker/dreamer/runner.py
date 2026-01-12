@@ -20,6 +20,7 @@ from aim.config import ChatConfig
 from aim.conversation.model import ConversationModel
 from aim.agents.roster import Roster
 from aim.dreamer.inline import execute_pipeline_inline
+from andimud_worker.conversation.storage import generate_conversation_id
 
 logger = logging.getLogger(__name__)
 
@@ -143,9 +144,10 @@ class DreamerRunner:
         if scenario in CONVERSATION_ANALYSIS_SCENARIOS:
             return base_conversation_id
         else:
-            # Standalone scenarios use a unique conversation per scenario
-            # Use persona_id instead of agent_id for the key
-            return f"mud_dream_{self.persona_id}_{scenario}"
+            # Standalone scenarios generate unique IDs per execution
+            # Extract prefix from scenario name (e.g., "journaler_dialogue" -> "journaler")
+            prefix = scenario.split("_")[0]
+            return generate_conversation_id(prefix)
 
     async def run_dream(
         self,

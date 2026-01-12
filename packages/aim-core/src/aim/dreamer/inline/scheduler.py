@@ -200,6 +200,7 @@ async def _execute_dialogue_inline(
         config=config,
         model_set=model_set,
         cvm=cvm,
+        heartbeat_callback=heartbeat_callback,
     )
 
     # Start dialogue state
@@ -354,6 +355,7 @@ async def _execute_standard_inline(
             persona=persona,
             config=config,
             model_set=model_set,
+            heartbeat_callback=heartbeat_callback,
         )
 
         # Update accumulated context if this was initial context from DSL

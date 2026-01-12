@@ -4,14 +4,13 @@
 
 from dataclasses import replace
 from datetime import datetime
-from typing import Optional, TYPE_CHECKING
+from typing import Awaitable, Callable, Optional, TYPE_CHECKING
 import logging
 import uuid
 
 if TYPE_CHECKING:
     from aim.llm.model_set import ModelSet
 
-from ....utils.redis_cache import RedisCache
 from ....utils.think import extract_think_tags
 from ....agents.persona import Persona
 from ....agents.aspects import get_aspect_or_default
@@ -68,6 +67,7 @@ class DialogueScenario:
         config: ChatConfig,
         model_set: "ModelSet",
         cvm: Optional[ConversationModel] = None,
+        heartbeat_callback: Optional[Callable[[str, str], Awaitable[None]]] = None,
     ):
         """
         Initialize the dialogue scenario.
@@ -78,12 +78,15 @@ class DialogueScenario:
             config: Chat configuration with model settings
             model_set: ModelSet for persona-aware model selection
             cvm: Optional ConversationModel for memory queries and storage
+            heartbeat_callback: Optional callback called every 50 chunks during streaming
+                               for liveness detection (ANDIMUD inline execution only)
         """
         self.strategy = strategy
         self.persona = persona
         self.config = config
         self.cvm = cvm
         self.model_set = model_set
+        self.heartbeat_callback = heartbeat_callback
         self.state: Optional[DialogueState] = None
 
     def start(
@@ -240,20 +243,24 @@ class DialogueScenario:
             f"turns={len(turns)} | max_tokens={max_output_tokens}"
         )
 
-        # 7. Generate response (streaming) with activity updates
-        cache = RedisCache(self.config)
-        cache.update_api_activity()
-
+        # 7. Generate response (streaming)
         chunks = []
         chunk_count = 0
         for chunk in provider.stream_turns(turns, step_config):
             if chunk:
                 chunks.append(chunk)
                 chunk_count += 1
-                if chunk_count % 50 == 0:
-                    cache.update_api_activity()
 
-        cache.update_api_activity()
+                # Heartbeat every 50 chunks for liveness detection
+                if chunk_count % 50 == 0 and self.heartbeat_callback:
+                    try:
+                        await self.heartbeat_callback(self.state.pipeline_id, step_id)
+                    except Exception as e:
+                        logger.warning(
+                            f"Heartbeat callback failed at chunk {chunk_count}: {e}",
+                            exc_info=True
+                        )
+
         response = ''.join(chunks)
 
         # 8. Extract think tags if present
@@ -507,9 +514,19 @@ class DialogueScenario:
             if last_user_idx is not None:
                 role, content = dialogue_turn_contents[last_user_idx]
 
-                # Append current step's guidance to the last user turn
-                if guidance:
-                    content = f"{content}\n\n[~~ Output Guidance ~~]\n{guidance}"
+                # Build combined guidance (step guidance first, then user guidance)
+                combined_guidance = guidance or ""
+
+                # Append user-provided guidance if use_guidance is enabled
+                if step.config.use_guidance and self.state.guidance:
+                    if combined_guidance:
+                        combined_guidance = f"{combined_guidance}\n\n[Guidance: {self.state.guidance}]"
+                    else:
+                        combined_guidance = f"[Guidance: {self.state.guidance}]"
+
+                # Append guidance to the last user turn
+                if combined_guidance:
+                    content = f"{content}\n\n[~~ Output Guidance ~~]\n{combined_guidance}"
 
                 dialogue_turn_contents[last_user_idx] = (role, content)
 
@@ -526,8 +543,17 @@ class DialogueScenario:
                 scene = self._generate_scene(step, template_context)
                 if scene:
                     final_content.append(scene)
-            if guidance:
-                final_content.append(f"[~~ Output Guidance ~~]\n{guidance}")
+
+            # Build combined guidance (step guidance first, then user guidance)
+            combined_guidance = guidance or ""
+            if step.config.use_guidance and self.state.guidance:
+                if combined_guidance:
+                    combined_guidance = f"{combined_guidance}\n\n[Guidance: {self.state.guidance}]"
+                else:
+                    combined_guidance = f"[Guidance: {self.state.guidance}]"
+
+            if combined_guidance:
+                final_content.append(f"[~~ Output Guidance ~~]\n{combined_guidance}")
             if final_content:
                 turns.append({'role': 'user', 'content': '\n\n'.join(final_content)})
         elif is_persona_speaker:
@@ -538,12 +564,28 @@ class DialogueScenario:
             # But if last turn was assistant (another aspect), we need a user turn
             if dialogue_turn_contents and dialogue_turn_contents[-1][0] == 'assistant':
                 # Last dialogue turn was assistant, need to add guidance as user
-                turns.append({'role': 'user', 'content': f"[~~ Output Guidance ~~]\n{guidance}" if guidance else '[Continue]'})
+                # Build combined guidance (step guidance first, then user guidance)
+                combined_guidance = guidance or ""
+                if step.config.use_guidance and self.state.guidance:
+                    if combined_guidance:
+                        combined_guidance = f"{combined_guidance}\n\n[Guidance: {self.state.guidance}]"
+                    else:
+                        combined_guidance = f"[Guidance: {self.state.guidance}]"
+
+                turns.append({'role': 'user', 'content': f"[~~ Output Guidance ~~]\n{combined_guidance}" if combined_guidance else '[Continue]'})
 
         # Final safety check - must end with user
         if turns and turns[-1]['role'] != 'user':
-            if guidance:
-                turns.append({'role': 'user', 'content': f"[~~ Output Guidance ~~]\n{guidance}"})
+            # Build combined guidance (step guidance first, then user guidance)
+            combined_guidance = guidance or ""
+            if step.config.use_guidance and self.state.guidance:
+                if combined_guidance:
+                    combined_guidance = f"{combined_guidance}\n\n[Guidance: {self.state.guidance}]"
+                else:
+                    combined_guidance = f"[Guidance: {self.state.guidance}]"
+
+            if combined_guidance:
+                turns.append({'role': 'user', 'content': f"[~~ Output Guidance ~~]\n{combined_guidance}"})
             else:
                 turns.append({'role': 'user', 'content': '[Continue]'})
 

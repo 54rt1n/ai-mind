@@ -9,7 +9,7 @@ import redis.asyncio as redis
 
 from aim.config import ChatConfig
 from aim.conversation.model import ConversationModel
-from aim.dreamer.api import (
+from aim.dreamer import (
     start_pipeline,
     get_status,
     cancel_pipeline,
@@ -17,10 +17,10 @@ from aim.dreamer.api import (
     resume_pipeline,
     refresh_pipeline,
     list_pipelines,
+    StateStore,
+    Scheduler,
+    load_scenario,
 )
-from aim.dreamer.state import StateStore
-from aim.dreamer.scheduler import Scheduler
-from aim.dreamer.scenario import load_scenario
 
 from .dto import (
     StartPipelineRequest,

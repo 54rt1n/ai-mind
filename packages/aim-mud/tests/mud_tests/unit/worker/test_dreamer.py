@@ -161,7 +161,7 @@ class TestDreamerRunnerGetConversationId:
     def test_creates_standalone_id_for_journaler(
         self, test_config, test_cvm, test_roster
     ):
-        """Test creates standalone conversation ID for journaler_dialogue."""
+        """Test creates unique conversation ID for journaler_dialogue."""
         runner = DreamerRunner(
             config=test_config,
             cvm=test_cvm,
@@ -172,13 +172,22 @@ class TestDreamerRunnerGetConversationId:
         conversation_id = runner._get_conversation_id(
             "journaler_dialogue", "andimud_123_abc"
         )
-        assert conversation_id == "mud_dream_andi_journaler_dialogue"
+
+        # Should match pattern: journaler_{timestamp}_{random}
+        assert conversation_id.startswith("journaler_")
         assert "andimud_123_abc" not in conversation_id
+
+        # Validate format: prefix_timestamp_random
+        parts = conversation_id.split("_")
+        assert len(parts) == 3
+        assert parts[0] == "journaler"
+        assert parts[1].isdigit()  # timestamp
+        assert len(parts[2]) == 9  # random suffix (9 hex chars)
 
     def test_creates_standalone_id_for_daydream(
         self, test_config, test_cvm, test_roster
     ):
-        """Test creates standalone conversation ID for daydream_dialogue."""
+        """Test creates unique conversation ID for daydream_dialogue."""
         runner = DreamerRunner(
             config=test_config,
             cvm=test_cvm,
@@ -189,7 +198,34 @@ class TestDreamerRunnerGetConversationId:
         conversation_id = runner._get_conversation_id(
             "daydream_dialogue", "andimud_456_def"
         )
-        assert conversation_id == "mud_dream_val_daydream_dialogue"
+
+        # Should match pattern: daydream_{timestamp}_{random}
+        assert conversation_id.startswith("daydream_")
+
+        # Validate format
+        parts = conversation_id.split("_")
+        assert len(parts) == 3
+        assert parts[0] == "daydream"
+        assert parts[1].isdigit()
+        assert len(parts[2]) == 9
+
+    def test_generates_unique_ids_per_call(
+        self, test_config, test_cvm, test_roster
+    ):
+        """Test that multiple calls generate different IDs."""
+        runner = DreamerRunner(
+            config=test_config,
+            cvm=test_cvm,
+            roster=test_roster,
+            persona_id="andi",
+        )
+
+        id1 = runner._get_conversation_id("journaler_dialogue", "andimud_123_abc")
+        id2 = runner._get_conversation_id("journaler_dialogue", "andimud_123_abc")
+
+        assert id1 != id2
+        assert id1.startswith("journaler_")
+        assert id2.startswith("journaler_")
 
 
 class TestDreamerRunnerRunDream:
@@ -388,7 +424,12 @@ class TestDreamerRunnerRunDream:
             await runner.run_dream(request, "andimud_123_abc")
 
         call_kwargs = mock_execute.call_args[1]
-        assert call_kwargs["conversation_id"] == "mud_dream_andi_journaler_dialogue"
+        conversation_id = call_kwargs["conversation_id"]
+
+        # Should be unique per execution (journaler_{timestamp}_{random})
+        assert conversation_id.startswith("journaler_")
+        parts = conversation_id.split("_")
+        assert len(parts) == 3
 
 
 class TestDreamerMixinInit:

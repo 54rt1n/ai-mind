@@ -246,11 +246,10 @@ class AgentsMixin:
 
             agent_ids: set[str] = set()
             for entity in room_profile.entities:
-                if entity.get("entity_type") != "ai":
+                if entity.entity_type != "ai":
                     continue
-                agent_id = entity.get("agent_id")
-                if agent_id:
-                    agent_ids.add(str(agent_id))
+                if entity.agent_id:
+                    agent_ids.add(str(entity.agent_id))
             return list(agent_ids)
         except Exception as e:
             logger.error(f"Failed to read room profile for {room_id}: {e}")
@@ -276,10 +275,8 @@ class AgentsMixin:
                 return None
 
             for entity in room_profile.entities:
-                if not isinstance(entity, dict):
-                    continue
-                if entity.get("entity_id") == actor_id:
-                    return entity.get("agent_id")
+                if entity.entity_id == actor_id:
+                    return entity.agent_id
             return None
         except Exception as e:
             logger.error(f"Failed to read room profile for {room_id}: {e}")

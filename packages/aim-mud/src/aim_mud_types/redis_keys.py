@@ -119,7 +119,6 @@ class RedisKeys:
     # Mediator keys
     MEDIATOR_PAUSE = "mud:mediator:paused"
     AGENT_ROOMS = "mediator:agent_rooms"
-    MEDIATOR_LAST_ACTION_ID = "mud:mediator:last_action_id"
     EVENTS_PROCESSED = "mud:events:processed"
     ACTIONS_PROCESSED = "mud:actions:processed"
     SEQUENCE_COUNTER = "mud:sequence_counter"

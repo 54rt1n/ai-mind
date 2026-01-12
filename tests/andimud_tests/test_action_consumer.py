@@ -351,3 +351,224 @@ class TestActionConsumerThreadSafety:
 
         assert client1 is client2
         assert client1 is mock_redis
+
+
+@pytest.mark.skipif(not EVENNIA_AVAILABLE, reason="Evennia not available")
+class TestActionConsumerPositionTracking:
+    """Tests for ActionConsumer stream position tracking.
+
+    These tests verify the fix for the stream position bug where the consumer
+    was always reading from position "0" instead of tracking its position.
+    """
+
+    @pytest.fixture
+    def mock_redis(self):
+        """Create a mock Redis client."""
+        return MagicMock(spec=redis.Redis)
+
+    @pytest.fixture
+    def consumer(self, mock_redis):
+        """Create an ActionConsumer with mocked Redis."""
+        with patch('andimud.server.services.action_consumer.redis.from_url', return_value=mock_redis):
+            consumer = ActionConsumer(redis_url="redis://localhost:6379")
+            consumer.redis = mock_redis
+            return consumer
+
+    def test_initialize_position_empty_hash(self, consumer, mock_redis):
+        """Test initialization when hash is empty."""
+        # Mock empty hash (no processed actions yet)
+        mock_redis.hkeys.return_value = []
+
+        # Initialize position
+        consumer.initialize_position()
+
+        # Should start at "0"
+        assert consumer.last_action_id == "0"
+        mock_redis.hkeys.assert_called_once()
+
+    def test_initialize_position_from_hash(self, consumer, mock_redis):
+        """Test initialization loads max ID from hash."""
+        # Mock hash with action IDs (simulate already processed actions)
+        mock_redis.hkeys.return_value = [
+            b"1768100000000-0",
+            b"1768110000000-0",
+            b"1768119965705-0",  # This should be max (most recent)
+            b"1768105000000-0",
+        ]
+
+        # Initialize position
+        consumer.initialize_position()
+
+        # Should load max ID (most recent processed action)
+        assert consumer.last_action_id == "1768119965705-0"
+        mock_redis.hkeys.assert_called_once()
+
+    def test_initialize_position_handles_string_keys(self, consumer, mock_redis):
+        """Test initialization handles both bytes and string keys."""
+        # Mock hash with mixed bytes and string keys
+        mock_redis.hkeys.return_value = [
+            "1768100000000-0",      # String
+            b"1768110000000-0",     # Bytes
+            "1768119965705-0",      # String (max)
+        ]
+
+        # Initialize position
+        consumer.initialize_position()
+
+        # Should handle both formats and find max
+        assert consumer.last_action_id == "1768119965705-0"
+
+    def test_initialize_position_handles_redis_error(self, consumer, mock_redis):
+        """Test initialization handles Redis errors gracefully."""
+        # Simulate Redis error
+        mock_redis.hkeys.side_effect = redis.RedisError("Connection failed")
+
+        # Should not raise, should default to "0"
+        consumer.initialize_position()
+
+        assert consumer.last_action_id == "0"
+
+    def test_poll_reads_from_tracked_position(self, consumer, mock_redis):
+        """Test that poll_actions reads from tracked position, not "0"."""
+        # Set a specific position
+        consumer.last_action_id = "1768119965705-0"
+
+        # Mock XREAD to return no new messages
+        mock_redis.xread.return_value = []
+
+        # Poll for actions
+        consumer.poll_actions()
+
+        # Verify XREAD was called with tracked position, not "0"
+        mock_redis.xread.assert_called_once()
+        call_args = mock_redis.xread.call_args
+        streams_dict = call_args[0][0]
+        assert streams_dict["mud:actions"] == "1768119965705-0"
+
+    def test_poll_updates_position_as_it_reads(self, consumer, mock_redis):
+        """Test that poll_actions updates position as messages are read."""
+        # Start from position "0"
+        consumer.last_action_id = "0"
+
+        # Mock XREAD to return multiple messages
+        mock_redis.xread.return_value = [
+            (b"mud:actions", [
+                (b"1768100000000-0", {b"data": b'{"agent_id": "andi", "command": "say test1"}'}),
+                (b"1768110000000-0", {b"data": b'{"agent_id": "andi", "command": "say test2"}'}),
+                (b"1768119965705-0", {b"data": b'{"agent_id": "andi", "command": "say test3"}'}),
+            ])
+        ]
+
+        # Poll for actions
+        actions = consumer.poll_actions()
+
+        # Should have read all three messages
+        assert len(actions) == 3
+
+        # Position should be updated to last message ID
+        assert consumer.last_action_id == "1768119965705-0"
+
+    def test_poll_handles_stream_trim_below_position(self, consumer, mock_redis):
+        """Test that poll_actions handles stream trimmed below current position."""
+        # Set position to an ID that's been trimmed
+        consumer.last_action_id = "1768000000000-0"
+
+        # First call raises ResponseError (stream trimmed)
+        # Second call (retry from "0") succeeds
+        mock_redis.xread.side_effect = [
+            redis.ResponseError("invalid stream ID"),
+            []  # Retry succeeds with no new messages
+        ]
+
+        # Poll should handle error gracefully
+        actions = consumer.poll_actions()
+
+        # Should have retried from "0"
+        assert consumer.last_action_id == "0"
+        assert actions == []
+
+        # Should have called XREAD twice (original + retry)
+        assert mock_redis.xread.call_count == 2
+
+    def test_poll_preserves_position_when_no_messages(self, consumer, mock_redis):
+        """Test that position is preserved when no new messages are available."""
+        # Set a specific position
+        original_position = "1768119965705-0"
+        consumer.last_action_id = original_position
+
+        # Mock XREAD to return no new messages
+        mock_redis.xread.return_value = []
+
+        # Poll for actions
+        actions = consumer.poll_actions()
+
+        # Position should be unchanged
+        assert consumer.last_action_id == original_position
+        assert actions == []
+
+    def test_poll_decodes_bytes_message_ids(self, consumer, mock_redis):
+        """Test that poll_actions correctly decodes bytes message IDs."""
+        consumer.last_action_id = "0"
+
+        # Mock XREAD with bytes message ID
+        mock_redis.xread.return_value = [
+            (b"mud:actions", [
+                (b"1768119965705-0", {b"data": b'{"agent_id": "andi", "command": "say test"}'}),
+            ])
+        ]
+
+        # Poll for actions
+        consumer.poll_actions()
+
+        # Position should be decoded string, not bytes
+        assert consumer.last_action_id == "1768119965705-0"
+        assert isinstance(consumer.last_action_id, str)
+
+    def test_position_tracking_prevents_rereading(self, consumer, mock_redis):
+        """Test that position tracking prevents re-reading processed messages."""
+        consumer.last_action_id = "0"
+
+        # First poll: get three messages
+        mock_redis.xread.return_value = [
+            (b"mud:actions", [
+                (b"100-0", {b"data": b'{"agent_id": "andi", "command": "say 1"}'}),
+                (b"200-0", {b"data": b'{"agent_id": "andi", "command": "say 2"}'}),
+                (b"300-0", {b"data": b'{"agent_id": "andi", "command": "say 3"}'}),
+            ])
+        ]
+        actions1 = consumer.poll_actions()
+        assert len(actions1) == 3
+        assert consumer.last_action_id == "300-0"
+
+        # Second poll: XREAD should be called with position "300-0"
+        mock_redis.xread.return_value = []  # No new messages
+        actions2 = consumer.poll_actions()
+
+        # Verify second call used updated position
+        second_call_args = mock_redis.xread.call_args_list[1]
+        streams_dict = second_call_args[0][0]
+        assert streams_dict["mud:actions"] == "300-0"
+
+    def test_run_once_updates_position_during_execution(self, consumer, mock_redis):
+        """Test that run_once updates position even when processing actions."""
+        consumer.last_action_id = "0"
+
+        # Mock XREAD to return messages
+        mock_redis.xread.return_value = [
+            (b"mud:actions", [
+                (b"100-0", {b"data": b'{"agent_id": "andi", "command": "say test"}'}),
+            ])
+        ]
+
+        # Mock hexists to return False (not already processed)
+        mock_redis.hexists.return_value = False
+
+        # Mock execute_action to prevent actual execution
+        with patch.object(consumer, 'execute_action', return_value=True):
+            consumer.run_once()
+
+        # Position should be updated
+        assert consumer.last_action_id == "100-0"
+
+        # Action should be marked as processed
+        mock_redis.hset.assert_called_once()

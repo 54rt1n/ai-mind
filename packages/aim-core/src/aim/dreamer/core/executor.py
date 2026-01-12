@@ -4,7 +4,7 @@
 
 from dataclasses import replace
 from datetime import datetime, timezone
-from typing import Optional, TYPE_CHECKING
+from typing import Awaitable, Callable, Optional, TYPE_CHECKING
 import logging
 
 if TYPE_CHECKING:
@@ -17,7 +17,6 @@ from ...conversation.message import ConversationMessage
 from ...llm.models import LanguageModelV2
 from ...utils.tokens import count_tokens
 from ...utils.think import extract_think_tags
-from ...utils.redis_cache import RedisCache
 
 from .models import PipelineState, StepDefinition, StepResult, StepConfig, Scenario
 from .scenario import render_template, build_template_context
@@ -349,6 +348,7 @@ async def execute_step(
     persona: Persona,
     config: ChatConfig,
     model_set: "ModelSet",
+    heartbeat_callback: Optional[Callable[[str, str], Awaitable[None]]] = None,
 ) -> tuple[StepResult, list[str], bool]:
     """
     Execute a single pipeline step.
@@ -374,6 +374,8 @@ async def execute_step(
         persona: Persona for context
         config: ChatConfig for LLM access
         model_set: ModelSet for persona-aware model selection
+        heartbeat_callback: Optional callback called every 50 chunks during streaming
+                           for liveness detection (ANDIMUD inline execution only)
 
     Returns:
         Tuple of (StepResult, context_doc_ids, is_initial_context):
@@ -446,22 +448,23 @@ async def execute_step(
     )
 
     # 9. Generate response (streaming)
-    # Update activity timestamp during streaming to prevent cascading triggers
-    cache = RedisCache(config)
-    cache.update_api_activity()
-
     chunks = []
     chunk_count = 0
     for chunk in provider.stream_turns(turns, step_config):
         if chunk:
             chunks.append(chunk)
             chunk_count += 1
-            # Update activity every 50 chunks to keep timestamp fresh during long streams
-            if chunk_count % 50 == 0:
-                cache.update_api_activity()
 
-    # Final activity update after streaming completes
-    cache.update_api_activity()
+            # Heartbeat every 50 chunks for liveness detection
+            if chunk_count % 50 == 0 and heartbeat_callback:
+                try:
+                    await heartbeat_callback(state.pipeline_id, step_def.id)
+                except Exception as e:
+                    logger.warning(
+                        f"Heartbeat callback failed at chunk {chunk_count}: {e}",
+                        exc_info=True
+                    )
+
     response = ''.join(chunks)
 
     # 10. Extract <think> tags if present

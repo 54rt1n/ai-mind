@@ -662,6 +662,119 @@ class TestMediatorGracefulShutdown:
         assert True  # Reached end without exception
 
 
+class TestMediatorAgentIdFromActor:
+    """Test _agent_id_from_actor method for self-event filtering.
+
+    This tests the fix for the bug where the method was treating EntityState
+    objects as dicts, causing AttributeError when trying to filter self-events.
+    """
+
+    @pytest.mark.asyncio
+    async def test_agent_id_from_actor_with_entity_state(
+        self, mock_redis, mediator_config
+    ):
+        """Test that _agent_id_from_actor correctly uses EntityState attributes."""
+        from aim_mud_types.client import RedisMUDClient
+        from aim_mud_types.profile import EntityState
+
+        mediator = MediatorService(mock_redis, mediator_config)
+
+        # Create EntityState objects (not dicts)
+        entities = [
+            EntityState(
+                entity_id="#1",
+                name="Prax",
+                entity_type="player",
+                agent_id=""  # Empty string, not None (Pydantic default)
+            ),
+            EntityState(
+                entity_id="#3",
+                name="Andi",
+                entity_type="ai",
+                agent_id="andi"
+            ),
+            EntityState(
+                entity_id="#5",
+                name="Nova",
+                entity_type="ai",
+                agent_id="nova"
+            ),
+        ]
+
+        # Mock room profile with EntityState objects
+        mock_profile = Mock()
+        mock_profile.entities = entities
+
+        # Mock RedisMUDClient.get_room_profile to return our mock profile
+        with patch.object(RedisMUDClient, 'get_room_profile', return_value=mock_profile):
+            # Test finding Andi (AI agent)
+            result = await mediator._agent_id_from_actor("#123", "#3")
+            assert result == "andi"
+
+            # Test finding Nova (AI agent)
+            result = await mediator._agent_id_from_actor("#123", "#5")
+            assert result == "nova"
+
+            # Test finding Prax (player, no agent_id - returns empty string)
+            result = await mediator._agent_id_from_actor("#123", "#1")
+            # EntityState.agent_id defaults to "" not None, so check for falsy value
+            assert not result  # Empty string is falsy
+
+            # Test entity not found
+            result = await mediator._agent_id_from_actor("#123", "#999")
+            assert result is None
+
+    @pytest.mark.asyncio
+    async def test_agent_id_from_actor_handles_empty_room(
+        self, mock_redis, mediator_config
+    ):
+        """Test that _agent_id_from_actor handles empty room profiles."""
+        from aim_mud_types.client import RedisMUDClient
+
+        mediator = MediatorService(mock_redis, mediator_config)
+
+        # Mock empty room profile
+        mock_profile = Mock()
+        mock_profile.entities = []
+
+        with patch.object(RedisMUDClient, 'get_room_profile', return_value=mock_profile):
+            result = await mediator._agent_id_from_actor("#123", "#3")
+            assert result is None
+
+    @pytest.mark.asyncio
+    async def test_agent_id_from_actor_handles_none_room_profile(
+        self, mock_redis, mediator_config
+    ):
+        """Test that _agent_id_from_actor handles missing room profile."""
+        from aim_mud_types.client import RedisMUDClient
+
+        mediator = MediatorService(mock_redis, mediator_config)
+
+        # Mock get_room_profile returning None
+        with patch.object(RedisMUDClient, 'get_room_profile', return_value=None):
+            result = await mediator._agent_id_from_actor("#123", "#3")
+            assert result is None
+
+    @pytest.mark.asyncio
+    async def test_agent_id_from_actor_handles_invalid_inputs(
+        self, mock_redis, mediator_config
+    ):
+        """Test that _agent_id_from_actor handles invalid inputs gracefully."""
+        mediator = MediatorService(mock_redis, mediator_config)
+
+        # Test with empty room_id
+        result = await mediator._agent_id_from_actor("", "#3")
+        assert result is None
+
+        # Test with empty actor_id
+        result = await mediator._agent_id_from_actor("#123", "")
+        assert result is None
+
+        # Test with both empty
+        result = await mediator._agent_id_from_actor("", "")
+        assert result is None
+
+
 class TestMediatorPauseCheck:
     """Test pause key checking in turn assignment."""
 
