@@ -73,8 +73,16 @@ class PhasedTurnProcessor(BaseTurnProcessor):
             actor=self.worker.persona.name,
             actor_id=self.worker.config.agent_id,
             actor_type=ActorType.AI,
-            room_id=self.worker.session.current_room.room_id,
-            room_name=self.worker.session.current_room.name,
+            room_id=(
+                self.worker.session.current_room.room_id
+                if self.worker.session.current_room
+                else "unknown"
+            ),
+            room_name=(
+                self.worker.session.current_room.name
+                if self.worker.session.current_room and self.worker.session.current_room.name
+                else "Unknown Location"
+            ),
             content=content,
             target=target,
             sequence_id=turn_request.sequence_id,
@@ -129,7 +137,13 @@ class PhasedTurnProcessor(BaseTurnProcessor):
 
                 # Create and write self-action event immediately
                 # Capture source location before move
-                source_location = self.worker.session.current_room.name if self.worker.session.current_room else "somewhere"
+                if self.worker.session.current_room and self.worker.session.current_room.name:
+                    source_location = self.worker.session.current_room.name
+                else:
+                    logger.warning(
+                        f"Current room not set for agent {self.worker.agent_id} during move decision"
+                    )
+                    source_location = "Unknown Location"
                 destination_location = decision_args.get("location", "somewhere")
 
                 event = self._create_event(

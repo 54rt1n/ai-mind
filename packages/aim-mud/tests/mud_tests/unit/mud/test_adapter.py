@@ -209,7 +209,7 @@ class TestFormatEvent:
             content="leaves to the north",
         )
         result = format_event(event)
-        assert result == "*You watch Prax leaving toward the north.*"
+        assert result == "*You see Prax leaving toward the north.*"
 
     def test_arrival_with_source_location(self):
         """Arrival events should show source location when available."""
@@ -239,7 +239,7 @@ class TestFormatEvent:
             content="left to Kitchen",
         )
         result = format_event(event)
-        assert result == "*You watch Nova leaving toward Kitchen.*"
+        assert result == "*You see Nova leaving toward Kitchen.*"
         assert "Kitchen" in result
         assert "leaving toward" in result
 
@@ -269,7 +269,7 @@ class TestFormatEvent:
             content="departed",  # No "to" keyword
         )
         result = format_event(event)
-        assert result == "*You watch Charlie leave.*"
+        assert result == "*You see Charlie leave.*"
 
     def test_entered_from_location(self):
         """'entered from' should also work (alternative phrasing)."""

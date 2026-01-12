@@ -40,21 +40,23 @@ def format_event(event: MUDEvent, first_person: bool = False) -> str:
         # Determine if this is an arrival or departure based on content
         content_lower = event.content.lower()
         if "enter" in content_lower or "arrive" in content_lower:
-            # Extract source location if available
-            # Content format: "arrived from Garden" or "entered from somewhere"
-            if "from" in event.content:
-                # Split on "from" and take everything after it
-                source = event.content.split("from", 1)[1].strip()
+            # Arrival: use source_room_name from metadata, fall back to parsing
+            source = (
+                event.metadata.get("source_room_name") or
+                (event.content.split("from", 1)[1].strip() if "from" in event.content else None)
+            )
+            if source and source != "somewhere":
                 return f"*You see {event.actor} arriving from {source}.*"
             return f"*You see {event.actor} has arrived.*"
         else:
-            # Extract destination location if available
-            # Content format: "left to Kitchen" or "departed to somewhere"
-            if "to" in event.content:
-                # Split on "to" and take everything after it
-                destination = event.content.split("to", 1)[1].strip()
-                return f"*You watch {event.actor} leaving toward {destination}.*"
-            return f"*You watch {event.actor} leave.*"
+            # Departure: use destination_room_name from metadata, fall back to parsing
+            destination = (
+                event.metadata.get("destination_room_name") or
+                (event.content.split("to", 1)[1].strip() if "to" in event.content else None)
+            )
+            if destination and destination != "somewhere":
+                return f"*You see {event.actor} leaving toward {destination}.*"
+            return f"*You see {event.actor} leave.*"
 
     elif event.event_type == EventType.OBJECT:
         return f"*{event.actor} {event.content}*"
@@ -116,8 +118,12 @@ def format_self_event(event: MUDEvent) -> str:
         First-person formatted action confirmation string.
     """
     if event.event_type == EventType.MOVEMENT:
-        # For movement, use room_name from event
-        room_name = event.room_name or event.metadata.get("room_name", "somewhere")
+        # For movement, use destination from metadata
+        room_name = (
+            event.metadata.get("destination_room_name") or
+            event.room_name or
+            event.metadata.get("room_name", "somewhere")
+        )
         return f"You moved to {room_name}."
 
     elif event.event_type == EventType.OBJECT:
@@ -205,9 +211,9 @@ def format_self_action_guidance(self_actions: list[MUDEvent], world_state=None) 
 
         # Add action type and details
         if event.event_type == EventType.MOVEMENT:
-            source = event.metadata.get("source_location", "somewhere")
+            source = event.metadata.get("source_room_name", "somewhere")
             destination = (
-                event.metadata.get("destination_location")
+                event.metadata.get("destination_room_name")
                 or event.room_name
                 or event.metadata.get("room_name", "somewhere")
             )
@@ -297,9 +303,9 @@ def format_self_action_guidance(self_actions: list[MUDEvent], world_state=None) 
 
             if event.event_type == EventType.MOVEMENT:
                 movement_occurred = True
-                source = event.metadata.get("source_location", "somewhere")
+                source = event.metadata.get("source_room_name", "somewhere")
                 destination = (
-                    event.metadata.get("destination_location")
+                    event.metadata.get("destination_room_name")
                     or event.room_name
                     or event.metadata.get("room_name", "somewhere")
                 )

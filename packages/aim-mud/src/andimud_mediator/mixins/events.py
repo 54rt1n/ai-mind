@@ -7,7 +7,7 @@ import json
 import logging
 from typing import Any, Optional
 
-from aim_mud_types import MUDEvent, RedisKeys, TurnReason, TurnRequestStatus
+from aim_mud_types import EventType, MUDEvent, RedisKeys, TurnReason, TurnRequestStatus
 from aim_mud_types.helper import _utc_now
 
 logger = logging.getLogger(__name__)
@@ -189,14 +189,27 @@ class EventsMixin:
                 a for a in agents_to_notify if a in self.registered_agents
             ]
 
-        # Identify self-agent but don't filter them out completely
-        actor_agent_id = await self._agent_id_from_actor(event.room_id, event.actor_id)
+        # Identify self-agent: prefer metadata (no lookup), fall back to room profile
+        # Metadata approach avoids race conditions from stale room profiles
+        actor_agent_id = event.metadata.get("actor_agent_id")
+        if actor_agent_id is None:
+            # Fallback: lookup from room profile (may fail for arrival events)
+            actor_agent_id = await self._agent_id_from_actor(event.room_id, event.actor_id)
 
-        # Separate self-agent from others (self-agent gets event but no turn assignment)
+        # Filter self-agent from distribution based on event type
         self_agent: Optional[str] = None
         if actor_agent_id and actor_agent_id in agents_to_notify:
-            self_agent = actor_agent_id
-            agents_to_notify = [a for a in agents_to_notify if a != actor_agent_id]
+            # Always filter movement events (worker already has self-action)
+            # For other events, track self_agent but still filter from broadcast
+            if event.event_type == EventType.MOVEMENT:
+                agents_to_notify = [a for a in agents_to_notify if a != actor_agent_id]
+                logger.debug(
+                    f"Filtered {actor_agent_id} from movement event {msg_id} "
+                    f"(self-movement, worker has self-action)"
+                )
+            else:
+                self_agent = actor_agent_id
+                agents_to_notify = [a for a in agents_to_notify if a != actor_agent_id]
 
         # Filter out sleeping agents (they receive NO events while sleeping)
         from aim_mud_types.client import RedisMUDClient
