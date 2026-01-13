@@ -114,7 +114,7 @@ def format_self_event(event: MUDEvent) -> str:
     if event.event_type == EventType.MOVEMENT:
         # For movement, use destination from metadata
         room_name = event.metadata.get("destination_room_name", "somewhere")
-        return f"You moved to {room_name}."
+        return f"You successfully moved to {room_name}."
 
     elif event.event_type == EventType.OBJECT:
         content_lower = event.content.lower()
@@ -124,34 +124,34 @@ def format_self_event(event: MUDEvent) -> str:
             obj = target or _extract_object_from_content(event.content)
             container = event.metadata.get("container_name")
             if container:
-                return f"You took {obj} from {container}."
-            return f"You picked up {obj}."
+                return f"You successfully took {obj} from {container}."
+            return f"You successfully picked up {obj}."
 
         elif "drop" in content_lower:
             obj = target or _extract_object_from_content(event.content)
-            return f"You dropped {obj}."
+            return f"You successfully dropped {obj}."
 
         elif "give" in content_lower:
             obj = target or "something"
             recipient = event.metadata.get("target_name", "someone")
-            return f"You gave {obj} to {recipient}."
+            return f"You successfully gave {obj} to {recipient}."
 
         elif "put" in content_lower:
             obj = target or "something"
             container = event.metadata.get("container_name", "somewhere")
-            return f"You put {obj} in {container}."
+            return f"You successfully put {obj} in {container}."
 
         else:
             # Generic object manipulation - clean up the content
-            return f"You {event.content.lower().strip('*').strip()}"
+            return f"You successfully {event.content.lower().strip('*').strip()}."
 
     elif event.event_type == EventType.EMOTE:
         # Self-emotes: convert third person to first person acknowledgment
-        return f"You expressed: {event.content}"
+        return f"You successfully expressed: {event.content}"
 
     else:
         # Fallback for other self-events
-        return f"You: {event.content}"
+        return f"{event.content}"
 
 
 def _extract_object_from_content(content: str) -> str:
@@ -163,6 +163,81 @@ def _extract_object_from_content(content: str) -> str:
     if len(words) > 2:
         return " ".join(words[2:]).rstrip(".")
     return "something"
+
+
+def _get_ground_items(world_state) -> list[str]:
+    """Get names of objects on the ground (not inside containers)."""
+    if not world_state or not getattr(world_state, "entities_present", None):
+        return []
+
+    items: list[str] = []
+    for entity in world_state.entities_present:
+        if entity.entity_type in ("player", "ai", "npc"):
+            continue
+        if entity.is_self:
+            continue
+        if getattr(entity, "contents", None):
+            continue
+        if entity.name:
+            items.append(entity.name)
+    return items
+
+
+def _get_container_items(world_state) -> dict[str, list[str]]:
+    """Get mapping of container name -> contained items."""
+    if not world_state or not getattr(world_state, "entities_present", None):
+        return {}
+
+    containers: dict[str, list[str]] = {}
+    for entity in world_state.entities_present:
+        if entity.entity_type in ("player", "ai", "npc"):
+            continue
+        if entity.is_self:
+            continue
+        contents = getattr(entity, "contents", None)
+        if contents:
+            containers[entity.name or "something"] = list(contents)
+    return containers
+
+
+def format_you_see_guidance(world_state) -> str:
+    """Format a grounded 'You See' guidance block from world state."""
+    if not world_state or not getattr(world_state, "room_state", None):
+        return ""
+
+    room = world_state.room_state
+    lines = ["[~~ You See ~~]"]
+    room_name = room.name or "somewhere"
+    lines.append(f"You are in {room_name}.")
+    if room.description:
+        lines.append(room.description)
+
+    people = [
+        e.name for e in world_state.entities_present
+        if e.entity_type in ("player", "ai", "npc") and not e.is_self and e.name
+    ]
+    if people:
+        lines.append(f"People here: {', '.join(people)}")
+
+    ground_items = _get_ground_items(world_state)
+    if ground_items:
+        lines.append(f"On the ground: {', '.join(ground_items)}")
+
+    containers = _get_container_items(world_state)
+    if containers:
+        lines.append("In containers:")
+        for name, contents in containers.items():
+            if contents:
+                lines.append(f"- {name}: {', '.join(contents)}")
+            else:
+                lines.append(f"- {name}: (empty)")
+
+    inventory_summary = _get_current_inventory_summary(world_state)
+    if inventory_summary != "none":
+        lines.append(f"You are carrying: {inventory_summary}")
+
+    lines.append("[/~~ You See ~~]")
+    return "\n".join(lines)
 
 
 def format_self_action_guidance(self_actions: list[MUDEvent], world_state=None) -> str:
@@ -194,7 +269,7 @@ def format_self_action_guidance(self_actions: list[MUDEvent], world_state=None) 
 
         lines = [
             separator,
-            "!! IMPORTANT: YOUR RECENT ACTION !!",
+            f"[== Your Turn ==]",
             separator,
             ""
         ]
@@ -204,61 +279,60 @@ def format_self_action_guidance(self_actions: list[MUDEvent], world_state=None) 
             source = event.metadata.get("source_room_name", "somewhere")
             destination = event.metadata.get("destination_room_name", "somewhere")
             lines.extend([
-                "Action Type: MOVEMENT",
+                f"You started at {source}",
+                "You decided to move to a new location.",
+                "You begin walking and arrive at your destination without incident.",
                 "",
-                f"You just moved from: {source}",
-                f"You just moved to: {destination}",
-                "",
-                f"CURRENT LOCATION: {destination}",
-                "",
-                "This is your new location. You have physically moved and are now",
-                "in a different room than before.",
+                f"Now you are at {destination}",
             ])
 
         elif event.event_type == EventType.OBJECT:
             content_lower = event.content.lower()
             target = event.target or _extract_object_from_content(event.content)
 
-            lines.extend([
-                "Action Type: OBJECT INTERACTION",
-                "",
-            ])
-
             if "pick" in content_lower or "get" in content_lower or "take" in content_lower:
-                lines.append(f"You picked up: {target}")
+                lines.append(f"When you decided to pick up: {target}")
+                lines.append(f"You reached out and picked up {target}.")
+                lines.append(f"and you now have {target} in your possession.")
                 lines.append("")
                 inventory_summary = _get_current_inventory_summary(world_state)
-                lines.append(f"CURRENT INVENTORY: {inventory_summary}")
+                lines.append(f"You are now carrying: {inventory_summary}")
             elif "drop" in content_lower:
-                lines.append(f"You dropped: {target}")
+                lines.append(f"When you decided to drop: {target}")
+                lines.append(f"You took the {target} you were holding")
+                lines.append(f"and set it carefully down.")
                 lines.append("")
                 inventory_summary = _get_current_inventory_summary(world_state)
-                lines.append(f"CURRENT INVENTORY: {inventory_summary}")
+                lines.append(f"You are now carrying: {inventory_summary}")
             elif "give" in content_lower:
                 recipient = event.metadata.get("target_name", "someone")
-                lines.append(f"You gave {target} to {recipient}")
+                lines.append(f"When you decided to give {target} to {recipient}")
+                lines.append(f"You took the {target} you were holding")
+                lines.append(f"and gave it to {recipient}.")
                 lines.append("")
                 inventory_summary = _get_current_inventory_summary(world_state)
-                lines.append(f"CURRENT INVENTORY: {inventory_summary}")
+                lines.append(f"You are now carrying: {inventory_summary}")
             elif "put" in content_lower:
                 container = event.metadata.get("container_name", "somewhere")
-                lines.append(f"You put {target} in {container}")
+                lines.append(f"When you decided to put {target} in/on {container}")
+                lines.append(f"You took the {target} you were holding")
+                lines.append(f"and put it in/on {container}.")
                 lines.append("")
                 inventory_summary = _get_current_inventory_summary(world_state)
-                lines.append(f"CURRENT INVENTORY: {inventory_summary}")
+                lines.append(f"You are now carrying: {inventory_summary}")
             else:
                 lines.append(formatted)
 
         elif event.event_type == EventType.EMOTE:
             lines.extend([
-                "Action Type: EMOTE",
+                "You acted out an expression for everyone to see.",
                 "",
                 formatted,
             ])
 
         else:
             lines.extend([
-                f"Action Type: {event.event_type.value.upper()}",
+                f"You successfully {event.content.lower().strip('*').strip()}.",
                 "",
                 formatted,
             ])
@@ -274,7 +348,7 @@ def format_self_action_guidance(self_actions: list[MUDEvent], world_state=None) 
     else:
         lines = [
             separator,
-            "!! IMPORTANT: YOUR RECENT ACTIONS !!",
+            "!! CONGRATULATIONS: YOU WERE SUCCESSFUL !!",
             separator,
             ""
         ]
@@ -292,8 +366,7 @@ def format_self_action_guidance(self_actions: list[MUDEvent], world_state=None) 
                 source = event.metadata.get("source_room_name", "somewhere")
                 destination = event.metadata.get("destination_room_name", "somewhere")
                 final_location = destination
-                lines.append(f"{idx}. MOVEMENT: You moved from {source} to {destination}")
-                lines.append(f"   → Current Location: {destination}")
+                lines.append(f"{idx}. You successfully moved from {source} to {destination}")
 
             elif event.event_type == EventType.OBJECT:
                 object_interaction = True
@@ -301,23 +374,23 @@ def format_self_action_guidance(self_actions: list[MUDEvent], world_state=None) 
                 content_lower = event.content.lower()
 
                 if "pick" in content_lower or "get" in content_lower or "take" in content_lower:
-                    lines.append(f"{idx}. OBJECT: You picked up {target}")
+                    lines.append(f"{idx}. You successfully picked up {target}")
                 elif "drop" in content_lower:
-                    lines.append(f"{idx}. OBJECT: You dropped {target}")
+                    lines.append(f"{idx}. You successfully dropped {target}")
                 elif "give" in content_lower:
                     recipient = event.metadata.get("target_name", "someone")
-                    lines.append(f"{idx}. OBJECT: You gave {target} to {recipient}")
+                    lines.append(f"{idx}. You successfully gave {target} to {recipient}")
                 elif "put" in content_lower:
                     container = event.metadata.get("container_name", "somewhere")
-                    lines.append(f"{idx}. OBJECT: You put {target} in {container}")
+                    lines.append(f"{idx}. You successfully put {target} in {container}")
                 else:
-                    lines.append(f"{idx}. OBJECT: {formatted}")
+                    lines.append(f"{idx}. You successfully {event.content.lower().strip('*').strip()}.")
 
                 inventory_summary = _get_current_inventory_summary(world_state)
-                lines.append(f"   → Current Inventory: {inventory_summary}")
+                lines.append(f"You are now carrying: {inventory_summary}")
 
             elif event.event_type == EventType.EMOTE:
-                lines.append(f"{idx}. EMOTE: {formatted}")
+                lines.append(f"{idx}. You successfully expressed an emotion: {formatted}")
 
             else:
                 lines.append(f"{idx}. {event.event_type.value.upper()}: {formatted}")
@@ -327,24 +400,23 @@ def format_self_action_guidance(self_actions: list[MUDEvent], world_state=None) 
         # Summary line
         summary_parts = []
         if movement_occurred and object_interaction:
-            summary_parts.append("You have taken multiple actions. Your location and inventory")
-            summary_parts.append("have changed.")
+            summary_parts.append("You have successfully taken multiple actions and your actions have been reflected in the world.")
             if final_location:
                 inventory_summary = _get_current_inventory_summary(world_state)
                 summary_parts.append(f"You are now in {final_location}.")
                 if inventory_summary != "none":
-                    summary_parts.append(f"Carrying: {inventory_summary}")
+                    summary_parts.append(f"You are now carrying: {inventory_summary}")
         elif movement_occurred:
-            summary_parts.append("You have moved between multiple locations.")
+            summary_parts.append("You have successfully moved between multiple locations.")
             if final_location:
                 summary_parts.append(f"You are now in {final_location}.")
         elif object_interaction:
-            summary_parts.append("You have performed multiple object interactions.")
+            summary_parts.append("You have successfully performed multiple object interactions.")
             inventory_summary = _get_current_inventory_summary(world_state)
             if inventory_summary != "none":
-                summary_parts.append(f"Carrying: {inventory_summary}")
+                summary_parts.append(f"You are now carrying: {inventory_summary}")
         else:
-            summary_parts.append(f"You have taken {len(self_actions)} actions.")
+            summary_parts.append(f"You have successfully taken {len(self_actions)} actions.")
 
         lines.append(" ".join(summary_parts))
         lines.extend([

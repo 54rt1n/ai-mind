@@ -19,8 +19,9 @@ class MUDConversationEntry(BaseModel):
         content: Formatted content ready for LLM consumption.
         timestamp: When the entry was created.
         tokens: Pre-counted tokens for budget management.
-        saved: True after @write flushes to CVM.
+        saved: True after @write flushes to CVM (or skip_save is honored).
         doc_id: Set after CVM insert; used for deduplication.
+        skip_save: If True, this entry is never persisted to CVM.
         document_type: DOC_MUD_WORLD or DOC_MUD_AGENT.
         conversation_id: Groups related turns together.
         sequence_no: Order within the conversation.
@@ -40,6 +41,7 @@ class MUDConversationEntry(BaseModel):
     # Persistence tracking
     saved: bool = False
     doc_id: Optional[str] = None
+    skip_save: bool = False
 
     # Document metadata (matches CVM schema)
     document_type: str
@@ -52,4 +54,3 @@ class MUDConversationEntry(BaseModel):
     # Optional fields
     think: Optional[str] = None
     speaker_id: Optional[str] = None
-

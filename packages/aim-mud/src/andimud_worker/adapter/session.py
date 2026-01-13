@@ -14,7 +14,7 @@ from aim_mud_types import MUDSession
 
 from aim.agents.persona import Persona
 
-from .event import format_event
+from .event import format_event, format_you_see_guidance
 from .turn import format_turn_events, format_turn_response
 
 MAX_RECENT_TURNS = 10
@@ -78,6 +78,12 @@ def build_current_context(
         parts.append("Orient yourself in your apartment, feel your surroundings, greet whoever is present.")
         parts.append("[/~~Link~~/]")
 
+    # "You See" grounding guidance (before events)
+    you_see = format_you_see_guidance(session.world_state) if session else ""
+    if you_see:
+        parts.append(you_see)
+        parts.append("")
+
     # Pending events - only include if requested (not when already in history)
     if include_events:
         if session.pending_events:
@@ -114,4 +120,3 @@ def build_history_turns(session: MUDSession) -> list[dict[str, str]]:
         turns.append({"role": "assistant", "content": response_content})
 
     return turns
-

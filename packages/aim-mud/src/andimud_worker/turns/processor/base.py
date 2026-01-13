@@ -80,6 +80,10 @@ class BaseTurnProcessor(ABC):
         Args:
             events: List of events to process
         """
+        # Update decision tool availability based on drained events
+        if hasattr(self.worker, "_refresh_emote_tools"):
+            self.worker._refresh_emote_tools(events)
+
         # Refresh world state snapshot from agent + room profiles
         room_id, character_id = await self.worker._load_agent_world_state()
         if not room_id and self.worker.session.current_room and self.worker.session.current_room.room_id:
@@ -141,6 +145,11 @@ class BaseTurnProcessor(ABC):
                             actions=actions_taken,
                         )
                     break
+
+        # Track emote usage so we can suppress repeated emotes for the same drain
+        if any(action.tool == "emote" for action in actions_taken):
+            if hasattr(self.worker, "_mark_emote_used_in_drain"):
+                self.worker._mark_emote_used_in_drain()
 
         # Create turn record
         turn = MUDTurn(

@@ -144,6 +144,8 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
 
         # Event accumulation buffer
         self.pending_events: list = []
+        self._last_drain_signature: Optional[tuple[str, ...]] = None
+        self._emote_used_in_drain: bool = False
 
         # Command registry
         self.command_registry = CommandRegistry.register(
@@ -372,6 +374,7 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                         if final_turn_request:
                             final_status = final_turn_request.status
                             if final_status in (TurnRequestStatus.DONE, TurnRequestStatus.ABORTED):
+                                final_turn_request.metadata = {}
                                 transition_turn_request(
                                     final_turn_request,
                                     status=TurnRequestStatus.READY,
@@ -588,6 +591,7 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                             status = turn_request.status
                             # Transition to ready if we completed or aborted (not if failed)
                             if status == TurnRequestStatus.DONE:
+                                turn_request.metadata = {}
                                 transition_turn_request(
                                     turn_request,
                                     status=TurnRequestStatus.READY,
@@ -597,6 +601,7 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                                 )
                                 await self.update_turn_request(turn_request, expected_turn_id=turn_id)
                             elif status == TurnRequestStatus.ABORTED:
+                                turn_request.metadata = {}
                                 transition_turn_request(
                                     turn_request,
                                     status=TurnRequestStatus.READY,
@@ -885,7 +890,8 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
             await self.conversation_manager.push_assistant_turn(
                 content=wakeup_msg,
                 think=None,  # think block is already in wakeup_msg
-                actions=[]
+                actions=[],
+                skip_save=True,
             )
             logger.info(f"Worker {self.config.agent_id} ready, seeded conversation with wakeup")
         else:

@@ -65,6 +65,8 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
         # Initialize tool-related attributes
         self.tool_user = None
         self._cached_system_message = None
+        self._base_tools = []
+        self._emote_allowed = True
         # Conversation manager
         self.conversation_manager: Optional[MUDConversationManager] = None
         # Plan context for injection
@@ -90,6 +92,36 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
         """
         self.tool_user = tool_user
         self._cached_system_message = None  # Clear cache to rebuild with new tools
+
+    def set_emote_allowed(self, allowed: bool) -> None:
+        """Enable or disable the emote tool for decision turns."""
+        allowed = bool(allowed)
+        if self._emote_allowed == allowed:
+            return
+        self._emote_allowed = allowed
+        self._refresh_tool_user()
+
+    def get_available_tool_names(self) -> list[str]:
+        """Return current tool names available to the decision LLM."""
+        if not self.tool_user or not getattr(self.tool_user, "tools", None):
+            return []
+        return [
+            tool.function.name
+            for tool in self.tool_user.tools
+            if tool and tool.function and tool.function.name
+        ]
+
+    def _refresh_tool_user(self) -> None:
+        """Rebuild ToolUser with current tool filters."""
+        if not self._base_tools:
+            self.tool_user = None
+            self._cached_system_message = None
+            return
+        tools = self._base_tools
+        if not self._emote_allowed:
+            tools = [tool for tool in tools if tool.function.name != "emote"]
+        self.tool_user = ToolUser(tools)
+        self._cached_system_message = None
 
     def set_context(self, redis_client, agent_id: str) -> None:
         """Set Redis context for plan tool execution.
@@ -458,7 +490,8 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
                 parts.append(f'  Drop: {{"drop": {{"object": "{inventory_items[0]}"}}}}')
             if inventory_items and present_targets:
                 parts.append(f'  Give: {{"give": {{"object": "{inventory_items[0]}", "target": "{present_targets[0]}"}}}}')
-            parts.append('  Emote: {"emote": {"action": "pauses, then smiles reassuringly."}}')
+            if "emote" in self.get_available_tool_names():
+                parts.append('  Emote: {"emote": {"action": "pauses, then smiles reassuringly."}}')
             parts.append("")
 
         parts.append("Just follow the instructions. Thanks!")
@@ -589,8 +622,8 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
                     base_tools = base_tools + plan_tools
                     logger.info(f"Added {len(plan_tools)} plan tools to decision strategy")
 
-        self.tool_user = ToolUser(base_tools)
-        self._cached_system_message = None  # Clear cache to rebuild with new tools
+        self._base_tools = base_tools
+        self._refresh_tool_user()
 
     def get_system_message(self, persona: "Persona") -> str:
         """Build and return Phase 1 system message with decision tools.

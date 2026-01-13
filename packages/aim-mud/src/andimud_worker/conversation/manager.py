@@ -201,6 +201,7 @@ class MUDConversationManager:
         content: str,
         think: Optional[str] = None,
         actions: Optional[list[MUDAction]] = None,
+        skip_save: bool = False,
     ) -> MUDConversationEntry:
         """Push assistant response to list.
 
@@ -211,6 +212,7 @@ class MUDConversationManager:
             content: The agent's response content.
             think: Optional thinking/reasoning content.
             actions: List of MUDAction objects taken.
+            skip_save: If True, this entry will never be persisted to CVM.
 
         Returns:
             The created MUDConversationEntry.
@@ -241,6 +243,7 @@ class MUDConversationManager:
             metadata=metadata,
             think=think,
             speaker_id=self.persona_id,
+            skip_save=skip_save,
         )
 
         await self._push_and_trim(entry)
@@ -297,7 +300,8 @@ class MUDConversationManager:
 
         Creates ConversationMessage objects for each unsaved entry
         and inserts them into the CVM. Updates the entries in Redis
-        with saved=True and the assigned doc_id.
+        with saved=True and the assigned doc_id. Entries marked
+        skip_save=True are marked saved without persistence.
 
         Args:
             cvm: ConversationModel instance for persistence.
@@ -325,6 +329,15 @@ class MUDConversationManager:
                 continue
 
             if entry.saved:
+                continue
+
+            if entry.skip_save:
+                entry.saved = True
+                await client.set_conversation_entry(
+                    self.agent_id,
+                    i,
+                    entry.model_dump_json(),
+                )
                 continue
 
             # Create CVM message

@@ -114,6 +114,50 @@ class TurnsMixin:
         """Backward compatibility wrapper for get_valid_give_targets function."""
         return get_valid_give_targets(self.session)
 
+    def _compute_drain_signature(self: "MUDAgentWorker", events: list[MUDEvent]) -> Optional[tuple[str, ...]]:
+        """Compute a stable signature for a drained event batch."""
+        if not events:
+            return None
+        signature: list[str] = []
+        for event in events:
+            if event.event_id:
+                signature.append(str(event.event_id))
+            else:
+                sequence_id = event.metadata.get("sequence_id", "")
+                signature.append(f"seq:{sequence_id}")
+        return tuple(signature)
+
+    def _refresh_emote_tools(self: "MUDAgentWorker", events: list[MUDEvent]) -> None:
+        """Enable/disable emote tool based on current drain and prior emote usage."""
+        if not self._decision_strategy:
+            return
+        signature = self._compute_drain_signature(events)
+        if signature is None:
+            self._last_drain_signature = None
+            self._emote_used_in_drain = False
+        elif signature != self._last_drain_signature:
+            self._last_drain_signature = signature
+            self._emote_used_in_drain = False
+        self._decision_strategy.set_emote_allowed(not self._emote_used_in_drain)
+
+    def _mark_emote_used_in_drain(self: "MUDAgentWorker") -> None:
+        """Mark that an emote occurred for the current drain."""
+        self._emote_used_in_drain = True
+        if self._decision_strategy:
+            self._decision_strategy.set_emote_allowed(False)
+
+    def _get_available_tool_names(self: "MUDAgentWorker") -> list[str]:
+        """Return current decision tool names."""
+        if self._decision_strategy:
+            names = self._decision_strategy.get_available_tool_names()
+            if names:
+                return names
+        return ["speak", "wait", "move", "take", "drop", "give", "emote"]
+
+    def _format_available_tools(self: "MUDAgentWorker") -> str:
+        """Return a human-readable list of available tools."""
+        return ", ".join(self._get_available_tool_names())
+
     def _build_agent_guidance(self: "MUDAgentWorker", user_guidance: str) -> str:
         """Build guidance for @agent action selection.
 
@@ -277,9 +321,10 @@ class TurnsMixin:
                     # Plan update requires async execution via PlanExecutionTool
                     plan_tool_impl = self._decision_strategy.get_plan_tool_impl()
                     if plan_tool_impl is None:
+                        available_tools = self._format_available_tools()
                         error_guidance = (
                             "plan_update tool not available. "
-                            "This tool requires an active plan. Use speak, wait, move, take, drop, give, or emote."
+                            f"This tool requires an active plan. Use {available_tools}."
                         )
                         turns.append({"role": "assistant", "content": response})
                         turns.append({"role": "user", "content": error_guidance})
@@ -307,7 +352,7 @@ class TurnsMixin:
                 # Unexpected tool - give guidance and retry
                 error_guidance = (
                     f"Unknown tool '{tool_name}'. "
-                    f"Available tools are: speak, wait, move, take, drop, give, emote. "
+                    f"Available tools are: {self._format_available_tools()}. "
                     f"Please try again with a valid tool."
                 )
                 turns.append({"role": "assistant", "content": response})

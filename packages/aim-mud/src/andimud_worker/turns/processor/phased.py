@@ -147,11 +147,18 @@ class PhasedTurnProcessor(BaseTurnProcessor):
                 if memory_query:
                     logger.info(f"Phase 2 memory query: {memory_query[:100]}...")
 
+                guidance_parts: list[str] = []
+                if memory_query:
+                    guidance_parts.append(f"Speech focus: {memory_query}")
+                if self.user_guidance:
+                    guidance_parts.append(self.user_guidance)
+                phase2_guidance = "\n".join(guidance_parts).strip() if guidance_parts else None
+
                 # Build user input with current context (events/guidance)
                 user_input = build_current_context(
                     self.worker.session,
                     idle_mode=idle_mode,
-                    guidance=None,
+                    guidance=phase2_guidance,
                     coming_online=coming_online,
                     include_events=False,
                 )

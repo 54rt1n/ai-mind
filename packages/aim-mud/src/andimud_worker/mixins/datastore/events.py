@@ -49,8 +49,10 @@ class EventsMixin:
         from aim_mud_types.client import RedisMUDClient
         client = RedisMUDClient(self.redis)
 
-        def _parse_result(result) -> None:
-            nonlocal scan_last_id, last_consumed_id
+        refreshed_world_state = False
+
+        async def _parse_result(result) -> None:
+            nonlocal scan_last_id, last_consumed_id, refreshed_world_state
             for _stream_name, messages in result:
                 for msg_id, data in messages:
                     # Track last seen id for scan cursor (always advance scan)
@@ -92,6 +94,10 @@ class EventsMixin:
                         event.metadata["sequence_id"] = sequence_id
 
                         if is_self_action:
+                            if not refreshed_world_state:
+                                room_id, character_id = await self._load_agent_world_state()
+                                await self._load_room_profile(room_id, character_id)
+                                refreshed_world_state = True
                             # Mark in metadata so conversation manager can format in first person
                             event.metadata["is_self_action"] = True
                             logger.debug(
@@ -157,7 +163,7 @@ class EventsMixin:
             if not result:
                 break
 
-            _parse_result([(self.config.agent_stream, result)])
+            await _parse_result([(self.config.agent_stream, result)])
             last_msg_id = scan_last_id
             if not last_msg_id or last_msg_id == max_id:
                 break
@@ -201,25 +207,39 @@ class EventsMixin:
         settle_time = self.config.event_settle_seconds
         all_events: list[MUDEvent] = []
         drain_count = 0
+        empty_after_events = 0
 
         while True:
             events = await self.drain_events(timeout=0, max_sequence_id=max_sequence_id)
             drain_count += 1
             if not events:
-                # No new events - cascade has settled
-                if all_events:
+                if not all_events:
+                    # No new events - cascade has settled
+                    if drain_count == 1:
+                        logger.warning(
+                            "First drain returned 0 events - turn assigned but stream empty?"
+                        )
+                    break
+
+                empty_after_events += 1
+                if empty_after_events >= 2:
                     logger.info(
                         "Event cascade settled after %.1fs with %d total events",
                         settle_time,
                         len(all_events),
                     )
-                elif drain_count == 1:
-                    logger.warning(
-                        "First drain returned 0 events - turn assigned but stream empty?"
-                    )
-                break
+                    break
+
+                logger.info(
+                    "Drained 0 events after %d total, waiting %.1fs for stragglers",
+                    len(all_events),
+                    settle_time,
+                )
+                await asyncio.sleep(settle_time)
+                continue
 
             all_events.extend(events)
+            empty_after_events = 0
             logger.info(
                 "Drained %d events (total %d), waiting %.1fs for more",
                 len(events),

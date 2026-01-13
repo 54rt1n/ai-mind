@@ -55,6 +55,7 @@ class EntityState(BaseModel):
     is_self: bool = False
     tags: list[str] = Field(default_factory=list)
     agent_id: str = ""
+    contents: list[str] = Field(default_factory=list)
 
     @field_validator("tags", mode="before")
     @classmethod
@@ -67,3 +68,9 @@ class EntityState(BaseModel):
     def ensure_agent_id(cls, v):
         """Ensure agent_id is a string, converting None to empty string."""
         return v if v else ""
+
+    @field_validator("contents", mode="before")
+    @classmethod
+    def ensure_contents_list(cls, v):
+        """Ensure contents is a list, converting None to []."""
+        return v if v else []

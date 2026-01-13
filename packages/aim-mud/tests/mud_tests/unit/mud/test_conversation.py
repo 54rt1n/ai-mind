@@ -760,6 +760,37 @@ class TestMUDConversationManagerFlushToCVM:
         mock_cvm.insert.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_flush_to_cvm_skips_skip_save_entries(self, conversation_manager, mock_redis):
+        """Test that skip_save entries are marked saved but not persisted."""
+        entry = MUDConversationEntry(
+            role="user",
+            content="Seeded content",
+            tokens=10,
+            document_type=DOC_MUD_WORLD,
+            conversation_id="test",
+            sequence_no=0,
+            speaker_id="world",
+            saved=False,
+            skip_save=True,
+        )
+
+        mock_redis.lrange.return_value = [entry.model_dump_json().encode()]
+
+        mock_cvm = MagicMock()
+
+        count = await conversation_manager.flush_to_cvm(mock_cvm)
+
+        assert count == 0
+        mock_cvm.insert.assert_not_called()
+
+        mock_redis.lset.assert_called_once()
+        updated_json = mock_redis.lset.call_args[0][2]
+        updated_entry = MUDConversationEntry.model_validate_json(updated_json)
+        assert updated_entry.saved is True
+        assert updated_entry.skip_save is True
+        assert updated_entry.doc_id is None
+
+    @pytest.mark.asyncio
     async def test_flush_to_cvm_empty_list(self, conversation_manager, mock_redis):
         """Test flush_to_cvm with empty list."""
         mock_redis.lrange.return_value = []
