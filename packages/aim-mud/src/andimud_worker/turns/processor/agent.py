@@ -9,7 +9,7 @@ from pathlib import Path
 from aim.tool.loader import ToolLoader
 from aim.tool.formatting import ToolUser
 from aim.utils.xml import XmlFormatter
-from aim_mud_types import MUDAction, MUDEvent, MUDTurnRequest, EventType
+from aim_mud_types import MUDAction, MUDTurnRequest, MUDEvent
 from aim.utils.think import extract_think_tags
 from ...adapter import build_current_context
 from ..response import (
@@ -48,68 +48,6 @@ class AgentTurnProcessor(BaseTurnProcessor):
         super().__init__(worker)
         self.user_guidance = ""
         self._tool_helper = tool_helper
-
-    def _create_event(
-        self,
-        turn_request: MUDTurnRequest,
-        event_type: EventType,
-        content: str,
-        target: str = None,
-        metadata: dict | None = None,
-    ) -> MUDEvent:
-        """Create self-action event with formatted guidance content.
-
-        Creates event, then formats it with format_self_action_guidance()
-        to generate the detailed guidance box that appears in prompts.
-
-        Args:
-            turn_request: Current turn request with sequence_id.
-            event_type: Type of event (MOVEMENT, OBJECT, etc.).
-            content: Event content/description (e.g., "moved from X to Y").
-            target: Optional target (object name, direction, etc.).
-
-        Returns:
-            MUDEvent with formatted content and is_self_action=True metadata.
-        """
-        from ...adapter import format_self_action_guidance
-        from aim_mud_types import ActorType
-
-        # Create basic event
-        full_metadata = {"is_self_action": True}
-        if metadata:
-            full_metadata.update(metadata)
-        event = MUDEvent(
-            event_type=event_type,
-            actor=self.worker.persona.name,
-            actor_id=self.worker.config.agent_id,
-            actor_type=ActorType.AI,
-            room_id=(
-                self.worker.session.current_room.room_id
-                if self.worker.session.current_room
-                else "unknown"
-            ),
-            room_name=(
-                self.worker.session.current_room.name
-                if self.worker.session.current_room and self.worker.session.current_room.name
-                else "Unknown Location"
-            ),
-            content=content,
-            target=target,
-            sequence_id=turn_request.sequence_id,
-            metadata=full_metadata,
-            world_state=self.worker.session.world_state,
-        )
-
-        # Format with existing guidance formatter
-        formatted_content = format_self_action_guidance(
-            [event],
-            world_state=self.worker.session.world_state
-        )
-
-        # Update event with formatted content
-        event.content = formatted_content
-
-        return event
 
     def build_system_message(self) -> str:
         """Build the system message for the agent turn.
@@ -278,31 +216,8 @@ class AgentTurnProcessor(BaseTurnProcessor):
                     location = args.get("location") or args.get("direction")
                     resolved = resolve_move_location(self.worker.session, location)
                     if resolved:
-                        # Capture source location before move
-                        if self.worker.session.current_room and self.worker.session.current_room.name:
-                            source_location = self.worker.session.current_room.name
-                        else:
-                            logger.warning(
-                                f"Current room not set for agent {self.worker.agent_id} during move action"
-                            )
-                            source_location = "Unknown Location"
-
                         action_obj = MUDAction(tool="move", args={"location": resolved})
                         actions_taken.append(action_obj)
-
-                        # Create and write self-action event immediately
-                        event = self._create_event(
-                            turn_request,
-                            EventType.MOVEMENT,
-                            f"moved from {source_location} to {resolved}",
-                            target=resolved,
-                            metadata={
-                                "source_room_name": source_location,
-                                "destination_room_name": resolved,
-                            },
-                        )
-
-                        await self.worker._write_self_event(event)
                         await self.worker._emit_actions(actions_taken)
                     else:
                         logger.warning("Agent move missing/invalid location")

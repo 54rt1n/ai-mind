@@ -193,43 +193,57 @@ class EventsMixin:
             # Fallback: lookup from room profile (may fail for arrival events)
             actor_agent_id = await self._agent_id_from_actor(event.room_id, event.actor_id)
 
-        # Filter self-agent from distribution based on event type
-        self_agent: Optional[str] = None
+        # Determine if this should be treated as a self-action for the actor.
+        # Self-actions are delivered only to the actor with a flag for formatting.
+        self_action_agent_id: Optional[str] = None
+        if actor_agent_id:
+            if self.registered_agents and actor_agent_id not in self.registered_agents:
+                actor_agent_id = None
+            elif event.event_type in (EventType.OBJECT, EventType.EMOTE):
+                self_action_agent_id = actor_agent_id
+            elif event.event_type == EventType.MOVEMENT:
+                destination_room = event.metadata.get("destination_room")
+                destination_name = event.metadata.get("destination_room_name")
+                if destination_room and event.room_id == destination_room:
+                    self_action_agent_id = actor_agent_id
+                elif destination_name and event.room_name == destination_name:
+                    self_action_agent_id = actor_agent_id
+
+        # Filter actor from broadcast list (self-action delivered separately)
         if actor_agent_id and actor_agent_id in agents_to_notify:
-            # Always filter movement events (worker already has self-action)
-            # For other events, track self_agent but still filter from broadcast
-            if event.event_type == EventType.MOVEMENT:
-                agents_to_notify = [a for a in agents_to_notify if a != actor_agent_id]
-                logger.debug(
-                    f"Filtered {actor_agent_id} from movement event {msg_id} "
-                    f"(self-movement, worker has self-action)"
-                )
-            else:
-                self_agent = actor_agent_id
-                agents_to_notify = [a for a in agents_to_notify if a != actor_agent_id]
+            agents_to_notify = [a for a in agents_to_notify if a != actor_agent_id]
+
+        # Build delivery list (others + optional self-action)
+        agents_for_delivery = list(agents_to_notify)
+        if self_action_agent_id and self_action_agent_id not in agents_for_delivery:
+            agents_for_delivery.append(self_action_agent_id)
 
         # Filter out sleeping agents (they receive NO events while sleeping)
         sleeping_agents = []
-        for agent_id in agents_to_notify:
+        for agent_id in agents_for_delivery:
             is_sleeping = await client.get_agent_is_sleeping(agent_id)
             if is_sleeping:
                 sleeping_agents.append(agent_id)
+        agents_for_delivery = [a for a in agents_for_delivery if a not in sleeping_agents]
         agents_to_notify = [a for a in agents_to_notify if a not in sleeping_agents]
         if sleeping_agents:
             logger.debug(f"Filtered out sleeping agents: {sleeping_agents}")
 
-        if not agents_to_notify:
+        if not agents_for_delivery:
             logger.debug(f"No agents to notify for event in room {event.room_id}")
             # Still mark as processed (we've looked at it)
             await self._mark_event_processed(msg_id, [])
             return
 
-        # Phase 1: Distribute event to ALL agents in room (broadcast)
-        for agent_id in agents_to_notify:
+        # Phase 1: Distribute event to agents (broadcast + optional self-action)
+        for agent_id in agents_for_delivery:
             stream_key = RedisKeys.agent_events(agent_id)
+            payload = dict(enriched)
+            if self_action_agent_id and agent_id == self_action_agent_id:
+                payload["is_self_action"] = True
             await client.append_agent_event(
                 agent_id,
-                {"data": json.dumps(enriched)},
+                {"data": json.dumps(payload)},
                 maxlen=self.config.agent_events_maxlen,
                 approximate=True,
                 stream_key=stream_key,
@@ -284,11 +298,9 @@ class EventsMixin:
             else:
                 logger.debug(f"No agents ready for turn assignment")
 
-        # NOTE: Self-actions are NOT distributed by mediator
-        # The worker will write self-actions to its own stream after turn completes
-        # Mediator only distributes to OTHER agents (already handled above)
-        if self_agent:
-            logger.debug(f"Event {msg_id} is self-action for {self_agent} (worker will handle)")
+        # NOTE: Self-actions are distributed only to the actor with is_self_action flag.
+        if self_action_agent_id:
+            logger.debug(f"Event {msg_id} is self-action for {self_action_agent_id}")
 
         # Mark event as processed with the assigned agent
         await self._mark_event_processed(

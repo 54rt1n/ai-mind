@@ -11,7 +11,8 @@ import json
 import logging
 from typing import TYPE_CHECKING, Optional
 
-from aim_mud_types import MUDEvent
+from aim_mud_types import MUDEvent, EventType
+from ...adapter import format_self_action_guidance
 
 if TYPE_CHECKING:
     from ...worker import MUDAgentWorker
@@ -96,7 +97,17 @@ class EventsMixin:
                             logger.debug(
                                 f"Received self-action event (seq={sequence_id}): {event.event_type.value}"
                             )
-                            # Self-events are now treated as regular events (guidance is pre-formatted)
+                            # Format self-action guidance if not already formatted
+                            content = event.content or ""
+                            if (
+                                not content.strip().startswith("═")
+                                and "YOUR RECENT ACTION" not in content
+                                and event.event_type in (EventType.MOVEMENT, EventType.OBJECT, EventType.EMOTE)
+                            ):
+                                event.content = format_self_action_guidance(
+                                    [event],
+                                    world_state=self.session.world_state,
+                                )
                             events_unsorted.append((sequence_id, event))
                         else:
                             # Append as tuple with sequence_id for sorting

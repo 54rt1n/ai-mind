@@ -13,8 +13,6 @@ from typing import TYPE_CHECKING
 from aim_mud_types import MUDAction, MUDEvent, MUDTurn, MUDTurnRequest
 from aim_mud_types.helper import _utc_now
 
-from ...adapter import format_self_action_guidance
-
 if TYPE_CHECKING:
     from ...mixins.turns import TurnsMixin
 

@@ -891,29 +891,6 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
         else:
             logger.info(f"Worker {self.config.agent_id} ready (continuing existing conversation with {entry_count} entries)")
 
-    async def _write_self_event(self, event: "MUDEvent") -> None:
-        """Write self-action event to own stream immediately.
-
-        Args:
-            event: Self-action MUDEvent to write.
-        """
-        from aim_mud_types import MUDEvent
-
-        event_data = event.to_redis_dict()
-        stream_key = RedisKeys.agent_events(self.config.agent_id)
-        from aim_mud_types.client import RedisMUDClient
-        client = RedisMUDClient(self.redis)
-        await client.append_agent_event(
-            self.config.agent_id,
-            {"data": json.dumps(event_data)},
-            maxlen=100,
-            approximate=True,
-            stream_key=stream_key,
-        )
-        logger.info(
-            f"Wrote self-event: {event.event_type.value} (seq={event.sequence_id})"
-        )
-
     def setup_signal_handlers(self) -> None:
         """Setup handlers for graceful shutdown.
 
