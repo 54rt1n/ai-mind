@@ -42,7 +42,11 @@ class FlushCommand(Command):
             # Update conversation report
             await worker._update_conversation_report()
             # Emote completion
-            action = MUDAction(tool="emote", args={"action": "feels more knowledgeable."})
+            action = MUDAction(
+                tool="emote",
+                args={"action": "feels more knowledgeable."},
+                metadata={"skip_worker": True},
+            )
             await worker._emit_actions([action])
         else:
             logger.warning("Flush requested but no conversation manager")

@@ -182,6 +182,46 @@ class MUDConversationManager:
             "event_ids": event_ids,
         }
 
+        # If the last entry is an unsaved mud-world doc, update it instead of appending.
+        # This prevents duplicate event chains when non-speech turns re-drain the same events.
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
+        length = await client.get_conversation_length(self.agent_id)
+        last_entry: Optional[MUDConversationEntry] = None
+        last_index: Optional[int] = None
+        if length and length > 0:
+            last_index = length - 1
+            raw_last = await client.get_conversation_entry(self.agent_id, last_index)
+            if raw_last:
+                try:
+                    last_entry = MUDConversationEntry.model_validate_json(raw_last)
+                except Exception:
+                    last_entry = None
+
+        event_ids_set = set(event_ids)
+        last_event_ids = set(last_entry.metadata.get("event_ids", [])) if last_entry else set()
+        should_update_last = (
+            last_entry is not None
+            and last_entry.document_type == DOC_MUD_WORLD
+            and not last_entry.saved
+            and (not last_event_ids or last_event_ids.issubset(event_ids_set))
+            and last_index is not None
+        )
+
+        if should_update_last:
+            last_entry.content = content
+            last_entry.tokens = tokens
+            last_entry.metadata = metadata
+            if filtered_events:
+                last_entry.timestamp = max(e.timestamp for e in filtered_events)
+            await client.set_conversation_entry(
+                self.agent_id,
+                last_index,
+                last_entry.model_dump_json(),
+            )
+            await self._trim_saved_entries()
+            return last_entry
+
         entry = MUDConversationEntry(
             role="user",
             content=content,
@@ -395,11 +435,15 @@ class MUDConversationManager:
             entry.model_dump_json(),
         )
 
-        # Check if we need to trim
+        await self._trim_saved_entries()
+
+    async def _trim_saved_entries(self) -> None:
+        """Trim oldest saved entries until within token budget."""
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
         total_tokens = await self.get_total_tokens()
 
         while total_tokens > self.max_tokens:
-            # Get the oldest entry
             raw = await client.get_conversation_entry(self.agent_id, 0)
             if not raw:
                 break
@@ -407,13 +451,10 @@ class MUDConversationManager:
             try:
                 oldest = MUDConversationEntry.model_validate_json(raw)
             except Exception:
-                # Can't parse, remove it anyway
                 await client.pop_conversation_entry(self.agent_id)
                 continue
 
-            # Only trim saved entries
             if not oldest.saved:
-                # Can't trim unsaved - stop here
                 logger.debug(
                     "Cannot trim unsaved entry; remaining at %d tokens (max %d)",
                     total_tokens,
@@ -421,7 +462,6 @@ class MUDConversationManager:
                 )
                 break
 
-            # Remove the oldest saved entry
             await client.pop_conversation_entry(self.agent_id)
             total_tokens -= oldest.tokens
             logger.debug(

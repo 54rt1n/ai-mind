@@ -171,6 +171,11 @@ class EventsMixin:
             await self._mark_event_processed(msg_id, [])
             return
 
+        # Skip distribution for events explicitly marked to avoid agent streams
+        if event.metadata.get("skip_worker"):
+            await self._mark_event_processed(msg_id, [])
+            return
+
         # Enrich event with room state
         enriched = await self.enrich_event(event)
 

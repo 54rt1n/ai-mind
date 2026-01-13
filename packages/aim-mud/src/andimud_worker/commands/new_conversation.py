@@ -62,7 +62,8 @@ class NewConversationCommand(Command):
             # Emote completion
             action = MUDAction(
                 tool="emote",
-                args={"action": f"starts a new conversation thread: {conversation_id}"}
+                args={"action": f"starts a new conversation thread: {conversation_id}"},
+                metadata={"skip_worker": True},
             )
             await worker._emit_actions([action])
         else:

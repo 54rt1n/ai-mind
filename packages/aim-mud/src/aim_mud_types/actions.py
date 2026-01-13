@@ -24,6 +24,7 @@ class MUDAction(BaseModel):
 
     tool: str
     args: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
     priority: int = 5
 
     def to_command(self) -> str:
@@ -289,5 +290,6 @@ class MUDAction(BaseModel):
             "command": self.to_command(),
             "tool": self.tool,
             "args": self.args,
+            "metadata": self.metadata,
             "priority": self.priority,
         }
