@@ -142,8 +142,8 @@ class TestPhasedProcessorNullRoomHandling:
         # Assert room_name is "Unknown Location"
         assert written_event.room_name == "Unknown Location"
 
-        # Assert metadata has source_location = "Unknown Location"
-        assert written_event.metadata.get("source_location") == "Unknown Location"
+        # Assert metadata has source_room_name = "Unknown Location"
+        assert written_event.metadata.get("source_room_name") == "Unknown Location"
 
     @pytest.mark.asyncio
     async def test_phased_processor_works_normally_with_valid_room(
@@ -167,7 +167,7 @@ class TestPhasedProcessorNullRoomHandling:
         assert mock_worker._write_self_event.called
         written_event = mock_worker._write_self_event.call_args[0][0]
         assert written_event.room_name == "Kitchen"
-        assert written_event.metadata.get("source_location") == "Kitchen"
+        assert written_event.metadata.get("source_room_name") == "Kitchen"
 
 
 class TestAgentProcessorNullRoomHandling:
@@ -229,8 +229,8 @@ class TestAgentProcessorNullRoomHandling:
         # Assert room_name is "Unknown Location"
         assert written_event.room_name == "Unknown Location"
 
-        # Assert metadata has source_location = "Unknown Location"
-        assert written_event.metadata.get("source_location") == "Unknown Location"
+        # Assert metadata has source_room_name = "Unknown Location"
+        assert written_event.metadata.get("source_room_name") == "Unknown Location"
 
     @pytest.mark.asyncio
     async def test_agent_processor_works_normally_with_valid_room(
@@ -262,7 +262,7 @@ class TestAgentProcessorNullRoomHandling:
         assert mock_worker._write_self_event.called
         written_event = mock_worker._write_self_event.call_args[0][0]
         assert written_event.room_name == "Kitchen"
-        assert written_event.metadata.get("source_location") == "Kitchen"
+        assert written_event.metadata.get("source_room_name") == "Kitchen"
 
 
 class TestProcessorRoomNameHandling:

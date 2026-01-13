@@ -55,6 +55,7 @@ class AgentTurnProcessor(BaseTurnProcessor):
         event_type: EventType,
         content: str,
         target: str = None,
+        metadata: dict | None = None,
     ) -> MUDEvent:
         """Create self-action event with formatted guidance content.
 
@@ -74,6 +75,9 @@ class AgentTurnProcessor(BaseTurnProcessor):
         from aim_mud_types import ActorType
 
         # Create basic event
+        full_metadata = {"is_self_action": True}
+        if metadata:
+            full_metadata.update(metadata)
         event = MUDEvent(
             event_type=event_type,
             actor=self.worker.persona.name,
@@ -92,7 +96,7 @@ class AgentTurnProcessor(BaseTurnProcessor):
             content=content,
             target=target,
             sequence_id=turn_request.sequence_id,
-            metadata={"is_self_action": True},
+            metadata=full_metadata,
             world_state=self.worker.session.world_state,
         )
 
@@ -193,6 +197,16 @@ class AgentTurnProcessor(BaseTurnProcessor):
 
         allowed = {a.get("name", "").lower() for a in self.worker._agent_action_list() if a.get("name")}
 
+        # Create heartbeat callback for @agent action generation
+        async def heartbeat_callback() -> None:
+            """Refresh turn request heartbeat during long-running @agent generation."""
+            result = await self.worker.atomic_heartbeat_update()
+
+            if result == 0:
+                logger.debug("Turn request deleted during @agent turn, stopping heartbeat")
+            elif result == -1:
+                logger.error("Corrupted turn_request during @agent heartbeat")
+
         try:
             for attempt in range(self.worker.config.decision_max_retries):
                 # Check for abort before @agent LLM call
@@ -200,7 +214,11 @@ class AgentTurnProcessor(BaseTurnProcessor):
                     raise AbortRequestedException("Turn aborted before @agent action")
 
                 # @agent uses agent role (structured agent actions)
-                response = await self.worker._call_llm(chat_turns, role="agent")
+                response = await self.worker._call_llm(
+                    chat_turns,
+                    role="agent",
+                    heartbeat_callback=heartbeat_callback
+                )
                 cleaned, think_content = extract_think_tags(response)
                 cleaned = sanitize_response(cleaned)
                 cleaned = cleaned.strip()
@@ -278,10 +296,11 @@ class AgentTurnProcessor(BaseTurnProcessor):
                             EventType.MOVEMENT,
                             f"moved from {source_location} to {resolved}",
                             target=resolved,
+                            metadata={
+                                "source_room_name": source_location,
+                                "destination_room_name": resolved,
+                            },
                         )
-                        # Store source and destination in metadata for formatting
-                        event.metadata["source_room_name"] = source_location
-                        event.metadata["destination_room_name"] = resolved
 
                         await self.worker._write_self_event(event)
                         await self.worker._emit_actions(actions_taken)

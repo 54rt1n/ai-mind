@@ -5,7 +5,7 @@
 This module provides strategy classes for building LLM turns in MUD's
 two-phase architecture:
 
-1. MUDDecisionStrategy (Phase 1): Fast decision making for speak/move/take/drop/give
+1. MUDDecisionStrategy (Phase 1): Fast decision making for speak/move/take/drop/give/emote
    tool selection without CVM memory queries. The "fast path".
 
 2. MUDResponseStrategy (Phase 2): Full response with consciousness block and
@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 
 class MUDDecisionStrategy(XMLMemoryTurnStrategy):
-    """Phase 1: Fast decision making for act/move/take tool selection.
+    """Phase 1: Fast decision making for speak/move/take/drop/give/emote tool selection.
 
     This strategy extends XMLMemoryTurnStrategy to provide lightweight consciousness
     for MUD agents during Phase 1 (fast path):
@@ -458,6 +458,7 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
                 parts.append(f'  Drop: {{"drop": {{"object": "{inventory_items[0]}"}}}}')
             if inventory_items and present_targets:
                 parts.append(f'  Give: {{"give": {{"object": "{inventory_items[0]}", "target": "{present_targets[0]}"}}}}')
+            parts.append('  Emote: {"emote": {"action": "pauses, then smiles reassuringly."}}')
             parts.append("")
 
         parts.append("Just follow the instructions. Thanks!")

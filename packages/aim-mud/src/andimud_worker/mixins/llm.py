@@ -7,7 +7,7 @@ Extracted from worker.py lines 1191-1228
 """
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional, Callable, Awaitable
 
 from aim.llm.models import LanguageModelV2
 from aim.llm.model_set import ModelSet
@@ -57,7 +57,8 @@ class LLMMixin:
         self: "MUDAgentWorker",
         chat_turns: list[dict[str, str]],
         role: str = "default",
-        max_retries: int = 3
+        max_retries: int = 3,
+        heartbeat_callback: Optional[Callable[[], Awaitable[None]]] = None,
     ) -> str:
         """Call the LLM - single attempt, let exceptions propagate.
 
@@ -84,9 +85,22 @@ class LLMMixin:
             )
 
             chunks = []
+            chunk_count = 0
             for chunk in provider.stream_turns(chat_turns, self.chat_config):
                 if chunk:
                     chunks.append(chunk)
+                    chunk_count += 1
+
+                    # Heartbeat every 50 chunks for liveness detection
+                    if chunk_count % 50 == 0 and heartbeat_callback:
+                        try:
+                            await heartbeat_callback()
+                        except Exception as e:
+                            logger.warning(
+                                f"Heartbeat callback failed at chunk {chunk_count}: {e}",
+                                exc_info=True
+                            )
+
             return "".join(chunks)
 
         except Exception as e:

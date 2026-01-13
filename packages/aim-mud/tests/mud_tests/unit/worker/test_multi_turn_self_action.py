@@ -299,8 +299,8 @@ def mock_worker(
             action_guidance=action_guidance,
             user_guidance=user_guidance,
         )
-        # Call mocked LLM
-        response = await worker._call_llm(turns, role=role)
+        # Call mocked LLM (with optional heartbeat_callback)
+        response = await worker._call_llm(turns, role=role, heartbeat_callback=None)
 
         # Parse the decision XML
         if "<tool>move</tool>" in response:
@@ -357,7 +357,7 @@ class TestMultiTurnSelfActionAwareness:
         # =================================================================
 
         # Mock Phase 1 LLM to decide "move north"
-        async def mock_call_llm_turn1(turns, role):
+        async def mock_call_llm_turn1(turns, role, heartbeat_callback=None):
             if role == "decision":
                 return '<decision><tool>move</tool><args>{"direction": "north"}</args></decision>'
             return "Shouldn't get here in Turn 1"
@@ -403,7 +403,7 @@ class TestMultiTurnSelfActionAwareness:
         # Capture Phase 2 LLM context
         captured_turns = None
 
-        async def mock_call_llm_turn2(turns, role):
+        async def mock_call_llm_turn2(turns, role, heartbeat_callback=None):
             nonlocal captured_turns
             if role == "decision":
                 # Phase 1: decide to speak
@@ -456,7 +456,7 @@ class TestMultiTurnSelfActionAwareness:
         Turn 3: Speak (should see object event)
         """
         # Turn 1: Move
-        async def mock_call_llm_turn1(turns, role):
+        async def mock_call_llm_turn1(turns, role, heartbeat_callback=None):
             if role == "decision":
                 return '<decision><tool>move</tool><args>{"direction": "north"}</args></decision>'
             return ""
@@ -476,7 +476,7 @@ class TestMultiTurnSelfActionAwareness:
         )
 
         # Turn 2: Take object
-        async def mock_call_llm_turn2(turns, role):
+        async def mock_call_llm_turn2(turns, role, heartbeat_callback=None):
             if role == "decision":
                 return '<decision><tool>take</tool><args>{"object": "Silver Spoon"}</args></decision>'
             return ""
@@ -500,7 +500,7 @@ class TestMultiTurnSelfActionAwareness:
         # Turn 3: Speak
         captured_turns = None
 
-        async def mock_call_llm_turn3(turns, role):
+        async def mock_call_llm_turn3(turns, role, heartbeat_callback=None):
             nonlocal captured_turns
             if role == "decision":
                 return '<decision><tool>speak</tool><args>{}</args></decision>'
@@ -535,7 +535,7 @@ class TestMultiTurnSelfActionAwareness:
         """Test that the first turn with no events works as expected."""
         captured_turns = None
 
-        async def mock_call_llm(turns, role):
+        async def mock_call_llm(turns, role, heartbeat_callback=None):
             nonlocal captured_turns
             if role == "decision":
                 return '<decision><tool>speak</tool><args>{}</args></decision>'
@@ -583,7 +583,7 @@ class TestSelfActionInConversationHistory:
         also be in the persistent conversation history.
         """
         # Turn 1: Move
-        async def mock_call_llm_turn1(turns, role):
+        async def mock_call_llm_turn1(turns, role, heartbeat_callback=None):
             if role == "decision":
                 return '<decision><tool>move</tool><args>{"direction": "north"}</args></decision>'
             return ""

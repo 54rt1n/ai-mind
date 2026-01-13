@@ -52,6 +52,7 @@ class PhasedTurnProcessor(BaseTurnProcessor):
         event_type: EventType,
         content: str,
         target: str = None,
+        metadata: dict | None = None,
     ) -> MUDEvent:
         """Create self-action event with formatted guidance content.
 
@@ -68,6 +69,9 @@ class PhasedTurnProcessor(BaseTurnProcessor):
             MUDEvent with formatted content and is_self_action=True metadata.
         """
         # Create basic event
+        full_metadata = {"is_self_action": True}
+        if metadata:
+            full_metadata.update(metadata)
         event = MUDEvent(
             event_type=event_type,
             actor=self.worker.persona.name,
@@ -86,7 +90,7 @@ class PhasedTurnProcessor(BaseTurnProcessor):
             content=content,
             target=target,
             sequence_id=turn_request.sequence_id,
-            metadata={"is_self_action": True},
+            metadata=full_metadata,
             world_state=self.worker.session.world_state,
         )
 
@@ -151,10 +155,11 @@ class PhasedTurnProcessor(BaseTurnProcessor):
                     EventType.MOVEMENT,
                     f"moved from {source_location} to {destination_location}",
                     target=destination_location,
+                    metadata={
+                        "source_room_name": source_location,
+                        "destination_room_name": destination_location,
+                    },
                 )
-                # Store source/destination in metadata for formatting
-                event.metadata["source_room_name"] = source_location
-                event.metadata["destination_room_name"] = destination_location
 
                 await self.worker._write_self_event(event)
 
@@ -210,14 +215,32 @@ class PhasedTurnProcessor(BaseTurnProcessor):
                         turn_request,
                         EventType.OBJECT,
                         f"gave {obj} to {target}",
-                        target=obj
+                        target=obj,
+                        metadata={"target_name": target},
                     )
-                    event.metadata["target_name"] = target
                     await self.worker._write_self_event(event)
 
                     await self.worker._emit_actions(actions_taken)
                 else:
                     logger.warning("Phase1 give missing object or target; no action emitted")
+
+            elif decision_tool == "emote":
+                action_text = (decision_args.get("action") or "").strip()
+                if action_text:
+                    action = MUDAction(tool="emote", args={"action": action_text})
+                    actions_taken.append(action)
+
+                    # Create and write self-action event immediately
+                    event = self._create_event(
+                        turn_request,
+                        EventType.EMOTE,
+                        action_text,
+                    )
+                    await self.worker._write_self_event(event)
+
+                    await self.worker._emit_actions(actions_taken)
+                else:
+                    logger.warning("Phase1 emote missing action; no action emitted")
 
             elif decision_tool == "wait":
                 logger.info("Phase 1 decided to wait; no action this turn")
@@ -271,6 +294,16 @@ class PhasedTurnProcessor(BaseTurnProcessor):
                     memory_query=memory_query,
                 )
 
+                # Create heartbeat callback for phase 2 response generation
+                async def heartbeat_callback() -> None:
+                    """Refresh turn request heartbeat during long-running phase 2 generation."""
+                    result = await self.worker.atomic_heartbeat_update()
+
+                    if result == 0:
+                        logger.debug("Turn request deleted during phase 2, stopping heartbeat")
+                    elif result == -1:
+                        logger.error("Corrupted turn_request during phase 2 heartbeat")
+
                 # Retry loop for emotional state header validation
                 max_format_retries = 3
                 cleaned_response = ""
@@ -280,7 +313,11 @@ class PhasedTurnProcessor(BaseTurnProcessor):
                         raise AbortRequestedException("Turn aborted before response")
 
                     # Phase 2: Response (use chat role - general chat model)
-                    response = await self.worker._call_llm(chat_turns, role="chat")
+                    response = await self.worker._call_llm(
+                        chat_turns,
+                        role="chat",
+                        heartbeat_callback=heartbeat_callback
+                    )
                     logger.debug(f"LLM response: {response[:500]}...")
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug("LLM response (full):\n%s", response)

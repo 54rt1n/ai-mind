@@ -154,3 +154,24 @@ def validate_give(session: Optional[MUDSession], args: dict) -> DecisionResult:
         f"Please try again with valid item and target, or use {{\"speak\": {{}}}} to respond instead."
     )
     return DecisionResult(is_valid=False, guidance=guidance)
+
+
+def validate_emote(args: dict) -> DecisionResult:
+    """Validate an emote decision.
+
+    Args:
+        args: Arguments from the tool call (action)
+
+    Returns:
+        DecisionResult with validation outcome
+    """
+    action = (args.get("action") or "").strip()
+    if action:
+        return DecisionResult(is_valid=True, args={"action": action})
+
+    guidance = (
+        "Emote requires an action string. "
+        "Please try again with {\"emote\": {\"action\": \"...\"}} "
+        "or use {\"speak\": {}} to respond instead."
+    )
+    return DecisionResult(is_valid=False, guidance=guidance)

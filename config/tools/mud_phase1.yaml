@@ -100,3 +100,17 @@ functions:
         - {wait: {}}
         - {wait: {mood: "thoughtfully"}}
         - {wait: {mood: "with gentle attention"}}
+
+  - name: emote
+    description: Perform an in-character emote or action
+    parameters:
+      type: object
+      properties:
+        action:
+          type: string
+          description: The emote text to perform (e.g., "smiles softly" or "nods once")
+      required:
+        - action
+      examples:
+        - {emote: {action: "smiles softly."}}
+        - {emote: {action: "nods once, thoughtful."}}

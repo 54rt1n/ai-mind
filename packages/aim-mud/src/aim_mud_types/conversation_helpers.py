@@ -74,6 +74,18 @@ def pop_conversation_entry(
     return _decode_list_entry(raw)
 
 
+def pop_last_conversation_entry(
+    redis_client,
+    agent_id: str,
+) -> Optional[str]:
+    """Pop the newest conversation entry (right) (sync)."""
+    key = RedisKeys.agent_conversation(agent_id)
+    raw = redis_client.rpop(key)
+    if raw is None:
+        return None
+    return _decode_list_entry(raw)
+
+
 def get_conversation_length(
     redis_client,
     agent_id: str,

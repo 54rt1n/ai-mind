@@ -36,6 +36,7 @@ from ..turns.decision import (
     validate_take,
     validate_drop,
     validate_give,
+    validate_emote,
 )
 from ..turns.processor import PhasedTurnProcessor, AgentTurnProcessor
 from ..exceptions import AbortRequestedException
@@ -260,13 +261,25 @@ class TurnsMixin:
                     )
                     continue
 
+                if tool_name == "emote":
+                    result = validate_emote(args)
+                    if result.is_valid:
+                        return "emote", result.args, last_response, last_thinking, last_cleaned
+                    turns.append({"role": "assistant", "content": response})
+                    turns.append({"role": "user", "content": result.guidance})
+                    logger.warning(
+                        "Invalid emote; retrying with guidance (attempt %d/%d)",
+                        attempt + 1, self.config.decision_max_retries,
+                    )
+                    continue
+
                 if tool_name == "plan_update":
                     # Plan update requires async execution via PlanExecutionTool
                     plan_tool_impl = self._decision_strategy.get_plan_tool_impl()
                     if plan_tool_impl is None:
                         error_guidance = (
                             "plan_update tool not available. "
-                            "This tool requires an active plan. Use speak, wait, move, take, drop, or give."
+                            "This tool requires an active plan. Use speak, wait, move, take, drop, give, or emote."
                         )
                         turns.append({"role": "assistant", "content": response})
                         turns.append({"role": "user", "content": error_guidance})
@@ -294,7 +307,7 @@ class TurnsMixin:
                 # Unexpected tool - give guidance and retry
                 error_guidance = (
                     f"Unknown tool '{tool_name}'. "
-                    f"Available tools are: speak, wait, move, take, drop, give. "
+                    f"Available tools are: speak, wait, move, take, drop, give, emote. "
                     f"Please try again with a valid tool."
                 )
                 turns.append({"role": "assistant", "content": response})

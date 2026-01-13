@@ -77,6 +77,17 @@ class ConversationMixin:
             return None
         return self._decode_list_entry(raw)
 
+    async def pop_last_conversation_entry(
+        self: "BaseRedisMUDClient",
+        agent_id: str,
+    ) -> Optional[str]:
+        """Pop the newest conversation entry (right)."""
+        key = self._conversation_key(agent_id)
+        raw = await self.redis.rpop(key)
+        if raw is None:
+            return None
+        return self._decode_list_entry(raw)
+
     async def get_conversation_length(
         self: "BaseRedisMUDClient",
         agent_id: str,
