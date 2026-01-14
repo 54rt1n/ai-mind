@@ -180,6 +180,19 @@ class ProfileMixin:
             self.session.current_room = room_state
         self.session.entities_present = entities_present
 
+        # Update decision tools based on active room auras (if supported)
+        if room_state and hasattr(self, "_decision_strategy") and self._decision_strategy:
+            auras = []
+            for aura in getattr(room_state, "auras", []) or []:
+                if isinstance(aura, dict):
+                    name = aura.get("name")
+                else:
+                    name = getattr(aura, "name", None)
+                if name:
+                    auras.append(name)
+            if hasattr(self._decision_strategy, "update_aura_tools") and self.chat_config:
+                self._decision_strategy.update_aura_tools(auras, self.chat_config.tools_path)
+
     async def _update_agent_profile(self: "MUDAgentWorker", persona_id: str = None, **fields: str) -> None:
         """Update agent profile fields in Redis.
 

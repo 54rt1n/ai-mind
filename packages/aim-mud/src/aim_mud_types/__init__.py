@@ -14,6 +14,7 @@ All events and actions flow through Redis streams using these shared types.
 """
 
 from .actions import MUDAction
+from .constants import AURA_RINGABLE
 from .conversation import MUDConversationEntry
 from .coordination import MUDTurnRequest, DreamerState, TurnRequestStatus, TurnReason
 from .enums import EventType, ActorType
@@ -150,6 +151,8 @@ __all__ = [
     "RoomProfile",
     # Redis Keys
     "RedisKeys",
+    # Constants
+    "AURA_RINGABLE",
     # Redis Client
     "RedisMUDClient",
     # Turn request helpers

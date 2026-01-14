@@ -6,7 +6,7 @@ Pure functions for validating actions and resolving game state references.
 """
 
 from typing import Optional
-from aim_mud_types import MUDSession
+from aim_mud_types import MUDSession, AURA_RINGABLE
 
 
 def resolve_target_name(session: Optional[MUDSession], target_id: str) -> str:
@@ -181,3 +181,22 @@ def get_valid_give_targets(session: Optional[MUDSession]) -> list[str]:
                     if entity.name:
                         targets.append(entity.name)
     return targets
+
+
+def get_ringable_objects(session: Optional[MUDSession]) -> list[str]:
+    """Get names of ringable objects from room auras."""
+    ringables: list[str] = []
+    room = session.current_room if session else None
+    if not room or not getattr(room, "auras", None):
+        return ringables
+
+    seen = set()
+    for aura in room.auras:
+        name = getattr(aura, "name", "") or ""
+        if name.upper() != AURA_RINGABLE:
+            continue
+        source = getattr(aura, "source", "") or ""
+        if source and source not in seen:
+            ringables.append(source)
+            seen.add(source)
+    return ringables

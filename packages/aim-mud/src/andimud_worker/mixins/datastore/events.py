@@ -201,6 +201,11 @@ class EventsMixin:
         cascading events (e.g., someone entering a room and immediately
         speaking) to be batched together.
 
+        Args:
+            max_sequence_id: Optional cap for first drain only. Subsequent
+                drains during settle window ignore this cap to capture
+                cascading events.
+
         Returns:
             All accumulated events from multiple drains.
         """
@@ -210,7 +215,10 @@ class EventsMixin:
         empty_after_events = 0
 
         while True:
-            events = await self.drain_events(timeout=0, max_sequence_id=max_sequence_id)
+            # Only cap the first drain with turn request's sequence_id
+            # Subsequent drains during settle have no cap to catch cascades
+            cap = max_sequence_id if drain_count == 0 else None
+            events = await self.drain_events(timeout=0, max_sequence_id=cap)
             drain_count += 1
             if not events:
                 if not all_events:

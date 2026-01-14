@@ -2,9 +2,17 @@
 # AI-Mind (C) 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
 """State models for rooms and entities in the MUD world."""
 
-from typing import Any
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field, field_validator
+
+
+class AuraState(BaseModel):
+    """An aura present in a room (capability or environmental flag)."""
+
+    name: str
+    source: str = ""
+    source_id: str = ""
 
 
 class RoomState(BaseModel):
@@ -19,19 +27,40 @@ class RoomState(BaseModel):
         name: Human-readable room name.
         description: Full description of the room.
         exits: Mapping of direction names to destination room IDs.
+        auras: Environmental/capability flags present in the room.
     """
 
     room_id: str
     name: str
-    description: str = ""
+    description: Optional[str] = None
     exits: dict[str, str] = Field(default_factory=dict)
     tags: list[str] = Field(default_factory=list)
+    auras: list[AuraState] = Field(default_factory=list)
 
     @field_validator("tags", mode="before")
     @classmethod
     def ensure_tags_list(cls, v):
         """Ensure tags is a list, converting None to []."""
         return v if v else []
+
+    @field_validator("auras", mode="before")
+    @classmethod
+    def ensure_auras_list(cls, v):
+        """Ensure auras is a list, converting None to []."""
+        if not v:
+            return []
+        # Allow legacy formats: list[str] or comma-separated string
+        if isinstance(v, str):
+            return [AuraState(name=part.strip()) for part in v.split(",") if part.strip()]
+        if isinstance(v, list):
+            normalized = []
+            for item in v:
+                if isinstance(item, str):
+                    normalized.append(AuraState(name=item))
+                else:
+                    normalized.append(item)
+            return normalized
+        return v
 
 
 class EntityState(BaseModel):

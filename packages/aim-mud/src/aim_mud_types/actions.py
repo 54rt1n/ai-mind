@@ -103,6 +103,10 @@ class MUDAction(BaseModel):
         elif self.tool == "use":
             return f"use {self.args.get('object', '')}"
 
+        elif self.tool == "ring":
+            obj = self.args.get("object", "")
+            return f"ring {obj}".strip()
+
         elif self.tool == "speak":
             text = self.args.get("text", "")
             if not text:

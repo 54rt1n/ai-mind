@@ -51,7 +51,7 @@ class TestRoomState:
 
         assert room.room_id == "#123"
         assert room.name == "The Garden"
-        assert room.description == ""
+        assert room.description is None
         assert room.exits == {}
 
     def test_room_state_complete(self):
@@ -90,7 +90,7 @@ class TestRoomState:
 
         assert room.room_id == "#123"
         assert room.name == "Minimal Room"
-        assert room.description == ""
+        assert room.description is None
         assert room.exits == {}
 
 

@@ -157,6 +157,20 @@ models:
     category:
       - instruct
       - thinking
+  - name: MiniMaxAI/MiniMax-M2.1
+    architecture: deepseekv3
+    provider: featherless
+    size: 229B
+    category:
+      - instruct
+      - thinking
+  - name: XiaomiMiMo/MiMo-V2-Flash
+    architecture: deepseekv3
+    provider: featherless
+    size: 229B
+    category:
+      - instruct
+      - thinking
   - name: zai-org/GLM-4.7
     architecture: deepseekv3
     provider: featherless

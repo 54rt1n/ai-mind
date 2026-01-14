@@ -37,6 +37,7 @@ from ..turns.decision import (
     validate_drop,
     validate_give,
     validate_emote,
+    validate_ring,
 )
 from ..turns.processor import PhasedTurnProcessor, AgentTurnProcessor
 from ..exceptions import AbortRequestedException
@@ -301,6 +302,18 @@ class TurnsMixin:
                     turns.append({"role": "user", "content": result.guidance})
                     logger.warning(
                         "Invalid give; retrying with guidance (attempt %d/%d)",
+                        attempt + 1, self.config.decision_max_retries,
+                    )
+                    continue
+
+                if tool_name == "ring":
+                    result = validate_ring(self.session, args)
+                    if result.is_valid:
+                        return "ring", result.args, last_response, last_thinking, last_cleaned
+                    turns.append({"role": "assistant", "content": response})
+                    turns.append({"role": "user", "content": result.guidance})
+                    logger.warning(
+                        "Invalid ring; retrying with guidance (attempt %d/%d)",
                         attempt + 1, self.config.decision_max_retries,
                     )
                     continue

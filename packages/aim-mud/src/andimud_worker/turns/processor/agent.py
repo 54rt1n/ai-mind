@@ -18,7 +18,7 @@ from ..response import (
     has_emotional_state_header,
     parse_agent_action_response,
 )
-from ..validation import resolve_move_location, resolve_target_name
+from ..validation import resolve_move_location, resolve_target_name, get_ringable_objects
 from .base import BaseTurnProcessor
 from ...tools.helper import ToolHelper
 from ...config import MUDConfig
@@ -91,6 +91,24 @@ class AgentTurnProcessor(BaseTurnProcessor):
 
         return "\n".join(parts)
 
+    def _refresh_aura_tools(self) -> None:
+        """Update tool helper with aura tools based on current room state."""
+        if not self.worker or not self.worker.session or not self.worker.session.current_room:
+            return
+        room = self.worker.session.current_room
+        auras = []
+        for aura in getattr(room, "auras", []) or []:
+            if isinstance(aura, dict):
+                name = aura.get("name")
+            else:
+                name = getattr(aura, "name", None)
+            if name:
+                auras.append(name)
+        if auras and hasattr(self._tool_helper, "update_aura_tools"):
+            self._tool_helper.update_aura_tools(auras, self.worker.chat_config.tools_path)
+        elif hasattr(self._tool_helper, "update_aura_tools"):
+            self._tool_helper.update_aura_tools([], self.worker.chat_config.tools_path)
+
     async def _decide_action(self, turn_request: MUDTurnRequest, events: list[MUDEvent]) -> tuple[list[MUDAction], str]:
         """Execute agent-guided decision strategy.
 
@@ -103,6 +121,9 @@ class AgentTurnProcessor(BaseTurnProcessor):
         """
         thinking_parts: list[str] = []
         actions_taken: list[MUDAction] = []
+
+        # Refresh aura tools for @agent context
+        self._refresh_aura_tools()
 
         # Build comprehensive guidance including ToolUser signatures
         guidance = self._build_agent_guidance(self.user_guidance)
@@ -134,6 +155,13 @@ class AgentTurnProcessor(BaseTurnProcessor):
         self.worker.chat_config.system_message = self.build_system_message()
 
         allowed = {a.get("name", "").lower() for a in self.worker._agent_action_list() if a.get("name")}
+        # Allow aura-injected tools even if not in mud_agent.yaml
+        if hasattr(self._tool_helper, "_aura_tools") and self._tool_helper._aura_tools:
+            allowed = set(allowed)
+            for tool in self._tool_helper._aura_tools:
+                name = getattr(tool.function, "name", None)
+                if name:
+                    allowed.add(name)
 
         # Create heartbeat callback for @agent action generation
         async def heartbeat_callback() -> None:
@@ -271,6 +299,23 @@ class AgentTurnProcessor(BaseTurnProcessor):
                         await self.worker._emit_actions(actions_taken)
                     else:
                         logger.warning("Agent describe missing target or description")
+                    break
+
+                if action == "ring":
+                    obj = (args.get("object") or "").strip()
+                    ringables = get_ringable_objects(self.worker.session)
+                    if not obj:
+                        if len(ringables) == 1:
+                            obj = ringables[0]
+                        else:
+                            logger.warning("Agent ring missing object; no action emitted")
+                            continue
+                    if ringables and obj.lower() not in [r.lower() for r in ringables]:
+                        logger.warning("Agent ring invalid target '%s'; no action emitted", obj)
+                        continue
+                    action_obj = MUDAction(tool="ring", args={"object": obj})
+                    actions_taken.append(action_obj)
+                    await self.worker._emit_actions(actions_taken)
                     break
 
         except Exception as e:

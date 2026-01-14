@@ -836,7 +836,7 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
             # Build context for formatting
             context = {
                 "room_name": room.name if room else "somewhere",
-                "room_description": room.description if room else "",
+                "room_description": room.description if room and room.description else "",
                 "persona_name": self.persona.name,
                 "full_name": self.persona.full_name,
                 "memory_count": 15,  # Placeholder for Active Memory count

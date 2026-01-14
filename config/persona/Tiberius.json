@@ -8,6 +8,12 @@
   "default_location": "Tiberius is in the woods",
   "birthday": "2025-01-29",
   "nsfw": false,
+  "models": {
+    "default": "zai-org/GLM-4.6",
+    "chat": "inclusionAI/Ling-1T",
+    "decision": "deepseek-ai/DeepSeek-V3-0324",
+    "tool": "deepseek-ai/DeepSeek-V3-0324"
+  },
   "attributes": {
     "age": "28",
     "sex": "male",

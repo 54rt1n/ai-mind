@@ -56,6 +56,24 @@ class WorldState(BaseModel):
             if room.exits:
                 exits = ", ".join(room.exits.keys())
                 lines.append(f"    Exits: {exits}")
+            if getattr(room, "auras", None):
+                lines.append("    <auras>")
+                for aura in room.auras:
+                    if isinstance(aura, dict):
+                        name = aura.get("name", "") or ""
+                        source = aura.get("source", "") or ""
+                        source_id = aura.get("source_id", "") or ""
+                    else:
+                        name = getattr(aura, "name", "") or ""
+                        source = getattr(aura, "source", "") or ""
+                        source_id = getattr(aura, "source_id", "") or ""
+                    aura_attrs = f' name="{name}"' if name else ""
+                    if source:
+                        aura_attrs += f' source="{source}"'
+                    if source_id:
+                        aura_attrs += f' source_id="{source_id}"'
+                    lines.append(f"      <aura{aura_attrs}/>")
+                lines.append("    </auras>")
             lines.append("  </location>")
 
         entities = [

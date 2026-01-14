@@ -18,6 +18,7 @@ class EventType(str, Enum):
         MOVEMENT: A character entering or leaving a room.
         OBJECT: An object being manipulated (get, drop, give).
         AMBIENT: Environmental or atmospheric events.
+        NOTIFICATION: Interactive/environmental notifications (e.g., doorbells).
         SYSTEM: System messages (login, logout, errors).
     """
 
@@ -27,6 +28,7 @@ class EventType(str, Enum):
     MOVEMENT = "movement"
     OBJECT = "object"
     AMBIENT = "ambient"
+    NOTIFICATION = "notification"
     SYSTEM = "system"
 
 

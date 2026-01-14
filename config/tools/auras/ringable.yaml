@@ -1,0 +1,16 @@
+type: mud
+description: Aura tools for ringable objects
+
+functions:
+  - name: ring
+    description: Ring a ringable object in the room
+    parameters:
+      type: object
+      properties:
+        object:
+          type: string
+          description: The ringable object to ring (use the object name)
+      required: []
+      examples:
+        - {ring: {object: "Front Door Doorbell"}}
+        - {ring: {}}

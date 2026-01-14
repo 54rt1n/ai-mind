@@ -12,6 +12,7 @@ from .validation import (
     get_room_objects,
     get_inventory_items,
     get_valid_give_targets,
+    get_ringable_objects,
 )
 
 
@@ -173,5 +174,47 @@ def validate_emote(args: dict) -> DecisionResult:
         "Emote requires an action string. "
         "Please try again with {\"emote\": {\"action\": \"...\"}} "
         "or use {\"speak\": {}} to respond instead."
+    )
+    return DecisionResult(is_valid=False, guidance=guidance)
+
+
+def validate_ring(session: Optional[MUDSession], args: dict) -> DecisionResult:
+    """Validate a ring decision against room auras.
+
+    Args:
+        session: Current MUD session
+        args: Arguments from the tool call (object)
+
+    Returns:
+        DecisionResult with validation outcome
+    """
+    ringables = get_ringable_objects(session)
+    if not ringables:
+        guidance = (
+            "No ringable objects are available here. "
+            "Please choose a different action."
+        )
+        return DecisionResult(is_valid=False, guidance=guidance)
+
+    obj = (args.get("object") or "").strip()
+    if not obj:
+        if len(ringables) == 1:
+            return DecisionResult(is_valid=True, args={"object": ringables[0]})
+        ringable_str = ", ".join(ringables)
+        guidance = (
+            "Ring which object? "
+            f"Ringable objects: {ringable_str}. "
+            "Please try again with a valid object."
+        )
+        return DecisionResult(is_valid=False, guidance=guidance)
+
+    if obj.lower() in [r.lower() for r in ringables]:
+        return DecisionResult(is_valid=True, args={"object": obj})
+
+    ringable_str = ", ".join(ringables)
+    guidance = (
+        f"Cannot ring '{obj}'. "
+        f"Ringable objects: {ringable_str}. "
+        "Please try again with a valid object."
     )
     return DecisionResult(is_valid=False, guidance=guidance)

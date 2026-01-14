@@ -221,7 +221,7 @@ def format_you_see_guidance(world_state) -> str:
 
     ground_items = _get_ground_items(world_state)
     if ground_items:
-        lines.append(f"On the ground: {', '.join(ground_items)}")
+        lines.append(f"Items here: {', '.join(ground_items)}")
 
     containers = _get_container_items(world_state)
     if containers:

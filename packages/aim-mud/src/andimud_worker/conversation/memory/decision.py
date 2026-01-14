@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
 from ...adapter import build_current_context, entries_to_chat_turns
 from ..manager import MUDConversationManager
-from aim_mud_types import MUDSession
+from aim_mud_types import MUDSession, AURA_RINGABLE
 from aim.agents.persona import Persona
 from aim.chat.manager import ChatManager
 from aim.chat.strategy.xmlmemory import XMLMemoryTurnStrategy
@@ -67,6 +67,8 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
         self._cached_system_message = None
         self._base_tools = []
         self._emote_allowed = True
+        self._aura_tools = []
+        self._active_auras: list[str] = []
         # Conversation manager
         self.conversation_manager: Optional[MUDConversationManager] = None
         # Plan context for injection
@@ -101,6 +103,39 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
         self._emote_allowed = allowed
         self._refresh_tool_user()
 
+    def update_aura_tools(self, auras: list[str], tools_path: str) -> None:
+        """Update decision tools based on active room auras."""
+        normalized = sorted(
+            {str(a).strip().lower() for a in (auras or []) if str(a).strip()}
+        )
+        if normalized == self._active_auras:
+            return
+        self._active_auras = normalized
+        self._aura_tools = []
+
+        if not normalized:
+            self._refresh_tool_user()
+            return
+
+        loader = ToolLoader(tools_path)
+        tools_by_name = {}
+        for aura in normalized:
+            tool_file = Path(tools_path) / "auras" / f"{aura}.yaml"
+            if not tool_file.exists():
+                logger.warning("Aura tools file not found: %s", tool_file)
+                continue
+            try:
+                aura_tools = loader.load_tool_file(str(tool_file)) or []
+            except Exception as exc:
+                logger.warning("Failed to load aura tools from %s: %s", tool_file, exc)
+                continue
+            for tool in aura_tools:
+                name = getattr(tool.function, "name", None)
+                if name and name not in tools_by_name:
+                    tools_by_name[name] = tool
+        self._aura_tools = list(tools_by_name.values())
+        self._refresh_tool_user()
+
     def get_available_tool_names(self) -> list[str]:
         """Return current tool names available to the decision LLM."""
         if not self.tool_user or not getattr(self.tool_user, "tools", None):
@@ -117,7 +152,7 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
             self.tool_user = None
             self._cached_system_message = None
             return
-        tools = self._base_tools
+        tools = self._base_tools + self._aura_tools
         if not self._emote_allowed:
             tools = [tool for tool in tools if tool.function.name != "emote"]
         self.tool_user = ToolUser(tools)
@@ -431,11 +466,29 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
         room_objects: list[str] = []
         present_targets: list[str] = []
         inventory_items: list[str] = []
+        aura_descriptions: list[str] = []
+        ringable_sources: list[str] = []
 
         # Get exits from current room
         room = session.current_room if session else None
         if room and room.exits:
             exits = list(room.exits.keys())
+        if room and getattr(room, "auras", None):
+            for aura in room.auras:
+                if isinstance(aura, dict):
+                    name = aura.get("name", "") or ""
+                    source = aura.get("source", "") or ""
+                else:
+                    name = getattr(aura, "name", "") or ""
+                    source = getattr(aura, "source", "") or ""
+                if not name:
+                    continue
+                if source:
+                    aura_descriptions.append(f"{name} (source: {source})")
+                else:
+                    aura_descriptions.append(name)
+                if name.upper() == AURA_RINGABLE and source:
+                    ringable_sources.append(source)
 
         # Get entities and inventory from world state or session
         world_state = session.world_state if session else None
@@ -475,12 +528,14 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
             parts.append(f"  Your inventory: {', '.join(inventory_items)}")
         if present_targets:
             parts.append(f"  People present: {', '.join(present_targets)}")
-        if not any([exits, room_objects, inventory_items, present_targets]):
+        if aura_descriptions:
+            parts.append(f"  Auras: {', '.join(aura_descriptions)}")
+        if not any([exits, room_objects, inventory_items, present_targets, aura_descriptions]):
             parts.append("  (No special options available)")
         parts.append("")
 
         # Add contextual examples
-        if exits or room_objects or inventory_items or present_targets:
+        if exits or room_objects or inventory_items or present_targets or aura_descriptions:
             parts.append("Contextual Examples:")
             if exits:
                 parts.append(f'  Move: {{"move": {{"location": "{exits[0]}"}}}}')
@@ -490,6 +545,8 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
                 parts.append(f'  Drop: {{"drop": {{"object": "{inventory_items[0]}"}}}}')
             if inventory_items and present_targets:
                 parts.append(f'  Give: {{"give": {{"object": "{inventory_items[0]}", "target": "{present_targets[0]}"}}}}')
+            if ringable_sources and "ring" in self.get_available_tool_names():
+                parts.append(f'  Ring: {{"ring": {{"object": "{ringable_sources[0]}"}}}}')
             if "emote" in self.get_available_tool_names():
                 parts.append('  Emote: {"emote": {"action": "pauses, then smiles reassuringly."}}')
             parts.append("")
@@ -516,11 +573,28 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
         room_objects: list[str] = []
         present_targets: list[str] = []
         inventory_items: list[str] = []
+        aura_descriptions: list[str] = []
 
         # Get exits from current room
         room = session.current_room if session else None
         if room and room.exits:
             exits = list(room.exits.keys())
+
+        # Get auras from current room
+        if room and getattr(room, "auras", None):
+            for aura in room.auras:
+                if isinstance(aura, dict):
+                    name = aura.get("name", "") or ""
+                    source = aura.get("source", "") or ""
+                else:
+                    name = getattr(aura, "name", "") or ""
+                    source = getattr(aura, "source", "") or ""
+                if not name:
+                    continue
+                if source:
+                    aura_descriptions.append(f"{name} (source: {source})")
+                else:
+                    aura_descriptions.append(name)
 
         # Get entities and inventory from world state or session
         world_state = session.world_state if session else None
@@ -560,6 +634,8 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
             hints.append(f"Inventory: {', '.join(inventory_items)}")
         if present_targets:
             hints.append(f"Valid give targets: {', '.join(present_targets)}")
+        if aura_descriptions:
+            hints.append(f"Auras: {', '.join(aura_descriptions)}")
 
         return hints
 

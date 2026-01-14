@@ -113,6 +113,16 @@ class PhasedTurnProcessor(BaseTurnProcessor):
                 else:
                     logger.warning("Phase1 give missing object or target; no action emitted")
 
+            elif decision_tool == "ring":
+                obj = decision_args.get("object")
+                if obj:
+                    action = MUDAction(tool="ring", args={"object": obj})
+                    actions_taken.append(action)
+
+                    await self.worker._emit_actions(actions_taken)
+                else:
+                    logger.warning("Phase1 ring missing object; no action emitted")
+
             elif decision_tool == "emote":
                 action_text = (decision_args.get("action") or "").strip()
                 if action_text:

@@ -24,6 +24,8 @@ class ToolHelper:
         self._tool_user = tool_user
         self._base_tools = list(tool_user.tools)  # Store original tools
         self._plan_tools: list[Tool] = []  # Extra tools for plan execution
+        self._aura_tools: list[Tool] = []
+        self._active_auras: list[str] = []
 
     def decorate_xml(self, xml: XmlFormatter) -> XmlFormatter:
         """Decorate the XML with the agent action tools.
@@ -64,6 +66,39 @@ class ToolHelper:
         except Exception as e:
             logger.error(f"Failed to load plan tools: {e}")
 
+    def update_aura_tools(self, auras: list[str], tools_path: str = "config/tools") -> None:
+        """Update tools based on active room auras."""
+        normalized = sorted(
+            {str(a).strip().lower() for a in (auras or []) if str(a).strip()}
+        )
+        if normalized == self._active_auras:
+            return
+        self._active_auras = normalized
+        self._aura_tools = []
+
+        if not normalized:
+            self._refresh_tool_user()
+            return
+
+        try:
+            loader = ToolLoader(tools_path)
+            tools_by_name: dict[str, Tool] = {}
+            for aura in normalized:
+                tool_file = Path(tools_path) / "auras" / f"{aura}.yaml"
+                if not tool_file.exists():
+                    logger.warning("Aura tools file not found: %s", tool_file)
+                    continue
+                aura_tools = loader.load_tool_file(str(tool_file)) or []
+                for tool in aura_tools:
+                    name = getattr(tool.function, "name", None)
+                    if name and name not in tools_by_name:
+                        tools_by_name[name] = tool
+            self._aura_tools = list(tools_by_name.values())
+        except Exception as e:
+            logger.error(f"Failed to load aura tools: {e}")
+
+        self._refresh_tool_user()
+
     def remove_plan_tools(self) -> None:
         """Remove plan execution tools.
 
@@ -74,7 +109,7 @@ class ToolHelper:
 
         self._plan_tools = []
         # Restore base tools only
-        self._tool_user = ToolUser(self._base_tools)
+        self._refresh_tool_user()
         logger.info("Removed plan tools")
 
     def has_plan_tools(self) -> bool:
@@ -84,6 +119,11 @@ class ToolHelper:
             True if plan tools are loaded, False otherwise.
         """
         return bool(self._plan_tools)
+
+    def _refresh_tool_user(self) -> None:
+        """Refresh ToolUser based on base + plan + aura tools."""
+        all_tools = self._base_tools + self._plan_tools + self._aura_tools
+        self._tool_user = ToolUser(all_tools)
 
     @staticmethod
     def load_tools(tool_config_file: str, tools_path: str) -> ToolUser:
