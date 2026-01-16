@@ -113,15 +113,12 @@ class PhasedTurnProcessor(BaseTurnProcessor):
                 else:
                     logger.warning("Phase1 give missing object or target; no action emitted")
 
-            elif decision_tool == "ring":
-                obj = decision_args.get("object")
-                if obj:
-                    action = MUDAction(tool="ring", args={"object": obj})
-                    actions_taken.append(action)
-
-                    await self.worker._emit_actions(actions_taken)
-                else:
-                    logger.warning("Phase1 ring missing object; no action emitted")
+            elif self.worker._decision_strategy.is_aura_tool(decision_tool):
+                # Generic aura tool handling - emit MUDAction for Evennia to execute
+                action = MUDAction(tool=decision_tool, args=decision_args)
+                actions_taken.append(action)
+                logger.info("Aura tool '%s' emitting action with args: %s", decision_tool, decision_args)
+                await self.worker._emit_actions(actions_taken)
 
             elif decision_tool == "emote":
                 action_text = (decision_args.get("action") or "").strip()

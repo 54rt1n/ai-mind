@@ -621,6 +621,73 @@ def repair_conversation(co: ContextObject, target_conversation_id: Optional[str]
     else:
         click.echo("\nNo messages required updates across all processed conversations.")
 
+@cli.command()
+@click.option('--endpoint', default=None, help='MCP endpoint URL (default: from config/env)')
+@click.option('--tool', default='system_run_python', help='MCP tool to test (default: system_run_python)')
+@click.pass_obj
+def test_mcp(co: ContextObject, endpoint: Optional[str], tool: str):
+    """Test the MCP connection to container-mcp server.
+
+    Examples:
+        # Test with default endpoint from config
+        python -m aim_cli test-mcp
+
+        # Test with specific endpoint
+        python -m aim_cli test-mcp --endpoint http://10.100.0.49:8001/sse
+
+        # Test a specific tool
+        python -m aim_cli test-mcp --tool web_search
+    """
+    endpoint_url = endpoint or co.config.mcp_endpoint
+    click.echo(f"Testing MCP connection to: {endpoint_url}")
+
+    async def _test_connection():
+        try:
+            from mcp.client.sse import sse_client
+            from mcp import ClientSession
+
+            click.echo("Connecting...")
+            async with sse_client(endpoint_url) as (read, write):
+                async with ClientSession(read, write) as session:
+                    click.echo("Initializing session...")
+                    await session.initialize()
+
+                    # List available tools
+                    click.echo("\nAvailable tools:")
+                    tools_result = await session.list_tools()
+                    for t in tools_result.tools:
+                        click.echo(f"  - {t.name}: {t.description[:60]}..." if len(t.description) > 60 else f"  - {t.name}: {t.description}")
+
+                    # Run a simple test
+                    click.echo(f"\nTesting tool '{tool}'...")
+                    if tool == 'system_run_python':
+                        result = await session.call_tool(tool, {"code": "print('Hello from MCP!')"})
+                    elif tool == 'system_run_command':
+                        result = await session.call_tool(tool, {"command": "echo 'Hello from MCP!'"})
+                    elif tool == 'web_search':
+                        result = await session.call_tool(tool, {"query": "test"})
+                    else:
+                        click.echo(f"Unknown test tool: {tool}. Skipping test call.")
+                        return True
+
+                    click.echo(f"Result: {result}")
+                    return True
+
+        except ImportError:
+            click.echo("ERROR: MCP package not installed. Install with: pip install 'mcp[cli]>=1.0.0'", err=True)
+            return False
+        except Exception as e:
+            click.echo(f"ERROR: {e}", err=True)
+            return False
+
+    success = asyncio.run(_test_connection())
+    if success:
+        click.echo("\nMCP connection test PASSED")
+    else:
+        click.echo("\nMCP connection test FAILED", err=True)
+        raise click.Abort()
+
+
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
 

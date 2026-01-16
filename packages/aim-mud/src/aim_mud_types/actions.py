@@ -277,8 +277,57 @@ class MUDAction(BaseModel):
                 return ""
             return f"@spawn {self.args.get('prototype', '')}".strip()
 
+        # Aura tool commands - agent uses same commands as users
+        elif self.tool == "py_exec":
+            code = self.args.get("code", "")
+            escaped = code.replace("\n", "\\n")
+            return f"py_exec {escaped}"
+
+        elif self.tool == "bash_exec":
+            command = self.args.get("command", "")
+            return f"bash_exec {command}"
+
+        elif self.tool == "web_search":
+            query = self.args.get("query", "")
+            return f"web_search {query}"
+
+        elif self.tool == "visit_webpage":
+            url = self.args.get("url", "")
+            return f"visit_webpage {url}"
+
+        elif self.tool == "get_feed":
+            return "get_feed"
+
+        elif self.tool == "research":
+            query = self.args.get("query", "")
+            return f"research {query}"
+
+        elif self.tool == "read_doc":
+            doc_id = self.args.get("doc_id", "")
+            return f"read_doc {doc_id}"
+
+        elif self.tool == "show_list":
+            return "show_list"
+
+        elif self.tool == "add_item":
+            text = self.args.get("text", "")
+            return f"add_item {text}"
+
+        elif self.tool == "check_item":
+            item_id = self.args.get("item_id", "")
+            return f"check_item {item_id}"
+
+        elif self.tool == "stock_quote":
+            symbol = self.args.get("symbol", "")
+            return f"stock_quote {symbol}"
+
         else:
-            return ""
+            # Generic fallback for unknown aura tools
+            # Format: tool_name arg1=val1 arg2=val2
+            if self.args:
+                args_str = " ".join(f"{k}={v}" for k, v in self.args.items())
+                return f"{self.tool} {args_str}".strip()
+            return self.tool
 
     def to_redis_dict(self, agent_id: str) -> dict[str, Any]:
         """Convert to dictionary for Redis stream publishing.

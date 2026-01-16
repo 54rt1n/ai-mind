@@ -1,0 +1,42 @@
+type: container_mcp
+description: List/task management tools via container-mcp sandbox
+
+functions:
+  - name: show_list
+    description: Show all items in the terminal's configured list. The list ID is locked to the terminal's configuration.
+    parameters:
+      type: object
+      properties: {}
+      required: []
+      examples:
+        - {show_list: {}}
+
+  - name: add_item
+    description: Add a new item to the terminal's configured list
+    parameters:
+      type: object
+      properties:
+        text:
+          type: string
+          description: Text description of the item to add
+      required: [text]
+      examples:
+        - {add_item: {text: "Buy groceries"}}
+        - {add_item: {text: "Review PR #123"}}
+
+  - name: check_item
+    description: Mark an item as complete in the terminal's configured list
+    parameters:
+      type: object
+      properties:
+        item_id:
+          type: string
+          description: ID of the item to mark complete
+      required: [item_id]
+      examples:
+        - {check_item: {item_id: "1"}}
+        - {check_item: {item_id: "task_abc"}}
+
+implementation:
+  module: aim.tool.impl.container_mcp
+  class: ContainerMCPTool

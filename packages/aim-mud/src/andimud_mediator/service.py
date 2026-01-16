@@ -30,6 +30,7 @@ from typing import Optional
 
 import redis.asyncio as redis
 
+from aim.config import ChatConfig
 from aim_mud_types.helper import _utc_now
 
 from .config import MediatorConfig
@@ -72,6 +73,7 @@ class MediatorService(AgentsMixin, EventsMixin, DreamerMixin, PlannerMixin):
         """
         self.redis = redis_client
         self.config = config or MediatorConfig()
+        self.chat_config = ChatConfig.from_env()
         self.running = False
 
         # Agent tracking

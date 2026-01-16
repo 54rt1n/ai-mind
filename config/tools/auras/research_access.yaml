@@ -1,0 +1,33 @@
+type: container_mcp
+description: Knowledge base research tools via container-mcp sandbox
+
+functions:
+  - name: research
+    description: Search the knowledge base for documents matching a query
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: Search query string
+      required: [query]
+      examples:
+        - {research: {query: "python asyncio"}}
+        - {research: {query: "memory systems architecture"}}
+
+  - name: read_doc
+    description: Read a document from the knowledge base by its ID
+    parameters:
+      type: object
+      properties:
+        doc_id:
+          type: string
+          description: Document identifier
+      required: [doc_id]
+      examples:
+        - {read_doc: {doc_id: "doc_12345"}}
+        - {read_doc: {doc_id: "memory_systems_overview"}}
+
+implementation:
+  module: aim.tool.impl.container_mcp
+  class: ContainerMCPTool

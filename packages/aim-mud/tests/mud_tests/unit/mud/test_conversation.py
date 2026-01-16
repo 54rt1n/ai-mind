@@ -59,6 +59,7 @@ def mock_redis():
     redis.lpop = AsyncMock(return_value=None)
     redis.lindex = AsyncMock(return_value=None)
     redis.lset = AsyncMock(return_value=True)
+    redis.llen = AsyncMock(return_value=0)
     redis.delete = AsyncMock(return_value=1)
 
     # Mock pipeline for batch operations
@@ -277,9 +278,9 @@ class TestMUDConversationManagerPushUserTurn:
         # Regular event should be in third person
         assert 'Prax says, "Hello there!"' in entry.content
 
-        # Self-action guidance should be preserved as-is
-        assert "You just moved to: The Kitchen" in entry.content
-        assert "!! IMPORTANT: YOUR RECENT ACTION !!" in entry.content
+        # Self-action guidance should be preserved as-is (new format)
+        assert "Now you are at" in entry.content
+        assert "[== Your Turn ==]" in entry.content
 
         # Should NOT contain third-person self-action
         assert "*You see Andi has arrived.*" not in entry.content
@@ -323,9 +324,9 @@ class TestMUDConversationManagerPushUserTurn:
             room_name="The Garden",
         )
 
-        # Self-action guidance should be preserved as-is
-        assert "You picked up: flower" in entry.content
-        assert "!! IMPORTANT: YOUR RECENT ACTION !!" in entry.content
+        # Self-action guidance should be preserved as-is (new format)
+        assert "When you decided to pick up: flower" in entry.content
+        assert "[== Your Turn ==]" in entry.content
 
         # Should NOT contain third-person format
         assert "*Andi picks up a flower*" not in entry.content

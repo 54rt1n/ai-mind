@@ -146,6 +146,20 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
             if tool and tool.function and tool.function.name
         ]
 
+    def is_aura_tool(self, tool_name: str) -> bool:
+        """Check if tool_name came from an aura.
+
+        Args:
+            tool_name: Name of the tool to check.
+
+        Returns:
+            True if the tool is from an aura, False otherwise.
+        """
+        return any(
+            getattr(tool.function, "name", None) == tool_name
+            for tool in self._aura_tools
+        )
+
     def _refresh_tool_user(self) -> None:
         """Rebuild ToolUser with current tool filters."""
         if not self._base_tools:

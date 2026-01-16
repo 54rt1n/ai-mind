@@ -42,6 +42,8 @@ def mock_redis():
     redis.expire = AsyncMock(return_value=True)
     redis.eval = AsyncMock(return_value=1)  # CAS success
     redis.incr = AsyncMock(side_effect=lambda key: 1)  # Sequence counter
+    # Default stream info: empty streams (no activity)
+    redis.xinfo_stream = AsyncMock(return_value={"last-generated-id": b"0-0"})
     return redis
 
 
@@ -146,6 +148,12 @@ class TestIdleDetection:
 
             mock_redis.hgetall = AsyncMock(side_effect=hgetall_side_effect)
 
+            # Mock stream with old activity (400 seconds ago, past 300s threshold)
+            idle_time_ms = int((_utc_now() - timedelta(seconds=400)).timestamp() * 1000)
+            mock_redis.xinfo_stream = AsyncMock(return_value={
+                "last-generated-id": f"{idle_time_ms}-0".encode()
+            })
+
             # Set cooldown to allow check
             mediator._last_auto_analysis_check = _utc_now() - timedelta(seconds=120)
 
@@ -155,7 +163,7 @@ class TestIdleDetection:
             ) as mock_scan:
                 await mediator._check_auto_analysis_trigger()
 
-                # Should trigger (andi is sleeping, val is idle with completed_at)
+                # Should trigger (andi is sleeping, val is idle, streams show old activity)
                 mock_scan.assert_called_once()
 
     @pytest.mark.asyncio
@@ -248,8 +256,6 @@ class TestIdleDetection:
         mediator = MediatorService(mock_redis, mediator_config)
         mediator.register_agent("andi")
 
-        # ready_turn_request fixture has completed_at 400 seconds ago (past threshold)
-
         # Mock ready agent and no sleeping state
         def hgetall_side_effect(key):
             key_str = key.decode() if isinstance(key, bytes) else key
@@ -258,6 +264,12 @@ class TestIdleDetection:
             return ready_turn_request
 
         mock_redis.hgetall = AsyncMock(side_effect=hgetall_side_effect)
+
+        # Mock stream with activity 400 seconds ago (past 300s threshold)
+        idle_time_ms = int((_utc_now() - timedelta(seconds=400)).timestamp() * 1000)
+        mock_redis.xinfo_stream = AsyncMock(return_value={
+            "last-generated-id": f"{idle_time_ms}-0".encode()
+        })
 
         # Set cooldown to allow check
         mediator._last_auto_analysis_check = _utc_now() - timedelta(seconds=120)
@@ -405,6 +417,12 @@ class TestIdleDetection:
 
         mock_redis.hgetall = AsyncMock(side_effect=hgetall_side_effect)
 
+        # Mock stream with activity 400 seconds ago (past 300s threshold)
+        idle_time_ms = int((_utc_now() - timedelta(seconds=400)).timestamp() * 1000)
+        mock_redis.xinfo_stream = AsyncMock(return_value={
+            "last-generated-id": f"{idle_time_ms}-0".encode()
+        })
+
         # Set cooldown to allow check
         mediator._last_auto_analysis_check = _utc_now() - timedelta(seconds=120)
 
@@ -428,7 +446,8 @@ class TestIdleDetection:
 
         # Mock sleeping agent
         def hgetall_side_effect(key):
-            if b"profile" in key or "profile" in key:
+            key_str = key.decode() if isinstance(key, bytes) else key
+            if "profile" in key_str:
                 return {b"is_sleeping": b"true"}
             return {b"status": b"ready", b"turn_id": b"prev-turn"}
 
@@ -438,6 +457,12 @@ class TestIdleDetection:
         mock_redis.get = AsyncMock(
             return_value=json.dumps(sample_conversation_report).encode()
         )
+
+        # Mock stream with old activity (to pass idle detection)
+        idle_time_ms = int((_utc_now() - timedelta(seconds=400)).timestamp() * 1000)
+        mock_redis.xinfo_stream = AsyncMock(return_value={
+            "last-generated-id": f"{idle_time_ms}-0".encode()
+        })
 
         # Mock _handle_analysis_command
         with patch.object(
@@ -839,11 +864,9 @@ class TestStateManagement:
     async def test_idle_detection_uses_completed_at(
         self, mock_redis, mediator_config, ready_turn_request
     ):
-        """Test that idle detection uses completed_at from turn_request."""
+        """Test that idle detection uses stream timestamps (not completed_at)."""
         mediator = MediatorService(mock_redis, mediator_config)
         mediator.register_agent("andi")
-
-        # ready_turn_request has completed_at 400 seconds ago
 
         # Mock idle agent
         def hgetall_side_effect(key):
@@ -854,6 +877,12 @@ class TestStateManagement:
 
         mock_redis.hgetall = AsyncMock(side_effect=hgetall_side_effect)
 
+        # Mock stream with activity 400 seconds ago (past 300s threshold)
+        idle_time_ms = int((_utc_now() - timedelta(seconds=400)).timestamp() * 1000)
+        mock_redis.xinfo_stream = AsyncMock(return_value={
+            "last-generated-id": f"{idle_time_ms}-0".encode()
+        })
+
         # Set cooldown to allow check
         mediator._last_auto_analysis_check = _utc_now() - timedelta(seconds=120)
 
@@ -863,7 +892,7 @@ class TestStateManagement:
             ) as mock_scan:
                 await mediator._check_auto_analysis_trigger()
 
-                # Should trigger based on completed_at timestamp
+                # Should trigger based on stream timestamp
                 mock_scan.assert_called_once()
 
     @pytest.mark.asyncio
@@ -915,6 +944,12 @@ class TestStateManagement:
 
         mock_redis.hgetall = AsyncMock(side_effect=hgetall_side_effect)
 
+        # Mock stream with activity 400 seconds ago (past 300s threshold)
+        idle_time_ms = int((_utc_now() - timedelta(seconds=400)).timestamp() * 1000)
+        mock_redis.xinfo_stream = AsyncMock(return_value={
+            "last-generated-id": f"{idle_time_ms}-0".encode()
+        })
+
         with patch.object(mediator, '_is_paused', return_value=False):
             with patch.object(
                 mediator, '_scan_for_unanalyzed_conversations'
@@ -940,8 +975,6 @@ class TestStateManagement:
         mediator = MediatorService(mock_redis, mediator_config)
         mediator.register_agent("andi")
 
-        # ready_turn_request has completed_at 400 seconds ago (past threshold)
-
         # Mock idle agent
         def hgetall_side_effect(key):
             key_str = key.decode() if isinstance(key, bytes) else key
@@ -950,6 +983,12 @@ class TestStateManagement:
             return ready_turn_request
 
         mock_redis.hgetall = AsyncMock(side_effect=hgetall_side_effect)
+
+        # Mock stream with activity 400 seconds ago (past 300s threshold)
+        idle_time_ms = int((_utc_now() - timedelta(seconds=400)).timestamp() * 1000)
+        mock_redis.xinfo_stream = AsyncMock(return_value={
+            "last-generated-id": f"{idle_time_ms}-0".encode()
+        })
 
         with patch.object(mediator, '_is_paused', return_value=False):
             with patch.object(

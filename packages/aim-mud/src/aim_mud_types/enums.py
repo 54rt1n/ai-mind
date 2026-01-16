@@ -19,6 +19,7 @@ class EventType(str, Enum):
         OBJECT: An object being manipulated (get, drop, give).
         AMBIENT: Environmental or atmospheric events.
         NOTIFICATION: Interactive/environmental notifications (e.g., doorbells).
+        TERMINAL: Terminal tool execution events (code, web, research, etc.).
         SYSTEM: System messages (login, logout, errors).
     """
 
@@ -29,6 +30,7 @@ class EventType(str, Enum):
     OBJECT = "object"
     AMBIENT = "ambient"
     NOTIFICATION = "notification"
+    TERMINAL = "terminal"
     SYSTEM = "system"
 
 

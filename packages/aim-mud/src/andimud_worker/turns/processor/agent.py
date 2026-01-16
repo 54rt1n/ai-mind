@@ -97,15 +97,22 @@ class AgentTurnProcessor(BaseTurnProcessor):
             return
         room = self.worker.session.current_room
         auras = []
+        aura_source_ids: dict[str, str] = {}
         for aura in getattr(room, "auras", []) or []:
             if isinstance(aura, dict):
                 name = aura.get("name")
+                source_id = aura.get("source_id", "")
             else:
                 name = getattr(aura, "name", None)
+                source_id = getattr(aura, "source_id", "")
             if name:
                 auras.append(name)
+                if source_id:
+                    aura_source_ids[name.lower()] = source_id
         if auras and hasattr(self._tool_helper, "update_aura_tools"):
-            self._tool_helper.update_aura_tools(auras, self.worker.chat_config.tools_path)
+            self._tool_helper.update_aura_tools(
+                auras, self.worker.chat_config.tools_path, aura_source_ids
+            )
         elif hasattr(self._tool_helper, "update_aura_tools"):
             self._tool_helper.update_aura_tools([], self.worker.chat_config.tools_path)
 
@@ -314,6 +321,13 @@ class AgentTurnProcessor(BaseTurnProcessor):
                         logger.warning("Agent ring invalid target '%s'; no action emitted", obj)
                         continue
                     action_obj = MUDAction(tool="ring", args={"object": obj})
+                    actions_taken.append(action_obj)
+                    await self.worker._emit_actions(actions_taken)
+                    break
+
+                # Check if it's an aura tool - just emit the action, Evennia executes
+                if self._tool_helper.is_aura_tool(action):
+                    action_obj = MUDAction(tool=action, args=args)
                     actions_taken.append(action_obj)
                     await self.worker._emit_actions(actions_taken)
                     break

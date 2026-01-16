@@ -88,7 +88,7 @@ class TurnsMixin:
         """
         if not self._agent_action_spec:
             return []
-        actions = self._agent_action_spec.get("actions", [])
+        actions = self._agent_action_spec.get("functions", [])
         return actions if isinstance(actions, list) else []
 
     def _resolve_target_name(self: "MUDAgentWorker", target_id: str) -> str:
@@ -306,18 +306,6 @@ class TurnsMixin:
                     )
                     continue
 
-                if tool_name == "ring":
-                    result = validate_ring(self.session, args)
-                    if result.is_valid:
-                        return "ring", result.args, last_response, last_thinking, last_cleaned
-                    turns.append({"role": "assistant", "content": response})
-                    turns.append({"role": "user", "content": result.guidance})
-                    logger.warning(
-                        "Invalid ring; retrying with guidance (attempt %d/%d)",
-                        attempt + 1, self.config.decision_max_retries,
-                    )
-                    continue
-
                 if tool_name == "emote":
                     result = validate_emote(args)
                     if result.is_valid:
@@ -361,6 +349,23 @@ class TurnsMixin:
 
                     # Return plan_update result - processor will handle appropriately
                     return "plan_update", tool_result, last_response, last_thinking, last_cleaned
+
+                # Generic aura tool handling - all aura tools emit MUDActions
+                if self._decision_strategy.is_aura_tool(tool_name):
+                    # For ring specifically, validate targets
+                    if tool_name == "ring":
+                        result = validate_ring(self.session, args)
+                        if not result.is_valid:
+                            turns.append({"role": "assistant", "content": response})
+                            turns.append({"role": "user", "content": result.guidance})
+                            logger.warning(
+                                "Invalid ring; retrying with guidance (attempt %d/%d)",
+                                attempt + 1, self.config.decision_max_retries,
+                            )
+                            continue
+                        args = result.args
+                    # All aura tools pass through - processor will emit MUDAction
+                    return tool_name, args, last_response, last_thinking, last_cleaned
 
                 # Unexpected tool - give guidance and retry
                 error_guidance = (

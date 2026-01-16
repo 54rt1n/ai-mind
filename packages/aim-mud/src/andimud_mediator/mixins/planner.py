@@ -7,7 +7,7 @@ from aim_mud_types import MUDEvent, EventType, TurnRequestStatus, TurnReason
 from aim_mud_types.client import RedisMUDClient
 from aim_mud_types.plan import PlanStatus
 
-from ..patterns import PLANNER_PATTERN, PLAN_PATTERN, UPDATE_PATTERN
+from ..patterns import PLANNER_PATTERN, PLAN_PATTERN, UPDATE_PATTERN, normalize_agent_id
 
 logger = logging.getLogger(__name__)
 
@@ -218,7 +218,7 @@ class PlannerMixin:
         # Try @planner command
         match = PLANNER_PATTERN.match(content)
         if match:
-            agent_id = match.group(1).lower()
+            agent_id = normalize_agent_id(match.group(1))
             enabled = match.group(2).lower() == "on"
             await self._handle_planner_toggle(agent_id, enabled)
             return True
@@ -226,7 +226,7 @@ class PlannerMixin:
         # Try @plan command
         match = PLAN_PATTERN.match(content)
         if match:
-            agent_id = match.group(1).lower()
+            agent_id = normalize_agent_id(match.group(1))
             objective = match.group(2).strip()
             await self._handle_plan_command(agent_id, objective)
             return True
@@ -234,7 +234,7 @@ class PlannerMixin:
         # Try @update command
         match = UPDATE_PATTERN.match(content)
         if match:
-            agent_id = match.group(1).lower()
+            agent_id = normalize_agent_id(match.group(1))
             guidance = match.group(2).strip()
             await self._handle_update_command(agent_id, guidance)
             return True

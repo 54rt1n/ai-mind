@@ -1,0 +1,21 @@
+type: container_mcp
+description: Market/trading data tools via container-mcp sandbox
+
+functions:
+  - name: stock_quote
+    description: Get a stock or cryptocurrency quote
+    parameters:
+      type: object
+      properties:
+        symbol:
+          type: string
+          description: Stock or cryptocurrency symbol (e.g., AAPL, BTC-USD)
+      required: [symbol]
+      examples:
+        - {stock_quote: {symbol: "AAPL"}}
+        - {stock_quote: {symbol: "BTC-USD"}}
+        - {stock_quote: {symbol: "MSFT"}}
+
+implementation:
+  module: aim.tool.impl.container_mcp
+  class: ContainerMCPTool

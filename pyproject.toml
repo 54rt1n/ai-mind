@@ -23,6 +23,7 @@ dependencies = [
     "psutil",
     "torchvision",
     "semver",
+    "mcp[cli]>=1.25.0",
 ]
 
 [project.optional-dependencies]

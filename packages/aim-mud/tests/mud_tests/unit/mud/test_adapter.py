@@ -185,6 +185,7 @@ class TestFormatEvent:
             actor="Prax",
             room_id="#123",
             content="enters from the north",
+            metadata={"source_room_name": "the north"},
         )
         result = format_event(event)
         assert result == "*You see Prax arriving from the north.*"
@@ -207,6 +208,7 @@ class TestFormatEvent:
             actor="Prax",
             room_id="#123",
             content="leaves to the north",
+            metadata={"destination_room_name": "the north"},
         )
         result = format_event(event)
         assert result == "*You see Prax leaving toward the north.*"
@@ -221,6 +223,7 @@ class TestFormatEvent:
             room_id="room2",
             room_name="Kitchen",
             content="arrived from Garden",
+            metadata={"source_room_name": "Garden"},
         )
         result = format_event(event)
         assert result == "*You see Andi arriving from Garden.*"
@@ -237,6 +240,7 @@ class TestFormatEvent:
             room_id="room1",
             room_name="Garden",
             content="left to Kitchen",
+            metadata={"destination_room_name": "Kitchen"},
         )
         result = format_event(event)
         assert result == "*You see Nova leaving toward Kitchen.*"
@@ -281,6 +285,7 @@ class TestFormatEvent:
             room_id="room2",
             room_name="Kitchen",
             content="entered from the north",
+            metadata={"source_room_name": "the north"},
         )
         result = format_event(event)
         assert "arriving from the north" in result
@@ -296,6 +301,7 @@ class TestFormatEvent:
             room_id="room3",
             room_name="Great Hall",
             content="arrived from the Ancient Library of Whispers",
+            metadata={"source_room_name": "the Ancient Library of Whispers"},
         )
         result = format_event(event)
         assert "Ancient Library of Whispers" in result
@@ -311,6 +317,7 @@ class TestFormatEvent:
             room_id="room1",
             room_name="Garden",
             content="left to the Sacred Grove of Contemplation",
+            metadata={"destination_room_name": "the Sacred Grove of Contemplation"},
         )
         result = format_event(event)
         assert "Sacred Grove of Contemplation" in result
@@ -323,6 +330,7 @@ class TestFormatEvent:
             actor="Andi",
             room_id="room1",
             content="ARRIVED from Garden",  # Uppercase
+            metadata={"source_room_name": "Garden"},
         )
         result = format_event(event)
         assert "arriving from Garden" in result
@@ -334,6 +342,7 @@ class TestFormatEvent:
             actor="Nova",
             room_id="room1",
             content="LEAVES to Kitchen",  # Uppercase
+            metadata={"destination_room_name": "Kitchen"},
         )
         result = format_event(event)
         assert "leaving toward Kitchen" in result
@@ -379,14 +388,15 @@ class TestFormatEvent:
             room_id="#123",
             room_name="The Kitchen",
             content="enters from the west",
+            metadata={"source_room_name": "the west"},
         )
         # Third person (default) - now shows location info
         result_third = format_event(event)
         assert result_third == "*You see Andi arriving from the west.*"
 
-        # First person (delegates to format_self_event)
+        # First person (delegates to format_self_event) - uses destination metadata
         result_first = format_event(event, first_person=True)
-        assert result_first == "You moved to The Kitchen."
+        assert result_first == "You successfully moved to somewhere."
 
     def test_format_event_first_person_object(self):
         """Test format_event with first_person=True for object events."""
@@ -403,7 +413,7 @@ class TestFormatEvent:
 
         # First person (delegates to format_self_event)
         result_first = format_event(event, first_person=True)
-        assert result_first == "You picked up golden key."
+        assert result_first == "You successfully picked up golden key."
 
 
 class TestFormatTurnEvents:
@@ -798,18 +808,14 @@ class TestFormatSelfActionGuidance:
 
         # Check for visual separators
         assert "═" * 60 in result
-        # Check for header
-        assert "!! IMPORTANT: YOUR RECENT ACTION !!" in result
-        # Check for action type
-        assert "Action Type: MOVEMENT" in result
-        # Check for explicit location statements (source and destination)
-        assert "You just moved from: somewhere" in result  # No source metadata, defaults to "somewhere"
-        assert "You just moved to: The Kitchen" in result
+        # Check for header (new format)
+        assert "[== Your Turn ==]" in result
+        # Check for movement narrative
+        assert "You started at somewhere" in result  # No source metadata, defaults to "somewhere"
+        assert "You decided to move to a new location" in result
+        assert "You begin walking and arrive at your destination without incident" in result
         # Check for current location
-        assert "CURRENT LOCATION: The Kitchen" in result
-        # Check for contextual reminder
-        assert "This is your new location" in result
-        assert "physically moved" in result
+        assert "Now you are at somewhere" in result  # No destination metadata, defaults to "somewhere"
 
     def test_single_object_pickup_action_no_inventory(self):
         """Test single object pickup with no inventory information."""
@@ -824,14 +830,14 @@ class TestFormatSelfActionGuidance:
 
         # Check for visual separators
         assert "═" * 60 in result
-        # Check for header
-        assert "!! IMPORTANT: YOUR RECENT ACTION !!" in result
-        # Check for action type
-        assert "Action Type: OBJECT INTERACTION" in result
-        # Check for explicit action statement
-        assert "You picked up: Golden Key" in result
+        # Check for header (new format)
+        assert "[== Your Turn ==]" in result
+        # Check for pickup narrative
+        assert "When you decided to pick up: Golden Key" in result
+        assert "You reached out and picked up Golden Key" in result
+        assert "and you now have Golden Key in your possession" in result
         # Check for inventory (should be "none" without world_state)
-        assert "CURRENT INVENTORY: none" in result
+        assert "You are now carrying: none" in result
 
     def test_single_object_pickup_action_with_inventory(self):
         """Test single object pickup with inventory information."""
@@ -850,8 +856,8 @@ class TestFormatSelfActionGuidance:
         )
         result = format_self_action_guidance([event], world_state=world_state)
 
-        # Check for current inventory
-        assert "CURRENT INVENTORY: Silver Coin, Golden Key" in result
+        # Check for current inventory (new format)
+        assert "You are now carrying: Silver Coin, Golden Key" in result
 
     def test_single_object_drop_action(self):
         """Test single object drop action."""
@@ -865,8 +871,8 @@ class TestFormatSelfActionGuidance:
         world_state = WorldState(inventory=[InventoryItem(name="Golden Key")])
         result = format_self_action_guidance([event], world_state=world_state)
 
-        assert "You dropped: Silver Coin" in result
-        assert "CURRENT INVENTORY: Golden Key" in result
+        assert "When you decided to drop: Silver Coin" in result
+        assert "You are now carrying: Golden Key" in result
 
     def test_single_object_give_action(self):
         """Test single object give action."""
@@ -880,8 +886,8 @@ class TestFormatSelfActionGuidance:
         )
         result = format_self_action_guidance([event])
 
-        assert "You gave Silver Coin to Prax" in result
-        assert "CURRENT INVENTORY: none" in result
+        assert "When you decided to give Silver Coin to Prax" in result
+        assert "You are now carrying: none" in result
 
     def test_single_object_put_action(self):
         """Test single object put action."""
@@ -895,8 +901,8 @@ class TestFormatSelfActionGuidance:
         )
         result = format_self_action_guidance([event])
 
-        assert "You put Silver Coin in chest" in result
-        assert "CURRENT INVENTORY: none" in result
+        assert "When you decided to put Silver Coin in/on chest" in result
+        assert "You are now carrying: none" in result
 
     def test_single_emote_action(self):
         """Test single emote action."""
@@ -908,8 +914,9 @@ class TestFormatSelfActionGuidance:
         )
         result = format_self_action_guidance([event])
 
-        assert "Action Type: EMOTE" in result
-        assert "You expressed: smiles warmly" in result
+        assert "[== Your Turn ==]" in result
+        assert "You acted out an expression for everyone to see" in result
+        assert "You successfully expressed: smiles warmly" in result
 
     def test_multiple_actions_movement_and_object(self):
         """Test multiple actions with both movement and object interaction."""
@@ -930,19 +937,16 @@ class TestFormatSelfActionGuidance:
         world_state = WorldState(inventory=[InventoryItem(name="Golden Key")])
         result = format_self_action_guidance([event1, event2], world_state=world_state)
 
-        # Check for plural header
-        assert "!! IMPORTANT: YOUR RECENT ACTIONS !!" in result
-        # Check for numbered list (now includes source and destination)
-        assert "1. MOVEMENT: You moved from somewhere to The Kitchen" in result
-        assert "→ Current Location: The Kitchen" in result
-        assert "2. OBJECT: You picked up Golden Key" in result
-        assert "→ Current Inventory: Golden Key" in result
+        # Check for plural header (new format)
+        assert "!! CONGRATULATIONS: YOU WERE SUCCESSFUL !!" in result
+        # Check for numbered list
+        assert "1. You successfully moved from somewhere to somewhere" in result
+        assert "2. You successfully picked up Golden Key" in result
+        assert "You are now carrying: Golden Key" in result
         # Check for summary
-        assert "You have taken multiple actions" in result
-        assert "Your location and inventory" in result
-        assert "have changed" in result
-        assert "You are now in The Kitchen" in result
-        assert "Carrying: Golden Key" in result
+        assert "You have successfully taken multiple actions and your actions have been reflected in the world" in result
+        assert "You are now in somewhere" in result
+        assert "You are now carrying: Golden Key" in result
 
     def test_multiple_actions_only_movement(self):
         """Test multiple movement actions."""
@@ -963,10 +967,10 @@ class TestFormatSelfActionGuidance:
         result = format_self_action_guidance([event1, event2])
 
         # Now includes source location (defaults to "somewhere" without metadata)
-        assert "1. MOVEMENT: You moved from somewhere to The Kitchen" in result
-        assert "2. MOVEMENT: You moved from somewhere to The Parlor" in result
-        assert "You have moved between multiple locations" in result
-        assert "You are now in The Parlor" in result
+        assert "1. You successfully moved from somewhere to somewhere" in result
+        assert "2. You successfully moved from somewhere to somewhere" in result
+        assert "You have successfully moved between multiple locations" in result
+        assert "You are now in somewhere" in result
 
     def test_multiple_actions_only_objects(self):
         """Test multiple object interaction actions."""
@@ -992,10 +996,10 @@ class TestFormatSelfActionGuidance:
         )
         result = format_self_action_guidance([event1, event2], world_state=world_state)
 
-        assert "1. OBJECT: You picked up Golden Key" in result
-        assert "2. OBJECT: You picked up Silver Coin" in result
-        assert "You have performed multiple object interactions" in result
-        assert "Carrying: Golden Key, Silver Coin" in result
+        assert "1. You successfully picked up Golden Key" in result
+        assert "2. You successfully picked up Silver Coin" in result
+        assert "You have successfully performed multiple object interactions" in result
+        assert "You are now carrying: Golden Key, Silver Coin" in result
 
     def test_visual_separator_length(self):
         """Test that visual separator is exactly 60 characters."""
@@ -1021,12 +1025,12 @@ class TestFormatSelfActionGuidance:
             actor="Andi",
             room_id="#124",
             content="enters from the south",
-            metadata={"room_name": "The Ballroom"},
+            metadata={"destination_room_name": "The Ballroom"},
         )
         result = format_self_action_guidance([event])
 
-        # Should use room_name from metadata if room_name field is None
-        assert "The Ballroom" in result
+        # Should use destination_room_name from metadata
+        assert "Now you are at The Ballroom" in result
 
     def test_object_with_container_metadata(self):
         """Test object action with container in metadata."""
@@ -1040,7 +1044,6 @@ class TestFormatSelfActionGuidance:
         )
         result = format_self_action_guidance([event])
 
-        # Should extract container from metadata
-        # Note: This tests the "take" action which doesn't show container in summary
-        # but the metadata is available
-        assert "You picked up: Silver Coin" in result
+        # Metadata is available but single-action guidance uses generic pickup narrative
+        assert "When you decided to pick up: Silver Coin" in result
+        assert "You reached out and picked up Silver Coin" in result

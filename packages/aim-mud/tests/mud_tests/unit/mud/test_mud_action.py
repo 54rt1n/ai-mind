@@ -206,3 +206,91 @@ class TestMUDActionToRedisDict:
 
         assert result["command"] == "get key, eagerly"
         assert result["args"]["mood"] == "eagerly"
+
+
+class TestMUDActionAuraTools:
+    """Tests for aura tool command generation."""
+
+    def test_py_exec_basic(self):
+        """Test basic py_exec command."""
+        action = MUDAction(tool="py_exec", args={"code": "print(2 + 2)"})
+        assert action.to_command() == "py_exec print(2 + 2)"
+
+    def test_py_exec_with_newlines(self):
+        """Test py_exec escapes newlines in code."""
+        action = MUDAction(tool="py_exec", args={"code": "x = 1\nprint(x)"})
+        assert action.to_command() == "py_exec x = 1\\nprint(x)"
+
+    def test_py_exec_multiline(self):
+        """Test py_exec with complex multi-line code."""
+        code = """def hello():
+    print("Hello")
+hello()"""
+        action = MUDAction(tool="py_exec", args={"code": code})
+        expected = "py_exec def hello():\\n    print(\"Hello\")\\nhello()"
+        assert action.to_command() == expected
+
+    def test_bash_exec_basic(self):
+        """Test basic bash_exec command."""
+        action = MUDAction(tool="bash_exec", args={"command": "ls -la"})
+        assert action.to_command() == "bash_exec ls -la"
+
+    def test_bash_exec_with_pipes(self):
+        """Test bash_exec with piped commands."""
+        action = MUDAction(tool="bash_exec", args={"command": "cat file.txt | grep error"})
+        assert action.to_command() == "bash_exec cat file.txt | grep error"
+
+    def test_web_search_basic(self):
+        """Test basic web_search command."""
+        action = MUDAction(tool="web_search", args={"query": "python asyncio tutorial"})
+        assert action.to_command() == "web_search python asyncio tutorial"
+
+    def test_visit_webpage(self):
+        """Test visit_webpage command."""
+        action = MUDAction(tool="visit_webpage", args={"url": "https://example.com"})
+        assert action.to_command() == "visit_webpage https://example.com"
+
+    def test_get_feed(self):
+        """Test get_feed command."""
+        action = MUDAction(tool="get_feed", args={})
+        assert action.to_command() == "get_feed"
+
+    def test_research(self):
+        """Test research command."""
+        action = MUDAction(tool="research", args={"query": "machine learning basics"})
+        assert action.to_command() == "research machine learning basics"
+
+    def test_read_doc(self):
+        """Test read_doc command."""
+        action = MUDAction(tool="read_doc", args={"doc_id": "doc-123"})
+        assert action.to_command() == "read_doc doc-123"
+
+    def test_show_list(self):
+        """Test show_list command."""
+        action = MUDAction(tool="show_list", args={})
+        assert action.to_command() == "show_list"
+
+    def test_add_item(self):
+        """Test add_item command."""
+        action = MUDAction(tool="add_item", args={"text": "Buy groceries"})
+        assert action.to_command() == "add_item Buy groceries"
+
+    def test_check_item(self):
+        """Test check_item command."""
+        action = MUDAction(tool="check_item", args={"item_id": "item-456"})
+        assert action.to_command() == "check_item item-456"
+
+    def test_stock_quote(self):
+        """Test stock_quote command."""
+        action = MUDAction(tool="stock_quote", args={"symbol": "AAPL"})
+        assert action.to_command() == "stock_quote AAPL"
+
+    def test_py_exec_to_redis_dict(self):
+        """Test py_exec in to_redis_dict."""
+        action = MUDAction(tool="py_exec", args={"code": "print('hello')"})
+        result = action.to_redis_dict("andi")
+
+        assert result["agent_id"] == "andi"
+        assert result["command"] == "py_exec print('hello')"
+        assert result["tool"] == "py_exec"
+        assert result["args"]["code"] == "print('hello')"

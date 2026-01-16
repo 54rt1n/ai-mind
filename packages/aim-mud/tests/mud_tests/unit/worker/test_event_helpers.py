@@ -338,5 +338,6 @@ class TestDrainWithSettle:
         await initialized_worker._drain_with_settle()
 
         # Assert - verify REAL code called sleep with correct duration
-        assert len(sleep_called) == 1
-        assert sleep_called[0] == initialized_worker.config.event_settle_seconds
+        # Implementation now sleeps twice: once after first batch, once after second (empty) batch
+        assert len(sleep_called) == 2
+        assert all(s == initialized_worker.config.event_settle_seconds for s in sleep_called)

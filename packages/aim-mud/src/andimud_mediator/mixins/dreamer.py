@@ -10,7 +10,7 @@ from aim_mud_types import MUDEvent, EventType, TurnRequestStatus, TurnReason
 from ..patterns import (
     DREAMER_PATTERN, ANALYZE_PATTERN, SUMMARY_PATTERN, JOURNAL_PATTERN,
     PONDER_PATTERN, DAYDREAM_PATTERN, CRITIQUE_PATTERN, RESEARCH_PATTERN,
-    COMMAND_TO_SCENARIO,
+    COMMAND_TO_SCENARIO, normalize_agent_id,
 )
 
 logger = logging.getLogger(__name__)
@@ -272,7 +272,7 @@ class DreamerMixin:
         # Try @analyze command (requires conversation_id)
         match = ANALYZE_PATTERN.match(content)
         if match:
-            agent_id = match.group(1).lower()
+            agent_id = normalize_agent_id(match.group(1))
             conversation_id = match.group(2).strip()
             guidance = match.group(3).strip() if match.group(3) else None
             await self._handle_analysis_command(
@@ -283,7 +283,7 @@ class DreamerMixin:
         # Try @summary command (requires conversation_id)
         match = SUMMARY_PATTERN.match(content)
         if match:
-            agent_id = match.group(1).lower()
+            agent_id = normalize_agent_id(match.group(1))
             conversation_id = match.group(2).strip()
             await self._handle_analysis_command(
                 agent_id, "summarizer", conversation_id, None
@@ -300,7 +300,7 @@ class DreamerMixin:
         ]:
             match = pattern.match(content)
             if match:
-                agent_id = match.group(1).lower()
+                agent_id = normalize_agent_id(match.group(1))
                 query = match.group(2).strip() if match.group(2) else None
                 guidance = match.group(3).strip() if match.group(3) else None
                 await self._handle_creative_command(
@@ -314,7 +314,7 @@ class DreamerMixin:
         # Try @dreamer command
         match = DREAMER_PATTERN.match(content)
         if match:
-            agent_id = match.group(1).lower()
+            agent_id = normalize_agent_id(match.group(1))
             enabled = match.group(2).lower() == "on"
             await self._handle_dreamer_command(agent_id, enabled)
             return True

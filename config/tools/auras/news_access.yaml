@@ -1,0 +1,16 @@
+type: container_mcp
+description: News/RSS feed access tools via container-mcp sandbox
+
+functions:
+  - name: get_feed
+    description: Get news articles from the configured RSS feed. The feed URL is locked to the terminal's configuration.
+    parameters:
+      type: object
+      properties: {}
+      required: []
+      examples:
+        - {get_feed: {}}
+
+implementation:
+  module: aim.tool.impl.container_mcp
+  class: ContainerMCPTool

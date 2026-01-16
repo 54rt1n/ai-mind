@@ -1,0 +1,62 @@
+type: container_mcp
+description: Web access tools via container-mcp sandbox
+
+functions:
+  - name: web_search
+    description: Search the web using a search engine
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: The search query
+      required: [query]
+      examples:
+        - {web_search: {query: "latest news about AI"}}
+        - {web_search: {query: "python asyncio tutorial"}}
+
+  - name: web_scrape
+    description: Scrape content from a specific URL
+    parameters:
+      type: object
+      properties:
+        url:
+          type: string
+          description: The URL to scrape
+        selector:
+          type: string
+          description: Optional CSS selector to target specific content
+      required: [url]
+      examples:
+        - {web_scrape: {url: "https://example.com"}}
+        - {web_scrape: {url: "https://news.ycombinator.com", selector: ".titleline"}}
+
+  - name: web_browse
+    description: Browse a website interactively with Playwright (renders JavaScript)
+    parameters:
+      type: object
+      properties:
+        url:
+          type: string
+          description: The URL to browse
+      required: [url]
+      examples:
+        - {web_browse: {url: "https://example.com"}}
+        - {web_browse: {url: "https://github.com"}}
+
+  - name: visit_webpage
+    description: Visit a webpage and retrieve its content
+    parameters:
+      type: object
+      properties:
+        url:
+          type: string
+          description: The URL to visit
+      required: [url]
+      examples:
+        - {visit_webpage: {url: "https://example.com"}}
+        - {visit_webpage: {url: "https://news.ycombinator.com"}}
+
+implementation:
+  module: aim.tool.impl.container_mcp
+  class: ContainerMCPTool

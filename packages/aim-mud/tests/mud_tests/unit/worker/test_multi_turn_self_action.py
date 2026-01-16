@@ -54,6 +54,10 @@ def mock_redis():
     """Create a mock async Redis client for stream operations."""
     redis = AsyncMock()
     redis.lrange = AsyncMock(return_value=[])
+    redis.llen = AsyncMock(return_value=0)
+    redis.lindex = AsyncMock(return_value=None)
+    redis.lset = AsyncMock(return_value=True)
+    redis.rpush = AsyncMock(return_value=1)
     redis.xadd = AsyncMock(return_value=b"1234567890-0")
     redis.xread = AsyncMock(return_value=[])
     redis.xrange = AsyncMock(return_value=[])

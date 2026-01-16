@@ -311,5 +311,173 @@ functions:
         assert "plan_update" not in xml_content_before
 
 
+class TestAuraTools:
+    """Tests for aura tool functionality."""
+
+    def test_update_aura_tools_loads_tools(self, helper, tmp_path):
+        """Test that update_aura_tools loads tools from aura files."""
+        # Create aura tools directory and file
+        aura_dir = tmp_path / "auras"
+        aura_dir.mkdir()
+        code_yaml = aura_dir / "code_access.yaml"
+        code_yaml.write_text("""
+type: container_mcp
+functions:
+  - name: py_exec
+    description: Execute Python code
+    parameters:
+      type: object
+      properties:
+        code:
+          type: string
+      required: [code]
+""")
+
+        helper.update_aura_tools(["code_access"], str(tmp_path))
+
+        assert len(helper._aura_tools) == 1
+        assert helper._aura_tools[0].function.name == "py_exec"
+
+    def test_update_aura_tools_tracks_source_ids(self, helper, tmp_path):
+        """Test that source IDs are tracked for aura tools."""
+        aura_dir = tmp_path / "auras"
+        aura_dir.mkdir()
+        code_yaml = aura_dir / "code_access.yaml"
+        code_yaml.write_text("""
+type: container_mcp
+functions:
+  - name: py_exec
+    description: Execute Python code
+    parameters:
+      type: object
+      properties:
+        code:
+          type: string
+      required: [code]
+""")
+
+        source_ids = {"code_access": "#123"}
+        helper.update_aura_tools(["code_access"], str(tmp_path), source_ids)
+
+        assert helper.get_aura_source_id("py_exec") == "#123"
+
+    def test_is_aura_tool(self, helper, tmp_path):
+        """Test is_aura_tool returns correct result."""
+        aura_dir = tmp_path / "auras"
+        aura_dir.mkdir()
+        code_yaml = aura_dir / "code_access.yaml"
+        code_yaml.write_text("""
+type: container_mcp
+functions:
+  - name: py_exec
+    description: Execute Python code
+    parameters:
+      type: object
+      properties:
+        code:
+          type: string
+      required: [code]
+""")
+
+        helper.update_aura_tools(["code_access"], str(tmp_path))
+
+        assert helper.is_aura_tool("py_exec") is True
+        assert helper.is_aura_tool("bash_exec") is False
+        assert helper.is_aura_tool("test_function") is False  # Base tool, not aura tool
+
+    def test_update_aura_tools_clears_on_empty(self, helper, tmp_path):
+        """Test that passing empty auras clears aura tools."""
+        aura_dir = tmp_path / "auras"
+        aura_dir.mkdir()
+        code_yaml = aura_dir / "code_access.yaml"
+        code_yaml.write_text("""
+type: container_mcp
+functions:
+  - name: py_exec
+    description: Execute Python code
+    parameters:
+      type: object
+      properties:
+        code:
+          type: string
+      required: [code]
+""")
+
+        # First load some aura tools
+        helper.update_aura_tools(["code_access"], str(tmp_path))
+        assert len(helper._aura_tools) == 1
+
+        # Clear with empty list
+        helper.update_aura_tools([], str(tmp_path))
+        assert len(helper._aura_tools) == 0
+        assert helper.is_aura_tool("py_exec") is False
+
+    def test_aura_tools_included_in_tool_user(self, helper, tmp_path):
+        """Test that aura tools are included in tool user after update."""
+        aura_dir = tmp_path / "auras"
+        aura_dir.mkdir()
+        code_yaml = aura_dir / "code_access.yaml"
+        code_yaml.write_text("""
+type: container_mcp
+functions:
+  - name: py_exec
+    description: Execute Python code
+    parameters:
+      type: object
+      properties:
+        code:
+          type: string
+      required: [code]
+""")
+
+        initial_count = len(helper._tool_user.tools)
+        helper.update_aura_tools(["code_access"], str(tmp_path))
+
+        # Should have base tools + aura tools
+        assert len(helper._tool_user.tools) == initial_count + 1
+
+    def test_multiple_auras_load_multiple_tools(self, helper, tmp_path):
+        """Test loading tools from multiple auras."""
+        aura_dir = tmp_path / "auras"
+        aura_dir.mkdir()
+
+        code_yaml = aura_dir / "code_access.yaml"
+        code_yaml.write_text("""
+type: container_mcp
+functions:
+  - name: py_exec
+    description: Execute Python code
+    parameters:
+      type: object
+      properties:
+        code:
+          type: string
+      required: [code]
+""")
+
+        web_yaml = aura_dir / "web_access.yaml"
+        web_yaml.write_text("""
+type: container_mcp
+functions:
+  - name: web_search
+    description: Search the web
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+      required: [query]
+""")
+
+        source_ids = {"code_access": "#123", "web_access": "#456"}
+        helper.update_aura_tools(["code_access", "web_access"], str(tmp_path), source_ids)
+
+        assert len(helper._aura_tools) == 2
+        assert helper.is_aura_tool("py_exec")
+        assert helper.is_aura_tool("web_search")
+        assert helper.get_aura_source_id("py_exec") == "#123"
+        assert helper.get_aura_source_id("web_search") == "#456"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

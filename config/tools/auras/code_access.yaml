@@ -1,0 +1,35 @@
+type: container_mcp
+description: Code execution tools via container-mcp sandbox
+
+functions:
+  - name: py_exec
+    description: Execute Python code in a secure sandbox environment
+    parameters:
+      type: object
+      properties:
+        code:
+          type: string
+          description: Python code to execute
+      required: [code]
+      examples:
+        - {py_exec: {code: "print('Hello, world!')"}}
+        - {py_exec: {code: "import math\nresult = math.sqrt(16)\nprint(f'Square root of 16 is {result}')"}}
+        - {py_exec: {code: "for i in range(5):\n    print(f'Count: {i}')"}}
+
+  - name: bash_exec
+    description: Execute bash commands in a secure sandbox environment
+    parameters:
+      type: object
+      properties:
+        command:
+          type: string
+          description: Bash command to execute
+      required: [command]
+      examples:
+        - {bash_exec: {command: "ls -la"}}
+        - {bash_exec: {command: "cat README.md"}}
+        - {bash_exec: {command: "echo 'Hello from bash'"}}
+
+implementation:
+  module: aim.tool.impl.container_mcp
+  class: ContainerMCPTool
