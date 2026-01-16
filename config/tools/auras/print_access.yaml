@@ -1,0 +1,23 @@
+type: paper
+description: Print documents from terminals to physical paper
+
+functions:
+  - name: print
+    description: Print a document from a terminal to physical paper
+    parameters:
+      type: object
+      properties:
+        terminal_type:
+          type: string
+          description: The type of terminal to print from (e.g., "Market Terminal", "Web Terminal")
+        identifier:
+          type: string
+          description: Source identifier (ticker, URL, document ID, etc.)
+        name:
+          type: string
+          description: Name for the printed output pages
+      required: [terminal_type, identifier, name]
+      examples:
+        - {print: {terminal_type: "Market Terminal", identifier: "AAPL", name: "Apple"}}
+        - {print: {terminal_type: "Web Terminal", identifier: "https://example.com", name: "Article"}}
+        - {print: {terminal_type: "Research Terminal", identifier: "quantum_paper", name: "Research"}}

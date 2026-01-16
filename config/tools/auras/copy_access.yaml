@@ -1,0 +1,11 @@
+type: paper
+description: Copy paper using a copier device
+
+functions:
+  - name: copy
+    description: Copy paper that has been placed in the copier
+    parameters:
+      type: object
+      properties: {}
+      examples:
+        - {copy: {}}

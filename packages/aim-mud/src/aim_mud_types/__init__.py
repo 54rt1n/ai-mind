@@ -22,6 +22,12 @@ from .constants import (
     AURA_NEWS_ACCESS,
     AURA_RESEARCH_ACCESS,
     AURA_LIST_ACCESS,
+    # Paper system auras
+    AURA_PRINT_ACCESS,
+    AURA_SCAN_ACCESS,
+    AURA_BIND_ACCESS,
+    AURA_BOOK_ACCESS,
+    AURA_COPY_ACCESS,
 )
 from .conversation import MUDConversationEntry
 from .coordination import MUDTurnRequest, DreamerState, TurnRequestStatus, TurnReason
@@ -167,6 +173,12 @@ __all__ = [
     "AURA_NEWS_ACCESS",
     "AURA_RESEARCH_ACCESS",
     "AURA_LIST_ACCESS",
+    # Paper system auras
+    "AURA_PRINT_ACCESS",
+    "AURA_SCAN_ACCESS",
+    "AURA_BIND_ACCESS",
+    "AURA_BOOK_ACCESS",
+    "AURA_COPY_ACCESS",
     # Redis Client
     "RedisMUDClient",
     # Turn request helpers

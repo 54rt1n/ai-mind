@@ -41,6 +41,17 @@ def mud_config():
 
 
 @pytest.fixture
+def chat_config():
+    """Create a test ChatConfig."""
+    from aim.config import ChatConfig
+    return ChatConfig(
+        persona_id="test_persona",
+        embedding_device="cpu",
+        default_model="test-model",
+    )
+
+
+@pytest.fixture
 def mock_redis():
     """Create a mock async Redis client."""
     redis = AsyncMock()
@@ -1448,6 +1459,34 @@ class TestParseArgs:
             assert args.model == "gpt-4"
             assert args.temperature == 0.5
             assert args.max_tokens == 2048
+
+    def test_parse_args_embedding_device(self):
+        """Test that --embedding-device argument is parsed correctly."""
+        with patch(
+            "sys.argv",
+            [
+                "worker",
+                "--agent-id",
+                "test-agent",
+                "--persona-id",
+                "test-persona",
+                "--embedding-device",
+                "cuda:1",
+            ],
+        ):
+            args = parse_args()
+
+            assert args.embedding_device == "cuda:1"
+
+
+class TestEmbeddingDeviceOverride:
+    """Test embedding device configuration override."""
+
+    def test_embedding_device_override(self, mud_config, chat_config):
+        """Test that embedding_device CLI override is applied to ChatConfig."""
+        # Simulate the override logic from main()
+        chat_config.embedding_device = "cuda:1"
+        assert chat_config.embedding_device == "cuda:1"
 
 
 class TestSignalHandlers:

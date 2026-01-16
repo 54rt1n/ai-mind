@@ -71,6 +71,10 @@ Examples:
   python -m aim.app.mud.worker --agent-id andi --persona-id andi \\
       --redis-url redis://redis.example.com:6379
 
+  # Start with custom embedding device (second GPU)
+  python -m aim.app.mud.worker --agent-id andi --persona-id andi \\
+      --embedding-device cuda:1
+
   # Start with debug logging
   python -m aim.app.mud.worker --agent-id andi --persona-id andi --log-level DEBUG
         """,
@@ -130,6 +134,10 @@ Examples:
         type=int,
         help="Max tokens override (default: from env MAX_TOKENS)",
     )
+    parser.add_argument(
+        "--embedding-device",
+        help="Embedding device override (e.g., 'cpu', 'cuda:0', 'cuda:1') (default: from env EMBEDDING_DEVICE or auto-detect)",
+    )
     return parser.parse_args()
 
 
@@ -179,6 +187,10 @@ def main() -> None:
     if args.max_tokens is not None:
         chat_config.max_tokens = args.max_tokens
         logger.info(f"Max tokens override: {args.max_tokens}")
+
+    if args.embedding_device:
+        chat_config.embedding_device = args.embedding_device
+        logger.info(f"Embedding device override: {args.embedding_device}")
 
     # Build MUD-specific configuration (identity, redis, timing, memory only)
     config = MUDConfig(

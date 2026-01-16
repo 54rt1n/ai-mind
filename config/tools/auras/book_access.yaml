@@ -1,0 +1,31 @@
+type: paper
+description: Read and unbind books
+
+functions:
+  - name: read
+    description: Read a book's table of contents or a specific page
+    parameters:
+      type: object
+      properties:
+        book:
+          type: string
+          description: Name of the book to read
+        page:
+          type: integer
+          description: Specific page number to read (optional)
+      required: [book]
+      examples:
+        - {read: {book: "My Notes"}}
+        - {read: {book: "Research", page: 3}}
+
+  - name: unbind
+    description: Unbind a book back into a folder
+    parameters:
+      type: object
+      properties:
+        book:
+          type: string
+          description: Name of the book to unbind
+      required: [book]
+      examples:
+        - {unbind: {book: "My Notes"}}

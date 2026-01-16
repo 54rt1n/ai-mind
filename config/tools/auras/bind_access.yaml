@@ -1,0 +1,19 @@
+type: paper
+description: Bind folders into books
+
+functions:
+  - name: bind
+    description: Bind a folder into a book with numbered pages
+    parameters:
+      type: object
+      properties:
+        folder:
+          type: string
+          description: Name of the folder to bind
+        title:
+          type: string
+          description: Optional title for the book (defaults to folder name)
+      required: [folder]
+      examples:
+        - {bind: {folder: "notes"}}
+        - {bind: {folder: "research", title: "My Research Notes"}}
