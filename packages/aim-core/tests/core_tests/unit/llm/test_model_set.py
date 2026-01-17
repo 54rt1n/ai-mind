@@ -20,6 +20,7 @@ def mock_config():
     config.codex_model = "gpt-4o-mini"
     config.decision_model = "gpt-3.5-turbo"
     config.agent_model = "gpt-4-turbo"
+    config.fallback = None  # Default to None (will use default_model)
     config.model_config_path = "config/models.yaml"
     return config
 
@@ -110,6 +111,7 @@ class TestModelSelection:
         assert model_set.get_model_name("writing") == "gpt-4o"
         assert model_set.get_model_name("research") == "gpt-4o"
         assert model_set.get_model_name("planning") == "gpt-4o"
+        assert model_set.get_model_name("fallback") == "gpt-4o"  # Defaults to default_model when None
 
     def test_get_model_name_unknown_role_uses_default(self, mock_config):
         """Test unknown role falls back to default."""
@@ -203,3 +205,166 @@ class TestPriorityOrder:
         assert model_set.thought_model == "gpt-4o"
         assert model_set.codex_model == "gpt-4o"
         assert model_set.chat_model == "gpt-4o"
+
+
+class TestFallbackModel:
+    """Test fallback model configuration and behavior."""
+
+    def test_fallback_model_from_config(self, mock_config):
+        """Test ModelSet includes fallback_model field from config."""
+        mock_config.fallback = "gpt-3.5-turbo"
+
+        model_set = ModelSet.from_config(mock_config)
+
+        # Fallback model should be set from config
+        assert model_set.fallback_model == "gpt-3.5-turbo"
+
+    def test_fallback_model_get_model_name(self, mock_config):
+        """Test get_model_name returns correct model for fallback role."""
+        mock_config.fallback = "gpt-3.5-turbo"
+
+        model_set = ModelSet.from_config(mock_config)
+
+        # get_model_name should return fallback model
+        assert model_set.get_model_name("fallback") == "gpt-3.5-turbo"
+
+    def test_fallback_model_get_provider(self, mock_config):
+        """Test get_provider returns correct provider for fallback role."""
+        mock_config.fallback = "gpt-3.5-turbo"
+
+        model_set = ModelSet.from_config(mock_config)
+
+        mock_provider = MagicMock()
+        with patch.object(model_set, '_create_provider', return_value=mock_provider):
+            provider = model_set.get_provider("fallback")
+
+            # Should create provider for fallback model
+            assert provider == mock_provider
+            assert "gpt-3.5-turbo" in model_set._providers
+
+    def test_fallback_model_defaults_to_default_when_none(self, mock_config):
+        """Test fallback model uses default_model when config.fallback is None."""
+        mock_config.fallback = None
+        mock_config.default_model = "gpt-4o"
+
+        model_set = ModelSet.from_config(mock_config)
+
+        # Fallback should use default_model when config.fallback is None
+        assert model_set.fallback_model == "gpt-4o"
+        assert model_set.fallback_model == model_set.default_model
+
+    def test_fallback_model_same_as_chat(self, mock_config):
+        """Test fallback model can be explicitly set to same as chat model."""
+        mock_config.fallback = "gpt-4o"
+        mock_config.default_model = "gpt-4o"
+
+        model_set = ModelSet.from_config(mock_config)
+
+        # Both should return same model name
+        assert model_set.get_model_name("fallback") == "gpt-4o"
+        assert model_set.get_model_name("chat") == "gpt-4o"
+        assert model_set.get_model_name("fallback") == model_set.get_model_name("chat")
+
+    def test_fallback_model_different_from_chat(self, mock_config):
+        """Test fallback model can be different from chat model."""
+        mock_config.fallback = "gpt-3.5-turbo"
+        mock_config.default_model = "gpt-4o"
+
+        model_set = ModelSet.from_config(mock_config)
+
+        # Fallback and chat should be different
+        assert model_set.fallback_model == "gpt-3.5-turbo"
+        assert model_set.chat_model == "gpt-4o"
+        assert model_set.fallback_model != model_set.chat_model
+
+    def test_fallback_model_persona_override(self, mock_config, mock_persona):
+        """Test fallback can be overridden by persona like other model roles."""
+        mock_config.fallback = "gpt-3.5-turbo"
+        mock_config.default_model = "gpt-4o"
+        # Persona overrides fallback
+        mock_persona.models = {
+            "default": "claude-3.5-sonnet",
+            "fallback": "claude-3.5-haiku"
+        }
+
+        model_set = ModelSet.from_config(mock_config, mock_persona)
+
+        # Default uses persona override
+        assert model_set.default_model == "claude-3.5-sonnet"
+        # Fallback also uses persona override (same priority as other roles)
+        assert model_set.fallback_model == "claude-3.5-haiku"
+
+    def test_fallback_uses_env_when_no_persona_override(self, mock_config, mock_persona):
+        """Test fallback uses config.fallback when persona doesn't override it."""
+        mock_config.fallback = "gpt-3.5-turbo"
+        mock_config.default_model = "gpt-4o"
+        # Persona overrides default but NOT fallback
+        mock_persona.models = {"default": "claude-3.5-sonnet"}
+
+        model_set = ModelSet.from_config(mock_config, mock_persona)
+
+        # Default uses persona override
+        assert model_set.default_model == "claude-3.5-sonnet"
+        # Fallback uses env variable (config.fallback) since no persona override
+        assert model_set.fallback_model == "gpt-3.5-turbo"
+
+    def test_fallback_model_provider_caching(self, mock_config):
+        """Test fallback model provider is cached correctly."""
+        mock_config.fallback = "gpt-3.5-turbo"
+
+        model_set = ModelSet.from_config(mock_config)
+
+        mock_provider = MagicMock()
+        with patch.object(model_set, '_create_provider', return_value=mock_provider) as mock_create:
+            provider1 = model_set.get_provider("fallback")
+            provider2 = model_set.get_provider("fallback")
+
+            # Should only create once
+            mock_create.assert_called_once()
+            # Should return same instance
+            assert provider1 is provider2
+
+    def test_fallback_shares_provider_when_same_model(self, mock_config):
+        """Test fallback shares provider with chat when using same model."""
+        mock_config.fallback = "gpt-4o"
+        mock_config.default_model = "gpt-4o"
+
+        model_set = ModelSet.from_config(mock_config)
+
+        mock_provider = MagicMock()
+        with patch.object(model_set, '_create_provider', return_value=mock_provider) as mock_create:
+            chat_provider = model_set.get_provider("chat")
+            fallback_provider = model_set.get_provider("fallback")
+
+            # Should only create provider once (both use gpt-4o)
+            mock_create.assert_called_once()
+            # Both should be the same instance
+            assert chat_provider is fallback_provider
+
+    def test_fallback_separate_provider_when_different_model(self, mock_config):
+        """Test fallback gets separate provider when using different model."""
+        mock_config.fallback = "gpt-3.5-turbo"
+        mock_config.default_model = "gpt-4o"
+
+        model_set = ModelSet.from_config(mock_config)
+
+        mock_chat_provider = MagicMock()
+        mock_fallback_provider = MagicMock()
+
+        def create_provider_side_effect(model_name):
+            if model_name == "gpt-4o":
+                return mock_chat_provider
+            elif model_name == "gpt-3.5-turbo":
+                return mock_fallback_provider
+            raise ValueError(f"Unexpected model: {model_name}")
+
+        with patch.object(model_set, '_create_provider', side_effect=create_provider_side_effect) as mock_create:
+            chat_provider = model_set.get_provider("chat")
+            fallback_provider = model_set.get_provider("fallback")
+
+            # Should create two different providers
+            assert mock_create.call_count == 2
+            # Should be different instances
+            assert chat_provider is not fallback_provider
+            assert chat_provider == mock_chat_provider
+            assert fallback_provider == mock_fallback_provider

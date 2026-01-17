@@ -12,6 +12,7 @@
     "default": "XiaomiMiMo/MiMo-V2-Flash",
     "chat": "XiaomiMiMo/MiMo-V2-Flash",
     "decision": "deepseek-ai/DeepSeek-V3-0324",
+    "fallback": "deepseek-ai/DeepSeek-V3-0324",
     "tool": "deepseek-ai/DeepSeek-V3-0324"
   },
   "attributes": {

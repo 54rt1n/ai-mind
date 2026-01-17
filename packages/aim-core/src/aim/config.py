@@ -79,6 +79,7 @@ def get_env(dotenv_path: Optional[str] = None) -> Dict[str, str]:
         "decision_model": os.getenv("DECISION_MODEL", None),
         "agent_model": os.getenv("AGENT_MODEL", None),
         "default_model": os.getenv("DEFAULT_MODEL", None),
+        "fallback": os.getenv("FALLBACK_MODEL", None),
 
         # MCP configuration
         "mcp_endpoint": os.getenv("MCP_ENDPOINT", "http://localhost:8001/sse"),
@@ -121,6 +122,7 @@ class ChatConfig:
     decision_model: Optional[str] = None
     agent_model: Optional[str] = None
     default_model: Optional[str] = None
+    fallback: Optional[str] = None
 
     # MCP configuration
     mcp_endpoint: str = "http://localhost:8001/sse"

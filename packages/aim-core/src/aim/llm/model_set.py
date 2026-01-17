@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class ModelSet:
     """Manages LLM providers for different roles/tasks.
 
-    Supports 12 model roles:
+    Supports 13 model roles:
     - default: Master fallback (always populated)
     - chat: General chat + MUD Phase 2 response
     - thought: Chat completions thought generation
@@ -32,6 +32,7 @@ class ModelSet:
     - writing: Journaler/writer steps
     - research: Philosopher
     - planning: Phase 4 objective planning
+    - fallback: Secondary fallback for chat when format fails
 
     Priority for model selection:
     1. persona.models[key] if present
@@ -54,6 +55,7 @@ class ModelSet:
     writing_model: str
     research_model: str
     planning_model: str
+    fallback_model: str
 
     # Cached providers (initialized lazily)
     _providers: dict[str, LLMProvider] = field(default_factory=dict, init=False)
@@ -111,14 +113,15 @@ class ModelSet:
             writing_model=get_model("writing"),
             research_model=get_model("research"),
             planning_model=get_model("planning"),
+            fallback_model=get_model("fallback", config.fallback),
         )
 
     def get_provider(self, role: str = "default") -> LLMProvider:
         """Get LLM provider for the specified role.
 
         Args:
-            role: One of the 12 roles (default, chat, thought, tool, decision, agent,
-                  code, codex, analysis, writing, research, planning)
+            role: One of the 13 roles (default, chat, thought, tool, decision, agent,
+                  code, codex, analysis, writing, research, planning, fallback)
 
         Returns:
             LLMProvider instance (cached)
@@ -160,7 +163,7 @@ class ModelSet:
         """Get the model name for the specified role.
 
         Args:
-            role: One of the 12 roles
+            role: One of the 13 roles
 
         Returns:
             Model name string
@@ -178,5 +181,6 @@ class ModelSet:
             "writing": self.writing_model,
             "research": self.research_model,
             "planning": self.planning_model,
+            "fallback": self.fallback_model,
         }
         return role_map.get(role, self.default_model)

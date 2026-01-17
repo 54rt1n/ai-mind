@@ -11,6 +11,7 @@
     "default": "MiniMaxAI/MiniMax-M2.1",
     "chat": "MiniMaxAI/MiniMax-M2.1",
     "decision": "deepseek-ai/DeepSeek-V3-0324",
+    "fallback": "deepseek-ai/DeepSeek-V3-0324",
     "tool": "MiniMaxAI/MiniMax-M2.1"
   },
   "attributes": {
