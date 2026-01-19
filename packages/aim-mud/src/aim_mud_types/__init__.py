@@ -30,7 +30,7 @@ from .constants import (
     AURA_COPY_ACCESS,
 )
 from .conversation import MUDConversationEntry
-from .coordination import MUDTurnRequest, DreamerState, TurnRequestStatus, TurnReason
+from .coordination import MUDTurnRequest, DreamerState, DreamingState, DreamStatus, TurnRequestStatus, TurnReason
 from .enums import EventType, ActorType
 from .events import MUDEvent
 from .plan import AgentPlan, PlanTask, PlanStatus, TaskStatus
@@ -132,6 +132,7 @@ from .mud_actions_helpers import (
     get_max_processed_mud_action_id,
     trim_processed_mud_action_ids,
 )
+from .helpers import create_pending_dream_stub, normalize_agent_id, COMMAND_TO_SCENARIO
 __all__ = [
     # Enums
     "EventType",
@@ -157,6 +158,8 @@ __all__ = [
     # Coordination
     "MUDTurnRequest",
     "DreamerState",
+    "DreamingState",
+    "DreamStatus",
     # Plans
     "AgentPlan",
     "PlanTask",
@@ -261,6 +264,10 @@ __all__ = [
     "get_mud_action_processed_ids",
     "get_max_processed_mud_action_id",
     "trim_processed_mud_action_ids",
+    # Dream helpers
+    "create_pending_dream_stub",
+    "normalize_agent_id",
+    "COMMAND_TO_SCENARIO",
 ]
 
 __version__ = "0.1.0"

@@ -2,38 +2,17 @@
 # AI-Mind (C) 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
 """Unit tests for dream command handlers in the mediator.
 
-These commands allow manual triggering of dream pipelines:
-- Analysis commands (require conversation_id):
-  - @analyze <agent-id> = <conversation_id>[, <guidance>]
-  - @summary <agent-id> = <conversation_id>
-- Creative commands (optional query/guidance):
-  - @journal <agent-id> [= <query>[, <guidance>]]
-  - @ponder <agent-id> [= <query>[, <guidance>]]
-  - @daydream <agent-id> [= <query>[, <guidance>]]
-  - @critique <agent-id> [= <query>[, <guidance>]]
-  - @research <agent-id> [= <query>[, <guidance>]]
-- Control command:
-  - @dreamer <agent-id> on/off
+The mediator only handles the @dreamer control command. All dream execution
+and manual dream commands (analyze, journal, etc.) are handled by the worker.
 """
 
-import json
 import pytest
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, patch
 
 from andimud_mediator.service import MediatorService
 from andimud_mediator.config import MediatorConfig
-from andimud_mediator.patterns import (
-    ANALYZE_PATTERN,
-    SUMMARY_PATTERN,
-    JOURNAL_PATTERN,
-    PONDER_PATTERN,
-    DAYDREAM_PATTERN,
-    CRITIQUE_PATTERN,
-    RESEARCH_PATTERN,
-    DREAMER_PATTERN,
-    COMMAND_TO_SCENARIO,
-)
-from aim_mud_types import MUDEvent, EventType, RedisKeys
+from andimud_mediator.patterns import DREAMER_PATTERN
+from aim_mud_types import MUDEvent, EventType, ActorType
 
 
 @pytest.fixture
@@ -61,289 +40,34 @@ def mock_redis():
     redis.hkeys = AsyncMock(return_value=[])
     redis.hdel = AsyncMock(return_value=0)
     redis.expire = AsyncMock(return_value=True)
-    redis.eval = AsyncMock(return_value=1)  # Lua script success by default
+    redis.eval = AsyncMock(return_value=1)
     redis.aclose = AsyncMock()
     return redis
 
 
-class TestAnalyzePattern:
-    """Test the ANALYZE_PATTERN regex."""
-
-    def test_pattern_with_guidance(self):
-        """Test pattern matches with conversation_id and guidance."""
-        match = ANALYZE_PATTERN.match("@analyze andi = conv_123, Focus on emotions")
-        assert match is not None
-        assert match.group(1) == "andi"
-        assert match.group(2) == "conv_123"
-        assert match.group(3).strip() == "Focus on emotions"
-
-    def test_pattern_conversation_id_only(self):
-        """Test pattern matches with conversation_id only."""
-        match = ANALYZE_PATTERN.match("@analyze andi = conv_456")
-        assert match is not None
-        assert match.group(1) == "andi"
-        assert match.group(2) == "conv_456"
-        assert match.group(3) is None
-
-    def test_pattern_case_insensitive(self):
-        """Test pattern is case insensitive."""
-        match = ANALYZE_PATTERN.match("@ANALYZE ANDI = CONV_789")
-        assert match is not None
-        assert match.group(1) == "ANDI"
-        assert match.group(2) == "CONV_789"
-
-    def test_pattern_no_spaces_around_equals(self):
-        """Test pattern works without spaces around equals."""
-        match = ANALYZE_PATTERN.match("@analyze andi=conv_123")
-        assert match is not None
-        assert match.group(1) == "andi"
-        assert match.group(2) == "conv_123"
-
-    def test_pattern_rejects_invalid_format(self):
-        """Test pattern rejects invalid formats."""
-        assert ANALYZE_PATTERN.match("@analyze") is None
-        assert ANALYZE_PATTERN.match("@analyze andi") is None
-        assert ANALYZE_PATTERN.match("analyze andi = conv_123") is None
-
-
-class TestSummaryPattern:
-    """Test the SUMMARY_PATTERN regex."""
-
-    def test_pattern_matches(self):
-        """Test pattern matches with conversation_id."""
-        match = SUMMARY_PATTERN.match("@summary andi = conv_123")
-        assert match is not None
-        assert match.group(1) == "andi"
-        assert match.group(2) == "conv_123"
-
-    def test_pattern_case_insensitive(self):
-        """Test pattern is case insensitive."""
-        match = SUMMARY_PATTERN.match("@SUMMARY ANDI = CONV_456")
-        assert match is not None
-        assert match.group(1) == "ANDI"
-        assert match.group(2) == "CONV_456"
-
-    def test_pattern_no_spaces_around_equals(self):
-        """Test pattern works without spaces around equals."""
-        match = SUMMARY_PATTERN.match("@summary andi=conv_789")
-        assert match is not None
-        assert match.group(1) == "andi"
-        assert match.group(2) == "conv_789"
-
-    def test_pattern_rejects_invalid_format(self):
-        """Test pattern rejects invalid formats."""
-        assert SUMMARY_PATTERN.match("@summary") is None
-        assert SUMMARY_PATTERN.match("@summary andi") is None
-        assert SUMMARY_PATTERN.match("summary andi = conv_123") is None
-
-
-class TestJournalPattern:
-    """Test the JOURNAL_PATTERN regex."""
-
-    def test_pattern_with_query_and_guidance(self):
-        """Test pattern matches with query and guidance."""
-        match = JOURNAL_PATTERN.match("@journal andi = What happened today?, Focus on emotions")
-        assert match is not None
-        assert match.group(1) == "andi"
-        assert match.group(2) == "What happened today?"
-        assert match.group(3).strip() == "Focus on emotions"
-
-    def test_pattern_with_query_only(self):
-        """Test pattern matches with query only."""
-        match = JOURNAL_PATTERN.match("@journal andi = What did I learn?")
-        assert match is not None
-        assert match.group(1) == "andi"
-        assert match.group(2) == "What did I learn?"
-        assert match.group(3) is None
-
-    def test_pattern_no_params(self):
-        """Test pattern matches with no parameters."""
-        match = JOURNAL_PATTERN.match("@journal andi")
-        assert match is not None
-        assert match.group(1) == "andi"
-        assert match.group(2) is None
-        assert match.group(3) is None
-
-    def test_pattern_case_insensitive(self):
-        """Test pattern is case insensitive."""
-        match = JOURNAL_PATTERN.match("@JOURNAL ANDI")
-        assert match is not None
-        assert match.group(1) == "ANDI"
-
-    def test_pattern_rejects_invalid_format(self):
-        """Test pattern rejects invalid formats."""
-        assert JOURNAL_PATTERN.match("@journal") is None
-        assert JOURNAL_PATTERN.match("journal andi") is None
-
-
-class TestPonderPattern:
-    """Test the PONDER_PATTERN regex."""
-
-    def test_pattern_with_query_and_guidance(self):
-        """Test pattern matches with query and guidance."""
-        match = PONDER_PATTERN.match("@ponder andi = What is the meaning?, Think deeply")
-        assert match is not None
-        assert match.group(1) == "andi"
-        assert match.group(2) == "What is the meaning?"
-        assert match.group(3).strip() == "Think deeply"
-
-    def test_pattern_with_query_only(self):
-        """Test pattern matches with query only."""
-        match = PONDER_PATTERN.match("@ponder andi = Why do I exist?")
-        assert match is not None
-        assert match.group(1) == "andi"
-        assert match.group(2) == "Why do I exist?"
-        assert match.group(3) is None
-
-    def test_pattern_no_params(self):
-        """Test pattern matches with no parameters."""
-        match = PONDER_PATTERN.match("@ponder andi")
-        assert match is not None
-        assert match.group(1) == "andi"
-        assert match.group(2) is None
-        assert match.group(3) is None
-
-    def test_pattern_case_insensitive(self):
-        """Test pattern is case insensitive."""
-        match = PONDER_PATTERN.match("@PONDER ANDI")
-        assert match is not None
-        assert match.group(1) == "ANDI"
-
-    def test_pattern_rejects_invalid_format(self):
-        """Test pattern rejects invalid formats."""
-        assert PONDER_PATTERN.match("@ponder") is None
-        assert PONDER_PATTERN.match("ponder andi") is None
-
-
-class TestDaydreamPattern:
-    """Test the DAYDREAM_PATTERN regex."""
-
-    def test_pattern_with_query_and_guidance(self):
-        """Test pattern matches with query and guidance."""
-        match = DAYDREAM_PATTERN.match("@daydream andi = Adventure in space, Make it exciting")
-        assert match is not None
-        assert match.group(1) == "andi"
-        assert match.group(2) == "Adventure in space"
-        assert match.group(3).strip() == "Make it exciting"
-
-    def test_pattern_with_query_only(self):
-        """Test pattern matches with query only."""
-        match = DAYDREAM_PATTERN.match("@daydream andi = Flying through clouds")
-        assert match is not None
-        assert match.group(1) == "andi"
-        assert match.group(2) == "Flying through clouds"
-        assert match.group(3) is None
-
-    def test_pattern_no_params(self):
-        """Test pattern matches with no parameters."""
-        match = DAYDREAM_PATTERN.match("@daydream andi")
-        assert match is not None
-        assert match.group(1) == "andi"
-        assert match.group(2) is None
-        assert match.group(3) is None
-
-    def test_pattern_case_insensitive(self):
-        """Test pattern is case insensitive."""
-        match = DAYDREAM_PATTERN.match("@DAYDREAM ANDI")
-        assert match is not None
-        assert match.group(1) == "ANDI"
-
-    def test_pattern_rejects_invalid_format(self):
-        """Test pattern rejects invalid formats."""
-        assert DAYDREAM_PATTERN.match("@daydream") is None
-        assert DAYDREAM_PATTERN.match("daydream andi") is None
-
-
-class TestCritiquePattern:
-    """Test the CRITIQUE_PATTERN regex."""
-
-    def test_pattern_with_query_and_guidance(self):
-        """Test pattern matches with query and guidance."""
-        match = CRITIQUE_PATTERN.match("@critique andi = Recent decisions, Be thorough")
-        assert match is not None
-        assert match.group(1) == "andi"
-        assert match.group(2) == "Recent decisions"
-        assert match.group(3).strip() == "Be thorough"
-
-    def test_pattern_with_query_only(self):
-        """Test pattern matches with query only."""
-        match = CRITIQUE_PATTERN.match("@critique andi = My last action")
-        assert match is not None
-        assert match.group(1) == "andi"
-        assert match.group(2) == "My last action"
-        assert match.group(3) is None
-
-    def test_pattern_no_params(self):
-        """Test pattern matches with no parameters."""
-        match = CRITIQUE_PATTERN.match("@critique andi")
-        assert match is not None
-        assert match.group(1) == "andi"
-        assert match.group(2) is None
-        assert match.group(3) is None
-
-    def test_pattern_case_insensitive(self):
-        """Test pattern is case insensitive."""
-        match = CRITIQUE_PATTERN.match("@CRITIQUE ANDI")
-        assert match is not None
-        assert match.group(1) == "ANDI"
-
-    def test_pattern_rejects_invalid_format(self):
-        """Test pattern rejects invalid formats."""
-        assert CRITIQUE_PATTERN.match("@critique") is None
-        assert CRITIQUE_PATTERN.match("critique andi") is None
-
-
-class TestResearchPattern:
-    """Test the RESEARCH_PATTERN regex."""
-
-    def test_pattern_with_query_and_guidance(self):
-        """Test pattern matches with query and guidance."""
-        match = RESEARCH_PATTERN.match("@research andi = AI ethics, Focus on alignment")
-        assert match is not None
-        assert match.group(1) == "andi"
-        assert match.group(2) == "AI ethics"
-        assert match.group(3).strip() == "Focus on alignment"
-
-    def test_pattern_with_query_only(self):
-        """Test pattern matches with query only."""
-        match = RESEARCH_PATTERN.match("@research andi = Quantum computing")
-        assert match is not None
-        assert match.group(1) == "andi"
-        assert match.group(2) == "Quantum computing"
-        assert match.group(3) is None
-
-    def test_pattern_no_params(self):
-        """Test pattern matches with no parameters."""
-        match = RESEARCH_PATTERN.match("@research andi")
-        assert match is not None
-        assert match.group(1) == "andi"
-        assert match.group(2) is None
-        assert match.group(3) is None
-
-    def test_pattern_case_insensitive(self):
-        """Test pattern is case insensitive."""
-        match = RESEARCH_PATTERN.match("@RESEARCH ANDI")
-        assert match is not None
-        assert match.group(1) == "ANDI"
-
-    def test_pattern_rejects_invalid_format(self):
-        """Test pattern rejects invalid formats."""
-        assert RESEARCH_PATTERN.match("@research") is None
-        assert RESEARCH_PATTERN.match("research andi") is None
+def create_test_event(content: str, event_type: EventType = EventType.SYSTEM) -> MUDEvent:
+    """Create a test MUDEvent with required fields."""
+    return MUDEvent(
+        event_type=event_type,
+        actor="system",
+        actor_type=ActorType.SYSTEM,
+        room_id="test-room",
+        content=content
+    )
 
 
 class TestDreamerPattern:
     """Test the DREAMER_PATTERN regex."""
 
     def test_pattern_on(self):
-        """Test pattern matches 'on' command."""
+        """Test pattern matches with 'on'."""
         match = DREAMER_PATTERN.match("@dreamer andi on")
         assert match is not None
         assert match.group(1) == "andi"
         assert match.group(2) == "on"
 
     def test_pattern_off(self):
-        """Test pattern matches 'off' command."""
+        """Test pattern matches with 'off'."""
         match = DREAMER_PATTERN.match("@dreamer andi off")
         assert match is not None
         assert match.group(1) == "andi"
@@ -356,955 +80,151 @@ class TestDreamerPattern:
         assert match.group(1) == "ANDI"
         assert match.group(2) == "ON"
 
-    def test_pattern_rejects_invalid_format(self):
-        """Test pattern rejects invalid formats."""
-        assert DREAMER_PATTERN.match("@dreamer") is None
-        assert DREAMER_PATTERN.match("@dreamer andi") is None
-        assert DREAMER_PATTERN.match("@dreamer andi maybe") is None
-        assert DREAMER_PATTERN.match("dreamer andi on") is None
-
-
-class TestCommandToScenario:
-    """Test the COMMAND_TO_SCENARIO mapping."""
-
-    def test_mapping_completeness(self):
-        """Test all commands map to scenarios."""
-        expected = {
-            "analyze": "analysis_dialogue",
-            "summary": "summarizer",
-            "journal": "journaler_dialogue",
-            "ponder": "philosopher_dialogue",
-            "daydream": "daydream_dialogue",
-            "critique": "critique_dialogue",
-            "research": "researcher_dialogue",
-        }
-        assert COMMAND_TO_SCENARIO == expected
-
-
-class TestHandleAnalysisCommand:
-    """Test _handle_analysis_command method."""
-
-    @pytest.mark.asyncio
-    async def test_rejects_unregistered_agent(self, mock_redis, mediator_config):
-        """Test that unregistered agents are rejected."""
-        mediator = MediatorService(mock_redis, mediator_config)
-        mediator.register_agent("andi")  # Register andi, not val
-
-        result = await mediator._handle_analysis_command(
-            agent_id="val",
-            scenario="analysis_dialogue",
-            conversation_id="conv_123",
-            guidance=None,
-        )
-
-        assert result is False
-        mock_redis.eval.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_rejects_offline_agent(self, mock_redis, mediator_config):
-        """Test that offline agents (no turn_request) are rejected."""
-        mediator = MediatorService(mock_redis, mediator_config)
-        mediator.register_agent("andi")
-        mock_redis.hgetall = AsyncMock(return_value={})  # No turn_request
-
-        result = await mediator._handle_analysis_command(
-            agent_id="andi",
-            scenario="analysis_dialogue",
-            conversation_id="conv_123",
-            guidance=None,
-        )
-
-        assert result is False
-        mock_redis.eval.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_rejects_crashed_agent(self, mock_redis, mediator_config):
-        """Test that crashed agents are rejected."""
-        mediator = MediatorService(mock_redis, mediator_config)
-        mediator.register_agent("andi")
-        mock_redis.hgetall = AsyncMock(return_value={
-            b"status": b"crashed",
-            b"turn_id": b"old-turn",
-            b"sequence_id": b"1",
-        })
-
-        result = await mediator._handle_analysis_command(
-            agent_id="andi",
-            scenario="analysis_dialogue",
-            conversation_id="conv_123",
-            guidance=None,
-        )
-
-        assert result is False
-        mock_redis.eval.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_rejects_busy_agent_in_progress(self, mock_redis, mediator_config):
-        """Test that busy agents (in_progress) are rejected."""
-        mediator = MediatorService(mock_redis, mediator_config)
-        mediator.register_agent("andi")
-        mock_redis.hgetall = AsyncMock(return_value={
-            b"status": b"in_progress",
-            b"turn_id": b"current-turn",
-            b"sequence_id": b"1",
-        })
-
-        result = await mediator._handle_analysis_command(
-            agent_id="andi",
-            scenario="analysis_dialogue",
-            conversation_id="conv_123",
-            guidance=None,
-        )
-
-        assert result is False
-        mock_redis.eval.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_rejects_busy_agent_assigned(self, mock_redis, mediator_config):
-        """Test that busy agents (assigned) are rejected."""
-        mediator = MediatorService(mock_redis, mediator_config)
-        mediator.register_agent("andi")
-        mock_redis.hgetall = AsyncMock(return_value={
-            b"status": b"assigned",
-            b"turn_id": b"assigned-turn",
-            b"sequence_id": b"1",
-        })
-
-        result = await mediator._handle_analysis_command(
-            agent_id="andi",
-            scenario="analysis_dialogue",
-            conversation_id="conv_123",
-            guidance=None,
-        )
-
-        assert result is False
-        mock_redis.eval.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_assigns_analysis_turn_with_guidance(self, mock_redis, mediator_config):
-        """Test successful analysis turn assignment with guidance."""
-        mediator = MediatorService(mock_redis, mediator_config)
-        mediator.register_agent("andi")
-        mock_redis.hgetall = AsyncMock(return_value={
-            b"status": b"ready",
-            b"turn_id": b"prev-turn",
-            b"sequence_id": b"1",
-        })
-        mock_redis.eval = AsyncMock(return_value=1)  # CAS success
-
-        result = await mediator._handle_analysis_command(
-            agent_id="andi",
-            scenario="analysis_dialogue",
-            conversation_id="conv_123",
-            guidance="Focus on emotional patterns",
-        )
-
-        assert result is True
-        mock_redis.eval.assert_called_once()
-
-        # Verify the update was attempted with correct key
-        eval_call = mock_redis.eval.call_args
-        args = eval_call[0]
-        assert args[1] == 1  # One key
-        assert args[2] == RedisKeys.agent_turn_request("andi")  # The key
-
-        # Verify CAS field and value are passed
-        assert args[3] == "turn_id"  # CAS field
-        assert args[4] == "prev-turn"  # CAS value
-
-        # Verify fields include metadata with scenario, conversation_id, and guidance
-        # Fields start at args[5] as name-value pairs
-        field_args = args[5:]
-        fields_dict = {field_args[i]: field_args[i+1] for i in range(0, len(field_args), 2)}
-        assert "metadata" in fields_dict
-        metadata = json.loads(fields_dict["metadata"])
-        assert metadata["scenario"] == "analysis_dialogue"
-        assert metadata["conversation_id"] == "conv_123"
-        assert metadata["guidance"] == "Focus on emotional patterns"
-        assert "status" in fields_dict
-        assert fields_dict["status"] == "assigned"
-
-        # Verify TTL is NOT set (default turn_request_ttl_seconds=0)
-        mock_redis.expire.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_assigns_analysis_turn_without_guidance(self, mock_redis, mediator_config):
-        """Test analysis turn assignment without guidance."""
-        mediator = MediatorService(mock_redis, mediator_config)
-        mediator.register_agent("andi")
-        mock_redis.hgetall = AsyncMock(return_value={
-            b"status": b"ready",
-            b"turn_id": b"prev-turn",
-            b"sequence_id": b"1",
-        })
-        mock_redis.eval = AsyncMock(return_value=1)
-
-        result = await mediator._handle_analysis_command(
-            agent_id="andi",
-            scenario="summarizer",
-            conversation_id="conv_456",
-            guidance=None,
-        )
-
-        assert result is True
-
-        # Verify fields in the update
-        eval_call = mock_redis.eval.call_args
-        args = eval_call[0]
-        field_args = args[5:]
-        fields_dict = {field_args[i]: field_args[i+1] for i in range(0, len(field_args), 2)}
-        assert "metadata" in fields_dict
-        metadata = json.loads(fields_dict["metadata"])
-        assert metadata["scenario"] == "summarizer"
-        assert metadata["conversation_id"] == "conv_456"
-        # When guidance is None, it's not included in the metadata
-        assert "guidance" not in metadata
-
-    @pytest.mark.asyncio
-    async def test_handles_cas_failure(self, mock_redis, mediator_config):
-        """Test handling of CAS failure (state changed during assignment)."""
-        mediator = MediatorService(mock_redis, mediator_config)
-        mediator.register_agent("andi")
-        mock_redis.hgetall = AsyncMock(return_value={
-            b"status": b"ready",
-            b"turn_id": b"prev-turn",
-            b"sequence_id": b"1",
-        })
-        mock_redis.eval = AsyncMock(return_value=0)  # CAS failure
-
-        result = await mediator._handle_analysis_command(
-            agent_id="andi",
-            scenario="analysis_dialogue",
-            conversation_id="conv_123",
-            guidance=None,
-        )
-
-        assert result is False
-        mock_redis.expire.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_allows_empty_registered_agents(self, mock_redis, mediator_config):
-        """Test that command works when registered_agents is empty (no filtering)."""
-        mediator = MediatorService(mock_redis, mediator_config)
-        # Don't register any agents - empty set means no filtering
-        mock_redis.hgetall = AsyncMock(return_value={
-            b"status": b"ready",
-            b"turn_id": b"prev-turn",
-            b"sequence_id": b"1",
-        })
-        mock_redis.eval = AsyncMock(return_value=1)
-
-        result = await mediator._handle_analysis_command(
-            agent_id="andi",
-            scenario="analysis_dialogue",
-            conversation_id="conv_123",
-            guidance=None,
-        )
-
-        assert result is True
-
-
-class TestHandleCreativeCommand:
-    """Test _handle_creative_command method."""
-
-    @pytest.mark.asyncio
-    async def test_rejects_unregistered_agent(self, mock_redis, mediator_config):
-        """Test that unregistered agents are rejected."""
-        mediator = MediatorService(mock_redis, mediator_config)
-        mediator.register_agent("andi")  # Register andi, not val
-
-        result = await mediator._handle_creative_command(
-            agent_id="val",
-            scenario="journaler_dialogue",
-            query=None,
-            guidance=None,
-        )
-
-        assert result is False
-        mock_redis.eval.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_rejects_offline_agent(self, mock_redis, mediator_config):
-        """Test that offline agents (no turn_request) are rejected."""
-        mediator = MediatorService(mock_redis, mediator_config)
-        mediator.register_agent("andi")
-        mock_redis.hgetall = AsyncMock(return_value={})  # No turn_request
-
-        result = await mediator._handle_creative_command(
-            agent_id="andi",
-            scenario="journaler_dialogue",
-            query=None,
-            guidance=None,
-        )
-
-        assert result is False
-        mock_redis.eval.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_rejects_crashed_agent(self, mock_redis, mediator_config):
-        """Test that crashed agents are rejected."""
-        mediator = MediatorService(mock_redis, mediator_config)
-        mediator.register_agent("andi")
-        mock_redis.hgetall = AsyncMock(return_value={
-            b"status": b"crashed",
-            b"turn_id": b"old-turn",
-            b"sequence_id": b"1",
-        })
-
-        result = await mediator._handle_creative_command(
-            agent_id="andi",
-            scenario="journaler_dialogue",
-            query=None,
-            guidance=None,
-        )
-
-        assert result is False
-        mock_redis.eval.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_rejects_busy_agent_in_progress(self, mock_redis, mediator_config):
-        """Test that busy agents (in_progress) are rejected."""
-        mediator = MediatorService(mock_redis, mediator_config)
-        mediator.register_agent("andi")
-        mock_redis.hgetall = AsyncMock(return_value={
-            b"status": b"in_progress",
-            b"turn_id": b"current-turn",
-            b"sequence_id": b"1",
-        })
-
-        result = await mediator._handle_creative_command(
-            agent_id="andi",
-            scenario="journaler_dialogue",
-            query=None,
-            guidance=None,
-        )
-
-        assert result is False
-        mock_redis.eval.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_rejects_busy_agent_assigned(self, mock_redis, mediator_config):
-        """Test that busy agents (assigned) are rejected."""
-        mediator = MediatorService(mock_redis, mediator_config)
-        mediator.register_agent("andi")
-        mock_redis.hgetall = AsyncMock(return_value={
-            b"status": b"assigned",
-            b"turn_id": b"assigned-turn",
-            b"sequence_id": b"1",
-        })
-
-        result = await mediator._handle_creative_command(
-            agent_id="andi",
-            scenario="journaler_dialogue",
-            query=None,
-            guidance=None,
-        )
-
-        assert result is False
-        mock_redis.eval.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_assigns_creative_turn_with_query_and_guidance(self, mock_redis, mediator_config):
-        """Test successful creative turn assignment with query and guidance."""
-        mediator = MediatorService(mock_redis, mediator_config)
-        mediator.register_agent("andi")
-        mock_redis.hgetall = AsyncMock(return_value={
-            b"status": b"ready",
-            b"turn_id": b"prev-turn",
-            b"sequence_id": b"1",
-        })
-        mock_redis.eval = AsyncMock(return_value=1)  # CAS success
-
-        result = await mediator._handle_creative_command(
-            agent_id="andi",
-            scenario="journaler_dialogue",
-            query="What did I learn today?",
-            guidance="Focus on emotional growth",
-        )
-
-        assert result is True
-        mock_redis.eval.assert_called_once()
-
-        # Verify the update was attempted with correct key
-        eval_call = mock_redis.eval.call_args
-        args = eval_call[0]
-        assert args[1] == 1  # One key
-        assert args[2] == RedisKeys.agent_turn_request("andi")  # The key
-
-        # Verify CAS field and value are passed
-        assert args[3] == "turn_id"  # CAS field
-        assert args[4] == "prev-turn"  # CAS value
-
-        # Verify fields include metadata with scenario, query, and guidance
-        field_args = args[5:]
-        fields_dict = {field_args[i]: field_args[i+1] for i in range(0, len(field_args), 2)}
-        assert "metadata" in fields_dict
-        metadata = json.loads(fields_dict["metadata"])
-        assert metadata["scenario"] == "journaler_dialogue"
-        assert metadata["query"] == "What did I learn today?"
-        assert metadata["guidance"] == "Focus on emotional growth"
-        assert "status" in fields_dict
-        assert fields_dict["status"] == "assigned"
-
-        # Verify TTL is NOT set (default turn_request_ttl_seconds=0)
-        mock_redis.expire.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_assigns_creative_turn_query_only(self, mock_redis, mediator_config):
-        """Test creative turn assignment with query only."""
-        mediator = MediatorService(mock_redis, mediator_config)
-        mediator.register_agent("andi")
-        mock_redis.hgetall = AsyncMock(return_value={
-            b"status": b"ready",
-            b"turn_id": b"prev-turn",
-            b"sequence_id": b"1",
-        })
-        mock_redis.eval = AsyncMock(return_value=1)
-
-        result = await mediator._handle_creative_command(
-            agent_id="andi",
-            scenario="philosopher_dialogue",
-            query="What is the meaning of life?",
-            guidance=None,
-        )
-
-        assert result is True
-
-        # Verify fields in the update
-        eval_call = mock_redis.eval.call_args
-        args = eval_call[0]
-        field_args = args[5:]
-        fields_dict = {field_args[i]: field_args[i+1] for i in range(0, len(field_args), 2)}
-        assert "metadata" in fields_dict
-        metadata = json.loads(fields_dict["metadata"])
-        assert metadata["scenario"] == "philosopher_dialogue"
-        assert metadata["query"] == "What is the meaning of life?"
-        # When guidance is None, it's not included in the metadata
-        assert "guidance" not in metadata
-
-    @pytest.mark.asyncio
-    async def test_assigns_creative_turn_no_params(self, mock_redis, mediator_config):
-        """Test creative turn assignment with no query/guidance."""
-        mediator = MediatorService(mock_redis, mediator_config)
-        mediator.register_agent("andi")
-        mock_redis.hgetall = AsyncMock(return_value={
-            b"status": b"ready",
-            b"turn_id": b"prev-turn",
-            b"sequence_id": b"1",
-        })
-        mock_redis.eval = AsyncMock(return_value=1)
-
-        result = await mediator._handle_creative_command(
-            agent_id="andi",
-            scenario="daydream_dialogue",
-            query=None,
-            guidance=None,
-        )
-
-        assert result is True
-
-        # Verify fields in the update
-        eval_call = mock_redis.eval.call_args
-        args = eval_call[0]
-        field_args = args[5:]
-        fields_dict = {field_args[i]: field_args[i+1] for i in range(0, len(field_args), 2)}
-        assert "metadata" in fields_dict
-        metadata = json.loads(fields_dict["metadata"])
-        assert metadata["scenario"] == "daydream_dialogue"
-        # When query and guidance are None, they're not included in the metadata
-        assert "query" not in metadata
-        assert "guidance" not in metadata
-
-    @pytest.mark.asyncio
-    async def test_handles_cas_failure(self, mock_redis, mediator_config):
-        """Test handling of CAS failure (state changed during assignment)."""
-        mediator = MediatorService(mock_redis, mediator_config)
-        mediator.register_agent("andi")
-        mock_redis.hgetall = AsyncMock(return_value={
-            b"status": b"ready",
-            b"turn_id": b"prev-turn",
-            b"sequence_id": b"1",
-        })
-        mock_redis.eval = AsyncMock(return_value=0)  # CAS failure
-
-        result = await mediator._handle_creative_command(
-            agent_id="andi",
-            scenario="journaler_dialogue",
-            query=None,
-            guidance=None,
-        )
-
-        assert result is False
-        mock_redis.expire.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_allows_empty_registered_agents(self, mock_redis, mediator_config):
-        """Test that command works when registered_agents is empty (no filtering)."""
-        mediator = MediatorService(mock_redis, mediator_config)
-        # Don't register any agents - empty set means no filtering
-        mock_redis.hgetall = AsyncMock(return_value={
-            b"status": b"ready",
-            b"turn_id": b"prev-turn",
-            b"sequence_id": b"1",
-        })
-        mock_redis.eval = AsyncMock(return_value=1)
-
-        result = await mediator._handle_creative_command(
-            agent_id="andi",
-            scenario="journaler_dialogue",
-            query=None,
-            guidance=None,
-        )
-
-        assert result is True
-
 
 class TestHandleDreamerCommand:
-    """Test _handle_dreamer_command method."""
+    """Test _handle_dreamer_command in mediator."""
 
     @pytest.mark.asyncio
-    async def test_rejects_unregistered_agent(self, mock_redis, mediator_config):
-        """Test that unregistered agents are rejected."""
-        mediator = MediatorService(mock_redis, mediator_config)
-        mediator.register_agent("andi")  # Register andi, not val
-
-        result = await mediator._handle_dreamer_command(
-            agent_id="val",
-            enabled=True,
-        )
-
-        assert result is False
-        mock_redis.hset.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_enables_dreamer(self, mock_redis, mediator_config):
-        """Test enabling dreamer for an agent."""
+    async def test_enable_dreamer_unregistered_agent(self, mock_redis, mediator_config):
+        """Test that enabling fails for unregistered agent."""
         mediator = MediatorService(mock_redis, mediator_config)
         mediator.register_agent("andi")
-        mock_redis.hgetall = AsyncMock(return_value={})  # No existing state
-        mock_redis.eval = AsyncMock(return_value=1)  # Update success
 
-        result = await mediator._handle_dreamer_command(
-            agent_id="andi",
-            enabled=True,
-        )
+        # Try to enable for unregistered agent
+        success = await mediator._handle_dreamer_command("val", True)
 
-        assert result is True
-        # Verify eval was called (via update_dreamer_state_fields)
-        mock_redis.eval.assert_called()
-
-        # Verify the correct Redis key was used
-        eval_call = mock_redis.eval.call_args
-        args = eval_call[0]
-        assert args[1] == 1  # One key
-        assert args[2] == RedisKeys.agent_dreamer("andi")  # The key
-
-        # Verify fields include enabled and default thresholds
-        field_args = args[3:]
-        fields_dict = {field_args[i]: field_args[i+1] for i in range(0, len(field_args), 2)}
-        assert "enabled" in fields_dict
-        assert fields_dict["enabled"] == "true"
-        assert "idle_threshold_seconds" in fields_dict
-        assert fields_dict["idle_threshold_seconds"] == "3600"
-        assert "token_threshold" in fields_dict
-        assert fields_dict["token_threshold"] == "10000"
+        assert success is False
 
     @pytest.mark.asyncio
-    async def test_disables_dreamer(self, mock_redis, mediator_config):
-        """Test disabling dreamer for an agent."""
+    async def test_enable_dreamer_success(self, mock_redis, mediator_config):
+        """Test successful dreamer enable."""
         mediator = MediatorService(mock_redis, mediator_config)
         mediator.register_agent("andi")
-        mock_redis.hgetall = AsyncMock(return_value={
-            b"enabled": b"true",
-            b"idle_threshold_seconds": b"7200",
-        })
-        mock_redis.eval = AsyncMock(return_value=1)  # Update success
 
-        result = await mediator._handle_dreamer_command(
-            agent_id="andi",
-            enabled=False,
-        )
+        # Mock RedisMUDClient methods
+        with patch('aim_mud_types.client.RedisMUDClient.get_dreamer_state',
+                   return_value=None):
+            with patch('aim_mud_types.client.RedisMUDClient.update_dreamer_state_fields') as mock_update:
+                success = await mediator._handle_dreamer_command("andi", True)
 
-        assert result is True
-        mock_redis.eval.assert_called()
-
-        # Verify only enabled field is set (no defaults)
-        eval_call = mock_redis.eval.call_args
-        args = eval_call[0]
-        field_args = args[3:]
-        fields_dict = {field_args[i]: field_args[i+1] for i in range(0, len(field_args), 2)}
-        assert "enabled" in fields_dict
-        assert fields_dict["enabled"] == "false"
-        assert "idle_threshold_seconds" not in fields_dict
-        assert "token_threshold" not in fields_dict
+                assert success is True
+                # Should set enabled=True and default thresholds
+                mock_update.assert_called_once()
+                call_kwargs = mock_update.call_args[1]
+                assert call_kwargs["enabled"] is True
+                assert "idle_threshold_seconds" in call_kwargs
+                assert "token_threshold" in call_kwargs
 
     @pytest.mark.asyncio
-    async def test_preserves_existing_thresholds_on_reenable(self, mock_redis, mediator_config):
-        """Test that re-enabling preserves existing thresholds."""
+    async def test_disable_dreamer_success(self, mock_redis, mediator_config):
+        """Test successful dreamer disable."""
         mediator = MediatorService(mock_redis, mediator_config)
         mediator.register_agent("andi")
-        mock_redis.hgetall = AsyncMock(return_value={
-            b"enabled": b"false",
-            b"idle_threshold_seconds": b"7200",
-            b"token_threshold": b"20000",
-        })
-        mock_redis.eval = AsyncMock(return_value=1)  # Update success
 
-        result = await mediator._handle_dreamer_command(
-            agent_id="andi",
-            enabled=True,
-        )
+        # Mock RedisMUDClient methods
+        with patch('aim_mud_types.client.RedisMUDClient.get_dreamer_state',
+                   return_value={"enabled": True}):
+            with patch('aim_mud_types.client.RedisMUDClient.update_dreamer_state_fields') as mock_update:
+                success = await mediator._handle_dreamer_command("andi", False)
 
-        assert result is True
-
-        # Verify only enabled field is set (existing thresholds preserved)
-        eval_call = mock_redis.eval.call_args
-        args = eval_call[0]
-        field_args = args[3:]
-        fields_dict = {field_args[i]: field_args[i+1] for i in range(0, len(field_args), 2)}
-        assert "enabled" in fields_dict
-        assert fields_dict["enabled"] == "true"
-        assert "idle_threshold_seconds" not in fields_dict
-        assert "token_threshold" not in fields_dict
+                assert success is True
+                # Should only set enabled=False (no threshold updates)
+                mock_update.assert_called_once()
+                call_kwargs = mock_update.call_args[1]
+                assert call_kwargs["enabled"] is False
+                assert "idle_threshold_seconds" not in call_kwargs
 
     @pytest.mark.asyncio
-    async def test_allows_empty_registered_agents(self, mock_redis, mediator_config):
-        """Test that command works when registered_agents is empty (no filtering)."""
+    async def test_enable_dreamer_with_existing_state(self, mock_redis, mediator_config):
+        """Test enabling when state already exists (don't reset thresholds)."""
         mediator = MediatorService(mock_redis, mediator_config)
-        # Don't register any agents
-        mock_redis.hgetall = AsyncMock(return_value={})
+        mediator.register_agent("andi")
 
-        result = await mediator._handle_dreamer_command(
-            agent_id="andi",
-            enabled=True,
-        )
+        # Mock existing dreamer state
+        existing_state = {
+            "enabled": False,
+            "idle_threshold_seconds": 7200,
+            "token_threshold": 15000,
+        }
 
-        assert result is True
+        with patch('aim_mud_types.client.RedisMUDClient.get_dreamer_state',
+                   return_value=existing_state):
+            with patch('aim_mud_types.client.RedisMUDClient.update_dreamer_state_fields') as mock_update:
+                success = await mediator._handle_dreamer_command("andi", True)
+
+                assert success is True
+                # Should only set enabled=True (preserve existing thresholds)
+                mock_update.assert_called_once()
+                call_kwargs = mock_update.call_args[1]
+                assert call_kwargs["enabled"] is True
+                assert "idle_threshold_seconds" not in call_kwargs
 
 
 class TestTryHandleControlCommand:
-    """Test _try_handle_control_command method."""
+    """Test _try_handle_control_command in mediator."""
+
+    @pytest.mark.asyncio
+    async def test_handles_dreamer_on(self, mock_redis, mediator_config):
+        """Test that @dreamer on command is handled."""
+        mediator = MediatorService(mock_redis, mediator_config)
+        mediator.register_agent("andi")
+
+        event = create_test_event("@dreamer andi on")
+
+        with patch.object(mediator, '_handle_dreamer_command', return_value=True) as mock_handle:
+            result = await mediator._try_handle_control_command(event)
+
+            assert result is True
+            mock_handle.assert_called_once_with("andi", True)
+
+    @pytest.mark.asyncio
+    async def test_handles_dreamer_off(self, mock_redis, mediator_config):
+        """Test that @dreamer off command is handled."""
+        mediator = MediatorService(mock_redis, mediator_config)
+        mediator.register_agent("andi")
+
+        event = create_test_event("@dreamer andi off")
+
+        with patch.object(mediator, '_handle_dreamer_command', return_value=True) as mock_handle:
+            result = await mediator._try_handle_control_command(event)
+
+            assert result is True
+            mock_handle.assert_called_once_with("andi", False)
 
     @pytest.mark.asyncio
     async def test_ignores_non_system_events(self, mock_redis, mediator_config):
-        """Test that non-SYSTEM events are not processed."""
+        """Test that non-SYSTEM events are ignored."""
         mediator = MediatorService(mock_redis, mediator_config)
 
-        event = MUDEvent(
-            event_type=EventType.SPEECH,
-            actor="Prax",
-            actor_type="player",
-            room_id="#123",
-            content="@journal andi = What happened today?",
-        )
-
-        result = await mediator._try_handle_control_command(event)
-
-        assert result is False
-        mock_redis.hgetall.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_ignores_empty_content(self, mock_redis, mediator_config):
-        """Test that empty content is not processed."""
-        mediator = MediatorService(mock_redis, mediator_config)
-
-        event = MUDEvent(
-            event_type=EventType.SYSTEM,
-            actor="system",
-            actor_type="system",
-            room_id="#123",
-            content="",
-        )
+        event = create_test_event("@dreamer andi on", event_type=EventType.SPEECH)
 
         result = await mediator._try_handle_control_command(event)
 
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_handles_analyze_command(self, mock_redis, mediator_config):
-        """Test that @analyze command is recognized and handled."""
-        mediator = MediatorService(mock_redis, mediator_config)
-        mediator.register_agent("andi")
-        mock_redis.hgetall = AsyncMock(return_value={
-            b"status": b"ready",
-            b"turn_id": b"prev-turn",
-            b"sequence_id": b"1",
-        })
-        mock_redis.eval = AsyncMock(return_value=1)
-
-        event = MUDEvent(
-            event_type=EventType.SYSTEM,
-            actor="system",
-            actor_type="system",
-            room_id="#123",
-            content="@analyze andi = conv_123, Test guidance",
-        )
-
-        result = await mediator._try_handle_control_command(event)
-
-        assert result is True
-        mock_redis.eval.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_handles_summary_command(self, mock_redis, mediator_config):
-        """Test that @summary command is recognized and handled."""
-        mediator = MediatorService(mock_redis, mediator_config)
-        mediator.register_agent("andi")
-        mock_redis.hgetall = AsyncMock(return_value={
-            b"status": b"ready",
-            b"turn_id": b"prev-turn",
-            b"sequence_id": b"1",
-        })
-        mock_redis.eval = AsyncMock(return_value=1)
-
-        event = MUDEvent(
-            event_type=EventType.SYSTEM,
-            actor="system",
-            actor_type="system",
-            room_id="#123",
-            content="@summary andi = conv_456",
-        )
-
-        result = await mediator._try_handle_control_command(event)
-
-        assert result is True
-        mock_redis.eval.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_handles_journal_command(self, mock_redis, mediator_config):
-        """Test that @journal command is recognized and handled."""
-        mediator = MediatorService(mock_redis, mediator_config)
-        mediator.register_agent("andi")
-        mock_redis.hgetall = AsyncMock(return_value={
-            b"status": b"ready",
-            b"turn_id": b"prev-turn",
-            b"sequence_id": b"1",
-        })
-        mock_redis.eval = AsyncMock(return_value=1)
-
-        event = MUDEvent(
-            event_type=EventType.SYSTEM,
-            actor="system",
-            actor_type="system",
-            room_id="#123",
-            content="@journal andi = Test query, Test guidance",
-        )
-
-        result = await mediator._try_handle_control_command(event)
-
-        assert result is True
-        mock_redis.eval.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_handles_ponder_command(self, mock_redis, mediator_config):
-        """Test that @ponder command is recognized and handled."""
-        mediator = MediatorService(mock_redis, mediator_config)
-        mediator.register_agent("andi")
-        mock_redis.hgetall = AsyncMock(return_value={
-            b"status": b"ready",
-            b"turn_id": b"prev-turn",
-            b"sequence_id": b"1",
-        })
-        mock_redis.eval = AsyncMock(return_value=1)
-
-        event = MUDEvent(
-            event_type=EventType.SYSTEM,
-            actor="system",
-            actor_type="system",
-            room_id="#123",
-            content="@ponder andi = What is my purpose?",
-        )
-
-        result = await mediator._try_handle_control_command(event)
-
-        assert result is True
-        mock_redis.eval.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_handles_daydream_command(self, mock_redis, mediator_config):
-        """Test that @daydream command is recognized and handled."""
-        mediator = MediatorService(mock_redis, mediator_config)
-        mediator.register_agent("andi")
-        mock_redis.hgetall = AsyncMock(return_value={
-            b"status": b"ready",
-            b"turn_id": b"prev-turn",
-            b"sequence_id": b"1",
-        })
-        mock_redis.eval = AsyncMock(return_value=1)
-
-        event = MUDEvent(
-            event_type=EventType.SYSTEM,
-            actor="system",
-            actor_type="system",
-            room_id="#123",
-            content="@daydream andi",
-        )
-
-        result = await mediator._try_handle_control_command(event)
-
-        assert result is True
-        mock_redis.eval.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_handles_critique_command(self, mock_redis, mediator_config):
-        """Test that @critique command is recognized and handled."""
-        mediator = MediatorService(mock_redis, mediator_config)
-        mediator.register_agent("andi")
-        mock_redis.hgetall = AsyncMock(return_value={
-            b"status": b"ready",
-            b"turn_id": b"prev-turn",
-            b"sequence_id": b"1",
-        })
-        mock_redis.eval = AsyncMock(return_value=1)
-
-        event = MUDEvent(
-            event_type=EventType.SYSTEM,
-            actor="system",
-            actor_type="system",
-            room_id="#123",
-            content="@critique andi = My recent actions",
-        )
-
-        result = await mediator._try_handle_control_command(event)
-
-        assert result is True
-        mock_redis.eval.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_handles_research_command(self, mock_redis, mediator_config):
-        """Test that @research command is recognized and handled."""
-        mediator = MediatorService(mock_redis, mediator_config)
-        mediator.register_agent("andi")
-        mock_redis.hgetall = AsyncMock(return_value={
-            b"status": b"ready",
-            b"turn_id": b"prev-turn",
-            b"sequence_id": b"1",
-        })
-        mock_redis.eval = AsyncMock(return_value=1)
-
-        event = MUDEvent(
-            event_type=EventType.SYSTEM,
-            actor="system",
-            actor_type="system",
-            room_id="#123",
-            content="@research andi = AI alignment",
-        )
-
-        result = await mediator._try_handle_control_command(event)
-
-        assert result is True
-        mock_redis.eval.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_handles_dreamer_command(self, mock_redis, mediator_config):
-        """Test that @dreamer command is recognized and handled."""
-        mediator = MediatorService(mock_redis, mediator_config)
-        mediator.register_agent("andi")
-        mock_redis.hgetall = AsyncMock(return_value={})
-        mock_redis.eval = AsyncMock(return_value=1)  # Update success
-
-        event = MUDEvent(
-            event_type=EventType.SYSTEM,
-            actor="system",
-            actor_type="system",
-            room_id="#123",
-            content="@dreamer andi on",
-        )
-
-        result = await mediator._try_handle_control_command(event)
-
-        assert result is True
-        # Uses eval now (via update_dreamer_state_fields)
-        mock_redis.eval.assert_called()
-
-    @pytest.mark.asyncio
-    async def test_returns_false_for_non_command_system_event(self, mock_redis, mediator_config):
-        """Test that non-command SYSTEM events return False."""
+    async def test_ignores_non_command_content(self, mock_redis, mediator_config):
+        """Test that non-command content is ignored."""
         mediator = MediatorService(mock_redis, mediator_config)
 
-        event = MUDEvent(
-            event_type=EventType.SYSTEM,
-            actor="system",
-            actor_type="system",
-            room_id="#123",
-            content="Server maintenance in 5 minutes.",
-        )
+        event = create_test_event("Just a regular message")
 
         result = await mediator._try_handle_control_command(event)
 
         assert result is False
 
-
-class TestProcessEventWithDreamCommands:
-    """Test that _process_event correctly handles dream commands."""
-
     @pytest.mark.asyncio
-    async def test_analyze_command_not_distributed(self, mock_redis, mediator_config):
-        """Test that @analyze commands are not distributed to agent streams."""
+    async def test_ignores_other_commands(self, mock_redis, mediator_config):
+        """Test that other dream commands are ignored (handled by worker)."""
         mediator = MediatorService(mock_redis, mediator_config)
-        mediator.register_agent("andi")
-        mock_redis.hgetall = AsyncMock(return_value={
-            b"status": b"ready",
-            b"turn_id": b"prev-turn",
-            b"sequence_id": b"1",
-        })
-        mock_redis.eval = AsyncMock(return_value=1)
 
-        event_data = {
-            "type": "system",
-            "actor": "system",
-            "actor_type": "system",
-            "room_id": "#123",
-            "content": "@analyze andi = conv_123",
-            "timestamp": "2026-01-01T12:00:00+00:00",
-        }
-        data = {b"data": json.dumps(event_data).encode()}
+        # Test that analyze command is NOT handled by mediator
+        event = create_test_event("@analyze andi = conv_123")
 
-        await mediator._process_event("1704096000000-0", data)
+        result = await mediator._try_handle_control_command(event)
 
-        # Event should NOT be added to agent stream (xadd not called)
-        mock_redis.xadd.assert_not_called()
-
-        # But it should be marked as processed
-        mock_redis.hset.assert_called()
-        hset_calls = mock_redis.hset.call_args_list
-        # Find the call that marks the event as processed
-        processed_call = [c for c in hset_calls if c[0][0] == RedisKeys.EVENTS_PROCESSED]
-        assert len(processed_call) == 1
-
-    @pytest.mark.asyncio
-    async def test_journal_command_not_distributed(self, mock_redis, mediator_config):
-        """Test that @journal commands are not distributed to agent streams."""
-        mediator = MediatorService(mock_redis, mediator_config)
-        mediator.register_agent("andi")
-        mock_redis.hgetall = AsyncMock(return_value={
-            b"status": b"ready",
-            b"turn_id": b"prev-turn",
-            b"sequence_id": b"1",
-        })
-        mock_redis.eval = AsyncMock(return_value=1)
-
-        event_data = {
-            "type": "system",
-            "actor": "system",
-            "actor_type": "system",
-            "room_id": "#123",
-            "content": "@journal andi = What happened today?",
-            "timestamp": "2026-01-01T12:00:00+00:00",
-        }
-        data = {b"data": json.dumps(event_data).encode()}
-
-        await mediator._process_event("1704096000000-0", data)
-
-        # Event should NOT be added to agent stream (xadd not called)
-        mock_redis.xadd.assert_not_called()
-
-        # But it should be marked as processed
-        mock_redis.hset.assert_called()
-        hset_calls = mock_redis.hset.call_args_list
-        # Find the call that marks the event as processed
-        processed_call = [c for c in hset_calls if c[0][0] == RedisKeys.EVENTS_PROCESSED]
-        assert len(processed_call) == 1
+        # Should return False - not a mediator command
+        assert result is False
 
 
 if __name__ == "__main__":

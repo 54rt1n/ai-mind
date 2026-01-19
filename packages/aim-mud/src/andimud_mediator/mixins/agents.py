@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 class AgentsMixin:
     """Agents mixin for the mediator service."""
 
+
     async def _check_agent_states(self) -> None:
         """Check agent states when no events arrive (XREAD timeout).
 
@@ -78,8 +79,31 @@ class AgentsMixin:
                 logger.error(f"Error checking state for {agent_id}: {e}", exc_info=True)
                 continue
 
-        # Check for auto-analysis trigger
-        await self._check_auto_analysis_trigger()
+        # Case 3: System idle - create idle turn if conditions met
+        # Conditions: ALL agents READY and streams quiet for threshold
+        if await self._all_agents_ready():
+            from aim_mud_types import RedisKeys
+            events_idle = await self._is_stream_idle(
+                RedisKeys.MUD_EVENTS,
+                self.config.auto_analysis_idle_seconds
+            )
+            actions_idle = await self._is_stream_idle(
+                RedisKeys.MUD_ACTIONS,
+                self.config.auto_analysis_idle_seconds
+            )
+
+            if events_idle and actions_idle:
+                agents_list = sorted(self.registered_agents)
+                if agents_list:
+                    n = len(agents_list)
+                    for i in range(n):
+                        candidate = agents_list[(self._turn_index + i) % n]
+                        assigned = await self._maybe_assign_turn(candidate, reason=TurnReason.IDLE)
+                        if assigned:
+                            self._turn_index = (self._turn_index + i + 1) % n
+                            logger.debug(f"Assigned idle turn to {candidate}")
+                            break
+
 
     async def _any_agent_processing(self) -> bool:
         """Check if any agent is currently processing a turn.
@@ -104,6 +128,41 @@ class AgentsMixin:
                 return True
 
         return False
+
+    async def _all_agents_ready(self) -> bool:
+        """Check if ALL registered agents are in READY status."""
+        for agent_id in self.registered_agents:
+            turn_request = await self._get_turn_request(agent_id)
+            if not turn_request or turn_request.status != TurnRequestStatus.READY:
+                return False
+        return True
+
+    async def _is_stream_idle(self, stream_key: str, idle_seconds: int) -> bool:
+        """Check if stream has been idle for at least idle_seconds.
+
+        Args:
+            stream_key: Redis stream key to check.
+            idle_seconds: Minimum idle time in seconds.
+
+        Returns:
+            True if stream has been idle for at least idle_seconds,
+            or if stream doesn't exist/is empty.
+        """
+        try:
+            info = await self.redis.xinfo_stream(stream_key)
+            last_id = info.get("last-generated-id") or info.get(b"last-generated-id")
+            if isinstance(last_id, bytes):
+                last_id = last_id.decode("utf-8")
+            if not last_id or last_id in ("0", "0-0"):
+                return True  # Empty stream = idle
+
+            last_ts_ms = int(last_id.split("-")[0])
+            now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+            idle_ms = now_ms - last_ts_ms
+            return idle_ms >= (idle_seconds * 1000)
+        except Exception:
+            # Stream doesn't exist = idle
+            return True
 
     async def _maybe_assign_turn(self, agent_id: str, reason: "str | TurnReason" = TurnReason.EVENTS) -> bool:
         """Assign turn if agent is available (including ready to retry).
@@ -315,470 +374,3 @@ class AgentsMixin:
         self.registered_agents.discard(agent_id)
         logger.info(f"Unregistered agent {agent_id}")
 
-    async def _check_auto_analysis_trigger(self) -> None:
-        """Check if we should trigger auto-analysis.
-
-        Uses completed_at field to track idle duration persistently.
-        No in-memory state needed - survives mediator restarts.
-        """
-        if not self.config.auto_analysis_enabled:
-            return
-
-        if await self._is_paused():
-            return
-
-        now = _utc_now()
-
-        # Check cooldown
-        elapsed = (now - self._last_auto_analysis_check).total_seconds()
-        if elapsed < self.config.auto_analysis_cooldown_seconds:
-            return
-
-        # Check if ALL non-sleeping agents are idle
-        from aim_mud_types.client import RedisMUDClient
-        client = RedisMUDClient(self.redis)
-
-        # Track whether all agents are sleeping - important for handling
-        # cases where streams don't exist (system reset) but agents should
-        # still receive analysis tasks overnight
-        all_agents_sleeping = True
-
-        for agent_id in self.registered_agents:
-            # Skip sleeping agents
-            is_sleeping = await client.get_agent_is_sleeping(agent_id)
-            if is_sleeping:
-                continue
-
-            # If we get here, at least one agent is NOT sleeping
-            all_agents_sleeping = False
-
-            turn_request = await self._get_turn_request(agent_id)
-            if not turn_request:
-                # Agent offline - skip it (offline agents don't affect idle state)
-                continue
-
-            status = turn_request.status
-
-            # Active states block idle detection
-            if status in (TurnRequestStatus.ASSIGNED, TurnRequestStatus.IN_PROGRESS,
-                          TurnRequestStatus.ABORT_REQUESTED, TurnRequestStatus.EXECUTING,
-                          TurnRequestStatus.EXECUTE):
-                return  # System not idle
-
-            # RETRY in backoff blocks idle detection
-            if status == TurnRequestStatus.RETRY:
-                if turn_request.next_attempt_at:
-                    try:
-                        next_attempt = datetime.fromisoformat(turn_request.next_attempt_at)
-                        if datetime.now(timezone.utc) < next_attempt:
-                            return  # Still in backoff - not idle
-                    except (ValueError, TypeError):
-                        pass  # Invalid timestamp, treat as idle
-
-            # FAIL in backoff blocks idle detection (backward compatibility)
-            if status == TurnRequestStatus.FAIL:
-                if turn_request.next_attempt_at:
-                    try:
-                        next_attempt = datetime.fromisoformat(turn_request.next_attempt_at)
-                        if datetime.now(timezone.utc) < next_attempt:
-                            return  # Still in backoff - not idle
-                    except (ValueError, TypeError):
-                        pass
-
-        # Query streams for last activity
-        try:
-            from aim_mud_types import RedisKeys
-            import redis.exceptions
-
-            # Get stream info to extract last message timestamps
-            events_info = await self.redis.xinfo_stream(RedisKeys.MUD_EVENTS)
-            actions_info = await self.redis.xinfo_stream(RedisKeys.MUD_ACTIONS)
-
-            # Extract last-generated-id from stream info
-            last_event_id = events_info.get("last-generated-id") or events_info.get(b"last-generated-id")
-            last_action_id = actions_info.get("last-generated-id") or actions_info.get(b"last-generated-id")
-
-            # Decode if bytes
-            if isinstance(last_event_id, bytes):
-                last_event_id = last_event_id.decode("utf-8")
-            if isinstance(last_action_id, bytes):
-                last_action_id = last_action_id.decode("utf-8")
-
-            # Parse timestamps from stream IDs (format: "timestamp_ms-sequence")
-            timestamps = []
-
-            if last_event_id and last_event_id not in ("0-0", "0"):
-                event_timestamp_ms = int(last_event_id.split("-")[0])
-                timestamps.append(datetime.fromtimestamp(event_timestamp_ms / 1000, tz=timezone.utc))
-
-            if last_action_id and last_action_id not in ("0-0", "0"):
-                action_timestamp_ms = int(last_action_id.split("-")[0])
-                timestamps.append(datetime.fromtimestamp(action_timestamp_ms / 1000, tz=timezone.utc))
-
-            if not timestamps:
-                # No events or actions yet - streams exist but are empty
-                if all_agents_sleeping:
-                    # All agents sleeping with no stream activity = treat as infinitely idle
-                    # This allows overnight analysis to proceed after system reset
-                    logger.info(
-                        "Auto-analysis: no stream activity, but all agents sleeping - "
-                        "treating as idle"
-                    )
-                    idle_duration = float('inf')
-                else:
-                    # Non-sleeping agents should create activity eventually
-                    logger.debug("Auto-analysis: no events or actions in streams yet")
-                    return
-            else:
-                # Calculate idle time from most recent activity
-                # (Handles case where one stream is empty, e.g., user event but no agent action yet)
-                last_activity = max(timestamps)
-                idle_duration = (now - last_activity).total_seconds()
-
-        except redis.exceptions.ResponseError as e:
-            # Stream doesn't exist - system just started or streams not initialized
-            if all_agents_sleeping:
-                # All agents sleeping with no streams = treat as infinitely idle
-                # This allows overnight analysis to proceed after system reset
-                logger.info(
-                    f"Auto-analysis: streams not initialized, but all agents sleeping - "
-                    f"treating as idle (error: {e})"
-                )
-                idle_duration = float('inf')
-            else:
-                # Non-sleeping agents should create streams with activity
-                logger.debug(f"Auto-analysis: streams not yet initialized (first startup): {e}")
-                return
-        except Exception as e:
-            logger.error(f"Auto-analysis: error checking stream timestamps: {e}", exc_info=True)
-            return
-
-        if idle_duration < self.config.auto_analysis_idle_seconds:
-            logger.debug(
-                f"Auto-analysis: system idle for {idle_duration:.0f}s "
-                f"(threshold: {self.config.auto_analysis_idle_seconds}s)"
-            )
-            return
-
-        # Threshold reached!
-        logger.info(f"Auto-analysis: triggered after {idle_duration:.0f}s idle")
-        self._last_auto_analysis_check = now
-
-        await self._scan_for_unanalyzed_conversations()
-
-    async def _refresh_conversation_reports(self) -> None:
-        """Refresh conversation reports for all registered agents.
-
-        Generates fresh conversation reports and stores them in Redis
-        for use by auto-analysis scanning. This ensures we're scanning
-        with up-to-date conversation data.
-        """
-        if not self.registered_agents:
-            return
-
-        from aim_mud_types.client import RedisMUDClient
-        client = RedisMUDClient(self.redis)
-
-        refreshed_count = 0
-        for agent_id in self.registered_agents:
-            try:
-                # Get agent profile to lookup persona_id
-                profile = await client.get_agent_profile(agent_id)
-                if not profile or not profile.persona_id:
-                    logger.debug(f"Auto-analysis: no persona_id for {agent_id}, skipping report refresh")
-                    continue
-
-                # Create ConversationModel for this agent
-                # Using defaults similar to ChatConfig defaults
-                memory_path = f"memory/{profile.persona_id}"
-                cvm = ConversationModel(
-                    memory_path=memory_path,
-                    embedding_model="sentence-transformers/all-MiniLM-L6-v2",
-                    user_timezone=None,
-                    embedding_device=None,
-                )
-
-                # Generate fresh conversation report
-                report_df = cvm.get_conversation_report()
-
-                if not report_df.empty:
-                    report_dict = report_df.set_index('conversation_id').T.to_dict()
-                else:
-                    report_dict = {}
-
-                await client.set_conversation_report(agent_id, report_dict)
-                refreshed_count += 1
-
-            except Exception as e:
-                logger.error(
-                    f"Auto-analysis: failed to refresh conversation report for {agent_id}: {e}",
-                    exc_info=True
-                )
-                continue
-
-        logger.debug(f"Auto-analysis: refreshed conversation reports for {refreshed_count} agent(s)")
-
-    async def _should_summarize_before_analysis(
-        self,
-        agent_id: str,
-        conversation_id: str,
-        doc_counts: dict
-    ) -> tuple[bool, str]:
-        """Check if conversation needs summarization before analysis.
-
-        Args:
-            agent_id: Target agent ID
-            conversation_id: Conversation to check
-            doc_counts: Document counts from conversation report
-
-        Returns:
-            (should_summarize, reason)
-            - (False, "has_summary"): Already summarized, can analyze
-            - (False, "under_threshold"): Context small enough, can analyze
-            - (True, "over_threshold"): Context too large, summarize first
-        """
-        from aim.utils.tokens import count_tokens
-        from aim.llm.models import LanguageModelV2
-        from aim_mud_types.client import RedisMUDClient
-
-        # If conversation has summary documents, always analyze
-        # (summary compressed the context already)
-        has_summary = doc_counts.get("summary", 0) > 0
-        if has_summary:
-            return False, "has_summary"
-
-        # Get agent profile to find persona_id
-        client = RedisMUDClient(self.redis)
-        profile = await client.get_agent_profile(agent_id)
-        if not profile or not profile.persona_id:
-            logger.warning(
-                f"Auto-analysis: no persona_id for {agent_id}, "
-                f"skipping context check"
-            )
-            return False, "no_profile"
-
-        try:
-            # Load CVM for this agent
-            from aim.conversation.model import ConversationModel
-
-            memory_path = f"memory/{profile.persona_id}"
-            cvm = ConversationModel(
-                memory_path=memory_path,
-                embedding_model="sentence-transformers/all-MiniLM-L6-v2",
-                user_timezone=None,
-                embedding_device=None,
-            )
-
-            # Load conversation documents
-            query_result = cvm.query(
-                conversation_id=conversation_id,
-                document_types=['conversation', 'summary', 'mud-world', 'mud-agent'],
-                limit=1000  # Safety limit
-            )
-
-            # Count tokens in all documents
-            total_tokens = 0
-            for doc in query_result:
-                content = doc.get('content', '')
-                total_tokens += count_tokens(content)
-
-            logger.debug(
-                f"Auto-analysis: conversation {conversation_id} has "
-                f"{len(query_result)} docs, {total_tokens} tokens"
-            )
-
-            # Get model context window and calculate threshold
-            # Using config default model (usually set in MediatorConfig)
-            models = LanguageModelV2.index_models(self.chat_config)
-            default_model_name = getattr(self.chat_config, 'default_model', 'qwen2.5:7b')
-            model = models.get(default_model_name)
-
-            if not model:
-                logger.warning(
-                    f"Auto-analysis: model {default_model_name} not found, "
-                    f"using default context window 32768"
-                )
-                model_context_window = 32768
-            else:
-                model_context_window = model.max_tokens
-
-            # Threshold: 80% of (context_window - safety_margin)
-            # TODO: Make ratio configurable via MediatorConfig (default 0.8)
-            threshold_ratio = 0.8
-            safety_margin = 1024 + 4096  # System prompt + typical analysis output
-            effective_window = model_context_window - safety_margin
-            threshold = int(effective_window * threshold_ratio)
-
-            should_summarize = total_tokens > threshold
-
-            if should_summarize:
-                logger.info(
-                    f"Auto-analysis: conversation {conversation_id} has {total_tokens} tokens > "
-                    f"{threshold} threshold ({threshold_ratio:.1%} of {model_context_window}) - "
-                    f"will summarize first"
-                )
-                return True, "over_threshold"
-            else:
-                logger.debug(
-                    f"Auto-analysis: conversation {conversation_id} has {total_tokens} tokens <= "
-                    f"{threshold} threshold - can analyze directly"
-                )
-                return False, "under_threshold"
-
-        except Exception as e:
-            logger.error(
-                f"Auto-analysis: error checking context size for {conversation_id}: {e}",
-                exc_info=True
-            )
-            # Fail open - allow analysis without check
-            return False, "check_failed"
-
-    async def _scan_for_unanalyzed_conversations(self) -> None:
-        """Scan agents for conversations needing analysis.
-
-        Uses round-robin to assign analysis to ONE agent per trigger.
-        Tries agents in order starting from self._turn_index until one
-        successfully receives an assignment.
-
-        Uses existing turn assignment infrastructure via _handle_analysis_command().
-        """
-        # Refresh conversation reports before scanning
-        await self._refresh_conversation_reports()
-
-        from aim_mud_types.client import RedisMUDClient
-        client = RedisMUDClient(self.redis)
-
-        # Convert set to list for indexing
-        agents_list = list(self.registered_agents)
-        if not agents_list:
-            logger.debug("Auto-analysis: no registered agents")
-            return
-
-        n = len(agents_list)
-        assigned_agent = None
-
-        # Try each agent in round-robin order
-        for i in range(n):
-            agent_id = agents_list[(self._turn_index + i) % n]
-
-            try:
-                # Load cached conversation report from Redis
-                report = await client.get_conversation_report(agent_id)
-                if not report:
-                    logger.debug(f"Auto-analysis: no conversation report for {agent_id}")
-                    continue
-
-                if not isinstance(report, dict):
-                    logger.warning(
-                        f"Auto-analysis: invalid report format for {agent_id} "
-                        f"(expected dict, got {type(report).__name__})"
-                    )
-                    continue
-
-                # Find unanalyzed conversations
-                # Document types come from conversation report structure:
-                # - "mud-world": documents from world events (user turns)
-                # - "mud-agent": documents from agent actions (assistant turns)
-                # - "analysis": analysis documents created by analysis_dialogue scenario
-                # These column names come from ConversationModel.get_conversation_report()
-                unanalyzed = []
-                for conversation_id, doc_counts in report.items():
-                    if not isinstance(doc_counts, dict):
-                        logger.warning(
-                            f"Auto-analysis: invalid doc_counts for {conversation_id} in {agent_id}"
-                        )
-                        continue
-
-                    has_conversation_docs = doc_counts.get("conversation", 0) > 0
-                    has_mud_docs = (
-                        doc_counts.get("mud-world", 0) > 0
-                        or doc_counts.get("mud-agent", 0) > 0
-                    )
-                    has_summary = doc_counts.get("summary", 0) > 0
-                    has_analysis = doc_counts.get("analysis", 0) > 0
-
-                    # Include conversations that:
-                    # 1. Have conversation/MUD docs AND no analysis
-                    # 2. Have summary docs AND no analysis (summarized but not yet analyzed)
-                    needs_processing = (
-                        (has_conversation_docs or has_mud_docs or has_summary)
-                        and not has_analysis
-                    )
-
-                    if needs_processing:
-                        timestamp = doc_counts.get("timestamp_max", "")
-                        unanalyzed.append((conversation_id, timestamp))
-
-                if not unanalyzed:
-                    logger.debug(f"Auto-analysis: no unanalyzed conversations for {agent_id}")
-                    continue
-
-                # Sort by timestamp (oldest first)
-                unanalyzed.sort(key=lambda x: x[1])
-                conversation_id, timestamp = unanalyzed[0]
-
-                logger.info(
-                    f"Auto-analysis: found {len(unanalyzed)} unanalyzed conversation(s) "
-                    f"for {agent_id}, checking oldest: {conversation_id}"
-                )
-
-                # Check if we need to summarize first
-                # Get doc_counts for context size check
-                doc_counts = report.get(conversation_id, {})
-                should_summarize, reason = await self._should_summarize_before_analysis(
-                    agent_id=agent_id,
-                    conversation_id=conversation_id,
-                    doc_counts=doc_counts
-                )
-
-                # Determine scenario based on context check
-                if should_summarize:
-                    scenario = "summarizer"
-                    logger.info(
-                        f"Auto-analysis: context too large ({reason}), "
-                        f"assigning summarizer for {conversation_id}"
-                    )
-                else:
-                    scenario = "analysis_dialogue"
-                    logger.info(
-                        f"Auto-analysis: context ok ({reason}), "
-                        f"assigning analysis for {conversation_id}"
-                    )
-
-                # TODO - Phase 4: Implement self-turns where agents can initiate
-                # their own processing without explicit conversation targets. This
-                # will enable agents to autonomously explore topics, reflect on
-                # recent experiences, or pursue creative initiatives during idle time.
-                # Note: Self-turns should respect sleeping state (no self-turns for
-                # sleeping agents), but analysis tasks are allowed for sleeping agents.
-
-                # Assign turn using existing infrastructure
-                success = await self._handle_analysis_command(
-                    agent_id=agent_id,
-                    scenario=scenario,
-                    conversation_id=conversation_id,
-                    guidance=None,
-                )
-
-                if success:
-                    assigned_agent = agent_id
-                    self._turn_index = (self._turn_index + i + 1) % n
-                    logger.info(
-                        f"Auto-analysis: assigned analysis to {agent_id} "
-                        f"(round-robin index updated to {self._turn_index})"
-                    )
-                    break  # Stop after first successful assignment
-                else:
-                    logger.debug(
-                        f"Auto-analysis: {agent_id} unavailable, trying next agent"
-                    )
-
-            except Exception as e:
-                logger.error(
-                    f"Auto-analysis: error scanning {agent_id}: {e}",
-                    exc_info=True
-                )
-                continue
-
-        if not assigned_agent:
-            logger.debug("Auto-analysis: no agents had unanalyzed conversations or were available")

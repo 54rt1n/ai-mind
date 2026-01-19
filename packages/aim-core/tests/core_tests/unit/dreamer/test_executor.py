@@ -34,6 +34,7 @@ def mock_model_set():
     model_set.default_model = "default-model"
     model_set.analysis_model = "analysis-model"
     model_set.codex_model = "codex-model"
+    model_set.thought_model = "thought-model"
     model_set.get_model_name = MagicMock(side_effect=lambda role: f"{role}-model")
     return model_set
 
@@ -79,19 +80,18 @@ class TestSelectModelName:
             f"Expected codex-model for codex step, got {result}"
         )
 
-    def test_analyst_codex_step_falls_back_when_codex_model_not_set(self, mock_model_set):
-        """Verify codex step falls back to default model when codex_model is not configured.
+    def test_analyst_codex_step_uses_model_set_codex_model(self, mock_model_set):
+        """Verify codex step uses ModelSet's codex_model even when state.codex_model is None.
 
-        This tests the common misconfiguration where is_codex=True in the scenario
-        but codex_model is not set in the config/state - the step will still run
-        but use the default model instead of a specialized codex model.
+        With StepConfig.get_model(), the step resolves its model from ModelSet directly.
+        ModelSet always provides valid defaults, so there's no "misconfiguration" case.
         """
         from aim.dreamer.core.scenario import load_scenario
 
         scenario = load_scenario("analyst")
         codex_step = scenario.steps["codex"]
 
-        # State WITHOUT codex_model set (None)
+        # State with codex_model=None (legacy - state fields are no longer used for resolution)
         state = PipelineState(
             pipeline_id="test-123",
             scenario_name="analyst",
@@ -99,16 +99,16 @@ class TestSelectModelName:
             persona_id="assistant",
             user_id="user",
             model="default-model",
-            codex_model=None,  # Not set!
+            codex_model=None,  # Doesn't matter - ModelSet is used
             branch=0,
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )
 
-        # Should fall back to default model
+        # Should use model_set.codex_model regardless of state
         result = select_model_name(state, codex_step.config, mock_model_set)
-        assert result == "default-model", (
-            f"Expected default-model when codex_model is None, got {result}"
+        assert result == "codex-model", (
+            f"Expected codex-model from ModelSet, got {result}"
         )
 
     def test_model_override_takes_precedence(self, mock_model_set):
@@ -191,8 +191,8 @@ class TestSelectModelName:
         result = select_model_name(state, step_config, mock_model_set)
         assert result == "default-model"
 
-    def test_codex_without_codex_model_falls_back_to_default(self, mock_model_set):
-        """When is_codex is True but no codex_model, fall back to default."""
+    def test_codex_uses_model_set_codex_model(self, mock_model_set):
+        """When is_codex is True, use ModelSet's codex_model regardless of state."""
         state = PipelineState(
             pipeline_id="test-123",
             scenario_name="test",
@@ -200,7 +200,7 @@ class TestSelectModelName:
             persona_id="assistant",
             user_id="user",
             model="default-model",
-            codex_model=None,
+            codex_model=None,  # Doesn't matter - ModelSet is used
             branch=0,
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
@@ -209,7 +209,7 @@ class TestSelectModelName:
         step_config = StepConfig(is_codex=True)
 
         result = select_model_name(state, step_config, mock_model_set)
-        assert result == "default-model"
+        assert result == "codex-model"  # Uses ModelSet's codex_model
 
 
 class TestBuildTurns:

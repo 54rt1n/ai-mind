@@ -51,23 +51,14 @@ def select_model_name(
     Returns:
         Model name to use for this step
     """
-    # Explicit model override (highest priority)
-    if step_config.model_override:
-        return step_config.model_override
+    # Use StepConfig's get_model() for resolution
+    model = step_config.get_model(model_set)
 
-    # Model role from step definition
-    if step_config.model_role:
-        return model_set.get_model_name(step_config.model_role)
+    # If step didn't specify anything (got default), allow state.model override
+    if model == model_set.default_model and state.model and state.model != model_set.default_model:
+        return state.model
 
-    # Legacy flags for backward compatibility (DEPRECATED)
-    if step_config.is_codex and state.codex_model:
-        return state.codex_model
-
-    if step_config.is_thought and state.thought_model:
-        return state.thought_model
-
-    # Pipeline default
-    return state.model
+    return model
 
 
 def build_turns(

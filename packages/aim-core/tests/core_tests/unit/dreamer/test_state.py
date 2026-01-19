@@ -333,3 +333,292 @@ class TestStateStore:
             sample_state.pipeline_id, "step1", ttl=60
         )
         assert acquired3 is False
+
+
+# ============================================================================
+# Tests for ScenarioState runtime models (aim.dreamer.core.state)
+# ============================================================================
+
+from aim.dreamer.core.state import DocRef, ScenarioTurn, ScenarioState
+
+
+class TestDocRef:
+    """Tests for DocRef model."""
+
+    def test_docref_minimal(self):
+        """Test DocRef with only required field."""
+        ref = DocRef(doc_id="doc123")
+        assert ref.doc_id == "doc123"
+        assert ref.document_type is None
+        assert ref.parent_doc_id is None
+        assert ref.chunk_level is None
+        assert ref.chunk_index is None
+
+    def test_docref_full(self):
+        """Test DocRef with all fields."""
+        ref = DocRef(
+            doc_id="chunk_abc_256_0",
+            document_type="conversation",
+            parent_doc_id="doc_abc",
+            chunk_level="chunk_256",
+            chunk_index=0
+        )
+        assert ref.doc_id == "chunk_abc_256_0"
+        assert ref.document_type == "conversation"
+        assert ref.parent_doc_id == "doc_abc"
+        assert ref.chunk_level == "chunk_256"
+        assert ref.chunk_index == 0
+
+    def test_docref_from_row(self):
+        """Test DocRef.from_row factory method."""
+        row = {
+            "doc_id": "doc456",
+            "document_type": "journal",
+            "parent_doc_id": "parent_123",
+            "chunk_level": "chunk_768",
+            "chunk_index": 2
+        }
+        ref = DocRef.from_row(row)
+        assert ref.doc_id == "doc456"
+        assert ref.document_type == "journal"
+        assert ref.parent_doc_id == "parent_123"
+        assert ref.chunk_level == "chunk_768"
+        assert ref.chunk_index == 2
+
+    def test_docref_from_row_minimal(self):
+        """Test DocRef.from_row with minimal row data."""
+        row = {"doc_id": "simple_doc"}
+        ref = DocRef.from_row(row)
+        assert ref.doc_id == "simple_doc"
+        assert ref.document_type is None
+
+
+class TestScenarioTurn:
+    """Tests for ScenarioTurn model."""
+
+    def test_scenario_turn_creation(self):
+        """Test ScenarioTurn with all fields."""
+        turn = ScenarioTurn(
+            step_id="select_topic",
+            prompt="Choose a topic to explore.",
+            response="I'll explore AI consciousness."
+        )
+        assert turn.step_id == "select_topic"
+        assert turn.prompt == "Choose a topic to explore."
+        assert turn.response == "I'll explore AI consciousness."
+
+
+class TestScenarioState:
+    """Tests for ScenarioState model."""
+
+    def test_state_minimal(self):
+        """Test ScenarioState with only required field."""
+        state = ScenarioState(current_step="gather_context")
+        assert state.current_step == "gather_context"
+        assert state.turns == []
+        assert state.memory_refs == []
+        assert state.step_doc_ids == []
+        assert state.step_results == {}
+        assert state.collections == {}
+        assert state.step_iterations == {}
+        assert state.guidance is None
+        assert state.query_text is None
+        assert state.conversation_id is None
+
+    def test_state_initial_factory(self):
+        """Test ScenarioState.initial factory method."""
+        state = ScenarioState.initial(
+            first_step="gather",
+            conversation_id="conv123",
+            guidance="Focus on recent events",
+            query_text="AI consciousness"
+        )
+        assert state.current_step == "gather"
+        assert state.conversation_id == "conv123"
+        assert state.guidance == "Focus on recent events"
+        assert state.query_text == "AI consciousness"
+
+    def test_is_complete(self):
+        """Test is_complete method."""
+        state = ScenarioState(current_step="processing")
+        assert not state.is_complete()
+
+        state.current_step = "end"
+        assert state.is_complete()
+
+        state.current_step = "abort"
+        assert state.is_complete()
+
+    def test_is_aborted(self):
+        """Test is_aborted method."""
+        state = ScenarioState(current_step="processing")
+        assert not state.is_aborted()
+
+        state.current_step = "end"
+        assert not state.is_aborted()
+
+        state.current_step = "abort"
+        assert state.is_aborted()
+
+    def test_record_turn(self):
+        """Test record_turn method."""
+        state = ScenarioState(current_step="step1")
+
+        state.record_turn("step1", "Prompt 1", "Response 1")
+
+        assert len(state.turns) == 1
+        assert state.turns[0].step_id == "step1"
+        assert state.turns[0].prompt == "Prompt 1"
+        assert state.turns[0].response == "Response 1"
+
+    def test_record_multiple_turns(self):
+        """Test recording multiple turns."""
+        state = ScenarioState(current_step="step1")
+
+        state.record_turn("step1", "Prompt 1", "Response 1")
+        state.record_turn("step2", "Prompt 2", "Response 2")
+
+        assert len(state.turns) == 2
+        assert state.turns[1].step_id == "step2"
+
+    def test_record_step_result(self):
+        """Test record_step_result method."""
+        state = ScenarioState(current_step="select_topic")
+
+        result = StepResult(
+            step_id="select_topic",
+            response="",
+            doc_id="doc123",
+            document_type="step-output",
+            document_weight=1.0,
+            tokens_used=50,
+            timestamp=datetime.now(),
+            tool_name="select_topic",
+            tool_result={"topic": "AI", "reasoning": "Important"}
+        )
+
+        state.record_step_result(result)
+
+        assert "select_topic" in state.step_results
+        assert state.step_results["select_topic"].tool_name == "select_topic"
+
+    def test_increment_iteration(self):
+        """Test increment_iteration method."""
+        state = ScenarioState(current_step="add_task")
+
+        count1 = state.increment_iteration("add_task")
+        assert count1 == 1
+        assert state.step_iterations["add_task"] == 1
+
+        count2 = state.increment_iteration("add_task")
+        assert count2 == 2
+        assert state.step_iterations["add_task"] == 2
+
+    def test_collect_result(self):
+        """Test collect_result method."""
+        state = ScenarioState(current_step="add_task")
+
+        state.collect_result("tasks", {"summary": "Task 1", "details": "Details 1"})
+        state.collect_result("tasks", {"summary": "Task 2", "details": "Details 2"})
+
+        assert "tasks" in state.collections
+        assert len(state.collections["tasks"]) == 2
+        assert state.collections["tasks"][0]["summary"] == "Task 1"
+        assert state.collections["tasks"][1]["summary"] == "Task 2"
+
+    def test_add_doc_id(self):
+        """Test add_doc_id method."""
+        state = ScenarioState(current_step="generate")
+
+        state.add_doc_id("doc1")
+        state.add_doc_id("doc2")
+        state.add_doc_id("doc1")  # Duplicate - should not add again
+
+        assert state.step_doc_ids == ["doc1", "doc2"]
+
+    def test_clear_memory_refs(self):
+        """Test clear_memory_refs method."""
+        state = ScenarioState(current_step="step1")
+        state.memory_refs = [
+            DocRef(doc_id="ref1"),
+            DocRef(doc_id="ref2")
+        ]
+
+        state.clear_memory_refs()
+
+        assert state.memory_refs == []
+
+    def test_build_template_context(self):
+        """Test build_template_context method."""
+        state = ScenarioState(
+            current_step="finalize",
+            guidance="Focus on details",
+            query_text="Topic query",
+            conversation_id="conv123"
+        )
+
+        # Add a step result
+        result = StepResult(
+            step_id="select_topic",
+            response="Selected topic response",
+            doc_id="doc123",
+            document_type="step-output",
+            document_weight=1.0,
+            tokens_used=50,
+            timestamp=datetime.now(),
+            tool_name="select_topic",
+            tool_result={"topic": "AI", "approach": "philosophical"}
+        )
+        state.record_step_result(result)
+
+        # Add a collection
+        state.collect_result("tasks", {"summary": "Task 1"})
+
+        ctx = state.build_template_context()
+
+        # Verify steps context
+        assert "steps" in ctx
+        assert "select_topic" in ctx["steps"]
+        assert ctx["steps"]["select_topic"]["tool_name"] == "select_topic"
+        assert ctx["steps"]["select_topic"]["tool_result"]["topic"] == "AI"
+        assert ctx["steps"]["select_topic"]["response"] == "Selected topic response"
+
+        # Verify collections
+        assert "collections" in ctx
+        assert "tasks" in ctx["collections"]
+        assert len(ctx["collections"]["tasks"]) == 1
+
+        # Verify context fields
+        assert ctx["guidance"] == "Focus on details"
+        assert ctx["query_text"] == "Topic query"
+        assert ctx["conversation_id"] == "conv123"
+
+    def test_state_serialization_roundtrip(self):
+        """Test state can be serialized and deserialized."""
+        state = ScenarioState(
+            current_step="processing",
+            guidance="Test guidance",
+            query_text="Test query",
+            conversation_id="conv123"
+        )
+
+        # Add data
+        state.record_turn("step1", "Prompt", "Response")
+        state.collect_result("items", {"name": "item1"})
+        state.memory_refs.append(DocRef(doc_id="ref1"))
+        state.increment_iteration("step1")
+        state.add_doc_id("doc1")
+
+        # Serialize
+        json_data = state.model_dump_json()
+
+        # Deserialize
+        restored = ScenarioState.model_validate_json(json_data)
+
+        assert restored.current_step == "processing"
+        assert restored.guidance == "Test guidance"
+        assert len(restored.turns) == 1
+        assert "items" in restored.collections
+        assert len(restored.memory_refs) == 1
+        assert restored.step_iterations["step1"] == 1
+        assert "doc1" in restored.step_doc_ids

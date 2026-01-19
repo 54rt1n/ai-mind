@@ -233,3 +233,33 @@ class RedisKeys:
             Redis key for the agent's planner enabled flag.
         """
         return f"agent:{agent_id}:planner:enabled"
+
+    @staticmethod
+    def agent_dreaming_state(agent_id: str) -> str:
+        """Get the dreaming state key for a specific agent.
+
+        The dreaming state hash contains the serialized DreamingState
+        for step-by-step dream execution.
+
+        Args:
+            agent_id: Unique identifier for the agent.
+
+        Returns:
+            Redis hash key for the agent's active dream state.
+        """
+        return f"agent:{agent_id}:dreaming"
+
+    @staticmethod
+    def agent_dreaming_history(agent_id: str) -> str:
+        """Get the dreaming history key for a specific agent.
+
+        The history list stores completed DreamingState objects
+        for archival and debugging.
+
+        Args:
+            agent_id: Unique identifier for the agent.
+
+        Returns:
+            Redis list key for the agent's completed dream history.
+        """
+        return f"agent:{agent_id}:dreaming:history"

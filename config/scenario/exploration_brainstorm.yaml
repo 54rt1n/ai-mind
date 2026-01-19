@@ -1,0 +1,166 @@
+# exploration_brainstorm.yaml
+# AI-Mind (C) 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
+#
+# Strategy-based exploration scenario using the step type pattern.
+# Demonstrates: context_only, tool_calling, standard, and rendering step types.
+#
+# Flow:
+#   gather_context -> select_topic -> validate -> synthesize -> format_output -> end
+#                                        |
+#                                        +-> end (if rejected)
+
+name: exploration_brainstorm
+version: 1
+description: |
+  Brainstorm exploration - gather context, select a topic worth exploring,
+  validate the selection, synthesize findings, and produce a formatted output.
+
+first_step: gather_context
+
+tools:
+  select_topic:
+    description: |
+      Select an exploration topic based on gathered context.
+      Choose something that deserves attention and would benefit from deeper exploration.
+    parameters:
+      topic:
+        type: string
+        description: The topic to explore
+      approach:
+        type: string
+        description: How to approach the topic
+      reasoning:
+        type: string
+        description: Why this topic deserves attention
+    required:
+      - topic
+      - approach
+      - reasoning
+
+  validate_exploration:
+    description: |
+      Validate whether the selected exploration is worthwhile.
+      Consider if the topic is meaningful, the approach is sound, and the timing is right.
+    parameters:
+      accept:
+        type: boolean
+        description: Whether to proceed with the exploration
+      reasoning:
+        type: string
+        description: Reasoning for the decision
+      guidance:
+        type: string
+        description: Additional guidance if accepted
+    required:
+      - accept
+      - reasoning
+
+steps:
+  gather_context:
+    type: context_only
+    context:
+      - action: search_memories
+        query_text: recent thoughts, ideas, possibilities, questions, curiosities
+        top_n: 30
+        temporal_decay: 0.3
+    next:
+      - select_topic
+
+  select_topic:
+    type: tool_calling
+    prompt: |
+      *{{ persona.name }}, the Librarian spreads documents before you*
+
+      Here is what I've gathered from your memories and recent thoughts.
+      What calls to you? What pattern emerges that deserves exploration?
+
+      Consider:
+      - Recurring themes or questions
+      - Unfinished thoughts that want completion
+      - Connections between disparate ideas
+      - Something that sparked curiosity
+
+      Use the select_topic tool to identify what deserves your attention.
+    tools:
+      - select_topic
+    config:
+      model_role: tool
+      max_tokens: 1024
+    next_conditions:
+      - default: validate
+
+  validate:
+    type: tool_calling
+    prompt: |
+      *The Philosopher considers your selection*
+
+      Topic: {{ steps.select_topic.tool_result.topic }}
+      Approach: {{ steps.select_topic.tool_result.approach }}
+      Reasoning: {{ steps.select_topic.tool_result.reasoning }}
+
+      Is this truly worthy of exploration? Consider:
+      - Does this topic have depth worth plumbing?
+      - Is the approach likely to yield insight?
+      - Is this the right time for this exploration?
+      - What might we discover if we proceed?
+
+      Use validate_exploration to render your judgment.
+    tools:
+      - validate_exploration
+    config:
+      model_role: tool
+      max_tokens: 1024
+    next_conditions:
+      - source: tool_result.accept
+        condition: "=="
+        target: "True"
+        goto: synthesize
+      - default: end
+
+  synthesize:
+    type: standard
+    prompt: |
+      *The exploration begins*
+
+      Topic: {{ steps.select_topic.tool_result.topic }}
+      Approach: {{ steps.select_topic.tool_result.approach }}
+      {% if steps.validate.tool_result.guidance %}
+      Guidance: {{ steps.validate.tool_result.guidance }}
+      {% endif %}
+
+      Explore this topic thoughtfully. Draw connections. Follow threads of meaning.
+      Let your thoughts unfold naturally, without forcing conclusions.
+
+      Write freely, as {{ persona.name }} exploring {{ pronouns.possessive }} own mind.
+    config:
+      model_role: writing
+      max_tokens: 2048
+      temperature: 0.8
+    output:
+      document_type: exploration
+      weight: 1.0
+      add_to_turns: true
+    next:
+      - format_output
+
+  format_output:
+    type: rendering
+    template: |
+      # Exploration: {{ steps.select_topic.tool_result.topic }}
+
+      ## Approach
+      {{ steps.select_topic.tool_result.approach }}
+
+      ## Why This Matters
+      {{ steps.select_topic.tool_result.reasoning }}
+
+      ## Exploration
+      {{ steps.synthesize.response }}
+
+      ---
+      *Explored by {{ persona.name }}*
+    output:
+      document_type: exploration-report
+      weight: 1.0
+    next:
+      - end

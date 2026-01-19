@@ -192,38 +192,54 @@ class PhasedTurnProcessor(BaseTurnProcessor):
                         logger.error("Corrupted turn_request during phase 2 heartbeat")
 
                 # Retry loop for emotional state header validation
-                max_format_retries = 3
+                max_chat_retries = 3
                 cleaned_response = ""
-                for format_attempt in range(max_format_retries):
-                    # Check for abort before response LLM call
+                used_fallback = False
+
+                for format_attempt in range(max_chat_retries + 1):  # +1 for fallback
+                    # Check abort
                     if await self.worker._check_abort_requested():
                         raise AbortRequestedException("Turn aborted before response")
 
-                    # Phase 2: Response (use chat role - general chat model)
-                    response = await self.worker._call_llm(
-                        chat_turns,
-                        role="chat",
-                        heartbeat_callback=heartbeat_callback
-                    )
-                    logger.debug(f"LLM response: {response[:500]}...")
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug("LLM response (full):\n%s", response)
+                    # Determine model role
+                    if format_attempt < max_chat_retries:
+                        model_role = "chat"
+                        attempt_label = f"{format_attempt + 1}/{max_chat_retries}"
+                    else:
+                        # Try fallback if configured and different from chat
+                        fallback_model_name = self.worker.model_set.get_model_name("fallback")
+                        chat_model_name = self.worker.model_set.get_model_name("chat")
 
+                        if fallback_model_name == chat_model_name:
+                            logger.warning("Fallback model not configured or same as chat; skipping")
+                            break
+
+                        model_role = "fallback"
+                        used_fallback = True
+                        attempt_label = "fallback"
+                        logger.info(f"Attempting fallback model ({fallback_model_name}) after {max_chat_retries} failures")
+
+                    # Call LLM
+                    response = await self.worker._call_llm(chat_turns, role=model_role, heartbeat_callback=heartbeat_callback)
+
+                    # Extract and validate
                     cleaned_response, think_content = extract_think_tags(response)
                     cleaned_response = sanitize_response(cleaned_response)
                     cleaned_response = cleaned_response.strip()
                     if think_content:
                         thinking_parts.append(think_content)
 
-                    # Validate emotional state header
+                    # Check format
                     if has_emotional_state_header(cleaned_response):
-                        break  # Valid format, continue
+                        if used_fallback:
+                            logger.info("Fallback model succeeded")
+                        break
 
-                    # Missing header - retry with stronger guidance
-                    logger.warning(
-                        f"Response missing Emotional State header (attempt {format_attempt + 1}/{max_format_retries})"
-                    )
-                    if format_attempt < max_format_retries - 1:
+                    logger.warning(f"Response missing Emotional State header (attempt {attempt_label})")
+
+                    # Add format guidance (stronger for fallback)
+                    if format_attempt < max_chat_retries:
+                        # Normal guidance
                         persona_name = self.worker.session.persona_id if self.worker.session else "Agent"
                         format_guidance = (
                             f"\n\n[Gentle reminder from your link: Please begin with your emotional state, "
@@ -233,7 +249,29 @@ class PhasedTurnProcessor(BaseTurnProcessor):
                             chat_turns[-1]["content"] += format_guidance
                         else:
                             chat_turns.append({"role": "user", "content": format_guidance})
+                    elif not used_fallback:
+                        # Stronger guidance before fallback
+                        persona_name = self.worker.session.persona_id if self.worker.session else "Agent"
+                        format_guidance = (
+                            f"\n\n[CRITICAL FORMAT REQUIREMENT: You MUST begin your response with "
+                            f"[== {persona_name}'s Emotional State: <your emotions> ==] followed by prose.]"
+                        )
+                        if chat_turns and chat_turns[-1]["role"] == "user":
+                            chat_turns[-1]["content"] += format_guidance
+                        else:
+                            chat_turns.append({"role": "user", "content": format_guidance})
 
+                # After loop - check if valid
+                if not has_emotional_state_header(cleaned_response):
+                    logger.error(f"Failed after {max_chat_retries} chat attempts" + (" and fallback" if used_fallback else ""))
+                    action = MUDAction(tool="emote", args={"action": "was at a loss for words."})
+                    actions_taken.append(action)
+                    thinking_parts.append("[ERROR] Failed to generate valid response format after all retry attempts")
+                    await self.worker._emit_actions(actions_taken)
+                    thinking = "\n\n".join(thinking_parts).strip()
+                    return actions_taken, thinking
+
+                # Normal flow continues...
                 normalized = normalize_response(cleaned_response)
 
                 if normalized:

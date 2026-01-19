@@ -3,11 +3,11 @@
 """Planner mixin for the mediator service."""
 
 import logging
-from aim_mud_types import MUDEvent, EventType, TurnRequestStatus, TurnReason
+from aim_mud_types import MUDEvent, EventType, TurnRequestStatus, TurnReason, normalize_agent_id
 from aim_mud_types.client import RedisMUDClient
 from aim_mud_types.plan import PlanStatus
 
-from ..patterns import PLANNER_PATTERN, PLAN_PATTERN, UPDATE_PATTERN, normalize_agent_id
+from ..patterns import PLANNER_PATTERN, PLAN_PATTERN, UPDATE_PATTERN
 
 logger = logging.getLogger(__name__)
 

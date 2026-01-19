@@ -1,0 +1,238 @@
+# planner_form_building.yaml
+# AI-Mind (C) 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
+#
+# Strategy-based planning scenario using iterative tool calling with collections.
+# Demonstrates: context_only, tool_calling with max_iterations, and rendering.
+#
+# Flow:
+#   load_context -> add_task <-> verify_task -> check_complete -> finalize -> end
+#                      ^                              |
+#                      +------------------------------+
+#                             (add more tasks)
+
+name: planner_form_building
+version: 1
+description: |
+  Build a structured plan from a given objective. Uses iterative tool calling
+  to add tasks one by one, verify each task, and render the final plan.
+
+first_step: load_context
+
+tools:
+  add_task:
+    description: |
+      Add a task to the plan. Each task should be specific, actionable,
+      and contribute to the overall objective.
+    parameters:
+      summary:
+        type: string
+        description: Brief task summary (one line)
+      details:
+        type: string
+        description: Detailed task description explaining what to do
+      dependencies:
+        type: array
+        items:
+          type: string
+        description: Task IDs this depends on (optional)
+      estimated_effort:
+        type: string
+        description: Estimated effort (small, medium, large)
+    required:
+      - summary
+      - details
+
+  approve_task:
+    description: Approve the most recently added task as well-formed and actionable.
+    parameters:
+      approved:
+        type: boolean
+        description: Whether the task is approved
+      feedback:
+        type: string
+        description: Feedback on the task (especially if not approved)
+    required:
+      - approved
+
+  revise_task:
+    description: Request revision of the most recently added task.
+    parameters:
+      issues:
+        type: string
+        description: What needs fixing
+    required:
+      - issues
+
+  plan_complete:
+    description: Signal that all necessary tasks have been added to the plan.
+    parameters:
+      summary:
+        type: string
+        description: Overall plan summary
+      confidence:
+        type: string
+        description: Confidence level in the plan (low, medium, high)
+    required:
+      - summary
+
+  add_more_tasks:
+    description: Indicate that more tasks are needed to complete the objective.
+    parameters:
+      reason:
+        type: string
+        description: Why more tasks are needed
+      focus:
+        type: string
+        description: What the next tasks should focus on
+    required:
+      - reason
+
+steps:
+  load_context:
+    type: context_only
+    context:
+      - action: search_memories
+        query_text: planning, goals, objectives, tasks, projects
+        top_n: 20
+        temporal_decay: 0.5
+    next:
+      - add_task
+
+  add_task:
+    type: tool_calling
+    prompt: |
+      *{{ persona.name }}, the Planner considers the objective*
+
+      Objective: {{ query_text }}
+
+      {% if collections.tasks %}
+      Tasks added so far:
+      {% for task in collections.tasks %}
+      {{ loop.index }}. {{ task.summary }}
+         Details: {{ task.details }}
+         {% if task.dependencies %}Dependencies: {{ task.dependencies | join(", ") }}{% endif %}
+
+      {% endfor %}
+      {% else %}
+      No tasks added yet. Start by identifying the first task needed.
+      {% endif %}
+
+      Add the next logical task that contributes to the objective.
+      Consider what's already been added and what gaps remain.
+    tools:
+      - add_task
+    config:
+      model_role: tool
+      max_tokens: 1024
+      max_iterations: 10
+      on_limit: finalize
+    next_conditions:
+      - collect_to: tasks
+        default: verify_task
+
+  verify_task:
+    type: tool_calling
+    prompt: |
+      *The Reviewer examines the task*
+
+      Task just added:
+      - Summary: {{ steps.add_task.tool_result.summary }}
+      - Details: {{ steps.add_task.tool_result.details }}
+      {% if steps.add_task.tool_result.dependencies %}
+      - Dependencies: {{ steps.add_task.tool_result.dependencies | join(", ") }}
+      {% endif %}
+      {% if steps.add_task.tool_result.estimated_effort %}
+      - Estimated Effort: {{ steps.add_task.tool_result.estimated_effort }}
+      {% endif %}
+
+      Is this task:
+      - Specific and actionable?
+      - Clearly scoped?
+      - Contributing to the objective: {{ query_text }}?
+
+      Approve if well-formed, or request revision if it needs improvement.
+    tools:
+      - approve_task
+      - revise_task
+    config:
+      model_role: tool
+      max_tokens: 512
+    next_conditions:
+      - source: tool_name
+        condition: "=="
+        target: approve_task
+        goto: check_complete
+      - default: add_task
+
+  check_complete:
+    type: tool_calling
+    prompt: |
+      *The Planner reviews progress*
+
+      Objective: {{ query_text }}
+
+      Tasks so far ({{ collections.tasks | length }}):
+      {% for task in collections.tasks %}
+      {{ loop.index }}. {{ task.summary }}
+      {% endfor %}
+
+      Consider:
+      - Are all necessary tasks captured?
+      - Is there a clear path from start to objective?
+      - Are there any obvious gaps?
+
+      If the plan is complete, signal completion.
+      If more tasks are needed, indicate what's missing.
+    tools:
+      - plan_complete
+      - add_more_tasks
+    config:
+      model_role: tool
+      max_tokens: 512
+    next_conditions:
+      - source: tool_name
+        condition: "=="
+        target: plan_complete
+        goto: finalize
+      - default: add_task
+
+  finalize:
+    type: rendering
+    template: |
+      # Plan: {{ query_text }}
+
+      {% if steps.check_complete.tool_result.summary %}
+      ## Summary
+      {{ steps.check_complete.tool_result.summary }}
+
+      {% if steps.check_complete.tool_result.confidence %}
+      **Confidence:** {{ steps.check_complete.tool_result.confidence }}
+      {% endif %}
+      {% endif %}
+
+      ## Tasks ({{ collections.tasks | length }})
+
+      {% for task in collections.tasks %}
+      ### Task {{ loop.index }}: {{ task.summary }}
+
+      {{ task.details }}
+
+      {% if task.dependencies %}
+      **Dependencies:** {{ task.dependencies | join(", ") }}
+      {% endif %}
+      {% if task.estimated_effort %}
+      **Effort:** {{ task.estimated_effort }}
+      {% endif %}
+
+      {% endfor %}
+
+      ---
+      *Plan created by {{ persona.name }}*
+      {% if guidance %}
+      *Guidance: {{ guidance }}*
+      {% endif %}
+    output:
+      document_type: agent-plan
+      weight: 1.0
+    next:
+      - end

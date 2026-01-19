@@ -32,7 +32,7 @@ class TurnReason(str, Enum):
     """Reason for turn assignment."""
     EVENTS = "events"
     IDLE = "idle"
-    DREAM = "dream"
+    DREAM = "dream"          # Legacy - inline dream execution (DEPRECATED)
     AGENT = "agent"
     CHOOSE = "choose"
     FLUSH = "flush"
@@ -176,3 +176,68 @@ class DreamerState(BaseModel):
     last_dream_at: Optional[str] = None  # ISO datetime string
     last_dream_scenario: Optional[str] = None
     pending_pipeline_id: Optional[str] = None
+
+
+class DreamStatus(str, Enum):
+    """Dream pipeline execution status."""
+    PENDING = "pending"      # Initialized, not started
+    RUNNING = "running"      # Steps in progress
+    COMPLETE = "complete"    # All steps finished
+    FAILED = "failed"        # Pipeline failed, retry exhausted
+    ABORTED = "aborted"      # Pipeline aborted by step returning "abort"
+
+
+class DreamingState(BaseModel):
+    """Serialized state for step-by-step dream execution.
+
+    Stored in `agent:{id}:dreaming` Redis hash.
+    """
+
+    # Identity
+    pipeline_id: str                    # UUID for this dream session
+    agent_id: str                       # Owner agent
+
+    # Status
+    status: DreamStatus                 # Current execution state
+    created_at: datetime                # Initialization timestamp
+    updated_at: datetime                # Last step completion
+    completed_at: Optional[datetime] = None
+
+    # Pipeline Configuration (frozen at init)
+    scenario_name: str                  # e.g., "analysis_dialogue"
+    execution_order: list[str]          # All step IDs in order
+    query: Optional[str] = None         # Optional query text
+    guidance: Optional[str] = None      # User guidance (manual dreams)
+    conversation_id: str                # Target conversation
+    base_model: str                     # Model used for execution
+
+    # Step Execution State
+    step_index: int = 0                 # Current position (0-based)
+    completed_steps: list[str] = Field(default_factory=list)  # Finished step IDs
+    step_doc_ids: dict[str, str] = Field(default_factory=dict)  # step_id → doc_id
+    context_doc_ids: list[str] = Field(default_factory=list)   # Accumulated context
+
+    # Retry/Error Handling
+    current_step_attempts: int = 0      # Retry count for current step
+    max_step_retries: int = 3           # Configurable retry limit
+    next_retry_at: Optional[datetime] = None  # Backoff timestamp
+    last_error: Optional[str] = None    # Most recent error message
+
+    # Heartbeat
+    heartbeat_at: Optional[datetime] = None  # Worker liveness signal
+    heartbeat_timeout_seconds: int = 300     # 5 minutes
+
+    # Scenario Context (for dialogue flow)
+    scenario_config: dict = Field(default_factory=dict)  # Frozen scenario YAML
+    persona_config: dict = Field(default_factory=dict)   # Frozen persona config
+
+    # Strategy-based scenario execution (Phase C: ScenarioState & Persistence)
+    # These fields support the new step type strategy pattern for complex workflows
+    framework: Optional[str] = None  # JSON string: ScenarioFramework (immutable definition)
+    state: Optional[str] = None      # JSON string: ScenarioState (mutable runtime state)
+    metadata: Optional[str] = None   # JSON string: error info, custom data
+
+    class Config:
+        json_encoders = {
+            datetime: lambda v: v.isoformat(),
+        }

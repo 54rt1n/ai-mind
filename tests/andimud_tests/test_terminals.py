@@ -240,8 +240,12 @@ class TestTerminalEventPublishing:
         assert call_args[0][1] == ">>> print('hello')\nhello"
         assert call_args[0][2] == mock_caller or call_args[1].get('caller') == mock_caller
 
-        # Verify room message was sent
-        mock_terminal.location.msg_contents.assert_called_once()
+        # Verify room message was sent twice (narrative + output)
+        assert mock_terminal.location.msg_contents.call_count == 2
+        # First call: narrative action
+        assert "types away at" in mock_terminal.location.msg_contents.call_args_list[0][0][0]
+        # Second call: actual output
+        assert "py_exec:" in mock_terminal.location.msg_contents.call_args_list[1][0][0]
 
     @patch("andimud.typeclasses.terminals.redis.from_url")
     @patch("andimud.typeclasses.terminals.append_mud_event")
@@ -353,8 +357,12 @@ class TestTerminalEventPublishing:
         # This should not raise an exception
         Terminal.display_output(mock_terminal, "py_exec", "output", caller=mock_caller)
 
-        # Verify room message was still sent
-        mock_terminal.location.msg_contents.assert_called_once()
+        # Verify room message was still sent twice (narrative + output)
+        assert mock_terminal.location.msg_contents.call_count == 2
+        # First call: narrative action
+        assert "types away at" in mock_terminal.location.msg_contents.call_args_list[0][0][0]
+        # Second call: actual output
+        assert "py_exec:" in mock_terminal.location.msg_contents.call_args_list[1][0][0]
 
     @patch("andimud.typeclasses.terminals.append_mud_event")
     def test_terminal_event_not_published_without_location(self, mock_append):

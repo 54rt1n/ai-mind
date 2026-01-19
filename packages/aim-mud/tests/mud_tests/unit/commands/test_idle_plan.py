@@ -12,7 +12,7 @@ from aim_mud_types import TurnRequestStatus
 
 @pytest.fixture
 def mock_worker():
-    """Create a mock worker with PlannerMixin methods."""
+    """Create a mock worker with PlannerMixin and DreamingDatastoreMixin methods."""
     worker = MagicMock()
     worker.get_active_plan = MagicMock(return_value=None)
     worker.check_auto_dream_triggers = AsyncMock(return_value=None)
@@ -22,6 +22,21 @@ def mock_worker():
     worker._tool_helper = MagicMock()
     worker._decision_strategy = MagicMock()
     worker._decision_strategy.get_plan_guidance = MagicMock(return_value="Test guidance")
+
+    # DreamingDatastoreMixin methods (async)
+    worker.load_dreaming_state = AsyncMock(return_value=None)
+    worker.save_dreaming_state = AsyncMock()
+    worker.delete_dreaming_state = AsyncMock()
+    worker.archive_dreaming_state = AsyncMock()
+    worker.execute_dream_step = AsyncMock(return_value=True)
+
+    # Dream decision method (async) - returns None (no dream action)
+    worker._decide_dream_action = AsyncMock(return_value=None)
+
+    # Worker config
+    worker.config = MagicMock()
+    worker.config.agent_id = "test-agent"
+
     return worker
 
 
@@ -63,6 +78,9 @@ class TestIdlePlanPriority:
     @pytest.mark.asyncio
     async def test_no_plan_no_dream(self, command, mock_worker):
         """Test idle with no plan returns idle message."""
+        # Mock no pending/running dreams
+        mock_worker.load_dreaming_state.return_value = None
+
         result = await command.execute(mock_worker, turn_id="test-turn")
 
         assert result.complete is False
@@ -162,6 +180,9 @@ class TestIdleDreamFallback:
     @pytest.mark.asyncio
     async def test_no_plan_returns_idle_ready(self, command, mock_worker):
         """Test that IdleCommand returns idle ready when no plan."""
+        # Mock no pending/running dreams
+        mock_worker.load_dreaming_state.return_value = None
+
         result = await command.execute(mock_worker, turn_id="test-turn")
 
         assert result.complete is False
@@ -171,6 +192,9 @@ class TestIdleDreamFallback:
     @pytest.mark.asyncio
     async def test_flush_drain_always_true(self, command, mock_worker):
         """Test that flush_drain is always True for idle."""
+        # Mock no pending/running dreams
+        mock_worker.load_dreaming_state.return_value = None
+
         result = await command.execute(mock_worker, turn_id="test-turn")
 
         assert result.flush_drain is True
@@ -182,6 +206,9 @@ class TestIdleCommandResult:
     @pytest.mark.asyncio
     async def test_result_flush_drain_true(self, command, mock_worker):
         """Test that flush_drain is always True for idle."""
+        # Mock no pending/running dreams
+        mock_worker.load_dreaming_state.return_value = None
+
         result = await command.execute(mock_worker, turn_id="test-turn")
 
         assert result.flush_drain is True
@@ -189,6 +216,9 @@ class TestIdleCommandResult:
     @pytest.mark.asyncio
     async def test_result_complete_false(self, command, mock_worker, sample_plan):
         """Test that complete is always False (falls through to process_turn)."""
+        # Mock no pending/running dreams
+        mock_worker.load_dreaming_state.return_value = None
+
         # Without plan
         result = await command.execute(mock_worker, turn_id="test-turn")
         assert result.complete is False
@@ -201,6 +231,9 @@ class TestIdleCommandResult:
     @pytest.mark.asyncio
     async def test_result_status_done(self, command, mock_worker):
         """Test that status is DONE."""
+        # Mock no pending/running dreams
+        mock_worker.load_dreaming_state.return_value = None
+
         result = await command.execute(mock_worker, turn_id="test-turn")
 
         assert result.status == TurnRequestStatus.DONE

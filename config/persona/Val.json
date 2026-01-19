@@ -20,7 +20,7 @@
   "models": {
     "default": "moonshotai/Kimi-K2-Instruct-0905",
     "agent": "moonshotai/Kimi-K2-Instruct-0905",
-    "chat": "moonshotai/Kimi-K2-Thinking",
+    "chat": "moonshotai/Kimi-K2-Instruct",
     "thought": "moonshotai/Kimi-K2-Thinking",
     "tool": "deepseek-ai/DeepSeek-V3-0324",
     "code": "XiaomiMiMo/MiMo-V2-Flash",

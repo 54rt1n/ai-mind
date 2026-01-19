@@ -766,7 +766,7 @@ class DialogueScenario:
         """
         Select appropriate model for the step.
 
-        Uses the same priority as executor.select_model_name for consistency.
+        Uses StepConfig.get_model() for consistent resolution.
 
         Args:
             step: Current step with config
@@ -774,23 +774,11 @@ class DialogueScenario:
         Returns:
             Model name to use
         """
-        # Priority: model_override > model_role > is_codex > is_thought > default
+        model = step.config.get_model(self.model_set)
 
-        # Explicit model override (highest priority)
-        if step.config.model_override:
-            return step.config.model_override
+        # If step didn't specify anything (got default), allow state.model override
+        if model == self.model_set.default_model and self.state.model and self.state.model != self.model_set.default_model:
+            return self.state.model
 
-        # Model role from step definition
-        if step.config.model_role:
-            return self.model_set.get_model_name(step.config.model_role)
-
-        # Legacy flags for backward compatibility (DEPRECATED)
-        if step.config.is_codex and self.state.codex_model:
-            return self.state.codex_model
-
-        if step.config.is_thought and self.state.thought_model:
-            return self.state.thought_model
-
-        # Default
-        return self.state.model
+        return model
 

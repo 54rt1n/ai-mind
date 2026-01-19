@@ -44,6 +44,7 @@ from .conversation.memory import MUDDecisionStrategy, MUDResponseStrategy
 from .mixins.llm import LLMMixin
 from .mixins.turns import TurnsMixin
 from .mixins.dreamer import DreamerMixin
+from .mixins.dreaming_datastore import DreamingDatastoreMixin
 from .mixins.datastore.profile import ProfileMixin
 from .mixins.datastore.events import EventsMixin
 from .mixins.datastore.actions import ActionsMixin
@@ -69,7 +70,7 @@ from .commands import (
 logger = logging.getLogger(__name__)
 
 
-class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMixin, DreamerMixin, StateMixin, TurnRequestMixin, ReportMixin):
+class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsMixin, TurnsMixin, DreamerMixin, DreamingDatastoreMixin, StateMixin, TurnRequestMixin, ReportMixin):
     """Worker that consumes events from Redis stream and processes them.
 
     Follows the DreamerWorker pattern from aim/dreamer/worker.py.

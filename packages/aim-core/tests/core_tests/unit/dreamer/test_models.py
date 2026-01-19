@@ -17,6 +17,14 @@ from aim.dreamer.core.models import (
     StepResult,
     StepJob,
     PipelineState,
+    ScenarioTool,
+    Condition,
+    BaseStepDefinition,
+    ContextOnlyStepDefinition,
+    StandardStepDefinition,
+    ToolCallingStepDefinition,
+    RenderingStepDefinition,
+    NewStepDefinition,
 )
 
 
@@ -778,3 +786,323 @@ class TestPipelineState:
         assert len(state.step_doc_ids) == 2
         assert state.step_doc_ids["step1"] == "doc1"
         assert state.step_doc_ids["step2"] == "doc2"
+
+
+class TestScenarioTool:
+    """Tests for ScenarioTool model."""
+
+    def test_scenario_tool_required_fields(self):
+        """Test ScenarioTool with all required fields."""
+        tool = ScenarioTool(
+            name="select_topic",
+            description="Select a topic to explore",
+            parameters={
+                "topic": {"type": "string", "description": "The topic"},
+                "reasoning": {"type": "string", "description": "Why this topic"}
+            }
+        )
+        assert tool.name == "select_topic"
+        assert tool.description == "Select a topic to explore"
+        assert "topic" in tool.parameters
+        assert tool.required == []
+
+    def test_scenario_tool_with_required_params(self):
+        """Test ScenarioTool with required parameters."""
+        tool = ScenarioTool(
+            name="add_task",
+            description="Add a task to the plan",
+            parameters={
+                "summary": {"type": "string"},
+                "details": {"type": "string"}
+            },
+            required=["summary", "details"]
+        )
+        assert tool.required == ["summary", "details"]
+
+
+class TestCondition:
+    """Tests for Condition model."""
+
+    def test_condition_with_conditional_fields(self):
+        """Test Condition with source/condition/target/goto."""
+        cond = Condition(
+            source="tool_result.accept",
+            condition="==",
+            target="true",
+            goto="next_step"
+        )
+        assert cond.source == "tool_result.accept"
+        assert cond.condition == "=="
+        assert cond.target == "true"
+        assert cond.goto == "next_step"
+        assert cond.default is None
+
+    def test_condition_with_default(self):
+        """Test Condition with default only."""
+        cond = Condition(default="fallback_step")
+        assert cond.default == "fallback_step"
+        assert cond.source is None
+        assert cond.condition is None
+
+    def test_condition_with_collect_to(self):
+        """Test Condition with collect_to."""
+        cond = Condition(
+            source="tool_name",
+            condition="==",
+            target="add_task",
+            goto="verify_task",
+            collect_to="tasks"
+        )
+        assert cond.collect_to == "tasks"
+
+    def test_condition_in_operator(self):
+        """Test Condition with 'in' operator."""
+        cond = Condition(
+            source="tool_result.status",
+            condition="in",
+            target=["pending", "active"],
+            goto="process"
+        )
+        assert cond.condition == "in"
+        assert cond.target == ["pending", "active"]
+
+    def test_condition_not_in_operator(self):
+        """Test Condition with 'not_in' operator."""
+        cond = Condition(
+            source="tool_result.status",
+            condition="not_in",
+            target=["failed", "aborted"],
+            goto="continue"
+        )
+        assert cond.condition == "not_in"
+
+    def test_condition_invalid_both_conditional_and_default(self):
+        """Test Condition fails when both conditional and default specified."""
+        with pytest.raises(ValidationError) as exc_info:
+            Condition(
+                source="tool_result.accept",
+                condition="==",
+                target="true",
+                goto="next_step",
+                default="fallback"  # Invalid: both conditional and default
+            )
+        assert "cannot have both" in str(exc_info.value).lower()
+
+    def test_condition_invalid_neither_conditional_nor_default(self):
+        """Test Condition fails when neither conditional nor default specified."""
+        with pytest.raises(ValidationError) as exc_info:
+            Condition(
+                source="tool_result.accept",  # Missing condition and goto
+            )
+        assert "must have either" in str(exc_info.value).lower()
+
+    def test_condition_invalid_operator(self):
+        """Test Condition fails with invalid operator."""
+        with pytest.raises(ValidationError) as exc_info:
+            Condition(
+                source="tool_result.accept",
+                condition="contains",  # Invalid operator
+                target="true",
+                goto="next_step"
+            )
+        assert "invalid condition operator" in str(exc_info.value).lower()
+
+
+class TestStepConfigExtensions:
+    """Tests for StepConfig new fields."""
+
+    def test_step_config_new_defaults(self):
+        """Test new StepConfig fields have correct defaults."""
+        config = StepConfig()
+        assert config.max_iterations is None
+        assert config.on_limit is None
+        assert config.tool_retries == 3
+
+    def test_step_config_iteration_settings(self):
+        """Test StepConfig with iteration settings."""
+        config = StepConfig(
+            max_iterations=10,
+            on_limit="finalize",
+            tool_retries=5
+        )
+        assert config.max_iterations == 10
+        assert config.on_limit == "finalize"
+        assert config.tool_retries == 5
+
+
+class TestStepResultExtensions:
+    """Tests for StepResult new fields."""
+
+    def test_step_result_with_tool_fields(self):
+        """Test StepResult with tool_name and tool_result."""
+        now = datetime.now(timezone.utc)
+        result = StepResult(
+            step_id="select_topic",
+            response="",
+            doc_id="doc123",
+            document_type="step-output",
+            document_weight=1.0,
+            tokens_used=100,
+            timestamp=now,
+            tool_name="select_topic",
+            tool_result={"topic": "AI consciousness", "reasoning": "Important topic"}
+        )
+        assert result.tool_name == "select_topic"
+        assert result.tool_result == {"topic": "AI consciousness", "reasoning": "Important topic"}
+
+    def test_step_result_tool_fields_default_none(self):
+        """Test StepResult tool fields default to None."""
+        now = datetime.now(timezone.utc)
+        result = StepResult(
+            step_id="step1",
+            response="Test response",
+            doc_id="doc123",
+            document_type="test",
+            document_weight=1.0,
+            tokens_used=50,
+            timestamp=now
+        )
+        assert result.tool_name is None
+        assert result.tool_result is None
+
+
+class TestNewStepDefinitions:
+    """Tests for new step definition types."""
+
+    def test_context_only_step_definition(self):
+        """Test ContextOnlyStepDefinition."""
+        step = ContextOnlyStepDefinition(
+            id="gather_context",
+            context=[
+                MemoryAction(action="search_memories", query_text="recent", top_n=10)
+            ],
+            next=["select_topic"]
+        )
+        assert step.id == "gather_context"
+        assert step.type == "context_only"
+        assert len(step.context) == 1
+        assert step.next == ["select_topic"]
+        assert step.depends_on == []
+
+    def test_standard_step_definition(self):
+        """Test StandardStepDefinition."""
+        step = StandardStepDefinition(
+            id="generate_summary",
+            prompt="Summarize the following context.",
+            config=StepConfig(max_tokens=2048),
+            output=StepOutput(document_type="summary"),
+            next=["end"]
+        )
+        assert step.id == "generate_summary"
+        assert step.type == "standard"
+        assert step.prompt == "Summarize the following context."
+        assert step.config.max_tokens == 2048
+        assert step.output.document_type == "summary"
+        assert step.next == ["end"]
+
+    def test_tool_calling_step_definition(self):
+        """Test ToolCallingStepDefinition."""
+        step = ToolCallingStepDefinition(
+            id="select_topic",
+            prompt="Select a topic to explore.",
+            tools=["select_topic"],
+            next_conditions=[
+                Condition(default="validate")
+            ],
+            config=StepConfig(model_role="tool")
+        )
+        assert step.id == "select_topic"
+        assert step.type == "tool_calling"
+        assert step.tools == ["select_topic"]
+        assert len(step.next_conditions) == 1
+        assert step.config.model_role == "tool"
+
+    def test_rendering_step_definition(self):
+        """Test RenderingStepDefinition."""
+        step = RenderingStepDefinition(
+            id="finalize",
+            template="# Plan\n{% for task in collections.tasks %}{{ task.summary }}{% endfor %}",
+            output=StepOutput(document_type="agent-plan"),
+            next=["end"]
+        )
+        assert step.id == "finalize"
+        assert step.type == "rendering"
+        assert "{% for task" in step.template
+        assert step.output.document_type == "agent-plan"
+        assert step.next == ["end"]
+
+    def test_base_step_definition_depends_on(self):
+        """Test depends_on field on step definitions."""
+        step = ContextOnlyStepDefinition(
+            id="step2",
+            depends_on=["step1"],
+            next=["step3"]
+        )
+        assert step.depends_on == ["step1"]
+
+
+class TestNewStepDefinitionDiscriminatedUnion:
+    """Tests for NewStepDefinition discriminated union parsing."""
+
+    def test_parse_context_only_from_dict(self):
+        """Test parsing ContextOnlyStepDefinition from dict."""
+        from pydantic import TypeAdapter
+
+        data = {
+            "id": "gather",
+            "type": "context_only",
+            "context": [{"action": "search_memories", "top_n": 10}],
+            "next": ["process"]
+        }
+        adapter = TypeAdapter(NewStepDefinition)
+        step = adapter.validate_python(data)
+        assert step.type == "context_only"
+        assert step.id == "gather"
+
+    def test_parse_standard_from_dict(self):
+        """Test parsing StandardStepDefinition from dict."""
+        from pydantic import TypeAdapter
+
+        data = {
+            "id": "generate",
+            "type": "standard",
+            "prompt": "Generate content",
+            "output": {"document_type": "output"},
+            "next": ["end"]
+        }
+        adapter = TypeAdapter(NewStepDefinition)
+        step = adapter.validate_python(data)
+        assert step.type == "standard"
+        assert step.prompt == "Generate content"
+
+    def test_parse_tool_calling_from_dict(self):
+        """Test parsing ToolCallingStepDefinition from dict."""
+        from pydantic import TypeAdapter
+
+        data = {
+            "id": "decide",
+            "type": "tool_calling",
+            "prompt": "Make a decision",
+            "tools": ["decide_tool"],
+            "next_conditions": [{"default": "next"}]
+        }
+        adapter = TypeAdapter(NewStepDefinition)
+        step = adapter.validate_python(data)
+        assert step.type == "tool_calling"
+        assert step.tools == ["decide_tool"]
+
+    def test_parse_rendering_from_dict(self):
+        """Test parsing RenderingStepDefinition from dict."""
+        from pydantic import TypeAdapter
+
+        data = {
+            "id": "render",
+            "type": "rendering",
+            "template": "# Output\n{{ content }}",
+            "output": {"document_type": "final"},
+            "next": ["end"]
+        }
+        adapter = TypeAdapter(NewStepDefinition)
+        step = adapter.validate_python(data)
+        assert step.type == "rendering"
+        assert "{{ content }}" in step.template
