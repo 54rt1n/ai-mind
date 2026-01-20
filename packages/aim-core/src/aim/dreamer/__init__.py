@@ -1,24 +1,14 @@
 # aim/dreamer/__init__.py
 # AI-Mind © 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
 """
-Dreamer Module - DAG-based pipeline orchestration.
+Dreamer Module - Strategy-based scenario execution.
 
-Provides step-by-step execution of scenarios with Redis-backed state
-management and queue-based job distribution.
+Provides step-by-step execution of scenarios using the strategy pattern
+with ScenarioBuilder, ScenarioFramework, ScenarioExecutor, and ScenarioState.
+
+The legacy distributed server infrastructure has been moved to aim_legacy.dreamer.
 """
 
-from .server.api import (
-    start_pipeline,
-    get_status,
-    cancel_pipeline,
-    delete_pipeline,
-    resume_pipeline,
-    refresh_pipeline,
-    list_pipelines,
-    generate_pipeline_id,
-    PipelineStatus,
-    ResumeResult,
-)
 from .core.models import (
     PipelineState,
     StepResult,
@@ -30,25 +20,36 @@ from .core.models import (
     StepOutput,
     ScenarioContext,
     MemoryAction,
+    # Dialogue models
+    SpeakerType,
+    DialogueSpeaker,
+    DialogueTurn,
+    DialogueStepDefinition,
+    # Step definition types
+    NewStepDefinition,
+    ContextOnlyStepDefinition,
+    StandardStepDefinition,
+    ToolCallingStepDefinition,
+    RenderingStepDefinition,
 )
-from .server.worker import DreamerWorker, run_worker
 from .core.executor import RetryableError
-from .server.state import StateStore
-from .server.scheduler import Scheduler
 from .core.scenario import load_scenario, render_template, build_template_context
+from .core.builder import ScenarioBuilder, load_scenario_framework
+from .core.framework import ScenarioFramework, DialogueConfig
+from .core.state import ScenarioState
+from .core.strategy import (
+    BaseStepStrategy,
+    ScenarioExecutor,
+    ScenarioStepResult,
+    ContextOnlyStrategy,
+    StandardStrategy,
+    ToolCallingStrategy,
+    RenderingStrategy,
+    DialogueStrategy,
+    StepFactory,
+)
 
 __all__ = [
-    # API
-    "start_pipeline",
-    "get_status",
-    "cancel_pipeline",
-    "delete_pipeline",
-    "resume_pipeline",
-    "refresh_pipeline",
-    "list_pipelines",
-    "generate_pipeline_id",
-    "PipelineStatus",
-    "ResumeResult",
     # Models
     "PipelineState",
     "StepResult",
@@ -60,17 +61,37 @@ __all__ = [
     "StepOutput",
     "ScenarioContext",
     "MemoryAction",
-    # Worker
-    "DreamerWorker",
-    "run_worker",
+    # Dialogue models
+    "SpeakerType",
+    "DialogueSpeaker",
+    "DialogueTurn",
+    "DialogueStepDefinition",
+    # Step definition types
+    "NewStepDefinition",
+    "ContextOnlyStepDefinition",
+    "StandardStepDefinition",
+    "ToolCallingStepDefinition",
+    "RenderingStepDefinition",
     # Executor
     "RetryableError",
-    # State
-    "StateStore",
-    # Scheduler
-    "Scheduler",
-    # Scenario
+    # Scenario (legacy loader)
     "load_scenario",
     "render_template",
     "build_template_context",
+    # New system
+    "ScenarioBuilder",
+    "load_scenario_framework",
+    "ScenarioFramework",
+    "DialogueConfig",
+    "ScenarioState",
+    # Strategies
+    "BaseStepStrategy",
+    "ScenarioExecutor",
+    "ScenarioStepResult",
+    "ContextOnlyStrategy",
+    "StandardStrategy",
+    "ToolCallingStrategy",
+    "RenderingStrategy",
+    "DialogueStrategy",
+    "StepFactory",
 ]

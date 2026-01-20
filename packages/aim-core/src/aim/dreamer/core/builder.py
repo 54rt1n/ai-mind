@@ -19,8 +19,11 @@ from .models import (
     StandardStepDefinition,
     ToolCallingStepDefinition,
     RenderingStepDefinition,
+    DialogueStepDefinition,
+    DialogueSpeaker,
+    SpeakerType,
 )
-from .framework import ScenarioFramework
+from .framework import ScenarioFramework, DialogueConfig
 
 
 logger = logging.getLogger(__name__)
@@ -85,6 +88,11 @@ class ScenarioBuilder:
         # Parse tools
         tools = self._parse_tools(data.get('tools', {}))
 
+        # Parse dialogue config if present (pass context for required_aspects)
+        dialogue_config = self._parse_dialogue_config(
+            data.get('dialogue'), data.get('context')
+        )
+
         # Parse steps
         steps = self._parse_steps(data.get('steps', {}))
 
@@ -102,6 +110,7 @@ class ScenarioBuilder:
             first_step=first_step or '',
             steps=steps,
             tools=tools,
+            dialogue=dialogue_config,
         )
 
         # Validate at build time
@@ -110,9 +119,41 @@ class ScenarioBuilder:
         logger.info(
             f"Built ScenarioFramework '{framework.name}' with "
             f"{len(framework.steps)} steps, {len(framework.tools)} tools"
+            f"{', dialogue mode' if dialogue_config else ''}"
         )
 
         return framework
+
+    def _parse_dialogue_config(
+        self, dialogue_data: Optional[dict], context_data: Optional[dict] = None
+    ) -> Optional[DialogueConfig]:
+        """Parse dialogue section into DialogueConfig.
+
+        Args:
+            dialogue_data: Dict with dialogue configuration or None
+            context_data: Dict with context configuration (for required_aspects)
+
+        Returns:
+            DialogueConfig or None
+        """
+        if not dialogue_data:
+            return None
+
+        # Parse initial_speaker as SpeakerType enum
+        initial_speaker_str = dialogue_data.get('initial_speaker', 'aspect')
+        initial_speaker = SpeakerType(initial_speaker_str)
+
+        # Get required_aspects from dialogue section first, fall back to context section
+        required_aspects = dialogue_data.get('required_aspects', [])
+        if not required_aspects and context_data:
+            required_aspects = context_data.get('required_aspects', [])
+
+        return DialogueConfig(
+            primary_aspect=dialogue_data.get('primary_aspect', 'coder'),
+            initial_speaker=initial_speaker,
+            scene_template=dialogue_data.get('scene_template', ''),
+            required_aspects=required_aspects,
+        )
 
     def _parse_tools(self, tools_data: dict[str, Any]) -> dict[str, ScenarioTool]:
         """Parse tools section into ScenarioTool objects.
@@ -192,6 +233,14 @@ class ScenarioBuilder:
                 for cond in step_data['next_conditions']
             ]
 
+        # Parse speaker field for dialogue steps
+        if 'speaker' in step_data and isinstance(step_data['speaker'], dict):
+            speaker_data = step_data['speaker']
+            step_data['speaker'] = DialogueSpeaker(
+                type=SpeakerType(speaker_data.get('type', 'aspect')),
+                aspect_name=speaker_data.get('aspect_name'),
+            )
+
         # Use TypeAdapter for discriminated union parsing
         return self._step_adapter.validate_python(step_data)
 
@@ -204,6 +253,10 @@ class ScenarioBuilder:
         Returns:
             Inferred type string
         """
+        # dialogue: has speaker field
+        if 'speaker' in step_data:
+            return 'dialogue'
+
         # tool_calling: has tools and next_conditions
         if 'tools' in step_data and 'next_conditions' in step_data:
             return 'tool_calling'

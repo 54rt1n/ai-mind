@@ -79,17 +79,49 @@ class IdleCommand(Command):
                 f"[{turn_id}] Priority 2: Initializing PENDING dream "
                 f"(scenario={dreaming_state.scenario_name})"
             )
-            # Initialize PENDING → RUNNING
+            # Initialize PENDING -> RUNNING
             initialized_state = await worker.initialize_pending_dream(dreaming_state)
             # Execute first step immediately
-            return await worker.execute_dream_step(initialized_state)
+            is_complete = await worker.execute_scenario_step(initialized_state.pipeline_id)
+            return CommandResult(
+                complete=True,
+                flush_drain=True,
+                saved_event_id=None,
+                status=TurnRequestStatus.DONE,
+                message=f"Dream step executed (complete={is_complete})",
+            )
 
         # Priority 3: RUNNING dreams (continue step-by-step execution)
         if dreaming_state and dreaming_state.status == DreamStatus.RUNNING:
+            # Check for stale dream (missing framework/state from before code upgrade)
+            if not dreaming_state.framework or not dreaming_state.state:
+                logger.warning(
+                    f"[{turn_id}] Priority 3: Aborting stale dream {dreaming_state.pipeline_id} "
+                    f"(missing framework/state fields)"
+                )
+                dreaming_state.status = DreamStatus.FAILED
+                await worker.save_dreaming_state(dreaming_state)
+                await worker.archive_dreaming_state(dreaming_state)
+                await worker.delete_dreaming_state(worker.config.agent_id)
+                return CommandResult(
+                    complete=True,
+                    flush_drain=True,
+                    saved_event_id=None,
+                    status=TurnRequestStatus.DONE,
+                    message="Stale dream aborted (missing framework/state)",
+                )
+
             logger.debug(
-                f"[{turn_id}] Priority 3: Executing dream step {dreaming_state.step_index}"
+                f"[{turn_id}] Priority 3: Executing dream step"
             )
-            return await worker.execute_dream_step(dreaming_state)
+            is_complete = await worker.execute_scenario_step(dreaming_state.pipeline_id)
+            return CommandResult(
+                complete=True,
+                flush_drain=True,
+                saved_event_id=None,
+                status=TurnRequestStatus.DONE,
+                message=f"Dream step executed (complete={is_complete})",
+            )
 
         # Priority 4: Auto-analysis check (no active dream)
         if not dreaming_state:
@@ -102,7 +134,14 @@ class IdleCommand(Command):
                     f"on {dream_decision.conversation_id}"
                 )
                 new_state = await worker.initialize_auto_dream(dream_decision)
-                return await worker.execute_dream_step(new_state)
+                is_complete = await worker.execute_scenario_step(new_state.pipeline_id)
+                return CommandResult(
+                    complete=True,
+                    flush_drain=True,
+                    saved_event_id=None,
+                    status=TurnRequestStatus.DONE,
+                    message=f"Dream step executed (complete={is_complete})",
+                )
 
         # Priority 5: Regular idle - fall through to process_turn
         logger.debug(f"[{turn_id}] Priority 5: Regular idle turn")

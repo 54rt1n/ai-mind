@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 
 from aim_mud_types import TurnRequestStatus
 from aim_mud_types.session import MUDSession
+from aim_mud_types.coordination import MUDTurnRequest
 from aim_mud_types.helper import _utc_now
 
 
@@ -28,9 +29,13 @@ class TestHandleTurnFailure:
         )
 
         # Mock _get_turn_request to return turn with attempt_count=0
-        mock_turn_request = MagicMock()
-        mock_turn_request.attempt_count = 0
-        test_worker._get_turn_request = AsyncMock(return_value=mock_turn_request)
+        turn_request = MUDTurnRequest(
+            turn_id="turn-1",
+            status=TurnRequestStatus.IN_PROGRESS,
+            sequence_id=1,
+            attempt_count=0,
+        )
+        test_worker._get_turn_request = AsyncMock(return_value=turn_request)
 
         # Mock update_turn_request to capture call
         test_worker.update_turn_request = AsyncMock()
@@ -70,9 +75,13 @@ class TestHandleTurnFailure:
 
         # Test multiple attempts (stay below max)
         for attempt in range(3):
-            mock_turn_request = MagicMock()
-            mock_turn_request.attempt_count = attempt
-            test_worker._get_turn_request = AsyncMock(return_value=mock_turn_request)
+            turn_request = MUDTurnRequest(
+                turn_id=f"turn-{attempt}",
+                status=TurnRequestStatus.IN_PROGRESS,
+                sequence_id=attempt + 1,
+                attempt_count=attempt,
+            )
+            test_worker._get_turn_request = AsyncMock(return_value=turn_request)
 
             await test_worker._handle_turn_failure(
                 turn_id=f"turn-{attempt}",
@@ -102,9 +111,13 @@ class TestHandleTurnFailure:
         test_mud_config.llm_failure_max_attempts = 3
 
         # Mock turn at max-1 attempts
-        mock_turn_request = MagicMock()
-        mock_turn_request.attempt_count = test_mud_config.llm_failure_max_attempts - 1
-        test_worker._get_turn_request = AsyncMock(return_value=mock_turn_request)
+        turn_request = MUDTurnRequest(
+            turn_id="turn-final",
+            status=TurnRequestStatus.IN_PROGRESS,
+            sequence_id=1,
+            attempt_count=test_mud_config.llm_failure_max_attempts - 1,
+        )
+        test_worker._get_turn_request = AsyncMock(return_value=turn_request)
         test_worker.update_turn_request = AsyncMock()
 
         # Act
@@ -134,9 +147,13 @@ class TestHandleTurnFailure:
         test_mud_config.llm_failure_max_attempts = 15  # Set high enough to test backoff cap
 
         # Mock turn with many attempts (would be 10 * 2^4 = 160s without cap)
-        mock_turn_request = MagicMock()
-        mock_turn_request.attempt_count = 4
-        test_worker._get_turn_request = AsyncMock(return_value=mock_turn_request)
+        turn_request = MUDTurnRequest(
+            turn_id="turn-5",
+            status=TurnRequestStatus.IN_PROGRESS,
+            sequence_id=1,
+            attempt_count=4,
+        )
+        test_worker._get_turn_request = AsyncMock(return_value=turn_request)
         test_worker.update_turn_request = AsyncMock()
 
         # Act
@@ -148,7 +165,8 @@ class TestHandleTurnFailure:
         # Assert - we can verify the backoff was capped by checking the next_attempt_at is reasonable
         updated_turn = test_worker.update_turn_request.call_args[0][0]
         next_attempt_str = updated_turn.next_attempt_at
-        next_attempt = datetime.fromisoformat(next_attempt_str)
+        # Parse Unix timestamp (serialized as string)
+        next_attempt = datetime.fromtimestamp(int(next_attempt_str), tz=timezone.utc)
         now = _utc_now()
 
         # Verify the next attempt is within max_seconds (not thousands of seconds)
@@ -166,9 +184,13 @@ class TestHandleTurnFailure:
             persona_id="test_persona",
         )
 
-        mock_turn_request = MagicMock()
-        mock_turn_request.attempt_count = 0
-        test_worker._get_turn_request = AsyncMock(return_value=mock_turn_request)
+        turn_request = MUDTurnRequest(
+            turn_id="turn-1",
+            status=TurnRequestStatus.IN_PROGRESS,
+            sequence_id=1,
+            attempt_count=0,
+        )
+        test_worker._get_turn_request = AsyncMock(return_value=turn_request)
         test_worker.update_turn_request = AsyncMock()
 
         # Act - call without error_type
@@ -192,9 +214,13 @@ class TestHandleTurnFailure:
             persona_id="test_persona",
         )
 
-        mock_turn_request = MagicMock()
-        mock_turn_request.attempt_count = 1
-        test_worker._get_turn_request = AsyncMock(return_value=mock_turn_request)
+        turn_request = MUDTurnRequest(
+            turn_id="turn-123",
+            status=TurnRequestStatus.IN_PROGRESS,
+            sequence_id=1,
+            attempt_count=1,
+        )
+        test_worker._get_turn_request = AsyncMock(return_value=turn_request)
         test_worker.update_turn_request = AsyncMock()
 
         # Act

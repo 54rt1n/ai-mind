@@ -12,11 +12,12 @@ from aim_mud_types import TurnRequestStatus
 @pytest.fixture
 def mock_worker():
     """Create a mock worker."""
+    from andimud_worker.config import MUDConfig
+
     worker = MagicMock()
     worker.chat_config = MagicMock()
     worker.redis = AsyncMock()
-    worker.config = MagicMock()
-    worker.config.agent_id = "andi"
+    worker.config = MUDConfig(agent_id="andi", persona_id="andi")
     worker.cvm = MagicMock()
     worker.process_dream_turn = AsyncMock()
     worker._update_conversation_report = AsyncMock()

@@ -7,7 +7,7 @@ from typing import Optional
 import redis.asyncio as redis
 import json
 
-from ..core.models import StepJob, Scenario, StepStatus, StepDefinition
+from aim.dreamer.core.models import StepJob, Scenario, StepStatus, StepDefinition
 
 from .state import StateStore
 

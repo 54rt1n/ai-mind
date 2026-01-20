@@ -35,9 +35,9 @@ def execute_context_actions(
     # Execute memory DSL - returns doc_ids list
     doc_ids = execute_memory_actions(
         actions=step_def.context,
+        state=executor.state,
         cvm=executor.cvm,
         query_text=executor.state.query_text,
-        conversation_id=executor.state.conversation_id,
     )
 
     # Convert doc_ids to DocRefs

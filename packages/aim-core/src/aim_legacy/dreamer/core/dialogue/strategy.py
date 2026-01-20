@@ -6,16 +6,14 @@ from pathlib import Path
 from typing import Optional
 import yaml
 
-from ..models import MemoryAction, StepConfig, StepOutput
-from ..scenario import get_jinja_environment
+from aim.dreamer.core.models import MemoryAction, StepConfig, StepOutput, DialogueSpeaker, SpeakerType
+from aim.dreamer.core.scenario import get_jinja_environment
 
 from .models import (
     DialogueStep,
-    DialogueSpeaker,
     DialogueConfig,
     DialogueState,
     ScenarioContext,
-    SpeakerType,
 )
 
 

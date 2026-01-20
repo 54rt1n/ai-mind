@@ -10,6 +10,7 @@ from .context_only import ContextOnlyStrategy
 from .standard import StandardStrategy
 from .tool_calling import ToolCallingStrategy
 from .rendering import RenderingStrategy
+from .dialogue import DialogueStrategy
 
 if TYPE_CHECKING:
     from ..models import NewStepDefinition
@@ -34,6 +35,7 @@ class StepFactory:
         "standard": StandardStrategy,
         "tool_calling": ToolCallingStrategy,
         "rendering": RenderingStrategy,
+        "dialogue": DialogueStrategy,
     }
 
     @classmethod

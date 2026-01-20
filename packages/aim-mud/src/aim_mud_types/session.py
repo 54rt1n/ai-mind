@@ -20,7 +20,7 @@ from .world_state import WorldState
 from .events import MUDEvent
 from .actions import MUDAction
 
-from .helper import _utc_now
+from .helper import _utc_now, _datetime_to_unix, _unix_to_datetime
 
 class MUDTurn(BaseModel):
     """One complete agent turn: perception -> reasoning -> action.
@@ -52,9 +52,9 @@ class MUDTurn(BaseModel):
     doc_id: Optional[str] = None
 
     @field_serializer("timestamp")
-    def serialize_timestamp(self, dt: datetime, _info: Any) -> str:
-        """Serialize datetime to ISO format string."""
-        return dt.isoformat()
+    def serialize_timestamp(self, dt: datetime, _info: Any) -> int:
+        """Serialize datetime to Unix timestamp."""
+        return _datetime_to_unix(dt)
 
 
 class MUDSession(BaseModel):
@@ -107,9 +107,9 @@ class MUDSession(BaseModel):
     @field_serializer("created_at", "updated_at", "last_action_time", "last_event_time")
     def serialize_datetime(
         self, dt: Optional[datetime], _info: Any
-    ) -> Optional[str]:
-        """Serialize datetime to ISO format string."""
-        return dt.isoformat() if dt else None
+    ) -> Optional[int]:
+        """Serialize datetime to Unix timestamp."""
+        return _datetime_to_unix(dt)
 
     def add_turn(self, turn: MUDTurn) -> None:
         """Add a turn to the session history.

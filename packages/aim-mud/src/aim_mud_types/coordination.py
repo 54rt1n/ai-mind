@@ -7,9 +7,9 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, field_serializer
 
-from .helper import _utc_now
+from .helper import _utc_now, _datetime_to_unix, _unix_to_datetime
 from .redis_keys import RedisKeys
 
 
@@ -60,18 +60,19 @@ class MUDTurnRequest(BaseModel):
 
     Stored in `agent:{id}:turn_request` Redis hash.
     Mediator assigns turns, worker processes and updates status.
+    All datetime fields are serialized as Unix timestamps (integers).
 
     Attributes:
         turn_id: Unique identifier for this turn
         status: Current turn status
         reason: Why the turn was assigned
         message: Optional status message
-        heartbeat_at: Last heartbeat from worker
-        assigned_at: When turn was assigned by mediator
-        completed_at: When turn execution finished (set on terminal states)
+        heartbeat_at: Last heartbeat from worker (Unix timestamp)
+        assigned_at: When turn was assigned by mediator (Unix timestamp)
+        completed_at: When turn execution finished (Unix timestamp)
         sequence_id: Event sequence ID for chronological ordering (REQUIRED)
         attempt_count: Number of retry attempts for this turn
-        next_attempt_at: ISO format datetime string for retry timing
+        next_attempt_at: Unix timestamp for retry timing
         status_reason: Human-readable reason for current status
         deadline_ms: Deadline in milliseconds (used by mediator)
         metadata: Turn-specific context (scenario, query, guidance, conversation_id, etc.)
@@ -88,30 +89,37 @@ class MUDTurnRequest(BaseModel):
     attempt_count: int = 0
 
     # Retry coordination
-    next_attempt_at: Optional[str] = None  # ISO format datetime string for retry timing
+    next_attempt_at: Optional[datetime] = None  # Unix timestamp for retry timing
     status_reason: Optional[str] = None  # Human-readable reason for current status
     deadline_ms: Optional[str] = None  # Deadline in milliseconds (used by mediator)
 
     # Metadata for turn-specific context
     metadata: Optional[dict] = None
 
+    # Validators to parse Unix timestamps from Redis
+    @field_validator("heartbeat_at", "assigned_at", mode="before")
+    @classmethod
+    def parse_required_datetime(cls, v):
+        return _unix_to_datetime(v) or _utc_now()
+
+    @field_validator("completed_at", "next_attempt_at", mode="before")
+    @classmethod
+    def parse_optional_datetime(cls, v):
+        return _unix_to_datetime(v)
+
+    # Serializers to output Unix timestamps
+    @field_serializer("heartbeat_at", "assigned_at")
+    def serialize_required_datetime(self, dt: datetime) -> int:
+        return _datetime_to_unix(dt)
+
+    @field_serializer("completed_at", "next_attempt_at")
+    def serialize_optional_datetime(self, dt: Optional[datetime]) -> Optional[int]:
+        return _datetime_to_unix(dt)
+
     @field_validator("metadata", mode="before")
     @classmethod
     def parse_metadata(cls, v):
-        """Parse metadata from JSON string (Redis) or dict (Python).
-
-        When metadata is retrieved from Redis, it comes as a JSON string.
-        This validator converts it back to a dict for Pydantic validation.
-
-        Args:
-            v: Either a JSON string (from Redis) or dict (from Python code)
-
-        Returns:
-            Dict or None
-
-        Raises:
-            ValueError: If v is a string but not valid JSON
-        """
+        """Parse metadata from JSON string (Redis) or dict (Python)."""
         if v is None:
             return None
         if isinstance(v, str):
@@ -120,6 +128,13 @@ class MUDTurnRequest(BaseModel):
             except json.JSONDecodeError as e:
                 raise ValueError(f"Invalid JSON in metadata field: {e}")
         return v
+
+    @field_serializer("metadata")
+    def serialize_metadata(self, v: Optional[dict]) -> Optional[str]:
+        """Serialize metadata dict to JSON string for Redis."""
+        if v is None:
+            return None
+        return json.dumps(v)
 
     def is_available_for_assignment(self, now: Optional[datetime] = None) -> bool:
         """Return True if a new turn can be assigned to this agent.
@@ -144,13 +159,8 @@ class MUDTurnRequest(BaseModel):
 
         if status in (TurnRequestStatus.RETRY, TurnRequestStatus.FAIL):
             if self.next_attempt_at:
-                try:
-                    next_attempt_at = datetime.fromisoformat(self.next_attempt_at)
-                except (TypeError, ValueError):
-                    # If malformed, be conservative and treat as unavailable
-                    return False
-                current = now or datetime.now(next_attempt_at.tzinfo)
-                if current < next_attempt_at:
+                current = now or _utc_now()
+                if current < self.next_attempt_at:
                     return False
 
         return True
@@ -191,6 +201,7 @@ class DreamingState(BaseModel):
     """Serialized state for step-by-step dream execution.
 
     Stored in `agent:{id}:dreaming` Redis hash.
+    All datetime fields are serialized as Unix timestamps (integers).
     """
 
     # Identity
@@ -205,11 +216,11 @@ class DreamingState(BaseModel):
 
     # Pipeline Configuration (frozen at init)
     scenario_name: str                  # e.g., "analysis_dialogue"
-    execution_order: list[str]          # All step IDs in order
+    execution_order: list[str] = Field(default_factory=list)  # All step IDs in order
     query: Optional[str] = None         # Optional query text
     guidance: Optional[str] = None      # User guidance (manual dreams)
-    conversation_id: str                # Target conversation
-    base_model: str                     # Model used for execution
+    conversation_id: str = ""           # Target conversation
+    base_model: str = ""                # Model used for execution
 
     # Step Execution State
     step_index: int = 0                 # Current position (0-based)
@@ -237,7 +248,39 @@ class DreamingState(BaseModel):
     state: Optional[str] = None      # JSON string: ScenarioState (mutable runtime state)
     metadata: Optional[str] = None   # JSON string: error info, custom data
 
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat(),
-        }
+    # Validators to parse Unix timestamps from Redis
+    @field_validator("created_at", "updated_at", mode="before")
+    @classmethod
+    def parse_required_datetime(cls, v):
+        return _unix_to_datetime(v) or _utc_now()
+
+    @field_validator("completed_at", "next_retry_at", "heartbeat_at", mode="before")
+    @classmethod
+    def parse_optional_datetime(cls, v):
+        return _unix_to_datetime(v)
+
+    # Validators to parse JSON strings for list/dict fields from Redis
+    @field_validator(
+        "execution_order", "completed_steps", "context_doc_ids",
+        "step_doc_ids", "scenario_config", "persona_config",
+        mode="before"
+    )
+    @classmethod
+    def parse_json_field(cls, v):
+        """Parse JSON string from Redis or passthrough list/dict."""
+        if v is None:
+            return v
+        if isinstance(v, str):
+            if not v:
+                return None
+            return json.loads(v)
+        return v
+
+    # Serializers to output Unix timestamps
+    @field_serializer("created_at", "updated_at")
+    def serialize_required_datetime(self, dt: datetime) -> int:
+        return _datetime_to_unix(dt)
+
+    @field_serializer("completed_at", "next_retry_at", "heartbeat_at")
+    def serialize_optional_datetime(self, dt: Optional[datetime]) -> Optional[int]:
+        return _datetime_to_unix(dt)

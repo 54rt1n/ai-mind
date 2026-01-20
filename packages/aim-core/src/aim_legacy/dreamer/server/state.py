@@ -5,8 +5,8 @@
 from typing import Optional
 import redis.asyncio as redis
 
-from ..core.models import PipelineState, StepStatus, Scenario
-from ..core.dialogue.models import DialogueState
+from aim.dreamer.core.models import PipelineState, StepStatus, Scenario
+from aim_legacy.dreamer.core.dialogue.models import DialogueState
 
 
 class StateStore:

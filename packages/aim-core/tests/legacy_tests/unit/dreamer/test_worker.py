@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 import asyncio
 
-from aim.dreamer.server.worker import DreamerWorker, run_worker
+from aim_legacy.dreamer.server.worker import DreamerWorker, run_worker
 from aim.dreamer.core.executor import RetryableError
 from aim.dreamer.core.models import (
     StepJob,
@@ -267,9 +267,9 @@ class TestDreamerWorkerProcessJob:
 
         mock_message = Mock()
 
-        with patch("aim.dreamer.server.worker.load_scenario") as mock_load_scenario, \
-             patch("aim.dreamer.server.worker.execute_step") as mock_execute_step, \
-             patch("aim.dreamer.server.worker.create_message") as mock_create_message:
+        with patch("aim_legacy.dreamer.server.worker.load_scenario") as mock_load_scenario, \
+             patch("aim_legacy.dreamer.server.worker.execute_step") as mock_execute_step, \
+             patch("aim_legacy.dreamer.server.worker.create_message") as mock_create_message:
 
             mock_load_scenario.return_value = scenario
             # execute_step returns tuple: (StepResult, context_doc_ids, is_initial_context)
@@ -351,7 +351,7 @@ class TestDreamerWorkerProcessJob:
             scheduler=mock_scheduler,
         )
 
-        with patch("aim.dreamer.server.worker.load_scenario") as mock_load_scenario:
+        with patch("aim_legacy.dreamer.server.worker.load_scenario") as mock_load_scenario:
             mock_load_scenario.return_value = scenario
 
             job = StepJob(
@@ -428,8 +428,8 @@ class TestDreamerWorkerProcessJob:
         worker.cvm = Mock()
 
 
-        with patch("aim.dreamer.server.worker.load_scenario") as mock_load_scenario, \
-             patch("aim.dreamer.server.worker.execute_step") as mock_execute_step:
+        with patch("aim_legacy.dreamer.server.worker.load_scenario") as mock_load_scenario, \
+             patch("aim_legacy.dreamer.server.worker.execute_step") as mock_execute_step:
 
             mock_load_scenario.return_value = scenario
             # Raise RetryableError
@@ -509,8 +509,8 @@ class TestDreamerWorkerProcessJob:
         worker.cvm = Mock()
 
 
-        with patch("aim.dreamer.server.worker.load_scenario") as mock_load_scenario, \
-             patch("aim.dreamer.server.worker.execute_step") as mock_execute_step:
+        with patch("aim_legacy.dreamer.server.worker.load_scenario") as mock_load_scenario, \
+             patch("aim_legacy.dreamer.server.worker.execute_step") as mock_execute_step:
 
             mock_load_scenario.return_value = scenario
             mock_execute_step.side_effect = RetryableError("Model unavailable")
@@ -587,8 +587,8 @@ class TestDreamerWorkerProcessJob:
         worker.cvm = Mock()
 
 
-        with patch("aim.dreamer.server.worker.load_scenario") as mock_load_scenario, \
-             patch("aim.dreamer.server.worker.execute_step") as mock_execute_step:
+        with patch("aim_legacy.dreamer.server.worker.load_scenario") as mock_load_scenario, \
+             patch("aim_legacy.dreamer.server.worker.execute_step") as mock_execute_step:
 
             mock_load_scenario.return_value = scenario
             # Raise a non-retryable error
@@ -675,8 +675,8 @@ class TestDreamerWorkerStart:
             scheduler=mock_scheduler,
         )
 
-        with patch("aim.dreamer.server.worker.ConversationModel") as mock_cvm_class, \
-             patch("aim.dreamer.server.worker.Roster") as mock_roster_class:
+        with patch("aim_legacy.dreamer.server.worker.ConversationModel") as mock_cvm_class, \
+             patch("aim_legacy.dreamer.server.worker.Roster") as mock_roster_class:
 
             mock_cvm = Mock()
             mock_cvm_class.from_config.return_value = mock_cvm
@@ -706,9 +706,9 @@ class TestRunWorker:
 
         # Patch redis.asyncio which is imported locally in run_worker
         with patch("redis.asyncio.Redis") as mock_redis_class, \
-             patch("aim.dreamer.server.worker.StateStore") as mock_state_store_class, \
-             patch("aim.dreamer.server.worker.Scheduler") as mock_scheduler_class, \
-             patch("aim.dreamer.server.worker.DreamerWorker") as mock_worker_class:
+             patch("aim_legacy.dreamer.server.worker.StateStore") as mock_state_store_class, \
+             patch("aim_legacy.dreamer.server.worker.Scheduler") as mock_scheduler_class, \
+             patch("aim_legacy.dreamer.server.worker.DreamerWorker") as mock_worker_class:
 
             mock_redis_client = AsyncMock()
             mock_redis_class.return_value = mock_redis_client

@@ -100,10 +100,11 @@ def build_turns(
     turns = []
 
     # System message from persona (returned separately for config)
+    # Handle state=None case (e.g., when StandardStrategy builds turns manually)
     system_message = persona.system_prompt(
-        mood=state.persona_mood,
+        mood=state.persona_mood if state else None,
         location=None,  # Location is in the step prompts
-        user_id=state.user_id,
+        user_id=state.user_id if state else "system",
         system_message=None,
     )
 

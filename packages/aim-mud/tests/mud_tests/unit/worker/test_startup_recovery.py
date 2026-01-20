@@ -120,7 +120,7 @@ class TestTTLRemoval:
         worker_with_no_ttl.redis.hgetall.return_value = {
             b"turn_id": turn_id.encode(),
             b"status": b"ready",
-            b"heartbeat_at": _utc_now().isoformat().encode(),
+            b"heartbeat_at": str(int(_utc_now().timestamp())).encode(),
             b"sequence_id": b"1",
         }
 
@@ -165,7 +165,7 @@ class TestTTLRemoval:
         worker_with_ttl.redis.hgetall.return_value = {
             b"turn_id": turn_id.encode(),
             b"status": b"ready",
-            b"heartbeat_at": _utc_now().isoformat().encode(),
+            b"heartbeat_at": str(int(_utc_now().timestamp())).encode(),
             b"sequence_id": b"1",
         }
 
@@ -282,15 +282,18 @@ class TestStartupRecoveryBranch2:
         next_attempt_idx = args.index("next_attempt_at")
         next_attempt_at = args[next_attempt_idx + 1]
         assert next_attempt_at != ""
-        # Verify it's a valid ISO timestamp
-        datetime.fromisoformat(next_attempt_at)
+        # Verify it's a valid Unix timestamp
+        assert next_attempt_at.isdigit()
+        datetime.fromtimestamp(int(next_attempt_at), tz=timezone.utc)
 
         # Verify completed_at was set
         assert "completed_at" in args
         completed_at_idx = args.index("completed_at")
         completed_at = args[completed_at_idx + 1]
         assert completed_at != ""
-        datetime.fromisoformat(completed_at)
+        # Verify it's a valid Unix timestamp
+        assert completed_at.isdigit()
+        datetime.fromtimestamp(int(completed_at), tz=timezone.utc)
 
     @pytest.mark.asyncio
     async def test_crashed_converts_to_retry(self, worker_with_no_ttl, mock_redis_with_expire):
@@ -323,7 +326,9 @@ class TestStartupRecoveryBranch2:
         completed_at_idx = args.index("completed_at")
         completed_at = args[completed_at_idx + 1]
         assert completed_at != ""
-        datetime.fromisoformat(completed_at)
+        # Verify it's a valid Unix timestamp
+        assert completed_at.isdigit()
+        datetime.fromtimestamp(int(completed_at), tz=timezone.utc)
 
     @pytest.mark.asyncio
     async def test_assigned_converts_to_retry(self, worker_with_no_ttl, mock_redis_with_expire):
@@ -395,17 +400,18 @@ class TestStartupRecoveryBranch2:
         status_idx = args.index("status")
         assert args[status_idx + 1] == "fail"
 
-        # Verify next_attempt_at is empty (no retry)
-        assert "next_attempt_at" in args
-        next_attempt_idx = args.index("next_attempt_at")
-        assert args[next_attempt_idx + 1] == ""
+        # Verify next_attempt_at is NOT included (None values are omitted during serialization)
+        # This is correct - when max attempts is reached, there's no next attempt
+        assert "next_attempt_at" not in args
 
         # Verify completed_at was set
         assert "completed_at" in args
         completed_at_idx = args.index("completed_at")
         completed_at = args[completed_at_idx + 1]
         assert completed_at != ""
-        datetime.fromisoformat(completed_at)
+        # Verify it's a valid Unix timestamp
+        assert completed_at.isdigit()
+        datetime.fromtimestamp(int(completed_at), tz=timezone.utc)
 
     @pytest.mark.asyncio
     async def test_exponential_backoff_calculation(self, worker_with_no_ttl, mock_redis_with_expire):
@@ -431,7 +437,7 @@ class TestStartupRecoveryBranch2:
         args = lua_call[0][3:]
         next_attempt_idx = args.index("next_attempt_at")
         next_attempt_str = args[next_attempt_idx + 1]
-        next_attempt = datetime.fromisoformat(next_attempt_str)
+        next_attempt = datetime.fromtimestamp(int(next_attempt_str), tz=timezone.utc)
 
         # For attempt 2, backoff should be 30 * 2^(2-1) = 60 seconds
         expected_backoff = 60
@@ -465,7 +471,7 @@ class TestStartupRecoveryBranch2:
         args = lua_call[0][3:]
         next_attempt_idx = args.index("next_attempt_at")
         next_attempt_str = args[next_attempt_idx + 1]
-        next_attempt = datetime.fromisoformat(next_attempt_str)
+        next_attempt = datetime.fromtimestamp(int(next_attempt_str), tz=timezone.utc)
 
         # Should be capped at max_seconds (100)
         expected_time = before + timedelta(seconds=100)
@@ -520,9 +526,10 @@ class TestStartupRecoveryBranch3:
         assert "HSET" in lua_script
         assert "heartbeat_at" in lua_script
 
-        # Verify heartbeat_at argument (3rd positional arg) is a valid ISO timestamp
+        # Verify heartbeat_at argument (3rd positional arg) is a valid Unix timestamp
         heartbeat_at = call_args[3]
-        datetime.fromisoformat(heartbeat_at)
+        assert heartbeat_at.isdigit()
+        datetime.fromtimestamp(int(heartbeat_at), tz=timezone.utc)
 
     @pytest.mark.asyncio
     async def test_done_state_updates_heartbeat(self, worker_with_no_ttl, mock_redis_with_expire):
@@ -548,7 +555,7 @@ class TestStartupRecoveryBranch3:
         mock_redis_with_expire.hgetall.return_value = {
             b"turn_id": turn_id.encode(),
             b"status": b"fail",
-            b"next_attempt_at": (_utc_now() + timedelta(seconds=60)).isoformat(),
+            b"next_attempt_at": str(int((_utc_now() + timedelta(seconds=60)).timestamp())).encode(),
             b"sequence_id": b"1",
         }
         mock_redis_with_expire.eval = AsyncMock(return_value=1)  # Success

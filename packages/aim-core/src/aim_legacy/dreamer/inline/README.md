@@ -1,10 +1,14 @@
-# Inline Pipeline Scheduler
+# Inline Pipeline Scheduler (LEGACY)
 
-The `aim.dreamer.inline` module provides synchronous, non-distributed pipeline execution for AI-Mind scenarios.
+> **⚠️ LEGACY CODE**: This module has been moved to `aim_legacy.dreamer.inline`.
+> For new code, use the strategy-based system in `aim.dreamer.core.strategy` with
+> `ScenarioBuilder`, `ScenarioExecutor`, and `ScenarioState`.
+
+The `aim_legacy.dreamer.inline` module provides synchronous, non-distributed pipeline execution for AI-Mind scenarios.
 
 ## Overview
 
-Unlike the distributed `aim.dreamer.server` module (which uses Redis queues, state stores, and workers), the inline scheduler executes pipelines **synchronously in-process** with state held entirely in memory.
+Unlike the distributed `aim_legacy.dreamer.server` module (which uses Redis queues, state stores, and workers), the inline scheduler executes pipelines **synchronously in-process** with state held entirely in memory.
 
 ## When to Use
 
@@ -40,7 +44,7 @@ import asyncio
 from aim.config import ChatConfig
 from aim.agents.roster import Roster
 from aim.conversation.model import ConversationModel
-from aim.dreamer.inline import execute_pipeline_inline
+from aim_legacy.dreamer.inline import execute_pipeline_inline
 
 async def run_philosophy():
     # Setup
@@ -189,7 +193,7 @@ The inline scheduler is built on the same core components as the distributed sys
 - **Core Executor** (`aim.dreamer.core.executor`): Step execution with LLM calls
 - **Memory DSL** (`aim.dreamer.core.memory_dsl`): Context building and retrieval
 - **Scenario Loader** (`aim.dreamer.core.scenario`): YAML validation and template rendering
-- **Dialogue Support** (`aim.dreamer.core.dialogue`): Turn-based dialogue execution
+- **Dialogue Support** (`aim_legacy.dreamer.core.dialogue`): Turn-based dialogue execution (legacy)
 
 The key difference is the **absence of Redis infrastructure**:
 
@@ -228,7 +232,7 @@ No retry logic is built in - if you need retries, implement them in your calling
 
 ```python
 # Inline (synchronous)
-from aim.dreamer.inline import execute_pipeline_inline
+from aim_legacy.dreamer.inline import execute_pipeline_inline
 
 pipeline_id = await execute_pipeline_inline(
     scenario_name="journaler",
@@ -240,7 +244,7 @@ pipeline_id = await execute_pipeline_inline(
 # Returns when complete
 
 # Distributed (asynchronous)
-from aim.dreamer import start_pipeline, get_status
+from aim_legacy.dreamer.server import start_pipeline, get_status
 
 pipeline_id = start_pipeline(
     scenario_name="journaler",
@@ -277,7 +281,7 @@ from unittest.mock import AsyncMock, patch
 
 @pytest.mark.asyncio
 async def test_my_scenario(mock_config, mock_cvm, mock_roster):
-    with patch('aim.dreamer.inline.scheduler.execute_step', new_callable=AsyncMock) as mock_step:
+    with patch('aim_legacy.dreamer.inline.scheduler.execute_step', new_callable=AsyncMock) as mock_step:
         mock_step.return_value = (mock_result, [], False)
 
         pipeline_id = await execute_pipeline_inline(

@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Optional
 
 from .redis_keys import RedisKeys
-from .helper import _utc_now
+from .helper import _utc_now, _datetime_to_unix
 
 
 def _decode_hash(raw: dict) -> dict[str, str]:
@@ -37,7 +37,7 @@ def update_agent_profile_fields(
     """Partial update of agent profile fields (sync)."""
     key = RedisKeys.agent_profile(agent_id)
     if touch_updated_at and "updated_at" not in fields:
-        fields["updated_at"] = _utc_now().isoformat()
+        fields["updated_at"] = str(_datetime_to_unix(_utc_now()))
     payload = {k: v for k, v in fields.items() if v is not None}
     if not payload:
         return False

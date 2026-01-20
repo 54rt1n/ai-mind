@@ -8,16 +8,16 @@ import signal
 from datetime import datetime, timezone
 from typing import Optional
 
-from ...config import ChatConfig
-from ...conversation.model import ConversationModel
-from ...agents.roster import Roster
-from ...llm.model_set import ModelSet
+from aim.config import ChatConfig
+from aim.conversation.model import ConversationModel
+from aim.agents.roster import Roster
+from aim.llm.model_set import ModelSet
 
-from ..core.executor import execute_step, create_message, RetryableError
-from ..core.models import StepJob, StepStatus
-from ..core.scenario import load_scenario
-from ..core.dialogue.strategy import DialogueStrategy
-from ..core.dialogue.scenario import DialogueScenario
+from aim.dreamer.core.executor import execute_step, create_message, RetryableError
+from aim.dreamer.core.models import StepJob, StepStatus
+from aim.dreamer.core.scenario import load_scenario
+from aim_legacy.dreamer.core.dialogue.strategy import DialogueStrategy
+from aim_legacy.dreamer.core.dialogue.scenario import DialogueScenario
 
 from .scheduler import Scheduler
 from .state import StateStore

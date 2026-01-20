@@ -138,7 +138,11 @@ class EventsMixin:
                 stream_key=self.config.agent_stream,
             )
         except Exception as e:
-            logger.error(f"Redis error in drain_events (xinfo): {e}")
+            # "no such key" is expected when stream doesn't exist yet (no events arrived)
+            if "no such key" in str(e).lower():
+                logger.debug(f"Event stream not yet created: {e}")
+            else:
+                logger.error(f"Redis error in drain_events (xinfo): {e}")
             return []
 
         if not max_id:

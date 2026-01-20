@@ -6,9 +6,9 @@ from datetime import datetime
 from typing import Optional
 import json
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, field_serializer, model_validator
 
-from .helper import _utc_now
+from .helper import _utc_now, _datetime_to_unix, _unix_to_datetime
 from .state import EntityState, RoomState
 from .world_state import InventoryItem
 
@@ -25,7 +25,7 @@ class AgentProfile(BaseModel):
         last_event_id: Last processed event stream ID
         last_action_id: Last emitted action stream ID
         conversation_id: Current conversation ID
-        updated_at: When profile was last updated
+        updated_at: When profile was last updated (Unix timestamp)
     """
 
     agent_id: str
@@ -34,6 +34,15 @@ class AgentProfile(BaseModel):
     last_action_id: Optional[str] = None
     conversation_id: Optional[str] = None
     updated_at: datetime = Field(default_factory=_utc_now)
+
+    @field_validator("updated_at", mode="before")
+    @classmethod
+    def parse_updated_at(cls, v):
+        return _unix_to_datetime(v) or _utc_now()
+
+    @field_serializer("updated_at")
+    def serialize_updated_at(self, dt: datetime) -> int:
+        return _datetime_to_unix(dt)
 
 
 class RoomProfile(BaseModel):
@@ -59,6 +68,15 @@ class RoomProfile(BaseModel):
     room_state: Optional[RoomState] = None
     entities: list[EntityState] = Field(default_factory=list, alias="entities_present")
     updated_at: datetime = Field(default_factory=_utc_now)
+
+    @field_validator("updated_at", mode="before")
+    @classmethod
+    def parse_updated_at(cls, v):
+        return _unix_to_datetime(v) or _utc_now()
+
+    @field_serializer("updated_at")
+    def serialize_updated_at(self, dt: datetime) -> int:
+        return _datetime_to_unix(dt)
 
     @field_validator('room_state', mode='before')
     @classmethod

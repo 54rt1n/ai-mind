@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field, field_serializer, field_validator, AliasC
 
 from .enums import EventType, ActorType
 from .world_state import WorldState
-from .helper import _utc_now
+from .helper import _utc_now, _datetime_to_unix, _unix_to_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -71,20 +71,17 @@ class MUDEvent(BaseModel):
     @field_validator("timestamp", mode="before")
     @classmethod
     def parse_timestamp(cls, v):
-        """Parse timestamp from various formats."""
-        if isinstance(v, str):
-            if not v:
-                logger.warning("Event data contains empty timestamp string, defaulting to current time")
-                return _utc_now()
-            return datetime.fromisoformat(v.replace("Z", "+00:00"))
-        if v is None:
+        """Parse timestamp from Unix timestamp or ISO format."""
+        result = _unix_to_datetime(v)
+        if result is None:
+            logger.warning("Event data contains empty timestamp, defaulting to current time")
             return _utc_now()
-        return v
+        return result
 
     @field_serializer("timestamp")
-    def serialize_timestamp(self, dt: datetime, _info: Any) -> str:
-        """Serialize datetime to ISO format string."""
-        return dt.isoformat()
+    def serialize_timestamp(self, dt: datetime, _info: Any) -> int:
+        """Serialize datetime to Unix timestamp."""
+        return _datetime_to_unix(dt)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "MUDEvent":

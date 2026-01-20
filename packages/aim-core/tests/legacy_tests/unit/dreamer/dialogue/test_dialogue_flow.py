@@ -8,9 +8,9 @@ from unittest.mock import Mock, MagicMock, patch
 from dataclasses import dataclass
 import yaml
 
-from aim.dreamer.core.dialogue.strategy import DialogueStrategy
-from aim.dreamer.core.dialogue.scenario import DialogueScenario
-from aim.dreamer.core.dialogue.models import (
+from aim_legacy.dreamer.core.dialogue.strategy import DialogueStrategy
+from aim_legacy.dreamer.core.dialogue.scenario import DialogueScenario
+from aim_legacy.dreamer.core.dialogue.models import (
     DialogueState,
     DialogueTurn,
     DialogueSpeaker,
@@ -558,10 +558,10 @@ class TestDialogueScenarioExecution:
         mock_cache_instance.update_api_activity = Mock()
 
         with patch(
-            'aim.dreamer.core.dialogue.scenario.LanguageModelV2.index_models',
+            'aim_legacy.dreamer.core.dialogue.scenario.LanguageModelV2.index_models',
             return_value={model_name: mock_model}
         ), patch(
-            'aim.dreamer.core.dialogue.scenario.RedisCache',
+            'aim_legacy.dreamer.core.dialogue.scenario.RedisCache',
             return_value=mock_cache_instance
         ):
             turn = await scenario.execute_step("step1")
@@ -610,10 +610,10 @@ class TestDialogueScenarioExecution:
         mock_cache_instance.update_api_activity = Mock()
 
         with patch(
-            'aim.dreamer.core.dialogue.scenario.LanguageModelV2.index_models',
+            'aim_legacy.dreamer.core.dialogue.scenario.LanguageModelV2.index_models',
             return_value={model_name: mock_model}
         ), patch(
-            'aim.dreamer.core.dialogue.scenario.RedisCache',
+            'aim_legacy.dreamer.core.dialogue.scenario.RedisCache',
             return_value=mock_cache_instance
         ):
             # Execute all steps in order
@@ -668,10 +668,10 @@ class TestDialogueScenarioExecution:
         mock_cache_instance.update_api_activity = Mock()
 
         with patch(
-            'aim.dreamer.core.dialogue.scenario.LanguageModelV2.index_models',
+            'aim_legacy.dreamer.core.dialogue.scenario.LanguageModelV2.index_models',
             return_value={model_name: mock_model}
         ), patch(
-            'aim.dreamer.core.dialogue.scenario.RedisCache',
+            'aim_legacy.dreamer.core.dialogue.scenario.RedisCache',
             return_value=mock_cache_instance
         ):
             turns = await scenario.run()

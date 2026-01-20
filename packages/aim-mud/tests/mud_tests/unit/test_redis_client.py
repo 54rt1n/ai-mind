@@ -27,10 +27,12 @@ class TestSerializeValue:
         assert client._serialize_value(None) is None
 
     def test_serialize_datetime_to_isoformat(self, client):
-        """datetime should be converted to ISO format string."""
+        """datetime should be converted to Unix timestamp string."""
         dt = datetime(2026, 1, 10, 12, 30, 45, tzinfo=timezone.utc)
         result = client._serialize_value(dt)
-        assert result == "2026-01-10T12:30:45+00:00"
+        # Should return Unix timestamp as string
+        expected_timestamp = int(dt.timestamp())
+        assert result == str(expected_timestamp)
 
     def test_serialize_enum_to_value(self, client):
         """Enum should be converted to .value."""
@@ -124,9 +126,11 @@ class TestSerializeObject:
         )
         result = client._serialize_object(obj)
 
+        # datetime should be serialized as Unix timestamp string
+        expected_timestamp = str(int(dt.timestamp()))
         assert result == {
             "status": "assigned",
-            "timestamp": "2026-01-10T12:00:00+00:00",
+            "timestamp": expected_timestamp,
             "count": "5"
         }
 

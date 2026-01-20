@@ -10,7 +10,7 @@ from datetime import timedelta
 from typing import Optional, Tuple
 
 from .coordination import MUDTurnRequest, TurnReason, TurnRequestStatus
-from .helper import _utc_now
+from .helper import _utc_now, _datetime_to_unix
 from .redis_keys import RedisKeys
 from .client import RedisMUDClient
 
@@ -44,8 +44,8 @@ def touch_turn_request_completed(
 
 
 def compute_next_attempt_at(backoff_seconds: int) -> str:
-    """Compute next_attempt_at ISO timestamp from backoff seconds."""
-    return (_utc_now() + timedelta(seconds=backoff_seconds)).isoformat()
+    """Compute next_attempt_at as Unix timestamp string from backoff seconds."""
+    return str(_datetime_to_unix(_utc_now() + timedelta(seconds=backoff_seconds)))
 
 
 def transition_turn_request(
@@ -162,12 +162,13 @@ def assign_turn_request(
     turn_id = f"{turn_id_prefix}_{int(now.timestamp() * 1000)}"
     sequence_id = redis_client.incr(RedisKeys.SEQUENCE_COUNTER)
 
+    now_ts = str(_datetime_to_unix(now))
     payload = {
         "turn_id": turn_id,
         "status": status.value,
         "reason": turn_reason.value,
-        "assigned_at": now.isoformat(),
-        "heartbeat_at": now.isoformat(),
+        "assigned_at": now_ts,
+        "heartbeat_at": now_ts,
         "deadline_ms": str(deadline_ms),
         "sequence_id": str(sequence_id),
         "attempt_count": "0",
@@ -229,14 +230,12 @@ def initialize_turn_request(
         metadata={k: v for k, v in metadata_kwargs.items() if v is not None} or None,
     )
 
+    # Use model_dump with JSON mode to invoke field_serializers (datetime → int, enum → value)
+    dumped = turn_request.model_dump(mode="json")
     fields = {}
-    for field_name, field_value in turn_request.model_dump().items():
+    for field_name, field_value in dumped.items():
         if field_value is None:
             continue
-        if hasattr(field_value, "isoformat"):
-            fields[field_name] = field_value.isoformat()
-        elif isinstance(field_value, (TurnRequestStatus, TurnReason)):
-            fields[field_name] = field_value.value
         elif isinstance(field_value, dict):
             fields[field_name] = json.dumps(field_value)
         else:
@@ -285,22 +284,16 @@ def update_turn_request(
     """Update turn_request with CAS (sync)."""
     key = RedisKeys.agent_turn_request(agent_id)
 
-    def _serialize_value(value) -> Optional[str]:
-        if value is None:
-            return None
-        if hasattr(value, "isoformat"):
-            return value.isoformat()
-        if isinstance(value, (TurnRequestStatus, TurnReason)):
-            return value.value
-        if isinstance(value, dict):
-            return json.dumps(value)
-        return str(value)
-
+    # Use model_dump with JSON mode to invoke field_serializers (datetime → int, enum → value)
+    dumped = turn_request.model_dump(mode="json")
     fields = []
-    for field_name, field_value in turn_request.model_dump().items():
-        serialized = _serialize_value(field_value)
-        if serialized is not None:
-            fields.extend([field_name, serialized])
+    for field_name, field_value in dumped.items():
+        if field_value is None:
+            continue
+        elif isinstance(field_value, dict):
+            fields.extend([field_name, json.dumps(field_value)])
+        else:
+            fields.extend([field_name, str(field_value)])
 
     lua_script = """
         local key = KEYS[1]
@@ -438,7 +431,7 @@ def atomic_heartbeat_update(
         lua_script,
         1,
         key,
-        _utc_now().isoformat(),
+        str(_datetime_to_unix(_utc_now())),
     )
     return int(result)
 
@@ -479,7 +472,7 @@ async def atomic_heartbeat_update_async(
         lua_script,
         1,
         key,
-        _utc_now().isoformat(),
+        str(_datetime_to_unix(_utc_now())),
     )
     return int(result)
 

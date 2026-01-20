@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch, AsyncMock
 import uuid
 
-from aim.dreamer.inline.scheduler import execute_pipeline_inline, _execute_standard_inline, _execute_dialogue_inline
+from aim_legacy.dreamer.inline.scheduler import execute_pipeline_inline, _execute_standard_inline, _execute_dialogue_inline
 from aim.dreamer.core.models import Scenario, ScenarioContext, StepDefinition, StepOutput, StepConfig, StepResult
 from aim.conversation.message import ConversationMessage
 
@@ -105,7 +105,7 @@ async def test_execute_pipeline_inline_standard(
 ):
     """Test inline execution of a standard scenario."""
     # Mock scenario loading
-    with patch('aim.dreamer.inline.scheduler.load_scenario', return_value=simple_scenario):
+    with patch('aim_legacy.dreamer.inline.scheduler.load_scenario', return_value=simple_scenario):
         # Mock execute_step to return results
         mock_result_1 = StepResult(
             step_id="step1",
@@ -128,7 +128,7 @@ async def test_execute_pipeline_inline_standard(
             timestamp=datetime.now(timezone.utc),
         )
 
-        with patch('aim.dreamer.inline.scheduler.execute_step', new_callable=AsyncMock) as mock_execute:
+        with patch('aim_legacy.dreamer.inline.scheduler.execute_step', new_callable=AsyncMock) as mock_execute:
             # Return different results for each call
             mock_execute.side_effect = [
                 (mock_result_1, [], False),
@@ -166,7 +166,7 @@ async def test_execute_pipeline_inline_with_heartbeat(
         heartbeat_calls.append((pipeline_id, step_id))
 
     # Mock scenario loading
-    with patch('aim.dreamer.inline.scheduler.load_scenario', return_value=simple_scenario):
+    with patch('aim_legacy.dreamer.inline.scheduler.load_scenario', return_value=simple_scenario):
         # Mock execute_step
         mock_result = StepResult(
             step_id="test",
@@ -179,7 +179,7 @@ async def test_execute_pipeline_inline_with_heartbeat(
             timestamp=datetime.now(timezone.utc),
         )
 
-        with patch('aim.dreamer.inline.scheduler.execute_step', new_callable=AsyncMock) as mock_execute:
+        with patch('aim_legacy.dreamer.inline.scheduler.execute_step', new_callable=AsyncMock) as mock_execute:
             mock_execute.return_value = (mock_result, [], False)
 
             # Execute pipeline with heartbeat
@@ -217,7 +217,7 @@ async def test_execute_pipeline_inline_persona_not_found(mock_config, mock_cvm):
         steps={},
     )
 
-    with patch('aim.dreamer.inline.scheduler.load_scenario', return_value=scenario):
+    with patch('aim_legacy.dreamer.inline.scheduler.load_scenario', return_value=scenario):
         with pytest.raises(ValueError, match="Persona 'unknown' not found"):
             await execute_pipeline_inline(
                 scenario_name="test",
@@ -244,7 +244,7 @@ async def test_execute_pipeline_inline_missing_conversation(
         steps={},
     )
 
-    with patch('aim.dreamer.inline.scheduler.load_scenario', return_value=scenario):
+    with patch('aim_legacy.dreamer.inline.scheduler.load_scenario', return_value=scenario):
         with pytest.raises(ValueError, match="requires a conversation_id"):
             await execute_pipeline_inline(
                 scenario_name="analyst",
@@ -288,8 +288,8 @@ async def test_execute_pipeline_inline_seed_actions(
         },
     )
 
-    with patch('aim.dreamer.inline.scheduler.load_scenario', return_value=scenario):
-        with patch('aim.dreamer.inline.scheduler.execute_memory_actions') as mock_seed:
+    with patch('aim_legacy.dreamer.inline.scheduler.load_scenario', return_value=scenario):
+        with patch('aim_legacy.dreamer.inline.scheduler.execute_memory_actions') as mock_seed:
             # Mock seed returning some doc_ids
             mock_seed.return_value = ["doc1", "doc2", "doc3"]
 
@@ -304,7 +304,7 @@ async def test_execute_pipeline_inline_seed_actions(
                 timestamp=datetime.now(timezone.utc),
             )
 
-            with patch('aim.dreamer.inline.scheduler.execute_step', new_callable=AsyncMock) as mock_execute:
+            with patch('aim_legacy.dreamer.inline.scheduler.execute_step', new_callable=AsyncMock) as mock_execute:
                 mock_execute.return_value = (mock_result, [], False)
 
                 # Execute pipeline
@@ -369,8 +369,8 @@ async def test_execute_dialogue_inline(mock_config, mock_roster, mock_cvm, mock_
     # Mock the entire _execute_dialogue_inline function to avoid deep mocking
     expected_pipeline_id = str(uuid.uuid4())
 
-    with patch('aim.dreamer.inline.scheduler.load_scenario', return_value=dialogue_scenario):
-        with patch('aim.dreamer.inline.scheduler._execute_dialogue_inline', new_callable=AsyncMock) as mock_execute_dialogue:
+    with patch('aim_legacy.dreamer.inline.scheduler.load_scenario', return_value=dialogue_scenario):
+        with patch('aim_legacy.dreamer.inline.scheduler._execute_dialogue_inline', new_callable=AsyncMock) as mock_execute_dialogue:
             mock_execute_dialogue.return_value = expected_pipeline_id
 
             # Execute dialogue pipeline

@@ -208,7 +208,7 @@ class ToolCallingStrategy(BaseStepStrategy):
                 doc_type = doc.get('document_type', 'memory')
                 xml.add_element(
                     f"memory_{i}",
-                    "Memory ({doc_type})",
+                    f"Memory ({doc_type})",
                     content=content,
                     priority=2,
                 )

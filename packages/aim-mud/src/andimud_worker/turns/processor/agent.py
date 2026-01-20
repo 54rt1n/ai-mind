@@ -14,8 +14,6 @@ from aim.utils.think import extract_think_tags
 from ...adapter import build_current_context
 from ..response import (
     sanitize_response,
-    normalize_response,
-    has_emotional_state_header,
     parse_agent_action_response,
 )
 from ..validation import resolve_move_location, resolve_target_name, get_ringable_objects
@@ -36,7 +34,7 @@ class AgentTurnProcessor(BaseTurnProcessor):
 
     Skips decision phase entirely and provides full guidance upfront.
     Single LLM call with TOOL role and agent action schema.
-    All actions (speak, move, take, drop, give, describe) decided together.
+    All actions (move, take, drop, give, describe, ring) decided together.
     """
 
     def __init__(self, worker: "TurnsMixin", tool_helper: ToolHelper):
@@ -64,10 +62,11 @@ class AgentTurnProcessor(BaseTurnProcessor):
         """Build comprehensive guidance for @agent action selection.
 
         Generates structured guidance similar to Phase 1 decision guidance:
+        - Clear header indicating this is a tool use turn
         - OpenAI-style function signatures from ToolUser
         - Agent action spec instructions
         - Current world state context (exits, objects, inventory, targets)
-        - User guidance if provided
+        - User guidance if provided (appended at the end)
 
         Args:
             user_guidance: Optional user-provided guidance string
@@ -77,6 +76,13 @@ class AgentTurnProcessor(BaseTurnProcessor):
         """
         parts = []
 
+        # Add JSON tool use header - same as Phase 1
+        parts.append("[~~ Tool Guidance: Tool Use Turn ~~]")
+        parts.append("")
+        parts.append("You are in a tool use turn. Your response is going to be used to determine your next action.")
+        parts.append("Tool use involves you generating a JSON block like the following:")
+        parts.append("")
+
         # Get ToolUser guidance (OpenAI-style function signatures)
         if self._tool_helper and self._tool_helper._tool_user:
             tool_guidance = self._tool_helper._tool_user.get_tool_guidance()
@@ -84,12 +90,18 @@ class AgentTurnProcessor(BaseTurnProcessor):
                 parts.append(tool_guidance)
                 parts.append("")
 
-        # Get basic agent action hints from worker
-        basic_guidance = self.worker._build_agent_guidance(user_guidance)
+        # Get basic agent action hints from worker (WITHOUT user_guidance)
+        basic_guidance = self.worker._build_agent_guidance("")
         if basic_guidance:
             parts.append(basic_guidance)
 
-        return "\n".join(parts)
+        guidance = "\n".join(parts)
+
+        # Append user guidance at the end - same as Phase 1
+        if user_guidance:
+            guidance = f"{guidance}\n\n[Link Guidance: {user_guidance}]"
+
+        return guidance
 
     def _refresh_aura_tools(self) -> None:
         """Update tool helper with aura tools based on current room state."""
@@ -218,35 +230,6 @@ class AgentTurnProcessor(BaseTurnProcessor):
                     continue
 
                 # Valid action -> emit
-                if action == "speak":
-                    text = args.get("text", "")
-                    # Validate emotional state header for speak actions
-                    if not has_emotional_state_header(text):
-                        logger.warning(
-                            "Agent speak missing Emotional State header (attempt %d/%d)",
-                            attempt + 1,
-                            self.worker.config.decision_max_retries,
-                        )
-                        if attempt < self.worker.config.decision_max_retries - 1:
-                            persona_name = self.worker.session.persona_id if self.worker.session else "Agent"
-                            format_guidance = (
-                                f"\n\n[Gentle reminder from your link: Please begin with your emotional state, "
-                                f"e.g. [== {persona_name}'s Emotional State: <list of your +Emotion+> ==] then continue with prose.]"
-                            )
-                            if chat_turns and chat_turns[-1]["role"] == "user":
-                                chat_turns[-1]["content"] += format_guidance
-                            else:
-                                chat_turns.append({"role": "user", "content": format_guidance})
-                            continue
-                    normalized = normalize_response(text)
-                    if normalized:
-                        action_obj = MUDAction(tool="speak", args={"text": normalized})
-                        actions_taken.append(action_obj)
-                        await self.worker._emit_actions(actions_taken)
-                    else:
-                        logger.info("Agent speak had no text; no action emitted")
-                    break
-
                 if action == "move":
                     location = args.get("location") or args.get("direction")
                     resolved = resolve_move_location(self.worker.session, location)

@@ -7,8 +7,8 @@ import fakeredis.aioredis
 from datetime import datetime, timezone
 import asyncio
 
-from aim.dreamer.server.scheduler import Scheduler
-from aim.dreamer.server.state import StateStore
+from aim_legacy.dreamer.server.scheduler import Scheduler
+from aim_legacy.dreamer.server.state import StateStore
 from aim.dreamer.core.models import (
     StepJob,
     StepStatus,

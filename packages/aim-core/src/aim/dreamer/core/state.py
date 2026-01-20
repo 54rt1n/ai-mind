@@ -5,7 +5,7 @@
 from typing import Optional, Any
 from pydantic import BaseModel, Field
 
-from .models import StepResult
+from .models import StepResult, DialogueTurn, SpeakerType
 
 
 class DocRef(BaseModel):
@@ -107,6 +107,12 @@ class ScenarioState(BaseModel):
     guidance: Optional[str] = None       # External guidance text
     query_text: Optional[str] = None     # Query/topic text
     conversation_id: Optional[str] = None
+
+    # Dialogue tracking (used only by dialogue steps)
+    dialogue_turns: list[DialogueTurn] = Field(default_factory=list)
+    """Accumulated dialogue turns with speaker metadata."""
+    last_aspect_name: Optional[str] = None
+    """Name of the most recent aspect speaker (for scene generation)."""
 
     @classmethod
     def initial(
@@ -237,3 +243,34 @@ class ScenarioState(BaseModel):
             'query_text': self.query_text,
             'conversation_id': self.conversation_id,
         }
+
+    # --- Dialogue-specific methods ---
+
+    def add_dialogue_turn(self, turn: DialogueTurn) -> None:
+        """Add a dialogue turn and track aspect changes.
+
+        Args:
+            turn: The DialogueTurn to add
+        """
+        self.dialogue_turns.append(turn)
+        # Track last aspect for scene generation at aspect changes
+        if turn.speaker_id.startswith("aspect:"):
+            self.last_aspect_name = turn.speaker_id.split(":", 1)[1]
+
+    def get_dialogue_role(self, speaker_id: str, current_is_persona: bool) -> str:
+        """Determine user/assistant role based on speaker perspective (role flipping).
+
+        When ASPECT speaks: aspects='assistant', persona='user'
+        When PERSONA speaks: aspects='user', persona='assistant'
+
+        Args:
+            speaker_id: Speaker identifier (e.g., 'aspect:coder' or 'persona:andi')
+            current_is_persona: Whether the current step's speaker is persona
+
+        Returns:
+            'user' or 'assistant'
+        """
+        turn_is_persona = speaker_id.startswith("persona:")
+        if current_is_persona:
+            return 'assistant' if turn_is_persona else 'user'
+        return 'user' if turn_is_persona else 'assistant'

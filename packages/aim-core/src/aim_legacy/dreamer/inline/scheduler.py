@@ -24,19 +24,19 @@ import logging
 import uuid
 
 if TYPE_CHECKING:
-    from ...llm.model_set import ModelSet
+    from aim.llm.model_set import ModelSet
 
-from ...agents.persona import Persona
-from ...agents.roster import Roster
-from ...config import ChatConfig
-from ...conversation.model import ConversationModel
-from ...conversation.message import ConversationMessage
+from aim.agents.persona import Persona
+from aim.agents.roster import Roster
+from aim.config import ChatConfig
+from aim.conversation.model import ConversationModel
+from aim.conversation.message import ConversationMessage
 
-from ..core.scenario import load_scenario
-from ..core.models import PipelineState, Scenario
-from ..core.executor import execute_step, create_message
-from ..core.memory_dsl import execute_memory_actions
-from ..core.dialogue.scenario import DialogueScenario
+from aim.dreamer.core.scenario import load_scenario
+from aim.dreamer.core.models import PipelineState, Scenario
+from aim.dreamer.core.executor import execute_step, create_message
+from aim.dreamer.core.memory_dsl import execute_memory_actions
+from aim_legacy.dreamer.core.dialogue.scenario import DialogueScenario
 
 logger = logging.getLogger(__name__)
 
@@ -183,8 +183,8 @@ async def _execute_dialogue_inline(
     Returns:
         pipeline_id from the dialogue state
     """
-    from ..core.dialogue.strategy import DialogueStrategy
-    from ...llm.model_set import ModelSet
+    from aim_legacy.dreamer.core.dialogue.strategy import DialogueStrategy
+    from aim.llm.model_set import ModelSet
 
     # Load dialogue strategy from scenario
     # DialogueStrategy.load expects just the scenario name
@@ -274,7 +274,7 @@ async def _execute_standard_inline(
     Returns:
         pipeline_id from the pipeline state
     """
-    from ...llm.model_set import ModelSet
+    from aim.llm.model_set import ModelSet
 
     # Create ModelSet for persona-aware model selection
     model_set = ModelSet.from_config(config, persona)

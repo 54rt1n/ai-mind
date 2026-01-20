@@ -13,8 +13,10 @@ from aim_mud_types.coordination import DreamingState, DreamStatus
 @pytest.fixture
 def mock_worker():
     """Create a mock worker with necessary attributes."""
+    from andimud_worker.config import MUDConfig
+
     worker = MagicMock()
-    worker.config = MagicMock()
+    worker.config = MUDConfig(agent_id="andi", persona_id="andi")
     worker.config.agent_id = "andi"
     worker.config.persona_id = "andi"
     worker.chat_config = MagicMock()

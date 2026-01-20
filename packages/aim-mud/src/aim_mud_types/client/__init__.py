@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 import redis.asyncio as redis
 
 from ..redis_keys import RedisKeys
+from ..helper import _datetime_to_unix
 from ..coordination import MUDTurnRequest, TurnRequestStatus, TurnReason
 from ..profile import AgentProfile, RoomProfile
 from ..coordination import DreamerState
@@ -56,7 +57,7 @@ class BaseRedisMUDClient:
 
         Serialization rules:
         - None → None (field will be skipped)
-        - datetime → ISO format string
+        - datetime → Unix timestamp (integer)
         - Enum → .value attribute
         - dict → JSON string
         - bool → "true" or "false" (lowercase)
@@ -72,7 +73,7 @@ class BaseRedisMUDClient:
         if value is None:
             return None
         elif isinstance(value, datetime):
-            return value.isoformat()
+            return str(_datetime_to_unix(value))
         elif isinstance(value, Enum):
             return value.value
         elif isinstance(value, dict):

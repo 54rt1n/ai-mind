@@ -15,6 +15,8 @@ from datetime import datetime, timezone
 import json
 import logging
 
+from aim_mud_types.helper import _datetime_to_unix, model_to_redis_hash
+
 if TYPE_CHECKING:
     from aim_mud_types.coordination import DreamingState
     from ..worker import MUDAgentWorker
@@ -44,7 +46,7 @@ class DreamingDatastoreMixin:
         Returns:
             DreamingState if exists, None otherwise.
         """
-        from aim_mud_types.coordination import DreamingState, DreamStatus
+        from aim_mud_types.coordination import DreamingState
         from aim_mud_types.redis_keys import RedisKeys
 
         key = RedisKeys.agent_dreaming_state(agent_id)
@@ -53,64 +55,24 @@ class DreamingDatastoreMixin:
         if not data:
             return None
 
-        # Deserialize from Redis hash (all values are strings)
+        # Decode bytes to strings
+        decoded: dict = {}
+        for k, v in data.items():
+            k_str = k.decode("utf-8") if isinstance(k, bytes) else str(k)
+            v_str = v.decode("utf-8") if isinstance(v, bytes) else str(v)
+            decoded[k_str] = v_str
+
         try:
-            # Parse datetime fields
-            created_at = datetime.fromisoformat(data["created_at"])
-            updated_at = datetime.fromisoformat(data["updated_at"])
-            completed_at = (
-                datetime.fromisoformat(data["completed_at"])
-                if data.get("completed_at")
-                else None
-            )
-            next_retry_at = (
-                datetime.fromisoformat(data["next_retry_at"])
-                if data.get("next_retry_at")
-                else None
-            )
-            heartbeat_at = (
-                datetime.fromisoformat(data["heartbeat_at"])
-                if data.get("heartbeat_at")
-                else None
+            # Debug: log what we're loading
+            framework_val = decoded.get("framework", "")
+            state_val = decoded.get("state", "")
+            logger.debug(
+                f"Loading DreamingState: status={decoded.get('status')}, "
+                f"framework_len={len(framework_val)}, state_len={len(state_val)}"
             )
 
-            # Parse JSON fields
-            execution_order = json.loads(data["execution_order"])
-            completed_steps = json.loads(data["completed_steps"])
-            step_doc_ids = json.loads(data["step_doc_ids"])
-            context_doc_ids = json.loads(data["context_doc_ids"])
-            scenario_config = json.loads(data["scenario_config"])
-            persona_config = json.loads(data["persona_config"])
-
-            # Construct DreamingState
-            state = DreamingState(
-                pipeline_id=data["pipeline_id"],
-                agent_id=data["agent_id"],
-                status=DreamStatus(data["status"]),
-                created_at=created_at,
-                updated_at=updated_at,
-                completed_at=completed_at,
-                scenario_name=data["scenario_name"],
-                execution_order=execution_order,
-                query=data.get("query"),
-                guidance=data.get("guidance"),
-                conversation_id=data["conversation_id"],
-                base_model=data["base_model"],
-                step_index=int(data["step_index"]),
-                completed_steps=completed_steps,
-                step_doc_ids=step_doc_ids,
-                context_doc_ids=context_doc_ids,
-                current_step_attempts=int(data["current_step_attempts"]),
-                max_step_retries=int(data["max_step_retries"]),
-                next_retry_at=next_retry_at,
-                last_error=data.get("last_error"),
-                heartbeat_at=heartbeat_at,
-                heartbeat_timeout_seconds=int(data["heartbeat_timeout_seconds"]),
-                scenario_config=scenario_config,
-                persona_config=persona_config,
-            )
-
-            return state
+            # Use Pydantic's model_validate (field validators handle datetime and JSON parsing)
+            return DreamingState.model_validate(decoded)
 
         except (KeyError, ValueError, json.JSONDecodeError) as e:
             logger.error(
@@ -132,33 +94,16 @@ class DreamingDatastoreMixin:
 
         key = RedisKeys.agent_dreaming_state(state.agent_id)
 
-        # Serialize to Redis hash (all values must be strings)
-        data = {
-            "pipeline_id": state.pipeline_id,
-            "agent_id": state.agent_id,
-            "status": state.status.value,
-            "created_at": state.created_at.isoformat(),
-            "updated_at": state.updated_at.isoformat(),
-            "completed_at": state.completed_at.isoformat() if state.completed_at else "",
-            "scenario_name": state.scenario_name,
-            "execution_order": json.dumps(state.execution_order),
-            "query": state.query or "",
-            "guidance": state.guidance or "",
-            "conversation_id": state.conversation_id,
-            "base_model": state.base_model,
-            "step_index": str(state.step_index),
-            "completed_steps": json.dumps(state.completed_steps),
-            "step_doc_ids": json.dumps(state.step_doc_ids),
-            "context_doc_ids": json.dumps(state.context_doc_ids),
-            "current_step_attempts": str(state.current_step_attempts),
-            "max_step_retries": str(state.max_step_retries),
-            "next_retry_at": state.next_retry_at.isoformat() if state.next_retry_at else "",
-            "last_error": state.last_error or "",
-            "heartbeat_at": state.heartbeat_at.isoformat() if state.heartbeat_at else "",
-            "heartbeat_timeout_seconds": str(state.heartbeat_timeout_seconds),
-            "scenario_config": json.dumps(state.scenario_config),
-            "persona_config": json.dumps(state.persona_config),
-        }
+        # Use helper to convert model to Redis hash format
+        data = model_to_redis_hash(state)
+
+        # Debug: verify framework/state are being saved
+        framework_len = len(data.get("framework", ""))
+        state_len = len(data.get("state", ""))
+        logger.debug(
+            f"Saving DreamingState {state.pipeline_id}: status={data.get('status')}, "
+            f"framework_len={framework_len}, state_len={state_len}"
+        )
 
         await self.redis.hset(key, mapping=data)
 
@@ -223,14 +168,14 @@ class DreamingDatastoreMixin:
         from aim_mud_types.redis_keys import RedisKeys
 
         key = RedisKeys.agent_dreaming_state(agent_id)
-        now = datetime.now(timezone.utc)
+        now = _datetime_to_unix(datetime.now(timezone.utc))
 
-        # Update both heartbeat_at and updated_at
+        # Update both heartbeat_at and updated_at (Unix timestamps)
         await self.redis.hset(
             key,
             mapping={
-                "heartbeat_at": now.isoformat(),
-                "updated_at": now.isoformat(),
+                "heartbeat_at": str(now),
+                "updated_at": str(now),
             },
         )
 

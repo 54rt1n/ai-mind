@@ -24,19 +24,22 @@ from aim.config import ChatConfig
 @pytest.fixture
 def mock_worker():
     """Create a mock worker with necessary attributes."""
+    from aim_mud_types.session import MUDSession
+    from aim_mud_types.state import RoomState
+
     worker = MagicMock()
     worker.agent_id = "test_agent"
-    worker.config = MagicMock(spec=MUDConfig)
-    worker.config.agent_id = "test_agent"
-    worker.config.decision_max_retries = 3
+    worker.config = MUDConfig(agent_id="test_agent", persona_id="test_persona")
 
     # Session with current_room that can be set to None
-    worker.session = MagicMock()
-    worker.session.current_room = MagicMock()
-    worker.session.current_room.name = "Kitchen"
-    worker.session.current_room.room_id = "room:kitchen"
-    worker.session.persona_id = "test_persona"
-    worker.session.world_state = {}
+    worker.session = MUDSession(
+        agent_id="test_agent",
+        persona_id="test_persona",
+        current_room=RoomState(
+            room_id="room:kitchen",
+            name="Kitchen"
+        )
+    )
 
     # Persona
     worker.persona = MagicMock()

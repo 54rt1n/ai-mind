@@ -122,14 +122,14 @@ class RenderingStrategy(BaseStepStrategy):
             doc_id=doc_id,
             conversation_id=executor.state.conversation_id,
             user_id="system",  # Rendering is system-generated
-            persona_id=executor.persona.id,
+            persona_id=executor.persona.persona_id,
             sequence_no=0,  # Not part of conversation sequence
             branch=0,
             role='assistant',
             content=content,
             document_type=step_def.output.document_type,
             weight=step_def.output.weight,
-            speaker_id=executor.persona.id,
+            speaker_id=executor.persona.persona_id,
             scenario_name=executor.framework.name,
             step_name=step_def.id,
         )

@@ -18,7 +18,7 @@ import httpx
 import redis.asyncio as redis
 
 from aim.config import ChatConfig
-from aim.dreamer.api import (
+from aim_legacy.dreamer.server.api import (
     start_pipeline,
     get_status,
     cancel_pipeline,
@@ -28,9 +28,9 @@ from aim.dreamer.api import (
     get_restart_info,
     PipelineStatus,
 )
-from aim.dreamer.state import StateStore
-from aim.dreamer.scheduler import Scheduler
-from aim.dreamer.scenario import load_scenario
+from aim_legacy.dreamer.server.state import StateStore
+from aim_legacy.dreamer.server.scheduler import Scheduler
+from aim.dreamer.core.scenario import load_scenario
 
 
 @dataclass

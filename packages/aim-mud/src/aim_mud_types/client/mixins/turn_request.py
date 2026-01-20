@@ -8,7 +8,7 @@ from typing import Optional, TYPE_CHECKING
 
 from ...redis_keys import RedisKeys
 from ...coordination import MUDTurnRequest, TurnRequestStatus
-from ...helper import _utc_now
+from ...helper import _utc_now, _unix_to_datetime
 
 if TYPE_CHECKING:
     from .. import BaseRedisMUDClient
@@ -238,17 +238,17 @@ class TurnRequestMixin:
             heartbeat_at_str = decoded.get("heartbeat_at")
             if heartbeat_at_str:
                 try:
-                    heartbeat_at = datetime.fromisoformat(
-                        heartbeat_at_str.replace("Z", "+00:00")
-                    )
-                    age = (_utc_now() - heartbeat_at).total_seconds()
-                    if age > heartbeat_stale_threshold:
-                        logger.warning(
-                            "Turn guard: Ignoring stale turn %s (heartbeat %.0fs old)",
-                            decoded.get("turn_id"),
-                            age,
-                        )
-                        continue
+                    # Handles both Unix timestamps and ISO format for backwards compatibility
+                    heartbeat_at = _unix_to_datetime(heartbeat_at_str)
+                    if heartbeat_at:
+                        age = (_utc_now() - heartbeat_at).total_seconds()
+                        if age > heartbeat_stale_threshold:
+                            logger.warning(
+                                "Turn guard: Ignoring stale turn %s (heartbeat %.0fs old)",
+                                decoded.get("turn_id"),
+                                age,
+                            )
+                            continue
                 except (ValueError, AttributeError):
                     pass
 
@@ -257,9 +257,10 @@ class TurnRequestMixin:
                 continue
 
             try:
-                assigned_at = datetime.fromisoformat(
-                    assigned_at_str.replace("Z", "+00:00")
-                )
+                # Handles both Unix timestamps and ISO format for backwards compatibility
+                assigned_at = _unix_to_datetime(assigned_at_str)
+                if not assigned_at:
+                    continue
             except (ValueError, AttributeError):
                 continue
 

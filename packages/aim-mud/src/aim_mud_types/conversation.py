@@ -4,9 +4,9 @@
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, field_serializer
 
-from .helper import _utc_now
+from .helper import _utc_now, _datetime_to_unix, _unix_to_datetime
 
 class MUDConversationEntry(BaseModel):
     """Single entry in the Redis conversation list.
@@ -54,3 +54,14 @@ class MUDConversationEntry(BaseModel):
     # Optional fields
     think: Optional[str] = None
     speaker_id: Optional[str] = None
+
+    # Validators to parse Unix timestamps from Redis
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def parse_required_datetime(cls, v):
+        return _unix_to_datetime(v) or _utc_now()
+
+    # Serializers to output Unix timestamps
+    @field_serializer("timestamp")
+    def serialize_required_datetime(self, dt: datetime) -> int:
+        return _datetime_to_unix(dt)

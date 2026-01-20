@@ -8,16 +8,16 @@ from datetime import datetime, timezone
 import logging
 import uuid
 
-from ...config import ChatConfig
-from ...conversation.model import ConversationModel
-from ...agents.roster import Roster
-from ...llm.models import LanguageModelV2
+from aim.config import ChatConfig
+from aim.conversation.model import ConversationModel
+from aim.agents.roster import Roster
+from aim.llm.models import LanguageModelV2
 
-from ..core.models import PipelineState, Scenario, StepStatus
-from ..core.scenario import load_scenario
-from ..core.dialogue.models import DialogueState
-from ..core.dialogue.strategy import DialogueStrategy
-from ..core.memory_dsl import execute_memory_actions
+from aim.dreamer.core.models import PipelineState, Scenario, StepStatus
+from aim.dreamer.core.scenario import load_scenario
+from aim_legacy.dreamer.core.dialogue.models import DialogueState
+from aim_legacy.dreamer.core.dialogue.strategy import DialogueStrategy
+from aim.dreamer.core.memory_dsl import execute_memory_actions
 
 from .scheduler import Scheduler
 from .state import StateStore

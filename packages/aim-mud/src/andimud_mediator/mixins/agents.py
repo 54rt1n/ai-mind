@@ -35,8 +35,8 @@ class AgentsMixin:
                 # Case 1: Failed/retry turn ready to retry
                 if status in (TurnRequestStatus.RETRY, TurnRequestStatus.FAIL):
                     if turn_request.next_attempt_at:
-                        next_attempt_at = datetime.fromisoformat(turn_request.next_attempt_at)
-                        if datetime.now(timezone.utc) >= next_attempt_at:
+                        # next_attempt_at is already a datetime after Pydantic deserialization
+                        if datetime.now(timezone.utc) >= turn_request.next_attempt_at:
                             # Check if ANY agent is busy before assigning retry
                             # This enforces one-at-a-time concurrency
                             if await self._any_agent_processing():
@@ -207,8 +207,8 @@ class AgentsMixin:
         # Check if retry/fail turn in backoff period
         if status in (TurnRequestStatus.RETRY, TurnRequestStatus.FAIL):
             if current.next_attempt_at:
-                next_attempt_at = datetime.fromisoformat(current.next_attempt_at)
-                if datetime.now(timezone.utc) < next_attempt_at:
+                # next_attempt_at is already a datetime after Pydantic deserialization
+                if datetime.now(timezone.utc) < current.next_attempt_at:
                     # Still in backoff period - not available
                     return False
             # Else: no next_attempt_at (max attempts) or past retry time, fall through to assign

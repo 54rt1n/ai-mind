@@ -19,12 +19,12 @@ from typing import TYPE_CHECKING, Union
 if TYPE_CHECKING:
     from ...conversation.model import ConversationModel
     from .models import MemoryAction, PipelineState
-    from .dialogue.models import DialogueState
+    from .state import ScenarioState
 
 logger = logging.getLogger(__name__)
 
 # Type alias for state objects
-StateType = Union["PipelineState", "DialogueState"]
+StateType = Union["PipelineState", "ScenarioState"]
 
 
 def execute_memory_actions(

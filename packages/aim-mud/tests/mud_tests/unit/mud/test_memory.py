@@ -117,12 +117,20 @@ class TestMUDMemoryRetriever:
         ])
         mock_cvm.query.return_value = df
 
-        session = MagicMock()
-        session.current_room = MagicMock(name="Room")
-        session.current_room.name = "The Garden"
-        session.current_room.description = "A serene place"
-        session.entities_present = []
-        session.pending_events = []
+        from aim_mud_types.session import MUDSession
+        from aim_mud_types.state import RoomState
+
+        session = MUDSession(
+            agent_id="test_agent",
+            persona_id="test_persona",
+            current_room=RoomState(
+                room_id="#garden",
+                name="The Garden",
+                description="A serene place"
+            ),
+            entities_present=[],
+            pending_events=[]
+        )
 
         # Suppress deprecation warning for this test
         with warnings.catch_warnings():

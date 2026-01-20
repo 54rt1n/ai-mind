@@ -5,7 +5,26 @@
 from typing import Optional, Any
 from pydantic import BaseModel, Field
 
-from .models import ScenarioTool, NewStepDefinition
+from .models import ScenarioTool, NewStepDefinition, SpeakerType
+
+
+class DialogueConfig(BaseModel):
+    """Dialogue-specific configuration at the scenario level.
+
+    Defines the primary aspect guiding the dialogue, who speaks first,
+    and optional scene template that can be shared across steps.
+    """
+    primary_aspect: str
+    """Name of the primary aspect guiding the dialogue (e.g., 'coder')."""
+
+    initial_speaker: SpeakerType = SpeakerType.ASPECT
+    """Who speaks first in the dialogue."""
+
+    scene_template: str = ""
+    """Default Jinja2 template for scene descriptions."""
+
+    required_aspects: list[str] = Field(default_factory=list)
+    """Aspects required for this dialogue scenario."""
 
 
 class ScenarioFramework(BaseModel):
@@ -36,6 +55,9 @@ class ScenarioFramework(BaseModel):
 
     # Tools (tool_name -> definition)
     tools: dict[str, ScenarioTool] = Field(default_factory=dict)
+
+    # Dialogue configuration (only for dialogue scenarios)
+    dialogue: Optional[DialogueConfig] = None
 
     def get_tools(self, tool_names: list[str]) -> list:
         """Get Tool objects for the given names, ready for ToolUser.

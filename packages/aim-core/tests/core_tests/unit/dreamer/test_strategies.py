@@ -45,14 +45,27 @@ def mock_cvm():
 
 @pytest.fixture
 def mock_persona():
-    """Create a mock Persona."""
-    persona = MagicMock()
-    persona.id = "test-persona"
-    persona.name = "Test"
-    persona.pronouns = {"subject": "they", "object": "them", "possessive": "their"}
-    persona.system_prompt.return_value = "You are a test persona."
-    persona.xml_decorator = MagicMock(side_effect=lambda xml: xml)
-    return persona
+    """Create a REAL Persona fixture - NOT A MOCK."""
+    from aim.agents.persona import Persona, Aspect
+
+    return Persona(
+        persona_id="test-persona",
+        chat_strategy="standard",
+        name="Test",
+        full_name="Test Persona",
+        notes="Test persona for unit tests",
+        aspects={},
+        attributes={"sex": "neutral"},
+        features={},
+        wakeup=["Test wakeup"],
+        base_thoughts=["Test thought"],
+        pif={},
+        nshot={},
+        default_location="Test Location",
+        wardrobe={"default": {}},
+        current_outfit="default",
+        system_header="Test system header",
+    )
 
 
 @pytest.fixture
@@ -504,7 +517,7 @@ class TestContextOnlyStrategyExecution:
             assert call_args[1]['actions'] == step_def.context
             assert call_args[1]['cvm'] is executor.cvm
             assert call_args[1]['query_text'] == executor.state.query_text
-            assert call_args[1]['conversation_id'] == executor.state.conversation_id
+            assert call_args[1]['state'] is executor.state
 
             # Verify state.memory_refs was populated
             assert len(executor.state.memory_refs) == 3
@@ -703,7 +716,7 @@ class TestRenderingStrategyExecution:
         """Test execute includes persona in template context."""
         step_def = RenderingStepDefinition(
             id="greet",
-            template="Hello, I am {{ persona.name }} ({{ pronouns.subject }}/{{ pronouns.object }})",
+            template="Hello, I am {{ persona.name }} ({{ pronouns.subj }}/{{ pronouns.obj }})",
             output=StepOutput(document_type="greeting"),
             next=["end"]
         )

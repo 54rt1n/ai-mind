@@ -6,19 +6,6 @@ instructions: >
   Do not include any extra text outside the JSON object.
 
 functions:
-  - name: speak
-    description: Speak or respond in the room with free text.
-    parameters:
-      type: object
-      properties:
-        text:
-          type: string
-          description: The full response text to emit (paragraphs encouraged).
-      required:
-        - text
-      examples:
-        - {action: "speak", text: "Hello! It's good to see you here."}
-
   - name: move
     description: Move to an adjacent room through an exit.
     parameters:
@@ -77,7 +64,7 @@ functions:
         - {action: "give", object: "cup", target: "shelf"}
 
   - name: describe
-    description: Update a room/object description via @set <id>/desc = <description>.
+    description: Use the 'describe' action to update the description of a room or object. You can specify the object name or the id.
     parameters:
       type: object
       properties:

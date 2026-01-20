@@ -7,9 +7,9 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, field_serializer
 
-from .helper import _utc_now
+from .helper import _utc_now, _datetime_to_unix, _unix_to_datetime
 
 
 class PlanStatus(str, Enum):
@@ -101,3 +101,14 @@ class AgentPlan(BaseModel):
             except json.JSONDecodeError as e:
                 raise ValueError(f"Invalid JSON in tasks field: {e}")
         return v
+
+    # Validators to parse Unix timestamps from Redis
+    @field_validator("created_at", "updated_at", mode="before")
+    @classmethod
+    def parse_required_datetime(cls, v):
+        return _unix_to_datetime(v) or _utc_now()
+
+    # Serializers to output Unix timestamps
+    @field_serializer("created_at", "updated_at")
+    def serialize_required_datetime(self, dt: datetime) -> int:
+        return _datetime_to_unix(dt)

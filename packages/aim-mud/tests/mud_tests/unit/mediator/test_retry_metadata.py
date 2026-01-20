@@ -66,7 +66,7 @@ class TestRetryPreservesMetadataAnalysis:
 
         # Setup: Mock Redis to return a turn in RETRY status with metadata
         # next_attempt_at is in the past so retry is ready
-        past_time = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+        past_time = str(int((datetime.now(timezone.utc) - timedelta(minutes=5)).timestamp()))
 
         mock_redis.hgetall = AsyncMock(return_value={
             b"turn_id": b"old-turn-id",
@@ -118,7 +118,7 @@ class TestRetryPreservesMetadataAnalysis:
             # No guidance field
         }
 
-        past_time = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+        past_time = str(int((datetime.now(timezone.utc) - timedelta(minutes=5)).timestamp()))
 
         mock_redis.hgetall = AsyncMock(return_value={
             b"turn_id": b"old-turn-id-2",
@@ -160,7 +160,7 @@ class TestRetryPreservesMetadataCreative:
             "guidance": "Focus on emotional growth"
         }
 
-        past_time = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+        past_time = str(int((datetime.now(timezone.utc) - timedelta(minutes=5)).timestamp()))
 
         mock_redis.hgetall = AsyncMock(return_value={
             b"turn_id": b"journal-turn-id",
@@ -199,7 +199,7 @@ class TestRetryPreservesMetadataCreative:
             "query": "What is the meaning of existence?"
         }
 
-        past_time = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+        past_time = str(int((datetime.now(timezone.utc) - timedelta(minutes=5)).timestamp()))
 
         mock_redis.hgetall = AsyncMock(return_value={
             b"turn_id": b"ponder-turn-id",
@@ -236,7 +236,7 @@ class TestRetryPreservesMetadataCreative:
             "scenario": "daydream_dialogue"
         }
 
-        past_time = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+        past_time = str(int((datetime.now(timezone.utc) - timedelta(minutes=5)).timestamp()))
 
         mock_redis.hgetall = AsyncMock(return_value={
             b"turn_id": b"daydream-turn-id",
@@ -274,7 +274,7 @@ class TestRetryMetadataEdgeCases:
         mediator = MediatorService(mock_redis, mediator_config)
         mediator.register_agent("andi")
 
-        past_time = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+        past_time = str(int((datetime.now(timezone.utc) - timedelta(minutes=5)).timestamp()))
 
         # Turn with no metadata field (e.g., from event-driven turn)
         mock_redis.hgetall = AsyncMock(return_value={
@@ -317,7 +317,7 @@ class TestRetryMetadataEdgeCases:
             }
         }
 
-        past_time = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+        past_time = str(int((datetime.now(timezone.utc) - timedelta(minutes=5)).timestamp()))
 
         mock_redis.hgetall = AsyncMock(return_value={
             b"turn_id": b"complex-turn-id",
@@ -355,7 +355,7 @@ class TestRetryMetadataEdgeCases:
             "conversation_id": "conv_fail"
         }
 
-        past_time = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+        past_time = str(int((datetime.now(timezone.utc) - timedelta(minutes=5)).timestamp()))
 
         mock_redis.hgetall = AsyncMock(return_value={
             b"turn_id": b"fail-turn-id",

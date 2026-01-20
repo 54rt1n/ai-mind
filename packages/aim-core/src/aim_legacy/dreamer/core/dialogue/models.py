@@ -3,41 +3,11 @@
 """Pydantic models for dialogue flow execution."""
 
 from datetime import datetime, timezone
-from enum import Enum
 from typing import Optional, Any
 from pydantic import BaseModel, Field, field_serializer
 
-from ..models import StepConfig, StepOutput, MemoryAction
-
-
-class SpeakerType(str, Enum):
-    """Type of speaker in a dialogue step."""
-    ASPECT = "aspect"
-    PERSONA = "persona"
-
-
-class DialogueSpeaker(BaseModel):
-    """Speaker configuration for a dialogue step.
-
-    Defines who speaks in a given step - either an aspect of the persona
-    (like 'coder' or 'psychologist') or the persona themselves.
-    """
-    type: SpeakerType
-    aspect_name: Optional[str] = None
-    """Required when type is 'aspect'. Name of the aspect (e.g., 'coder', 'librarian')."""
-
-    def get_speaker_id(self, persona_id: str) -> str:
-        """Get unique speaker identifier string.
-
-        Args:
-            persona_id: The persona's ID for persona-type speakers
-
-        Returns:
-            Speaker ID in format 'aspect:{name}' or 'persona:{id}'
-        """
-        if self.type == SpeakerType.ASPECT:
-            return f"aspect:{self.aspect_name}"
-        return f"persona:{persona_id}"
+# Import shared types from aim.dreamer.core.models
+from aim.dreamer.core.models import StepConfig, StepOutput, MemoryAction, SpeakerType, DialogueSpeaker
 
 
 class DialogueStep(BaseModel):

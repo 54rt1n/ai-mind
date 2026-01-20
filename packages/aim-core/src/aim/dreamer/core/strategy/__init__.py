@@ -12,6 +12,7 @@ from .context_only import ContextOnlyStrategy
 from .standard import StandardStrategy
 from .tool_calling import ToolCallingStrategy
 from .rendering import RenderingStrategy
+from .dialogue import DialogueStrategy
 from .functions import (
     execute_context_actions,
     load_memory_docs,
@@ -31,6 +32,7 @@ __all__ = [
     "StandardStrategy",
     "ToolCallingStrategy",
     "RenderingStrategy",
+    "DialogueStrategy",
     # Shared helper functions
     "execute_context_actions",
     "load_memory_docs",

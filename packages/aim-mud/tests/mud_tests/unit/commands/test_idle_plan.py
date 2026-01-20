@@ -13,6 +13,8 @@ from aim_mud_types import TurnRequestStatus
 @pytest.fixture
 def mock_worker():
     """Create a mock worker with PlannerMixin and DreamingDatastoreMixin methods."""
+    from andimud_worker.config import MUDConfig
+
     worker = MagicMock()
     worker.get_active_plan = MagicMock(return_value=None)
     worker.check_auto_dream_triggers = AsyncMock(return_value=None)
@@ -34,8 +36,7 @@ def mock_worker():
     worker._decide_dream_action = AsyncMock(return_value=None)
 
     # Worker config
-    worker.config = MagicMock()
-    worker.config.agent_id = "test-agent"
+    worker.config = MUDConfig(agent_id="test-agent", persona_id="test-persona")
 
     return worker
 

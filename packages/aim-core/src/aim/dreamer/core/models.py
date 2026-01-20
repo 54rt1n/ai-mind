@@ -2,13 +2,77 @@
 # AI-Mind © 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
 """Pydantic models for pipeline state, steps, and scenarios."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional, Literal, Any, Union, Annotated, TYPE_CHECKING
 from pydantic import BaseModel, Field, field_serializer, model_validator, Discriminator
 
 if TYPE_CHECKING:
     from aim.llm.model_set import ModelSet
+
+
+# --- Speaker types (shared with dialogue system) ---
+
+class SpeakerType(str, Enum):
+    """Type of speaker in a dialogue step."""
+    ASPECT = "aspect"
+    PERSONA = "persona"
+
+
+class DialogueSpeaker(BaseModel):
+    """Speaker configuration for a dialogue step.
+
+    Defines who speaks in a given step - either an aspect of the persona
+    (like 'coder' or 'psychologist') or the persona themselves.
+    """
+    type: SpeakerType
+    aspect_name: Optional[str] = None
+    """Required when type is 'aspect'. Name of the aspect (e.g., 'coder', 'librarian')."""
+
+    def get_speaker_id(self, persona_id: str) -> str:
+        """Get unique speaker identifier string.
+
+        Args:
+            persona_id: The persona's ID for persona-type speakers
+
+        Returns:
+            Speaker ID in format 'aspect:{name}' or 'persona:{id}'
+        """
+        if self.type == SpeakerType.ASPECT:
+            return f"aspect:{self.aspect_name}"
+        return f"persona:{persona_id}"
+
+
+class DialogueTurn(BaseModel):
+    """A single turn in the dialogue history.
+
+    Records who spoke, what they said, and metadata for tracking.
+    """
+    speaker_id: str
+    """Speaker identifier: 'aspect:coder' or 'persona:andi'."""
+
+    content: str
+    """The generated response content."""
+
+    think: Optional[str] = None
+    """Extracted think content from model response."""
+
+    step_id: str
+    """ID of the step that generated this turn."""
+
+    doc_id: str
+    """Document ID for CVM storage."""
+
+    document_type: str
+    """Document type for storage. Aspect turns use 'dialogue:{aspect_name}',
+    persona turns use the step's output.document_type."""
+
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    @field_serializer('timestamp')
+    def serialize_timestamp(self, dt: datetime, _info: Any) -> str:
+        """Serialize datetime to ISO format string."""
+        return dt.isoformat()
 
 
 class StepStatus(str, Enum):
@@ -253,6 +317,23 @@ class RenderingStepDefinition(BaseStepDefinition):
     next: list[str]                       # Required: next step ID(s)
 
 
+class DialogueStepDefinition(BaseStepDefinition):
+    """LLM dialogue with speaker-based role flipping.
+
+    Used for persona/aspect dialogues where roles flip based on who speaks:
+    - When ASPECT speaks: aspects='assistant', persona='user'
+    - When PERSONA speaks: aspects='user', persona='assistant'
+    """
+    type: Literal["dialogue"] = "dialogue"  # Discriminator
+    speaker: DialogueSpeaker              # Who speaks (aspect or persona)
+    guidance: str = ""                    # Jinja2 template for step instructions
+    scene_template: Optional[str] = None  # Optional scene template
+    context: Optional[list[MemoryAction]] = None  # Memory DSL actions
+    config: StepConfig = Field(default_factory=StepConfig)
+    output: StepOutput                    # Required: document_type, weight
+    next: list[str] = Field(default_factory=list)
+
+
 # Type alias for discriminated union of step definitions
 NewStepDefinition = Annotated[
     Union[
@@ -260,6 +341,7 @@ NewStepDefinition = Annotated[
         StandardStepDefinition,
         ToolCallingStepDefinition,
         RenderingStepDefinition,
+        DialogueStepDefinition,
     ],
     Discriminator('type')  # Pydantic uses 'type' field to pick correct class
 ]

@@ -42,8 +42,8 @@ from typing import Optional
 from aim.config import ChatConfig
 from aim.conversation.model import ConversationModel
 from aim.utils.redis_cache import RedisCache
-from aim.watcher import Watcher
-from aim.watcher.rules import (
+from aim_legacy.watcher import Watcher
+from aim_legacy.watcher.rules import (
     AnalysisWithSummaryRule,
     PostSummaryAnalysisRule,
     StaleConversationRule,
