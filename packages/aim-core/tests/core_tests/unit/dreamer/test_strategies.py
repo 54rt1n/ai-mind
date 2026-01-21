@@ -27,6 +27,7 @@ from aim.dreamer.core.models import (
     ScenarioTool,
     MemoryAction,
     StepResult,
+    FormatValidation,
 )
 from aim.dreamer.core.framework import ScenarioFramework
 from aim.dreamer.core.state import ScenarioState
@@ -578,6 +579,7 @@ class TestStandardStrategyExecution:
         step_def = StandardStepDefinition(
             id="analyze",
             prompt="Analyze the data",
+            config=StepConfig(format_validation=FormatValidation(require_emotional_header=False)),
             output=StepOutput(document_type="analysis", weight=1.0),
             next=["end"]
         )
@@ -617,6 +619,7 @@ class TestStandardStrategyExecution:
         step_def = StandardStepDefinition(
             id="think",
             prompt="Think deeply",
+            config=StepConfig(format_validation=FormatValidation(require_emotional_header=False)),
             output=StepOutput(document_type="thought", weight=0.5),
             next=["end"]
         )
@@ -937,3 +940,353 @@ class TestToolCallingStrategyExecution:
                     # Verify max_iterations kicked in
                     assert executor.state.step_iterations["loop"] == 2
                     assert result.next_step == "break_out"  # Not "loop"
+
+
+# --- Memory Refs Lifecycle Tests ---
+
+class TestMemoryRefsLifecycle:
+    """Tests for memory_refs accumulation and explicit flush behavior.
+
+    These tests verify that:
+    1. memory_refs persists across steps without explicit flush/clear
+    2. DSL flush action clears state.memory_refs
+    3. DSL clear action clears state.memory_refs
+    4. Steps without context DSL preserve existing memory_refs
+    """
+
+    @pytest.mark.asyncio
+    async def test_memory_refs_persist_across_steps_without_flush(self, executor):
+        """memory_refs should persist when second step has no context DSL.
+
+        Bug: execute_context_actions() auto-clears memory_refs every time.
+        Expected: memory_refs should only clear on explicit flush/clear.
+        """
+        # Step 1: Load some documents
+        step1_def = ContextOnlyStepDefinition(
+            id="load_context",
+            context=[MemoryAction(action="search_memories", top_n=3)],
+            next=["process"]
+        )
+        strategy1 = ContextOnlyStrategy(executor, step1_def)
+
+        with patch('aim.dreamer.core.memory_dsl.execute_memory_actions') as mock_exec:
+            mock_exec.return_value = ["doc1", "doc2", "doc3"]
+            executor.cvm.get_by_doc_id.side_effect = [
+                {"doc_id": "doc1", "document_type": "memory", "content": "mem1"},
+                {"doc_id": "doc2", "document_type": "memory", "content": "mem2"},
+                {"doc_id": "doc3", "document_type": "memory", "content": "mem3"},
+            ]
+
+            await strategy1.execute()
+
+        # Verify step 1 loaded docs
+        assert len(executor.state.memory_refs) == 3
+        assert [ref.doc_id for ref in executor.state.memory_refs] == ["doc1", "doc2", "doc3"]
+
+        # Step 2: No context DSL - memory_refs should PERSIST
+        step2_def = ContextOnlyStepDefinition(
+            id="process",
+            context=None,  # No context DSL
+            next=["end"]
+        )
+        strategy2 = ContextOnlyStrategy(executor, step2_def)
+
+        await strategy2.execute()
+
+        # CRITICAL: memory_refs should still have the docs from step 1
+        assert len(executor.state.memory_refs) == 3, \
+            "memory_refs was cleared but should persist across steps"
+        assert [ref.doc_id for ref in executor.state.memory_refs] == ["doc1", "doc2", "doc3"]
+
+    @pytest.mark.asyncio
+    async def test_memory_refs_persist_when_second_step_loads_more(self, executor):
+        """memory_refs should accumulate when steps load without flush.
+
+        Step 1 loads A, B, C
+        Step 2 loads D, E (without flush)
+        Result should be A, B, C, D, E
+        """
+        # Step 1: Load docs A, B, C
+        step1_def = ContextOnlyStepDefinition(
+            id="load_first",
+            context=[MemoryAction(action="search_memories", top_n=3)],
+            next=["load_more"]
+        )
+        strategy1 = ContextOnlyStrategy(executor, step1_def)
+
+        with patch('aim.dreamer.core.memory_dsl.execute_memory_actions') as mock_exec:
+            mock_exec.return_value = ["docA", "docB", "docC"]
+            executor.cvm.get_by_doc_id.side_effect = [
+                {"doc_id": "docA", "document_type": "memory", "content": "A"},
+                {"doc_id": "docB", "document_type": "memory", "content": "B"},
+                {"doc_id": "docC", "document_type": "memory", "content": "C"},
+            ]
+            await strategy1.execute()
+
+        assert len(executor.state.memory_refs) == 3
+
+        # Step 2: Load docs D, E (NO flush - should accumulate)
+        step2_def = ContextOnlyStepDefinition(
+            id="load_more",
+            context=[MemoryAction(action="search_memories", top_n=2)],
+            next=["end"]
+        )
+        strategy2 = ContextOnlyStrategy(executor, step2_def)
+
+        with patch('aim.dreamer.core.memory_dsl.execute_memory_actions') as mock_exec:
+            mock_exec.return_value = ["docD", "docE"]
+            executor.cvm.get_by_doc_id.side_effect = [
+                {"doc_id": "docD", "document_type": "memory", "content": "D"},
+                {"doc_id": "docE", "document_type": "memory", "content": "E"},
+            ]
+            await strategy2.execute()
+
+        # Should have ALL 5 docs accumulated
+        assert len(executor.state.memory_refs) == 5, \
+            f"Expected 5 docs (A,B,C + D,E), got {len(executor.state.memory_refs)}"
+        doc_ids = [ref.doc_id for ref in executor.state.memory_refs]
+        assert doc_ids == ["docA", "docB", "docC", "docD", "docE"]
+
+    @pytest.mark.asyncio
+    async def test_dsl_flush_clears_memory_refs(self, executor):
+        """DSL flush action should clear state.memory_refs.
+
+        Tests the actual DSL execution (no mocking execute_memory_actions)
+        to verify flush clears both accumulated_doc_ids and state.memory_refs.
+        """
+        from aim.dreamer.core.state import DocRef
+        from aim.dreamer.core.memory_dsl import execute_memory_actions
+
+        # Pre-populate memory_refs to simulate prior step's work
+        executor.state.memory_refs = [
+            DocRef(doc_id="docA", document_type="memory"),
+            DocRef(doc_id="docB", document_type="memory"),
+            DocRef(doc_id="docC", document_type="memory"),
+        ]
+        assert len(executor.state.memory_refs) == 3
+
+        # Execute DSL with flush - should clear memory_refs
+        actions = [MemoryAction(action="flush")]
+        doc_ids = execute_memory_actions(
+            actions=actions,
+            state=executor.state,
+            cvm=executor.cvm,
+        )
+
+        # flush returns empty (nothing loaded after flush)
+        assert doc_ids == []
+
+        # CRITICAL: state.memory_refs should be cleared by flush
+        assert len(executor.state.memory_refs) == 0, \
+            f"Expected 0 docs after flush, got {len(executor.state.memory_refs)}"
+
+    @pytest.mark.asyncio
+    async def test_dsl_clear_clears_memory_refs(self, executor):
+        """DSL clear action should clear state.memory_refs (same as flush)."""
+        from aim.dreamer.core.state import DocRef
+        from aim.dreamer.core.memory_dsl import execute_memory_actions
+
+        # Pre-populate memory_refs
+        executor.state.memory_refs = [
+            DocRef(doc_id="docX", document_type="memory"),
+            DocRef(doc_id="docY", document_type="memory"),
+        ]
+        assert len(executor.state.memory_refs) == 2
+
+        # Execute DSL with clear
+        actions = [MemoryAction(action="clear")]
+        doc_ids = execute_memory_actions(
+            actions=actions,
+            state=executor.state,
+            cvm=executor.cvm,
+        )
+
+        # clear returns empty
+        assert doc_ids == []
+
+        # state.memory_refs should be cleared
+        assert len(executor.state.memory_refs) == 0
+
+    @pytest.mark.asyncio
+    async def test_dsl_flush_then_load_replaces_memory_refs(self, executor):
+        """DSL flush followed by load should replace (not accumulate) memory_refs.
+
+        This tests the full flow through execute_context_actions:
+        1. Pre-populate memory_refs (simulating step 1)
+        2. Step 2 has flush then load_conversation
+        3. Result should be ONLY the new docs from load_conversation
+        """
+        from aim.dreamer.core.state import DocRef
+
+        # Pre-populate memory_refs to simulate prior step
+        executor.state.memory_refs = [
+            DocRef(doc_id="old1", document_type="memory"),
+            DocRef(doc_id="old2", document_type="memory"),
+        ]
+
+        # Mock CVM to return conversation history for load_conversation
+        import pandas as pd
+        executor.cvm.get_conversation_history.return_value = pd.DataFrame({
+            'doc_id': ['new1', 'new2', 'new3'],
+            'document_type': ['conversation', 'conversation', 'conversation'],
+        })
+        executor.cvm.get_by_doc_id.side_effect = [
+            {"doc_id": "new1", "document_type": "conversation", "content": "N1"},
+            {"doc_id": "new2", "document_type": "conversation", "content": "N2"},
+            {"doc_id": "new3", "document_type": "conversation", "content": "N3"},
+        ]
+
+        # Step with flush then load_conversation
+        step_def = ContextOnlyStepDefinition(
+            id="flush_and_load",
+            context=[
+                MemoryAction(action="flush"),
+                MemoryAction(action="load_conversation", target="current"),
+            ],
+            next=["end"]
+        )
+        strategy = ContextOnlyStrategy(executor, step_def)
+
+        await strategy.execute()
+
+        # Should have ONLY the new docs (flush cleared old1, old2)
+        assert len(executor.state.memory_refs) == 3, \
+            f"Expected 3 new docs, got {len(executor.state.memory_refs)}"
+        doc_ids = [ref.doc_id for ref in executor.state.memory_refs]
+        assert doc_ids == ["new1", "new2", "new3"]
+
+
+# --- Dialogue Query Text Tests ---
+
+class TestDialogueQueryTextFallback:
+    """Tests for using dialogue turn content as search query text.
+
+    When search_memories is called without explicit query_text, and
+    state has dialogue_turns, the dialogue content should be used
+    as the query for semantic memory search.
+    """
+
+    @pytest.mark.asyncio
+    async def test_search_memories_uses_dialogue_turns_as_query(self, executor):
+        """search_memories should use dialogue turn content when no query_text."""
+        from aim.dreamer.core.memory_dsl import _search_memories
+        from aim.dreamer.core.models import DialogueTurn
+
+        # Pre-populate dialogue_turns (simulating a dialogue scenario)
+        executor.state.dialogue_turns = [
+            DialogueTurn(
+                speaker_id="aspect:coder",
+                content="Let's analyze the authentication system and its security implications.",
+                think=None,
+                step_id="step1",
+                doc_id="turn1",
+                document_type="dialogue-coder",
+            ),
+            DialogueTurn(
+                speaker_id="persona:andi",
+                content="I've been thinking about how the session tokens are managed.",
+                think=None,
+                step_id="step2",
+                doc_id="turn2",
+                document_type="dialogue",
+            ),
+        ]
+
+        # Clear query_text so fallback is used
+        executor.state.query_text = None
+
+        # Mock CVM query to capture the query text used
+        import pandas as pd
+        captured_query = []
+
+        def mock_query(query_texts, **kwargs):
+            captured_query.extend(query_texts)
+            return pd.DataFrame({'doc_id': ['mem1', 'mem2']})
+
+        executor.cvm.query = mock_query
+
+        # Create action without explicit query_text
+        action = MemoryAction(action="search_memories", top_n=5)
+
+        # Execute search
+        doc_ids = _search_memories(
+            action=action,
+            state=executor.state,
+            cvm=executor.cvm,
+            accumulated_doc_ids=[],
+        )
+
+        # Verify dialogue content was used as query
+        assert len(captured_query) == 1
+        query_used = captured_query[0]
+        assert "authentication system" in query_used
+        assert "session tokens" in query_used
+
+        # Verify results returned
+        assert doc_ids == ['mem1', 'mem2']
+
+    @pytest.mark.asyncio
+    async def test_search_memories_prefers_explicit_query_over_dialogue(self, executor):
+        """Explicit query_text should take precedence over dialogue turns."""
+        from aim.dreamer.core.memory_dsl import _search_memories
+        from aim.dreamer.core.models import DialogueTurn
+
+        # Pre-populate dialogue_turns
+        executor.state.dialogue_turns = [
+            DialogueTurn(
+                speaker_id="aspect:coder",
+                content="Dialogue content that should NOT be used.",
+                think=None,
+                step_id="step1",
+                doc_id="turn1",
+                document_type="dialogue-coder",
+            ),
+        ]
+
+        # Set explicit query_text
+        executor.state.query_text = "explicit query about memory management"
+
+        # Mock CVM query to capture the query text used
+        import pandas as pd
+        captured_query = []
+
+        def mock_query(query_texts, **kwargs):
+            captured_query.extend(query_texts)
+            return pd.DataFrame({'doc_id': ['mem1']})
+
+        executor.cvm.query = mock_query
+
+        action = MemoryAction(action="search_memories", top_n=5)
+
+        _search_memories(
+            action=action,
+            state=executor.state,
+            cvm=executor.cvm,
+            accumulated_doc_ids=[],
+        )
+
+        # Verify explicit query was used, NOT dialogue content
+        assert len(captured_query) == 1
+        assert "explicit query" in captured_query[0]
+        assert "Dialogue content" not in captured_query[0]
+
+    @pytest.mark.asyncio
+    async def test_search_memories_empty_dialogue_returns_empty(self, executor):
+        """Empty dialogue_turns with no query_text should return empty."""
+        from aim.dreamer.core.memory_dsl import _search_memories
+
+        # Empty dialogue_turns
+        executor.state.dialogue_turns = []
+        executor.state.query_text = None
+
+        action = MemoryAction(action="search_memories", top_n=5)
+
+        doc_ids = _search_memories(
+            action=action,
+            state=executor.state,
+            cvm=executor.cvm,
+            accumulated_doc_ids=[],
+        )
+
+        # Should return empty (warning logged)
+        assert doc_ids == []

@@ -59,6 +59,9 @@ class ScenarioFramework(BaseModel):
     # Dialogue configuration (only for dialogue scenarios)
     dialogue: Optional[DialogueConfig] = None
 
+    # Required aspects (for template context)
+    required_aspects: list[str] = Field(default_factory=list)
+
     def get_tools(self, tool_names: list[str]) -> list:
         """Get Tool objects for the given names, ready for ToolUser.
 

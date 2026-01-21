@@ -18,7 +18,9 @@ def execute_context_actions(
 ) -> None:
     """Execute memory DSL context actions and update state.memory_refs.
 
-    Clears existing memory_refs before executing the context actions.
+    Accumulates documents into memory_refs. Does NOT auto-clear - memory_refs
+    persists across steps until the DSL explicitly uses 'flush' or 'clear'.
+
     Uses the memory_dsl.execute_memory_actions() function to process
     the context actions and retrieve documents.
 
@@ -29,8 +31,9 @@ def execute_context_actions(
     from ..memory_dsl import execute_memory_actions
     from ..state import DocRef
 
-    # Clear previous refs
-    executor.state.clear_memory_refs()
+    # NOTE: Do NOT auto-clear memory_refs here.
+    # The DSL has explicit 'flush' and 'clear' actions for that purpose.
+    # Auto-clearing defeats accumulated context across steps.
 
     # Execute memory DSL - returns doc_ids list
     doc_ids = execute_memory_actions(

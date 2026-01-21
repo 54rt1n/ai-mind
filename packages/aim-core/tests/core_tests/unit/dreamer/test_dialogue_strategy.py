@@ -19,6 +19,7 @@ from aim.dreamer.core.models import (
     StepOutput,
     SpeakerType,
     DialogueSpeaker,
+    FormatValidation,
 )
 from aim.dreamer.core.framework import ScenarioFramework, DialogueConfig
 from aim.dreamer.core.state import ScenarioState
@@ -96,6 +97,9 @@ def mock_model_set():
 @pytest.fixture
 def dialogue_framework():
     """Create a ScenarioFramework with dialogue steps."""
+    # Disable format validation for tests to avoid requiring emotional headers in mock responses
+    test_config = StepConfig(format_validation=FormatValidation(require_emotional_header=False))
+
     return ScenarioFramework(
         name="test_dialogue",
         first_step="aspect_intro",
@@ -104,6 +108,7 @@ def dialogue_framework():
                 id="aspect_intro",
                 speaker=DialogueSpeaker(type=SpeakerType.ASPECT, aspect_name="coder"),
                 guidance="Introduce the analysis task.",
+                config=test_config,
                 output=StepOutput(document_type="dialogue-coder", weight=0.3),
                 next=["persona_response"]
             ),
@@ -111,6 +116,7 @@ def dialogue_framework():
                 id="persona_response",
                 speaker=DialogueSpeaker(type=SpeakerType.PERSONA),
                 guidance="Respond to the introduction.",
+                config=test_config,
                 output=StepOutput(document_type="analysis", weight=0.7),
                 next=["end"]
             )

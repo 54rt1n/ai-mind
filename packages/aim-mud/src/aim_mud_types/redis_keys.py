@@ -122,6 +122,7 @@ class RedisKeys:
     EVENTS_PROCESSED = "mud:events:processed"
     ACTIONS_PROCESSED = "mud:actions:processed"
     SEQUENCE_COUNTER = "mud:sequence_counter"
+    LAST_PLAYER_ACTIVITY = "mud:last_player_activity"
 
     @staticmethod
     def agent_conversation(agent_id: str) -> str:

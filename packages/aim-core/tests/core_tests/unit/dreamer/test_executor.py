@@ -468,6 +468,15 @@ Final response here."""
         assert "Final response here." in content
         assert "multi-line" in think
 
+    def test_orphan_close_tag(self):
+        """Orphan </think> tag (no opening) should treat content before it as think."""
+        response = "some reasoning content</think>\n\nThe actual response"
+
+        content, think = extract_think_tags(response)
+
+        assert content == "The actual response"
+        assert think == "some reasoning content"
+
 
 class TestCreateMessage:
     """Test ConversationMessage creation."""

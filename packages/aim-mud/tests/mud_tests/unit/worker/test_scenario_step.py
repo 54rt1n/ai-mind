@@ -36,8 +36,8 @@ def mock_worker():
 
 
 @pytest.fixture
-def sample_framework_json():
-    """Create sample serialized ScenarioFramework."""
+def sample_framework_dict():
+    """Create sample ScenarioFramework as dict."""
     from aim.dreamer.core.framework import ScenarioFramework
     from aim.dreamer.core.models import ContextOnlyStepDefinition, MemoryAction
 
@@ -52,12 +52,12 @@ def sample_framework_json():
             )
         }
     )
-    return json.dumps(framework.model_dump())
+    return framework.model_dump()
 
 
 @pytest.fixture
-def sample_state_json():
-    """Create sample serialized ScenarioState."""
+def sample_state_dict():
+    """Create sample ScenarioState as dict."""
     from aim.dreamer.core.state import ScenarioState
 
     state = ScenarioState.initial(
@@ -66,12 +66,12 @@ def sample_state_json():
         guidance="Test guidance",
         query_text="Test query"
     )
-    return json.dumps(state.model_dump())
+    return state.model_dump()
 
 
 @pytest.fixture
-def sample_dreaming_state(sample_framework_json, sample_state_json):
-    """Create a DreamingState with serialized framework and state."""
+def sample_dreaming_state(sample_framework_dict, sample_state_dict):
+    """Create a DreamingState with framework and state dicts."""
     return DreamingState(
         pipeline_id="pipeline-123",
         agent_id="andi",
@@ -82,8 +82,8 @@ def sample_dreaming_state(sample_framework_json, sample_state_json):
         execution_order=[],
         conversation_id="conv123",
         base_model="claude-3-5-sonnet-20241022",
-        framework=sample_framework_json,
-        state=sample_state_json,
+        framework=sample_framework_dict,
+        state=sample_state_dict,
     )
 
 
@@ -169,7 +169,7 @@ class TestExecuteScenarioStep:
             current_step="end",
             conversation_id="conv123"
         )
-        sample_dreaming_state.state = json.dumps(completed_state.model_dump())
+        sample_dreaming_state.state = completed_state.model_dump()
         mock_worker.load_dreaming_state.return_value = sample_dreaming_state
 
         from andimud_worker.mixins.dreamer import DreamerMixin
@@ -276,18 +276,16 @@ class TestInitializeScenarioDream:
         assert result.query == "Test query"
         assert result.conversation_id == "conv123"
 
-        # Verify framework was serialized
+        # Verify framework was set
         assert result.framework is not None
-        framework_data = json.loads(result.framework)
-        assert framework_data["name"] == "test_scenario"
-        assert framework_data["first_step"] == "gather"
+        assert result.framework["name"] == "test_scenario"
+        assert result.framework["first_step"] == "gather"
 
-        # Verify state was serialized
+        # Verify state was set
         assert result.state is not None
-        state_data = json.loads(result.state)
-        assert state_data["current_step"] == "gather"
-        assert state_data["guidance"] == "Test guidance"
-        assert state_data["query_text"] == "Test query"
+        assert result.state["current_step"] == "gather"
+        assert result.state["guidance"] == "Test guidance"
+        assert result.state["query_text"] == "Test query"
 
         # Verify state was saved
         mock_worker.save_dreaming_state.assert_called_once()

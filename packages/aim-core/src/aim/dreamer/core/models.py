@@ -83,6 +83,26 @@ class StepStatus(str, Enum):
     FAILED = "failed"
 
 
+class FormatValidation(BaseModel):
+    """Configuration for response format validation.
+
+    Enables automatic validation and retry for response formatting
+    requirements like emotional state headers.
+    """
+    require_emotional_header: bool = True
+    """Whether to require [== ... Emotional State ... ==] header."""
+
+    max_retries: int = 3
+    """Maximum retries with guidance injection before giving up."""
+
+    fallback_model: Optional[str] = "fallback"
+    """Model role to try after max_retries exhausted. None to disable fallback."""
+
+    persona_name_override: Optional[str] = None
+    """Override persona name for guidance messages.
+    If None, uses persona.full_name from executor context."""
+
+
 class StepConfig(BaseModel):
     """Step execution configuration."""
     max_tokens: int = 1024
@@ -95,6 +115,8 @@ class StepConfig(BaseModel):
     max_iterations: Optional[int] = None  # Max times this step can execute
     on_limit: Optional[str] = None        # Where to go when max_iterations hit
     tool_retries: int = 3                 # Retries if LLM doesn't call a tool
+    format_validation: FormatValidation = Field(default_factory=FormatValidation)
+    """Format validation configuration for response retries. Enabled by default."""
 
     def get_model(self, model_set: "ModelSet") -> str:
         """Resolve which model this step will use given a ModelSet.

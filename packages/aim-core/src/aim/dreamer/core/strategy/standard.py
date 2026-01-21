@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Optional
 
 from .base import BaseStepStrategy, ScenarioStepResult, ScenarioExecutor
 from .functions import execute_context_actions, load_memory_docs, load_step_docs
+from .validation_mixin import FormatValidationMixin
 
 if TYPE_CHECKING:
     from ..models import StandardStepDefinition, StepResult
@@ -17,7 +18,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class StandardStrategy(BaseStepStrategy):
+class StandardStrategy(FormatValidationMixin, BaseStepStrategy):
     """Executes LLM prose generation - produces document output.
 
     Used for steps that generate narrative content, summaries, analyses, etc.
@@ -64,12 +65,17 @@ class StandardStrategy(BaseStepStrategy):
         # 4. Build turns
         turns, system_message = self._build_turns(prompt, memory_docs)
 
-        # 5. Stream LLM response
-        response = await self._stream_response(turns, system_message)
+        # 5. Stream LLM response with format validation
+        response, used_fallback = await self._stream_with_format_validation(
+            turns, system_message
+        )
 
         # 6. Extract think tags
         from aim.utils.think import extract_think_tags
         response, think = extract_think_tags(response)
+
+        if used_fallback:
+            logger.info(f"Step '{step_id}' used fallback model for format compliance")
 
         # 7. Create document
         doc_id = await self._create_document(response, think)
@@ -108,7 +114,10 @@ class StandardStrategy(BaseStepStrategy):
         executor = self.executor
 
         # Build context
-        ctx = executor.state.build_template_context()
+        ctx = executor.state.build_template_context(
+            framework=executor.framework,
+            persona=executor.persona,
+        )
         ctx['persona'] = executor.persona
         ctx['pronouns'] = executor.persona.pronouns
 
@@ -176,12 +185,31 @@ class StandardStrategy(BaseStepStrategy):
         models = LanguageModelV2.index_models(executor.config)
         return models.get(model_name)
 
-    async def _stream_response(
+    def _get_model_by_role(self, role: str):
+        """Get a language model by role name.
+
+        Args:
+            role: Model role name (e.g., "fallback", "thought", "codex")
+
+        Returns:
+            LanguageModelV2 instance or None if not found
+        """
+        from aim.llm.models import LanguageModelV2
+
+        executor = self.executor
+        model_name = executor.model_set.get_model_name(role)
+        if not model_name:
+            return None
+
+        models = LanguageModelV2.index_models(executor.config)
+        return models.get(model_name)
+
+    async def _stream_response_inner(
         self,
         turns: list[dict],
         system_message: str,
     ) -> str:
-        """Stream LLM response with heartbeat.
+        """Stream LLM response with heartbeat using the default model.
 
         Args:
             turns: Conversation turns
@@ -190,18 +218,56 @@ class StandardStrategy(BaseStepStrategy):
         Returns:
             Complete response string
         """
-        executor = self.executor
-        step_config = self.step_def.config
-
-        # Get provider
         model = self._get_model()
         if not model:
             raise ValueError(f"Model not available for step {self.step_def.id}")
 
+        return await self._stream_with_model_obj(turns, system_message, model)
+
+    async def _stream_response_with_model(
+        self,
+        turns: list[dict],
+        system_message: str,
+        model_role: str,
+    ) -> str:
+        """Stream LLM response using a specific model role.
+
+        Args:
+            turns: Conversation turns
+            system_message: System prompt
+            model_role: Model role name (e.g., "fallback")
+
+        Returns:
+            Complete response string
+        """
+        model = self._get_model_by_role(model_role)
+        if not model:
+            raise ValueError(f"Model role '{model_role}' not available for step {self.step_def.id}")
+
+        return await self._stream_with_model_obj(turns, system_message, model)
+
+    async def _stream_with_model_obj(
+        self,
+        turns: list[dict],
+        system_message: str,
+        model,
+    ) -> str:
+        """Stream LLM response with a specific model object.
+
+        Args:
+            turns: Conversation turns
+            system_message: System prompt
+            model: LanguageModelV2 instance
+
+        Returns:
+            Complete response string
+        """
+        executor = self.executor
+        step_config = self.step_def.config
+
         provider = model.llm_factory(executor.config)
 
         # Build step config
-        from dataclasses import replace
         llm_config = replace(
             executor.config,
             system_message=system_message,
@@ -246,7 +312,7 @@ class StandardStrategy(BaseStepStrategy):
             user_id="system",
             persona_id=executor.persona.persona_id,
             sequence_no=0,
-            branch=0,
+            branch=executor.state.branch,
             role='assistant',
             content=content,
             think=think,

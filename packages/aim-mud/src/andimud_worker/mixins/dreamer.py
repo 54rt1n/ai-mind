@@ -192,18 +192,20 @@ class DreamerMixin:
             return None
 
         # Find unanalyzed conversations
+        MIN_DOCS_FOR_ANALYSIS = 6
         unanalyzed = []
         for _, row in report.iterrows():
             conv_id = row['conversation_id']
-            has_docs = (
-                row.get("conversation", 0) > 0 or
-                row.get("mud-world", 0) > 0 or
-                row.get("mud-agent", 0) > 0
+            total_docs = (
+                row.get("conversation", 0) +
+                row.get("mud-world", 0) +
+                row.get("mud-agent", 0)
             )
+            has_enough_docs = total_docs >= MIN_DOCS_FOR_ANALYSIS
             has_analysis = row.get("analysis", 0) > 0
             has_summary = row.get("summary", 0) > 0
 
-            if (has_docs or has_summary) and not has_analysis:
+            if (has_enough_docs or has_summary) and not has_analysis:
                 timestamp = row.get("timestamp_max", "")
                 unanalyzed.append((conv_id, timestamp))
 
@@ -329,12 +331,18 @@ class DreamerMixin:
         # Load framework (strategy-based system)
         framework = load_scenario_framework(state.scenario_name)
 
+        # Compute next branch for document creation
+        branch = 0
+        if state.conversation_id:
+            branch = self.cvm.get_next_branch(state.conversation_id)
+
         # Create ScenarioState
         scenario_state = ScenarioState.initial(
             first_step=framework.first_step,
             conversation_id=state.conversation_id,
             guidance=state.guidance,
             query_text=state.query,
+            branch=branch,
         )
 
         # Update dreaming state with serialized framework/state
@@ -440,29 +448,25 @@ class DreamerMixin:
             )
             # Mark as failed
             dreaming_state.status = DreamStatus.FAILED
-            dreaming_state.metadata = json.dumps({
-                "error_message": "Missing framework or state JSON fields",
+            dreaming_state.metadata = {
+                "error_message": "Missing framework or state fields",
                 "error_step_id": None,
-            })
+            }
             await self.save_dreaming_state(dreaming_state)
             await self.archive_dreaming_state(dreaming_state)
             await self.delete_dreaming_state(self.config.agent_id)
             return True
 
         try:
-            framework = ScenarioFramework.model_validate(
-                json.loads(dreaming_state.framework)
-            )
-            scenario_state = ScenarioState.model_validate(
-                json.loads(dreaming_state.state)
-            )
+            framework = ScenarioFramework.model_validate(dreaming_state.framework)
+            scenario_state = ScenarioState.model_validate(dreaming_state.state)
         except Exception as e:
             logger.error(f"Failed to deserialize scenario state: {e}", exc_info=True)
             dreaming_state.status = DreamStatus.FAILED
-            dreaming_state.metadata = json.dumps({
+            dreaming_state.metadata = {
                 "error_message": f"Deserialization error: {e}",
                 "error_traceback": traceback.format_exc(),
-            })
+            }
             await self.save_dreaming_state(dreaming_state)
             await self.archive_dreaming_state(dreaming_state)
             await self.delete_dreaming_state(self.config.agent_id)
@@ -505,10 +509,10 @@ class DreamerMixin:
         if current_step_id not in framework.steps:
             logger.error(f"Current step '{current_step_id}' not found in framework")
             dreaming_state.status = DreamStatus.FAILED
-            dreaming_state.metadata = json.dumps({
+            dreaming_state.metadata = {
                 "error_message": f"Step '{current_step_id}' not found in framework",
                 "error_step_id": current_step_id,
-            })
+            }
             await self.save_dreaming_state(dreaming_state)
             await self.archive_dreaming_state(dreaming_state)
             await self.delete_dreaming_state(self.config.agent_id)
@@ -538,7 +542,7 @@ class DreamerMixin:
             logger.error(f"Strategy execution failed for step '{current_step_id}': {e}", exc_info=True)
 
             # Record error in metadata
-            metadata = json.loads(dreaming_state.metadata) if dreaming_state.metadata else {}
+            metadata = dreaming_state.metadata or {}
             metadata["error_step_id"] = current_step_id
             metadata["error_message"] = str(e)
             metadata["error_traceback"] = traceback.format_exc()
@@ -550,7 +554,7 @@ class DreamerMixin:
             if dreaming_state.current_step_attempts >= dreaming_state.max_step_retries:
                 dreaming_state.status = DreamStatus.FAILED
                 dreaming_state.completed_at = datetime.now(timezone.utc)
-                dreaming_state.metadata = json.dumps(metadata)
+                dreaming_state.metadata = metadata
                 await self.save_dreaming_state(dreaming_state)
                 await self.archive_dreaming_state(dreaming_state)
                 await self.delete_dreaming_state(self.config.agent_id)
@@ -560,7 +564,7 @@ class DreamerMixin:
             # Schedule retry with exponential backoff
             backoff_seconds = 60 * (2 ** (dreaming_state.current_step_attempts - 1))
             dreaming_state.next_retry_at = datetime.now(timezone.utc) + timedelta(seconds=backoff_seconds)
-            dreaming_state.metadata = json.dumps(metadata)
+            dreaming_state.metadata = metadata
             await self.save_dreaming_state(dreaming_state)
 
             logger.warning(
@@ -569,8 +573,8 @@ class DreamerMixin:
             )
             return False  # Not complete, will retry
 
-        # 6. Serialize and save updated state
-        dreaming_state.state = json.dumps(scenario_state.model_dump())
+        # 6. Save updated state
+        dreaming_state.state = scenario_state.model_dump()
         dreaming_state.updated_at = datetime.now(timezone.utc)
         dreaming_state.current_step_attempts = 0  # Reset on success
         dreaming_state.next_retry_at = None
@@ -629,12 +633,18 @@ class DreamerMixin:
         from aim.dreamer.core.state import ScenarioState
         from aim_mud_types.coordination import DreamingState, DreamStatus
 
+        # Compute next branch for document creation
+        branch = 0
+        if conversation_id:
+            branch = self.cvm.get_next_branch(conversation_id)
+
         # Create initial ScenarioState
         scenario_state = ScenarioState.initial(
             first_step=framework.first_step,
             conversation_id=conversation_id,
             guidance=guidance,
             query_text=query_text,
+            branch=branch,
         )
 
         persona = self.roster.get_persona(self.config.persona_id)
@@ -663,8 +673,8 @@ class DreamerMixin:
             scenario_config={},  # Not used for strategy-based scenarios
             persona_config={},  # Not used for strategy-based scenarios
             # Strategy-based scenario fields
-            framework=json.dumps(framework.model_dump()),
-            state=json.dumps(scenario_state.model_dump()),
+            framework=framework.model_dump(),
+            state=scenario_state.model_dump(),
         )
 
         await self.save_dreaming_state(dreaming_state)

@@ -346,7 +346,9 @@ class ConversationModel:
         # Using top_n * 3 as a balance between recall and performance.
         query_limit = top_n * 3 if top_n is not None else None # Allow top_n to be None for unlimited internal fetch
 
-        original_query_texts = list(query_texts) if query_texts is not None else [] # Keep a copy for reranking
+        # Filter out empty/whitespace-only strings to prevent reranking issues
+        query_texts = [q for q in (query_texts or []) if isinstance(q, str) and q.strip()]
+        original_query_texts = list(query_texts)  # Keep a copy for reranking
 
         if chunk_size > 0 and original_query_texts:
             # Define get_chunks helper inside this block as it's only used here
@@ -752,14 +754,24 @@ class ConversationModel:
         # determine conversations without analysis:
         # we need to find all conversation ids by document type
         if all_df.empty:
-            return pd.DataFrame(columns=['conversation_id', 'document_type', 'timestamp_max'])
+            return pd.DataFrame(columns=['conversation_id', 'document_type', 'timestamp_max', 'total_docs', 'branch_count'])
         docs = all_df.groupby(['document_type', 'conversation_id']).size().reset_index()
         # reshape so docuemnt types are columns
         docs = docs.pivot(index='conversation_id', columns='document_type', values=0).fillna(0).reset_index()
         conversation_time = all_df.groupby('conversation_id').agg({'timestamp': 'max'}).reset_index()
         conversation_time.columns = ['conversation_id', 'timestamp_max']
 
-        conversation_report = pd.merge(docs, conversation_time, on='conversation_id').sort_values('timestamp_max')
+        # Count total documents per conversation
+        total_docs = all_df.groupby('conversation_id').size().reset_index()
+        total_docs.columns = ['conversation_id', 'total_docs']
+
+        # Count distinct branches per conversation
+        branch_counts = all_df.groupby('conversation_id')['branch'].nunique().reset_index()
+        branch_counts.columns = ['conversation_id', 'branch_count']
+
+        conversation_report = pd.merge(docs, conversation_time, on='conversation_id')
+        conversation_report = pd.merge(conversation_report, total_docs, on='conversation_id')
+        conversation_report = pd.merge(conversation_report, branch_counts, on='conversation_id').sort_values('timestamp_max')
         return conversation_report
 
     @property

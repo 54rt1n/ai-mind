@@ -79,8 +79,11 @@ class RenderingStrategy(BaseStepStrategy):
         """
         executor = self.executor
 
-        # Start with state's template context (steps, collections, etc.)
-        ctx = executor.state.build_template_context()
+        # Start with state's template context (steps, collections, aspects, etc.)
+        ctx = executor.state.build_template_context(
+            framework=executor.framework,
+            persona=executor.persona,
+        )
 
         # Add persona
         ctx['persona'] = executor.persona
@@ -124,7 +127,7 @@ class RenderingStrategy(BaseStepStrategy):
             user_id="system",  # Rendering is system-generated
             persona_id=executor.persona.persona_id,
             sequence_no=0,  # Not part of conversation sequence
-            branch=0,
+            branch=executor.state.branch,
             role='assistant',
             content=content,
             document_type=step_def.output.document_type,

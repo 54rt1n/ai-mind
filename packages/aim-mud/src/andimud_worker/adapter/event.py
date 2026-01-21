@@ -64,6 +64,15 @@ def format_event(event: MUDEvent, first_person: bool = False) -> str:
     elif event.event_type == EventType.NARRATIVE:
         return event.content
 
+    elif event.event_type == EventType.TERMINAL:
+        # Terminal tool execution output - content is pre-formatted as
+        # "[terminal_name] tool_name:\n<output>" by _publish_terminal_event()
+        return event.content
+
+    elif event.event_type == EventType.NOTIFICATION:
+        # Interactive/environmental notifications (e.g., doorbells)
+        return event.content
+
     else:
         # Fallback for unknown event types
         return f"[{event.event_type.value}] {event.actor}: {event.content}"

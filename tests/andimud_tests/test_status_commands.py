@@ -501,6 +501,104 @@ class TestCmdTurns:
         output = cmd_turns.caller.msg.call_args[0][0]
         assert "LLM timeout" in output
 
+    def test_cmd_turns_paused_agent(self, cmd_turns, mock_redis):
+        """Test @turns displays paused indicator for paused agents."""
+        now = datetime.now()
+        heartbeat = (now - timedelta(minutes=1)).isoformat()
+
+        mock_redis.keys.return_value = [b"agent:andi:turn_request"]
+        mock_redis.hgetall.return_value = {
+            b"status": b"ready",
+            b"sequence_id": b"42",
+            b"heartbeat_at": heartbeat.encode(),
+            b"reason": b"events",
+        }
+        # Mock pause flag is set
+        mock_redis.get.return_value = b"1"
+        # Mock sleep flag is not set
+        mock_redis.hget.return_value = None
+
+        with patch("redis.from_url", return_value=mock_redis):
+            cmd_turns.func()
+
+        cmd_turns.caller.msg.assert_called_once()
+        output = cmd_turns.caller.msg.call_args[0][0]
+        assert "paused" in output
+        assert "sleeping" not in output
+
+    def test_cmd_turns_sleeping_agent(self, cmd_turns, mock_redis):
+        """Test @turns displays sleeping indicator for sleeping agents."""
+        now = datetime.now()
+        heartbeat = (now - timedelta(minutes=1)).isoformat()
+
+        mock_redis.keys.return_value = [b"agent:andi:turn_request"]
+        mock_redis.hgetall.return_value = {
+            b"status": b"ready",
+            b"sequence_id": b"42",
+            b"heartbeat_at": heartbeat.encode(),
+            b"reason": b"events",
+        }
+        # Mock pause flag is not set
+        mock_redis.get.return_value = None
+        # Mock sleep flag is set
+        mock_redis.hget.return_value = b"true"
+
+        with patch("redis.from_url", return_value=mock_redis):
+            cmd_turns.func()
+
+        cmd_turns.caller.msg.assert_called_once()
+        output = cmd_turns.caller.msg.call_args[0][0]
+        assert "sleeping" in output
+        assert "paused" not in output
+
+    def test_cmd_turns_paused_and_sleeping_agent(self, cmd_turns, mock_redis):
+        """Test @turns displays both paused and sleeping indicators."""
+        now = datetime.now()
+        heartbeat = (now - timedelta(minutes=1)).isoformat()
+
+        mock_redis.keys.return_value = [b"agent:andi:turn_request"]
+        mock_redis.hgetall.return_value = {
+            b"status": b"ready",
+            b"sequence_id": b"42",
+            b"heartbeat_at": heartbeat.encode(),
+            b"reason": b"events",
+        }
+        # Mock both pause and sleep flags set
+        mock_redis.get.return_value = b"1"
+        mock_redis.hget.return_value = b"true"
+
+        with patch("redis.from_url", return_value=mock_redis):
+            cmd_turns.func()
+
+        cmd_turns.caller.msg.assert_called_once()
+        output = cmd_turns.caller.msg.call_args[0][0]
+        assert "paused" in output
+        assert "sleeping" in output
+
+    def test_cmd_turns_no_pause_sleep_flags(self, cmd_turns, mock_redis):
+        """Test @turns shows no flags when agent is not paused or sleeping."""
+        now = datetime.now()
+        heartbeat = (now - timedelta(minutes=1)).isoformat()
+
+        mock_redis.keys.return_value = [b"agent:andi:turn_request"]
+        mock_redis.hgetall.return_value = {
+            b"status": b"ready",
+            b"sequence_id": b"42",
+            b"heartbeat_at": heartbeat.encode(),
+            b"reason": b"events",
+        }
+        # Mock both flags not set
+        mock_redis.get.return_value = None
+        mock_redis.hget.return_value = None
+
+        with patch("redis.from_url", return_value=mock_redis):
+            cmd_turns.func()
+
+        cmd_turns.caller.msg.assert_called_once()
+        output = cmd_turns.caller.msg.call_args[0][0]
+        assert "paused" not in output
+        assert "sleeping" not in output
+
 
 @pytest.mark.skipif(not EVENNIA_AVAILABLE, reason="Evennia not available")
 class TestCmdEvents:

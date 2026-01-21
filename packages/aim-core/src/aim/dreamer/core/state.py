@@ -2,10 +2,17 @@
 # AI-Mind © 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
 """ScenarioState - runtime execution state for strategy-based scenarios."""
 
-from typing import Optional, Any
+import logging
+from typing import Optional, Any, TYPE_CHECKING
 from pydantic import BaseModel, Field
 
 from .models import StepResult, DialogueTurn, SpeakerType
+
+if TYPE_CHECKING:
+    from .framework import ScenarioFramework
+    from aim.agents.persona import Persona
+
+logger = logging.getLogger(__name__)
 
 
 class DocRef(BaseModel):
@@ -107,6 +114,7 @@ class ScenarioState(BaseModel):
     guidance: Optional[str] = None       # External guidance text
     query_text: Optional[str] = None     # Query/topic text
     conversation_id: Optional[str] = None
+    branch: int = 0                      # Conversation branch for document creation
 
     # Dialogue tracking (used only by dialogue steps)
     dialogue_turns: list[DialogueTurn] = Field(default_factory=list)
@@ -121,6 +129,7 @@ class ScenarioState(BaseModel):
         conversation_id: Optional[str] = None,
         guidance: Optional[str] = None,
         query_text: Optional[str] = None,
+        branch: int = 0,
     ) -> "ScenarioState":
         """Create initial state for starting a scenario.
 
@@ -129,6 +138,7 @@ class ScenarioState(BaseModel):
             conversation_id: Target conversation (optional)
             guidance: External guidance text (optional)
             query_text: Query/topic text (optional)
+            branch: Conversation branch for document creation (optional)
 
         Returns:
             New ScenarioState ready for execution
@@ -138,6 +148,7 @@ class ScenarioState(BaseModel):
             conversation_id=conversation_id,
             guidance=guidance,
             query_text=query_text,
+            branch=branch,
         )
 
     def is_complete(self) -> bool:
@@ -215,8 +226,16 @@ class ScenarioState(BaseModel):
         """Clear memory refs before loading new context."""
         self.memory_refs = []
 
-    def build_template_context(self) -> dict[str, Any]:
+    def build_template_context(
+        self,
+        framework: Optional["ScenarioFramework"] = None,
+        persona: Optional["Persona"] = None,
+    ) -> dict[str, Any]:
         """Build Jinja2 context from state for template rendering.
+
+        Args:
+            framework: ScenarioFramework for extracting required_aspects
+            persona: Persona for extracting aspect objects
 
         Returns:
             Dictionary with:
@@ -225,8 +244,11 @@ class ScenarioState(BaseModel):
             - guidance: External guidance
             - query_text: Query/topic
             - conversation_id: Current conversation
+            - aspect variables: If framework and persona provided
         """
-        return {
+        from aim.agents.aspects import get_aspect
+
+        context = {
             # Step results for cross-step references: {{ steps.select_topic.tool_result }}
             'steps': {
                 step_id: {
@@ -243,6 +265,21 @@ class ScenarioState(BaseModel):
             'query_text': self.query_text,
             'conversation_id': self.conversation_id,
         }
+
+        # Populate aspect variables from required_aspects
+        if framework and persona:
+            for aspect_name in framework.required_aspects:
+                aspect = get_aspect(persona, aspect_name)
+                if aspect:
+                    context[aspect_name] = aspect
+                else:
+                    logger.warning(
+                        f"Required aspect '{aspect_name}' not found in persona '{persona.name}'"
+                    )
+                    # Provide empty dict to prevent UndefinedError
+                    context[aspect_name] = {}
+
+        return context
 
     # --- Dialogue-specific methods ---
 

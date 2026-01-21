@@ -214,7 +214,10 @@ class ToolCallingStrategy(BaseStepStrategy):
                 )
 
         # Render prompt
-        ctx = executor.state.build_template_context()
+        ctx = executor.state.build_template_context(
+            framework=executor.framework,
+            persona=executor.persona,
+        )
         ctx['persona'] = executor.persona
         ctx['pronouns'] = executor.persona.pronouns
         prompt = render_template(self.step_def.prompt, ctx)

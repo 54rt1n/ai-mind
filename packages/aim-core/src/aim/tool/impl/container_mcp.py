@@ -56,6 +56,19 @@ class ContainerMCPTool(ToolImplementation):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
                     result = await session.call_tool(tool_name, args)
+
+                    # Check for MCP error response
+                    if hasattr(result, "isError") and result.isError:
+                        # Extract error message from content
+                        error_msg = "Tool execution failed"
+                        if hasattr(result, "content") and result.content:
+                            content = result.content
+                            if isinstance(content, list) and len(content) > 0:
+                                first = content[0]
+                                if hasattr(first, "text"):
+                                    error_msg = first.text
+                        return {"success": False, "error": error_msg}
+
                     # Convert MCP result to dict
                     if hasattr(result, "content"):
                         # Handle text content
@@ -65,11 +78,15 @@ class ContainerMCPTool(ToolImplementation):
                             if hasattr(first, "text"):
                                 import json
                                 try:
-                                    return json.loads(first.text)
+                                    parsed = json.loads(first.text)
+                                    # Ensure output key exists for terminal commands
+                                    if "output" not in parsed and "stdout" in parsed:
+                                        parsed["output"] = parsed["stdout"]
+                                    return parsed
                                 except json.JSONDecodeError:
                                     return {"output": first.text, "success": True}
-                        return {"content": str(content), "success": True}
-                    return {"result": str(result), "success": True}
+                        return {"output": str(content), "success": True}
+                    return {"output": str(result), "success": True}
         except ImportError:
             logger.error("MCP package not installed. Install with: pip install 'mcp[cli]>=1.0.0'")
             return {

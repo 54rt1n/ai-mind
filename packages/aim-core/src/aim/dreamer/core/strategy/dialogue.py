@@ -16,6 +16,7 @@ from aim.utils.tokens import count_tokens
 
 from .base import BaseStepStrategy, ScenarioStepResult
 from .functions import execute_context_actions, load_memory_docs
+from .validation_mixin import FormatValidationMixin
 
 if TYPE_CHECKING:
     from ..models import DialogueStepDefinition, StepResult, DialogueTurn
@@ -37,7 +38,7 @@ ASPECT_DOC_TYPES = {
 }
 
 
-class DialogueStrategy(BaseStepStrategy):
+class DialogueStrategy(FormatValidationMixin, BaseStepStrategy):
     """Executes LLM dialogue with speaker-based role flipping.
 
     Used for persona/aspect dialogues where roles flip based on who speaks:
@@ -107,11 +108,16 @@ class DialogueStrategy(BaseStepStrategy):
             is_persona_speaker=is_persona_speaker,
         )
 
-        # 7. Stream LLM response
-        response = await self._stream_response(turns, system_message)
+        # 7. Stream LLM response with format validation
+        response, used_fallback = await self._stream_with_format_validation(
+            turns, system_message
+        )
 
         # 8. Extract think tags
         response, think = extract_think_tags(response)
+
+        if used_fallback:
+            logger.info(f"Step '{step_id}' used fallback model for format compliance")
 
         if not response.strip():
             raise ValueError(f"Empty response from model for step '{step_id}'")
@@ -161,8 +167,11 @@ class DialogueStrategy(BaseStepStrategy):
         persona = executor.persona
         state = executor.state
 
-        # Start with state's template context
-        ctx = state.build_template_context()
+        # Start with state's template context (includes required_aspects from framework)
+        ctx = state.build_template_context(
+            framework=executor.framework,
+            persona=persona,
+        )
 
         # Add persona and pronouns
         ctx['persona'] = persona
@@ -171,7 +180,7 @@ class DialogueStrategy(BaseStepStrategy):
         # Add step number
         ctx['step_num'] = len(state.dialogue_turns) + 1
 
-        # Add required aspects from dialogue config
+        # Add required aspects from dialogue config (overrides framework aspects if present)
         if executor.framework.dialogue:
             for aspect_name in executor.framework.dialogue.required_aspects:
                 if aspect_name in persona.aspects:
@@ -441,12 +450,31 @@ class DialogueStrategy(BaseStepStrategy):
         models = LanguageModelV2.index_models(executor.config)
         return models.get(model_name)
 
-    async def _stream_response(
+    def _get_model_by_role(self, role: str):
+        """Get a language model by role name.
+
+        Args:
+            role: Model role name (e.g., "fallback", "thought", "codex")
+
+        Returns:
+            LanguageModelV2 instance or None if not found
+        """
+        from aim.llm.models import LanguageModelV2
+
+        executor = self.executor
+        model_name = executor.model_set.get_model_name(role)
+        if not model_name:
+            return None
+
+        models = LanguageModelV2.index_models(executor.config)
+        return models.get(model_name)
+
+    async def _stream_response_inner(
         self,
         turns: list[dict],
         system_message: str,
     ) -> str:
-        """Stream LLM response with heartbeat.
+        """Stream LLM response with heartbeat using the default model.
 
         Args:
             turns: Conversation turns
@@ -455,13 +483,52 @@ class DialogueStrategy(BaseStepStrategy):
         Returns:
             Complete response string
         """
-        executor = self.executor
-        step_config = self.step_def.config
-
-        # Get provider
         model = self._get_model()
         if not model:
             raise ValueError(f"Model not available for step {self.step_def.id}")
+
+        return await self._stream_with_model_obj(turns, system_message, model)
+
+    async def _stream_response_with_model(
+        self,
+        turns: list[dict],
+        system_message: str,
+        model_role: str,
+    ) -> str:
+        """Stream LLM response using a specific model role.
+
+        Args:
+            turns: Conversation turns
+            system_message: System prompt
+            model_role: Model role name (e.g., "fallback")
+
+        Returns:
+            Complete response string
+        """
+        model = self._get_model_by_role(model_role)
+        if not model:
+            raise ValueError(f"Model role '{model_role}' not available for step {self.step_def.id}")
+
+        return await self._stream_with_model_obj(turns, system_message, model)
+
+    async def _stream_with_model_obj(
+        self,
+        turns: list[dict],
+        system_message: str,
+        model,
+    ) -> str:
+        """Stream LLM response with a specific model object.
+
+        Args:
+            turns: Conversation turns
+            system_message: System prompt
+            model: LanguageModelV2 instance
+
+        Returns:
+            Complete response string
+        """
+        executor = self.executor
+        step_config = self.step_def.config
 
         provider = model.llm_factory(executor.config)
 
@@ -512,11 +579,16 @@ class DialogueStrategy(BaseStepStrategy):
         doc_id = ConversationMessage.next_doc_id()
 
         # Determine document type based on speaker
+        # Aspect steps default to dialogue-{aspect}, but YAML can override with specific types
         if speaker.type == SpeakerType.ASPECT:
-            aspect_name = speaker.aspect_name
-            if not aspect_name and executor.framework.dialogue:
-                aspect_name = executor.framework.dialogue.primary_aspect
-            document_type = ASPECT_DOC_TYPES.get(aspect_name, f'dialogue-{aspect_name}')
+            # Check if YAML specifies a non-default document type (override)
+            if step_def.output.document_type not in ('step', 'dialogue'):
+                document_type = step_def.output.document_type
+            else:
+                aspect_name = speaker.aspect_name
+                if not aspect_name and executor.framework.dialogue:
+                    aspect_name = executor.framework.dialogue.primary_aspect
+                document_type = ASPECT_DOC_TYPES.get(aspect_name, f'dialogue-{aspect_name}')
         else:
             document_type = step_def.output.document_type
 
@@ -526,7 +598,7 @@ class DialogueStrategy(BaseStepStrategy):
             user_id="system",
             persona_id=executor.persona.persona_id,
             sequence_no=len(executor.state.dialogue_turns) + 1,
-            branch=0,
+            branch=executor.state.branch,
             role='assistant',
             content=content,
             think=think,
@@ -560,12 +632,17 @@ class DialogueStrategy(BaseStepStrategy):
 
         speaker = self.step_def.speaker
 
-        # Determine document type for the turn
+        # Determine document type based on speaker
+        # Aspect steps default to dialogue-{aspect}, but YAML can override with specific types
         if speaker.type == SpeakerType.ASPECT:
-            aspect_name = speaker.aspect_name
-            if not aspect_name and self.executor.framework.dialogue:
-                aspect_name = self.executor.framework.dialogue.primary_aspect
-            document_type = ASPECT_DOC_TYPES.get(aspect_name, f'dialogue-{aspect_name}')
+            # Check if YAML specifies a non-default document type (override)
+            if self.step_def.output.document_type not in ('step', 'dialogue'):
+                document_type = self.step_def.output.document_type
+            else:
+                aspect_name = speaker.aspect_name
+                if not aspect_name and self.executor.framework.dialogue:
+                    aspect_name = self.executor.framework.dialogue.primary_aspect
+                document_type = ASPECT_DOC_TYPES.get(aspect_name, f'dialogue-{aspect_name}')
         else:
             document_type = self.step_def.output.document_type
 

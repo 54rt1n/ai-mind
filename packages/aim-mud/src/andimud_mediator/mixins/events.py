@@ -7,7 +7,7 @@ import json
 import logging
 from typing import Any, Optional
 
-from aim_mud_types import EventType, MUDEvent, RedisKeys, TurnReason, TurnRequestStatus
+from aim_mud_types import ActorType, EventType, MUDEvent, RedisKeys, TurnReason, TurnRequestStatus
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +158,16 @@ class EventsMixin:
             f"Processing event {msg_id}: {event.event_type.value} "
             f"from {event.actor} in {event.room_id}"
         )
+
+        # Track player activity for idle detection (skip AI self-actions)
+        if event.actor_type != ActorType.AI:
+            from aim_mud_types.helper import _utc_now
+            timestamp_ms = int(_utc_now().timestamp() * 1000)
+            await self.redis.set(
+                RedisKeys.LAST_PLAYER_ACTIVITY,
+                str(timestamp_ms),
+                ex=86400  # Expire after 24 hours
+            )
 
         # Check for control commands (@dream, @dreamer, @planner, @plan, @update)
         if await self._try_handle_control_command(event):

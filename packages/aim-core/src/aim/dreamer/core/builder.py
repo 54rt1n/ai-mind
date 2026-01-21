@@ -93,6 +93,9 @@ class ScenarioBuilder:
             data.get('dialogue'), data.get('context')
         )
 
+        # Extract required_aspects from context section (for non-dialogue scenarios)
+        required_aspects = data.get('context', {}).get('required_aspects', [])
+
         # Parse steps
         steps = self._parse_steps(data.get('steps', {}))
 
@@ -111,6 +114,7 @@ class ScenarioBuilder:
             steps=steps,
             tools=tools,
             dialogue=dialogue_config,
+            required_aspects=required_aspects,
         )
 
         # Validate at build time

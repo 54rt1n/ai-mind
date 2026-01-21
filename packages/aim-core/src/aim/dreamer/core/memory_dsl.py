@@ -95,6 +95,11 @@ def execute_memory_actions(
         elif action.action in ("flush", "clear"):
             logger.debug(f"{action.action}: Clearing {len(accumulated_doc_ids)} accumulated docs")
             accumulated_doc_ids = []
+            # Also clear state.memory_refs if it exists (ScenarioState has it, PipelineState doesn't)
+            if hasattr(state, 'memory_refs'):
+                prior_count = len(state.memory_refs)
+                state.memory_refs = []
+                logger.debug(f"{action.action}: Cleared {prior_count} prior memory_refs from state")
 
     # Deduplicate while preserving order
     return _deduplicate(accumulated_doc_ids)
@@ -216,17 +221,33 @@ def _search_memories(
 
     if action.use_context and accumulated_doc_ids:
         # Build query from accumulated document content
+        # No truncation needed - embedding tokenizer handles max_length=512 tokens
         contents = []
         for doc_id in accumulated_doc_ids[-5:]:  # Use last 5 for context
             doc = cvm.get_by_doc_id(doc_id)
             if doc and 'content' in doc:
-                contents.append(doc['content'][:500])  # Limit per doc
+                contents.append(doc['content'])
         if contents:
             query_text = " ".join(contents)
             logger.debug(f"search_memories: Using accumulated context as query ({len(query_text)} chars)")
 
     if not query_text:
         query_text = action.query_text or override_query_text or getattr(state, 'query_text', None)
+
+    # Fallback: Use dialogue turn content as query text (original design)
+    # No truncation needed - embedding tokenizer handles max_length=512 tokens
+    if not query_text:
+        dialogue_turns = getattr(state, 'dialogue_turns', None)
+        if dialogue_turns:
+            # Build query from recent dialogue turn content
+            contents = []
+            for turn in dialogue_turns[-5:]:  # Use last 5 turns
+                content = getattr(turn, 'content', '')
+                if content:
+                    contents.append(content)
+            if contents:
+                query_text = " ".join(contents)
+                logger.debug(f"search_memories: Using dialogue turn content as query ({len(query_text)} chars)")
 
     if not query_text:
         logger.warning("search_memories: No query text available, returning empty")

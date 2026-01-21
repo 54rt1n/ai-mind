@@ -57,12 +57,16 @@
     function getColumnSortOrder(column: string): number {
         const orderMap: Record<string, number> = {
             timestamp_max: 1,
-            conversation: 2,
-            summary: 3,
-            analysis: 4,
-            highlight: 5,
+            total_docs: 2,
+            branch_count: 3,
+            conversation: 4,
+            "mud-agent": 5,
+            "mud-world": 6,
+            summary: 7,
+            analysis: 8,
+            highlight: 9,
         };
-        return orderMap[column] || 6;
+        return orderMap[column] || 10;
     }
 
     // Replace the existing columns definition with:

@@ -80,19 +80,15 @@ class AgentsMixin:
                 continue
 
         # Case 3: System idle - create idle turn if conditions met
-        # Conditions: ALL agents READY and streams quiet for threshold
+        # Conditions: ALL agents READY and player activity idle for threshold
         if await self._all_agents_ready():
-            from aim_mud_types import RedisKeys
-            events_idle = await self._is_stream_idle(
-                RedisKeys.MUD_EVENTS,
-                self.config.auto_analysis_idle_seconds
-            )
-            actions_idle = await self._is_stream_idle(
-                RedisKeys.MUD_ACTIONS,
+            # Check player activity only (excludes AI agent actions)
+            # This allows agents to continue taking idle turns even after they act
+            events_idle = await self._is_player_activity_idle(
                 self.config.auto_analysis_idle_seconds
             )
 
-            if events_idle and actions_idle:
+            if events_idle:
                 agents_list = sorted(self.registered_agents)
                 if agents_list:
                     n = len(agents_list)
@@ -137,6 +133,39 @@ class AgentsMixin:
                 return False
         return True
 
+    async def _is_player_activity_idle(self, idle_seconds: int) -> bool:
+        """Check if player activity has been idle for at least idle_seconds.
+
+        Uses tracked timestamp from LAST_PLAYER_ACTIVITY key instead of
+        stream last-generated-id. Only non-AI events (PLAYER, NPC, SYSTEM)
+        update this timestamp.
+
+        Args:
+            idle_seconds: Minimum idle time in seconds.
+
+        Returns:
+            True if player activity idle for at least idle_seconds,
+            or if no player activity recorded yet.
+        """
+        try:
+            from aim_mud_types import RedisKeys
+
+            last_activity_ms = await self.redis.get(RedisKeys.LAST_PLAYER_ACTIVITY)
+            if not last_activity_ms:
+                return True  # No player activity yet = idle
+
+            # Decode bytes if necessary
+            if isinstance(last_activity_ms, bytes):
+                last_activity_ms = last_activity_ms.decode('utf-8')
+
+            last_ts_ms = int(last_activity_ms)
+            now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+            idle_ms = now_ms - last_ts_ms
+            return idle_ms >= (idle_seconds * 1000)
+        except Exception:
+            # If key missing or error, treat as idle
+            return True
+
     async def _is_stream_idle(self, stream_key: str, idle_seconds: int) -> bool:
         """Check if stream has been idle for at least idle_seconds.
 
@@ -170,12 +199,14 @@ class AgentsMixin:
         Checks agent availability:
         - Worker offline: no turn_request hash exists
         - Worker paused: mud:agent:{id}:paused key is set to "1"
+        - Worker sleeping: agent:{id}:is_sleeping field is "true" (IDLE turns allowed)
         - Worker crashed: turn_request status is "crashed"
         - Worker busy: turn_request status is "assigned", "in_progress", or "abort_requested"
         - Failed turn in backoff: status is "fail" and current time < next_attempt_at
 
         Returns:
             True if turn was assigned, False if agent is busy/offline/crashed/paused.
+            Sleeping agents can only receive IDLE turns.
         """
         current = await self._get_turn_request(agent_id)
 
@@ -184,13 +215,22 @@ class AgentsMixin:
             logger.debug(f"Agent {agent_id} offline (no turn_request)")
             return False
 
-        # Check if agent is paused via Redis key
+        # Check if agent is paused or sleeping via Redis
         from aim_mud_types.client import RedisMUDClient
         client = RedisMUDClient(self.redis)
         is_paused = await client.is_agent_paused(agent_id)
         if is_paused:
             logger.debug(f"Agent {agent_id} paused, not assigning turn")
             return False
+
+        is_sleeping = await client.get_agent_is_sleeping(agent_id)
+        if is_sleeping:
+            # Sleeping agents can receive IDLE turns (to potentially wake up)
+            turn_reason = reason if isinstance(reason, TurnReason) else TurnReason(reason)
+            if turn_reason != TurnReason.IDLE:
+                logger.debug(f"Agent {agent_id} sleeping, not assigning {turn_reason.value} turn")
+                return False
+            logger.debug(f"Agent {agent_id} sleeping, allowing IDLE turn")
 
         status = current.status
 

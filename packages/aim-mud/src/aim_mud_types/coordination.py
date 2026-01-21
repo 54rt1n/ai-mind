@@ -244,9 +244,9 @@ class DreamingState(BaseModel):
 
     # Strategy-based scenario execution (Phase C: ScenarioState & Persistence)
     # These fields support the new step type strategy pattern for complex workflows
-    framework: Optional[str] = None  # JSON string: ScenarioFramework (immutable definition)
-    state: Optional[str] = None      # JSON string: ScenarioState (mutable runtime state)
-    metadata: Optional[str] = None   # JSON string: error info, custom data
+    framework: Optional[dict] = None  # ScenarioFramework (immutable definition)
+    state: Optional[dict] = None      # ScenarioState (mutable runtime state)
+    metadata: Optional[dict] = None   # Error info, custom data
 
     # Validators to parse Unix timestamps from Redis
     @field_validator("created_at", "updated_at", mode="before")
@@ -263,6 +263,7 @@ class DreamingState(BaseModel):
     @field_validator(
         "execution_order", "completed_steps", "context_doc_ids",
         "step_doc_ids", "scenario_config", "persona_config",
+        "framework", "state", "metadata",
         mode="before"
     )
     @classmethod
