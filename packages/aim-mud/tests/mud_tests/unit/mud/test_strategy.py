@@ -462,12 +462,12 @@ class TestMUDDecisionStrategyBuildAgentActionHints:
         assert any("Valid move locations:" in h for h in hints)
 
     def test_build_agent_action_hints_includes_objects(self, strategy):
-        """Test that hints include objects."""
+        """Test that hints include describable objects with IDs."""
         session = _sample_session()
 
         hints = strategy._build_agent_action_hints(session)
 
-        assert any("Objects present:" in h for h in hints)
+        assert any("Describable objects:" in h for h in hints)
 
     def test_build_agent_action_hints_includes_inventory(self, strategy):
         """Test that hints include inventory."""

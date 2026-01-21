@@ -64,6 +64,7 @@ from .commands import (
     IdleCommand,
     EventsCommand,
     RetryCommand,
+    ThinkCommand,
 )
 
 
@@ -159,6 +160,7 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
             IdleCommand(),
             EventsCommand(),
             RetryCommand(),
+            ThinkCommand(),
         )
 
     async def start(self) -> None:
@@ -516,7 +518,33 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                             user_guidance = f"Action: {action_desc}"
                         else:
                             user_guidance = guidance
-                    await self.process_turn(turn_request, events, user_guidance=user_guidance)
+
+                    # THINK turns use ThinkingTurnProcessor with thought content from Redis
+                    if turn_request.reason == TurnReason.THINK:
+                        thought_content = ""
+                        thought_key = RedisKeys.agent_thought(self.config.agent_id)
+                        thought_raw = await self.redis.get(thought_key)
+                        if thought_raw:
+                            try:
+                                raw_str = thought_raw.decode("utf-8") if isinstance(thought_raw, bytes) else thought_raw
+                                thought_data = json.loads(raw_str)
+                                thought_content = thought_data.get("content", "")
+                            except json.JSONDecodeError as e:
+                                logger.warning("Failed to parse thought JSON: %s", e)
+
+                        # Extract guidance from metadata if provided
+                        if turn_request.metadata:
+                            guidance = turn_request.metadata.get("guidance", "") or ""
+                            if guidance:
+                                user_guidance = guidance
+
+                        await self.process_think_turn(
+                            turn_request, events,
+                            thought_content=thought_content,
+                            user_guidance=user_guidance,
+                        )
+                    else:
+                        await self.process_turn(turn_request, events, user_guidance=user_guidance)
 
                     # CHECK: Did this turn include a speech event?
                     has_speech = False

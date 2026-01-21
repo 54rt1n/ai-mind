@@ -589,10 +589,15 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
         inventory_items: list[str] = []
         aura_descriptions: list[str] = []
 
-        # Get exits from current room
+        # Get exits and room info from current room
         room = session.current_room if session else None
-        if room and room.exits:
-            exits = list(room.exits.keys())
+        room_name = ""
+        room_id = ""
+        if room:
+            room_name = room.name or ""
+            room_id = room.room_id or ""
+            if room.exits:
+                exits = list(room.exits.keys())
 
         # Get auras from current room
         if room and getattr(room, "auras", None):
@@ -621,7 +626,10 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
                         present_targets.append(entity.name)
                 else:
                     if entity.name:
-                        room_objects.append(entity.name)
+                        if entity.entity_id:
+                            room_objects.append(f"{entity.name} ({entity.entity_id})")
+                        else:
+                            room_objects.append(entity.name)
             for item in world_state.inventory:
                 if item.name:
                     inventory_items.append(item.name)
@@ -636,14 +644,23 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
                             present_targets.append(entity.name)
                     else:
                         if entity.name:
-                            room_objects.append(entity.name)
+                            if entity.entity_id:
+                                room_objects.append(f"{entity.name} ({entity.entity_id})")
+                            else:
+                                room_objects.append(entity.name)
 
         # Build hints
         hints: list[str] = []
+        # Add room context for describe actions
+        if room_name:
+            room_hint = f"Current room: {room_name}"
+            if room_id:
+                room_hint += f" ({room_id})"
+            hints.append(room_hint)
         if exits:
             hints.append(f"Valid move locations: {', '.join(exits)}")
         if room_objects:
-            hints.append(f"Objects present: {', '.join(room_objects)}")
+            hints.append(f"Describable objects: {', '.join(room_objects)}")
         if inventory_items:
             hints.append(f"Inventory: {', '.join(inventory_items)}")
         if present_targets:

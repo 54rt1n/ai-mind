@@ -37,23 +37,27 @@ class AgentCommand(Command):
             CommandResult with complete=True, flush_drain=True
         """
         turn_id = kwargs.get("turn_id", "unknown")
-        guidance = ""
-        metadata = kwargs.get("metadata") or {}
-        if isinstance(metadata, dict):
-            guidance = metadata.get("guidance", "") or ""
 
-        # Construct MUDTurnRequest from kwargs
+        # Construct MUDTurnRequest from kwargs - Pydantic parses JSON metadata
         turn_request = MUDTurnRequest.model_validate(kwargs)
+
+        # Extract guidance and tool from validated metadata (now a dict)
+        guidance = ""
+        required_tool = ""
+        if turn_request.metadata:
+            guidance = (turn_request.metadata.get("guidance", "") or "").strip()
+            required_tool = (turn_request.metadata.get("tool", "") or "").strip()
 
         # Worker has already drained events into worker.pending_events
         events = worker.pending_events
 
         logger.info(
-            "Processing @agent turn %s with %d events",
+            "Processing @agent turn %s with tool=%s, %d events",
             turn_id,
+            required_tool or "(any)",
             len(events),
         )
-        await worker.process_agent_turn(turn_request, events, guidance)
+        await worker.process_agent_turn(turn_request, events, guidance, required_tool)
 
         # Agent turns are memory palace actions, outside MUD world
         # Events are environmental context only, don't flush drain

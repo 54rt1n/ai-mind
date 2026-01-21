@@ -5,7 +5,7 @@
 import logging
 from typing import TYPE_CHECKING
 
-from aim_mud_types import MUDAction, TurnRequestStatus
+from aim_mud_types import MUDAction, MUDTurnRequest, TurnRequestStatus
 from ..conversation.storage import generate_conversation_id
 from .base import Command
 from .result import CommandResult
@@ -37,12 +37,12 @@ class NewConversationCommand(Command):
         Returns:
             CommandResult with complete=True (no fall-through)
         """
-        conversation_id = ""
-        metadata = kwargs.get("metadata") or {}
+        # Use Pydantic to parse metadata JSON
+        turn_request = MUDTurnRequest.model_validate(kwargs)
+        metadata = turn_request.metadata or {}
+        conversation_id = metadata.get("conversation_id", "") if metadata else ""
 
         if worker.conversation_manager:
-            if isinstance(metadata, dict):
-                conversation_id = metadata.get("conversation_id", "")
 
             if not conversation_id:
                 # Generate new conversation_id

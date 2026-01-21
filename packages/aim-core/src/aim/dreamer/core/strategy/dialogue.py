@@ -290,11 +290,15 @@ class DialogueStrategy(FormatValidationMixin, BaseStepStrategy):
         memory_docs: list[dict],
         is_persona_speaker: bool,
     ) -> list[dict]:
-        """Build turns list with proper role flipping.
+        """Build turns list with proper role flipping and token budget enforcement.
 
         Role assignment rules:
         - For ASPECT speakers: all aspects = 'assistant', persona = 'user'
         - For PERSONA speakers: all aspects = 'user', persona = 'assistant'
+
+        Token budget (following build_turns pattern from executor.py):
+        - Eviction priority: oldest dialogue turns first, then oldest memory docs
+        - Preserves current guidance (required for coherence)
 
         Args:
             guidance: Rendered guidance for this step
@@ -308,20 +312,38 @@ class DialogueStrategy(FormatValidationMixin, BaseStepStrategy):
         state = executor.state
         persona = executor.persona
 
-        turns = []
+        # Get model limits for token budget
+        model = self._get_model()
+        max_context = getattr(model, 'max_tokens', 32768)
+        max_output = min(
+            self.step_def.config.max_tokens,
+            getattr(model, 'max_output_tokens', 4096)
+        )
+        safety_margin = 1024
 
-        # 1. Add memory context as first user turn if present
-        if memory_docs:
-            context_xml = self._format_context_docs(memory_docs)
-            turns.append({'role': 'user', 'content': context_xml})
+        # Calculate available tokens for variable content
+        available_tokens = max_context - max_output - safety_margin
 
-            # Add wakeup after context if needed
-            wakeup = persona.get_wakeup()
-            if wakeup:
-                turns.append({'role': 'assistant', 'content': wakeup})
+        # Build system prompt to account for its tokens
+        from ..models import SpeakerType
+        speaker = self.step_def.speaker
+        system_message = self._build_system_prompt(speaker)
+        system_tokens = count_tokens(system_message)
 
-        # 2. Build dialogue turns with proper roles
-        dialogue_turn_contents = []
+        # Calculate tokens for fixed content (guidance, wakeup)
+        wakeup = persona.get_wakeup()
+        guidance_content = f"[~~ Output Guidance ~~]\n{guidance}" if guidance else "[Continue]"
+        fixed_tokens = (
+            system_tokens +
+            count_tokens(guidance_content) +
+            count_tokens(wakeup)
+        )
+
+        # Budget remaining after fixed content
+        remaining_budget = available_tokens - fixed_tokens
+
+        # Build dialogue turn contents with token counting
+        all_dialogue_turns = []
         last_aspect_name = None
 
         for turn in state.dialogue_turns:
@@ -332,20 +354,68 @@ class DialogueStrategy(FormatValidationMixin, BaseStepStrategy):
             if is_persona_speaker and turn.speaker_id.startswith("aspect:"):
                 current_aspect = turn.speaker_id.split(":", 1)[1]
                 if current_aspect != last_aspect_name:
-                    # New aspect appearing - generate scene
                     scene = self._generate_scene(current_aspect)
                     if scene:
                         content = f"{scene}\n\n{content}"
                     last_aspect_name = current_aspect
 
-            dialogue_turn_contents.append((role, content))
+            turn_tokens = count_tokens(content)
+            all_dialogue_turns.append((role, content, turn_tokens))
 
-        # 3. Add dialogue turns to the turns list
-        for role, content in dialogue_turn_contents:
+        # Calculate total dialogue tokens
+        total_dialogue_tokens = sum(t[2] for t in all_dialogue_turns)
+
+        # Evict oldest dialogue turns first if over budget
+        evicted_dialogue = 0
+        while all_dialogue_turns and total_dialogue_tokens > remaining_budget:
+            removed = all_dialogue_turns.pop(0)
+            total_dialogue_tokens -= removed[2]
+            evicted_dialogue += 1
+
+        if evicted_dialogue > 0:
+            logger.info(
+                f"Evicted {evicted_dialogue} oldest dialogue turns | "
+                f"remaining={len(all_dialogue_turns)} tokens={total_dialogue_tokens}"
+            )
+
+        # Budget remaining for memory docs (after dialogue)
+        memory_budget = remaining_budget - total_dialogue_tokens
+
+        # Trim memory docs to fit budget (keep newest, following build_turns pattern)
+        trimmed_memory_docs = []
+        memory_tokens = 0
+        for doc in reversed(memory_docs):
+            content = doc.get('content', '')
+            doc_tokens = count_tokens(content)
+            if memory_tokens + doc_tokens <= memory_budget:
+                trimmed_memory_docs.insert(0, doc)  # Prepend to maintain order
+                memory_tokens += doc_tokens
+            else:
+                break  # Stop adding when budget exceeded
+
+        if len(trimmed_memory_docs) < len(memory_docs):
+            logger.info(
+                f"Trimmed memory docs: {len(memory_docs)} -> {len(trimmed_memory_docs)} "
+                f"({memory_tokens} tokens, budget={memory_budget})"
+            )
+
+        # Now build the actual turns list
+        turns = []
+
+        # 1. Add memory context as first user turn if present
+        if trimmed_memory_docs:
+            context_xml = self._format_context_docs(trimmed_memory_docs)
+            turns.append({'role': 'user', 'content': context_xml})
+
+            if wakeup:
+                turns.append({'role': 'assistant', 'content': wakeup})
+
+        # 2. Add dialogue turns (after eviction)
+        for role, content, _ in all_dialogue_turns:
             turns.append({'role': role, 'content': content})
 
-        # 4. Add guidance as final user turn
-        if not dialogue_turn_contents:
+        # 3. Add guidance as final user turn
+        if not all_dialogue_turns:
             # No prior dialogue - add scene if persona speaker facing aspect
             final_content = []
             if is_persona_speaker and self.step_def.speaker.aspect_name:
@@ -360,11 +430,11 @@ class DialogueStrategy(FormatValidationMixin, BaseStepStrategy):
                 turns.append({'role': 'user', 'content': '\n\n'.join(final_content)})
         else:
             # Has prior turns - append guidance to final user turn or add new one
-            if dialogue_turn_contents[-1][0] == 'user':
+            last_role = all_dialogue_turns[-1][0]
+            if last_role == 'user':
                 # Last turn was user - append guidance
-                last_role, last_content = dialogue_turn_contents[-1]
                 if guidance:
-                    turns[-1]['content'] = f"{last_content}\n\n[~~ Output Guidance ~~]\n{guidance}"
+                    turns[-1]['content'] = f"{turns[-1]['content']}\n\n[~~ Output Guidance ~~]\n{guidance}"
             else:
                 # Last turn was assistant - add guidance as new user turn
                 if guidance:

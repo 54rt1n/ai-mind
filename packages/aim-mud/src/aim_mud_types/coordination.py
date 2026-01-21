@@ -39,6 +39,7 @@ class TurnReason(str, Enum):
     CLEAR = "clear"
     NEW = "new"
     RETRY = "retry"
+    THINK = "think"          # Process with injected thought content
 
     def is_immediate_command(self) -> bool:
         """Return True if this is an immediate command that uses EXECUTE status.

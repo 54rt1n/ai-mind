@@ -113,6 +113,7 @@ class ScenarioState(BaseModel):
     # Context passed at pipeline start
     guidance: Optional[str] = None       # External guidance text
     query_text: Optional[str] = None     # Query/topic text
+    thought_content: Optional[str] = None  # Externally injected thought
     conversation_id: Optional[str] = None
     branch: int = 0                      # Conversation branch for document creation
 
@@ -129,6 +130,7 @@ class ScenarioState(BaseModel):
         conversation_id: Optional[str] = None,
         guidance: Optional[str] = None,
         query_text: Optional[str] = None,
+        thought_content: Optional[str] = None,
         branch: int = 0,
     ) -> "ScenarioState":
         """Create initial state for starting a scenario.
@@ -138,6 +140,7 @@ class ScenarioState(BaseModel):
             conversation_id: Target conversation (optional)
             guidance: External guidance text (optional)
             query_text: Query/topic text (optional)
+            thought_content: Externally injected thought (optional)
             branch: Conversation branch for document creation (optional)
 
         Returns:
@@ -148,6 +151,7 @@ class ScenarioState(BaseModel):
             conversation_id=conversation_id,
             guidance=guidance,
             query_text=query_text,
+            thought_content=thought_content,
             branch=branch,
         )
 
@@ -263,6 +267,7 @@ class ScenarioState(BaseModel):
             # Context
             'guidance': self.guidance,
             'query_text': self.query_text,
+            'thought_content': self.thought_content,
             'conversation_id': self.conversation_id,
         }
 

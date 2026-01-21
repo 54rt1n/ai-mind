@@ -5,7 +5,7 @@
 import logging
 from typing import TYPE_CHECKING
 
-from aim_mud_types import TurnRequestStatus
+from aim_mud_types import MUDTurnRequest, TurnRequestStatus
 from .base import Command
 from .result import CommandResult
 
@@ -39,7 +39,10 @@ class DreamCommand(Command):
             CommandResult with complete=True, status=TurnRequestStatus.DONE or FAIL
         """
         turn_id = kwargs.get("turn_id", "unknown")
-        metadata = kwargs.get("metadata") or {}
+
+        # Use Pydantic to parse metadata JSON
+        turn_request = MUDTurnRequest.model_validate(kwargs)
+        metadata = turn_request.metadata or {}
 
         # Check for planner pipeline
         if metadata.get("pipeline") == "planner":

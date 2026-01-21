@@ -50,6 +50,10 @@ class TestTurnReasonIsImmediateCommand:
         """Test that RETRY is not an immediate command."""
         assert TurnReason.RETRY.is_immediate_command() is False
 
+    def test_think_is_not_immediate_command(self):
+        """Test that THINK is not an immediate command."""
+        assert TurnReason.THINK.is_immediate_command() is False
+
     def test_all_reasons_handled(self):
         """Test that all TurnReason values are covered by the method."""
         # Verify that all enum values return either True or False
@@ -66,6 +70,22 @@ class TestTurnReasonIsImmediateCommand:
             TurnReason.CLEAR,
             TurnReason.NEW,
         }
+
+
+class TestTurnReasonThink:
+    """Tests for TurnReason.THINK enum value."""
+
+    def test_think_exists(self):
+        """Test THINK is a valid TurnReason."""
+        assert TurnReason.THINK == "think"
+
+    def test_think_value(self):
+        """Test THINK enum value is correct."""
+        assert TurnReason.THINK.value == "think"
+
+    def test_think_in_enum(self):
+        """Test THINK is in the TurnReason enum."""
+        assert TurnReason.THINK in TurnReason
 
 
 if __name__ == "__main__":

@@ -45,6 +45,7 @@ class AgentTurnProcessor(BaseTurnProcessor):
         """
         super().__init__(worker)
         self.user_guidance = ""
+        self.required_tool = ""  # If set, filter allowed tools to only this tool
         self._tool_helper = tool_helper
 
     def build_system_message(self) -> str:
@@ -90,8 +91,8 @@ class AgentTurnProcessor(BaseTurnProcessor):
                 parts.append(tool_guidance)
                 parts.append("")
 
-        # Get basic agent action hints from worker (WITHOUT user_guidance)
-        basic_guidance = self.worker._build_agent_guidance("")
+        # Get basic agent action hints from worker (filter to required_tool if set)
+        basic_guidance = self.worker._build_agent_guidance("", self.required_tool)
         if basic_guidance:
             parts.append(basic_guidance)
 
@@ -144,6 +145,14 @@ class AgentTurnProcessor(BaseTurnProcessor):
         # Refresh aura tools for @agent context
         self._refresh_aura_tools()
 
+        # Filter tools FIRST if required_tool is set (before building any guidance)
+        logger.info("AgentTurnProcessor required_tool='%s'", self.required_tool)
+        if self.required_tool:
+            if not self._tool_helper.filter_to_tool(self.required_tool):
+                logger.warning("Required tool '%s' not found, proceeding with all tools", self.required_tool)
+        else:
+            logger.info("No required_tool set, using all tools")
+
         # Build comprehensive guidance including ToolUser signatures
         guidance = self._build_agent_guidance(self.user_guidance)
         coming_online = await self.worker._is_fresh_session()
@@ -182,6 +191,18 @@ class AgentTurnProcessor(BaseTurnProcessor):
                 if name:
                     allowed.add(name)
 
+        # Filter allowed set to required tool if specified
+        logger.info("Initial allowed set: %s", allowed)
+        if self.required_tool:
+            required_lower = self.required_tool.lower()
+            if required_lower in allowed:
+                allowed = {required_lower}
+                logger.info("Filtered allowed set to: %s", allowed)
+            else:
+                logger.warning("Required tool '%s' not in allowed tools: %s", self.required_tool, allowed)
+        else:
+            logger.info("No required_tool, keeping all allowed: %s", allowed)
+
         # Create heartbeat callback for @agent action generation
         async def heartbeat_callback() -> None:
             """Refresh turn request heartbeat during long-running @agent generation."""
@@ -211,6 +232,7 @@ class AgentTurnProcessor(BaseTurnProcessor):
                     thinking_parts.append(think_content)
 
                 action, args, error = parse_agent_action_response(cleaned)
+                logger.info("Parsed action='%s' from response, allowed=%s", action, allowed)
                 if not action:
                     logger.warning(
                         "Invalid @agent response (attempt %d/%d): %s",
@@ -222,12 +244,15 @@ class AgentTurnProcessor(BaseTurnProcessor):
 
                 if allowed and action not in allowed:
                     logger.warning(
-                        "Invalid @agent action '%s' (attempt %d/%d)",
+                        "REJECTING @agent action '%s' not in allowed %s (attempt %d/%d)",
                         action,
+                        allowed,
                         attempt + 1,
                         self.worker.config.decision_max_retries,
                     )
                     continue
+
+                logger.info("ACCEPTING action '%s' (in allowed set)", action)
 
                 # Valid action -> emit
                 if action == "move":
@@ -272,12 +297,35 @@ class AgentTurnProcessor(BaseTurnProcessor):
                         logger.warning("Agent give missing object or target")
                     break
 
-                if action == "describe":
+                if action == "desc_room":
+                    description = args.get("description")
+                    if description:
+                        action_obj = MUDAction(
+                            tool="desc_room",
+                            args={"description": description},
+                        )
+                        actions_taken.append(action_obj)
+                        emote_text = "took a moment to reimagine the room."
+                        actions_taken.append(
+                            MUDAction(tool="emote", args={"action": emote_text})
+                        )
+                        await self.worker._emit_actions(actions_taken)
+                    else:
+                        logger.warning("Agent desc_room missing description")
+                    break
+
+                if action == "desc_object":
                     target = args.get("target")
                     description = args.get("description")
                     if target and description:
+                        # Validate target is an object, not the room
+                        room = self.worker.session.current_room if self.worker.session else None
+                        if room and room.room_id == target:
+                            logger.warning("Agent desc_object target is room ID %s, use desc_room instead", target)
+                            break
+
                         action_obj = MUDAction(
-                            tool="describe",
+                            tool="desc_object",
                             args={"target": target, "description": description},
                         )
                         actions_taken.append(action_obj)
@@ -288,7 +336,7 @@ class AgentTurnProcessor(BaseTurnProcessor):
                         )
                         await self.worker._emit_actions(actions_taken)
                     else:
-                        logger.warning("Agent describe missing target or description")
+                        logger.warning("Agent desc_object missing target or description")
                     break
 
                 if action == "ring":

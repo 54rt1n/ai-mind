@@ -59,12 +59,18 @@ class MUDAction(BaseModel):
                 return ""
             return f"setdesc {self.args.get('description', '')}".strip()
 
-        elif self.tool == "describe":
+        elif self.tool == "desc_room":
+            description = self.args.get("description")
+            if not description:
+                return ""
+            return f"@desc here = {description}".strip()
+
+        elif self.tool == "desc_object":
             target = self.args.get("target")
             description = self.args.get("description")
-            if not target or description is None:
+            if not target or not description:
                 return ""
-            return f"@set {target}/desc = {description}".strip()
+            return f"@desc {target} = {description}".strip()
 
         elif self.tool == "move":
             location = self.args.get("location")

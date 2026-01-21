@@ -152,6 +152,9 @@ class StandardStrategy(FormatValidationMixin, BaseStepStrategy):
         # Build prior outputs from step outputs
         prior_outputs = load_step_docs(executor)
 
+        # Get thought content from state if available
+        thought_content = executor.state.thought_content if executor.state else None
+
         return build_turns(
             state=None,  # We'll build from state manually
             prompt=prompt,
@@ -160,6 +163,7 @@ class StandardStrategy(FormatValidationMixin, BaseStepStrategy):
             persona=executor.persona,
             max_context_tokens=max_context,
             max_output_tokens=max_output,
+            thought_content=thought_content,
         )
 
     def _get_model(self):

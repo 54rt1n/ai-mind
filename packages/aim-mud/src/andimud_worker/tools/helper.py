@@ -144,6 +144,29 @@ class ToolHelper:
         all_tools = self._base_tools + self._plan_tools + self._aura_tools
         self._tool_user = ToolUser(all_tools)
 
+    def filter_to_tool(self, tool_name: str) -> bool:
+        """Filter ToolUser to only include the specified tool.
+
+        Args:
+            tool_name: Name of the tool to keep.
+
+        Returns:
+            True if the tool was found and filtering applied, False otherwise.
+        """
+        tool_name_lower = tool_name.lower()
+        all_tools = self._base_tools + self._plan_tools + self._aura_tools
+        matching = [
+            t for t in all_tools
+            if getattr(t.function, "name", "").lower() == tool_name_lower
+        ]
+        if matching:
+            self._tool_user = ToolUser(matching)
+            logger.info("Filtered tools to: %s", tool_name)
+            return True
+        else:
+            logger.warning("Tool '%s' not found for filtering", tool_name)
+            return False
+
     def is_aura_tool(self, tool_name: str) -> bool:
         """Check if tool_name is an available aura tool.
 

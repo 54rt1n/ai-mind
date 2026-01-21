@@ -511,6 +511,7 @@ class PipelineState(BaseModel):
     # Runtime context
     guidance: Optional[str] = None
     query_text: Optional[str] = None
+    thought_content: Optional[str] = None  # Externally injected thought
     persona_mood: Optional[str] = None
 
     # Execution state

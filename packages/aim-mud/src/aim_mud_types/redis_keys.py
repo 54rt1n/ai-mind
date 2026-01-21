@@ -264,3 +264,23 @@ class RedisKeys:
             Redis list key for the agent's completed dream history.
         """
         return f"agent:{agent_id}:dreaming:history"
+
+    @staticmethod
+    def agent_thought(agent_id: str) -> str:
+        """Get the thought injection key for a specific agent.
+
+        The thought key stores external thought content to inject into
+        the agent's processing. Value is JSON:
+        {
+            "content": str,          # The thought text
+            "source": str,           # "manual" | "dreamer" | "system"
+            "timestamp": int,        # Unix timestamp when set
+        }
+
+        Args:
+            agent_id: Unique identifier for the agent.
+
+        Returns:
+            Redis key for the agent's injected thought.
+        """
+        return f"agent:{agent_id}:thought"

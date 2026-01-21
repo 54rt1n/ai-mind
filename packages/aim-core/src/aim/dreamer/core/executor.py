@@ -70,6 +70,7 @@ def build_turns(
     max_context_tokens: int,
     max_output_tokens: int,
     include_thought_stream: bool = True,
+    thought_content: str | None = None,
 ) -> tuple[list[dict], str]:
     """
     Build the turns list for LLM call and system message.
@@ -77,9 +78,10 @@ def build_turns(
     Creates a conversation history with:
     1. Memory context (if memories present)
     2. Wakeup message (if memories present)
-    3. Thought stream from prior outputs (evicted first if over budget)
-    4. Prior step outputs loaded from CVM
-    5. Current prompt
+    3. External thought injection (if provided)
+    4. Thought stream from prior outputs (evicted first if over budget)
+    5. Prior step outputs loaded from CVM
+    6. Current prompt
 
     The system message is returned separately to be set via ChatConfig,
     as the LLM provider handles system messages through config.system_message.
@@ -93,6 +95,7 @@ def build_turns(
         max_context_tokens: Model's max context window
         max_output_tokens: Max tokens to generate (min of requested and model limit)
         include_thought_stream: Whether to include thought stream in context
+        thought_content: Externally injected thought to include in context
 
     Returns:
         Tuple of (turns list, system_message string)
@@ -180,6 +183,11 @@ def build_turns(
     # Add thought stream if present (after eviction check)
     if thought_stream:
         turns.append({'role': 'user', 'content': thought_stream})
+
+    # Add external thought injection if present
+    if thought_content:
+        external_thought_xml = f"<external_thought>{thought_content}</external_thought>"
+        turns.append({'role': 'user', 'content': external_thought_xml})
 
     # Add prior step outputs as conversation (loaded from CVM by doc_id)
     for output in trimmed_outputs:
@@ -429,6 +437,7 @@ async def execute_step(
         state, prompt, [], prior_outputs, persona,
         max_context_tokens=model.max_tokens,
         max_output_tokens=max_output_tokens,
+        thought_content=state.thought_content if state else None,
     )
 
     # 8. Build config for this step (ChatConfig is a dataclass, use replace())

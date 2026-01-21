@@ -39,7 +39,7 @@ from ..turns.decision import (
     validate_emote,
     validate_ring,
 )
-from ..turns.processor import PhasedTurnProcessor, AgentTurnProcessor
+from ..turns.processor import PhasedTurnProcessor, AgentTurnProcessor, ThinkingTurnProcessor
 from ..exceptions import AbortRequestedException
 
 if TYPE_CHECKING:
@@ -159,23 +159,40 @@ class TurnsMixin:
         """Return a human-readable list of available tools."""
         return ", ".join(self._get_available_tool_names())
 
-    def _build_agent_guidance(self: "MUDAgentWorker", user_guidance: str) -> str:
+    def _build_agent_guidance(self: "MUDAgentWorker", user_guidance: str, required_tool: str = "") -> str:
         """Build guidance for @agent action selection.
 
         Originally from worker.py lines 863-898
+
+        Args:
+            user_guidance: Optional user-provided guidance string
+            required_tool: If set, only show this tool in the guidance
         """
         spec = self._agent_action_spec or {}
         instructions = spec.get("instructions", "")
         actions = self._agent_action_list()
+
+        # Filter actions to required tool if specified
+        if required_tool:
+            required_lower = required_tool.lower()
+            actions = [a for a in actions if a.get("name", "").lower() == required_lower]
 
         lines = []
         if instructions:
             lines.append(instructions)
         lines.append("Include any other text inside of the JSON response instead.")
         lines.append("You are in your memory palace. Respond as yourself.")
-        lines.append(
-            "For describe, write paragraph-long descriptions infused with your personality."
-        )
+
+        # Only show relevant description guidance
+        action_names_lower = {a.get("name", "").lower() for a in actions}
+        if "desc_room" in action_names_lower:
+            lines.append(
+                "For desc_room, write paragraph-long room descriptions infused with your personality."
+            )
+        if "desc_object" in action_names_lower:
+            lines.append(
+                "For desc_object, use the object ID from hints and write paragraph-long descriptions."
+            )
         if user_guidance:
             lines.append(f"User guidance: {user_guidance}")
 
@@ -442,7 +459,7 @@ class TurnsMixin:
         processor.user_guidance = user_guidance
         await processor.execute(turn_request, events)
 
-    async def process_agent_turn(self: "MUDAgentWorker", turn_request: MUDTurnRequest, events: list[MUDEvent], user_guidance: str) -> None:
+    async def process_agent_turn(self: "MUDAgentWorker", turn_request: MUDTurnRequest, events: list[MUDEvent], user_guidance: str, required_tool: str = "") -> None:
         """Process a guided @agent turn using mud_agent.yaml action schema.
 
         Single-phase strategy: direct action with full guidance,
@@ -452,8 +469,38 @@ class TurnsMixin:
             turn_request: MUDTurnRequest with sequence_id and attempt_count.
             events: List of events to process
             user_guidance: Optional guidance for the agent
+            required_tool: If set, filter allowed tools to only this tool
         """
-        logger.info(f"Processing @agent turn with {len(events)} events")
+        logger.info(f"Processing @agent turn with {len(events)} events, tool={required_tool or '(any)'}")
         processor = AgentTurnProcessor.from_config(self, self.chat_config, self.config)
+        processor.user_guidance = user_guidance
+        processor.required_tool = required_tool
+        await processor.execute(turn_request, events)
+
+    async def process_think_turn(
+        self: "MUDAgentWorker",
+        turn_request: MUDTurnRequest,
+        events: list[MUDEvent],
+        thought_content: str,
+        user_guidance: str = "",
+    ) -> None:
+        """Process a THINK turn with externally injected thought content.
+
+        Uses ThinkingTurnProcessor which injects thought into:
+        1. Phase 1 decision guidance
+        2. Phase 2 response strategy context
+
+        Args:
+            turn_request: MUDTurnRequest with sequence_id and attempt_count.
+            events: List of MUDEvent objects to process.
+            thought_content: External thought to inject into processing.
+            user_guidance: Optional additional guidance for the turn.
+        """
+        logger.info(
+            "Processing @think turn with %d events, thought=%d chars",
+            len(events),
+            len(thought_content),
+        )
+        processor = ThinkingTurnProcessor(self, thought_content=thought_content)
         processor.user_guidance = user_guidance
         await processor.execute(turn_request, events)

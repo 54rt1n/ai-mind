@@ -5,5 +5,11 @@
 from .base import BaseTurnProcessor
 from .phased import PhasedTurnProcessor
 from .agent import AgentTurnProcessor
+from .thinking import ThinkingTurnProcessor
 
-__all__ = ["BaseTurnProcessor", "PhasedTurnProcessor", "AgentTurnProcessor"]
+__all__ = [
+    "BaseTurnProcessor",
+    "PhasedTurnProcessor",
+    "AgentTurnProcessor",
+    "ThinkingTurnProcessor",
+]
