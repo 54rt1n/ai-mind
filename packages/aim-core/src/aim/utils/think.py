@@ -58,3 +58,21 @@ def extract_think_tags(response: str) -> tuple[str, Optional[str]]:
 
     return response, None
 
+
+def extract_reasoning_block(response: str) -> tuple[str, Optional[str]]:
+    """Extract <reasoning>...</reasoning> block from response.
+
+    Args:
+        response: Raw response from LLM (after think tag extraction)
+
+    Returns:
+        Tuple of (cleaned_response, reasoning_content or None)
+    """
+    pattern = r'<reasoning>(.*?)</reasoning>'
+    match = re.search(pattern, response, re.DOTALL)
+    if match:
+        reasoning = match.group(1).strip()
+        cleaned = re.sub(pattern, '', response, flags=re.DOTALL).strip()
+        return cleaned, reasoning
+    return response, None
+

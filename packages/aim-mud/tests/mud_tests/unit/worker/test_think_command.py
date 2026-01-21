@@ -4,9 +4,8 @@
 
 import pytest
 from unittest.mock import MagicMock, AsyncMock
-import json
 
-from aim_mud_types import RedisKeys, TurnRequestStatus
+from aim_mud_types import TurnRequestStatus, TurnReason
 from andimud_worker.commands.think import ThinkCommand
 
 
@@ -16,107 +15,60 @@ def mock_worker():
     worker = MagicMock()
     worker.config = MagicMock()
     worker.config.agent_id = "test_agent"
-    worker.redis = AsyncMock()
-    worker._response_strategy = MagicMock()
-    worker._response_strategy.thought_content = None
     worker.pending_events = []
     return worker
+
+
+@pytest.fixture
+def base_kwargs():
+    """Base kwargs with all required fields for MUDTurnRequest validation."""
+    return {
+        "turn_id": "test_turn",
+        "sequence_id": 1000,
+        "reason": TurnReason.THINK,
+        "status": TurnRequestStatus.IN_PROGRESS,
+        "metadata": {},
+    }
 
 
 class TestThinkCommand:
     """Tests for ThinkCommand execution."""
 
     @pytest.mark.asyncio
-    async def test_think_command_reads_thought(self, mock_worker):
-        """Test ThinkCommand reads thought from Redis and injects into strategy."""
-        # Setup mock Redis to return thought data
-        thought_data = json.dumps({
-            "content": "Focus on emotional memories",
-            "source": "manual",
-            "timestamp": 1234567890
-        })
-        mock_worker.redis.get.return_value = thought_data.encode("utf-8")
-
+    async def test_think_command_returns_incomplete(self, mock_worker, base_kwargs):
+        """Test ThinkCommand returns complete=False to fall through to processor."""
         cmd = ThinkCommand()
-        result = await cmd.execute(mock_worker, turn_id="test_turn", metadata={})
+        result = await cmd.execute(mock_worker, **base_kwargs)
 
-        # Verify Redis key was read
-        expected_key = RedisKeys.agent_thought("test_agent")
-        mock_worker.redis.get.assert_called_once_with(expected_key)
-
-        # Verify thought was injected
-        assert mock_worker._response_strategy.thought_content == "Focus on emotional memories"
-
-        # Verify result
-        assert result.complete is False
-        assert result.status == TurnRequestStatus.DONE
-        assert "Focus on emotional memories" in result.message
-
-    @pytest.mark.asyncio
-    async def test_think_command_no_thought(self, mock_worker):
-        """Test ThinkCommand handles missing thought gracefully."""
-        mock_worker.redis.get.return_value = None
-
-        cmd = ThinkCommand()
-        result = await cmd.execute(mock_worker, turn_id="test_turn", metadata={})
-
-        # Verify thought was not set on strategy
-        assert mock_worker._response_strategy.thought_content is None
-
-        # Verify result
+        # Verify result falls through
         assert result.complete is False
         assert result.status == TurnRequestStatus.DONE
         assert "Think turn ready" in result.message
 
     @pytest.mark.asyncio
-    async def test_think_command_invalid_json(self, mock_worker):
-        """Test ThinkCommand handles invalid JSON gracefully."""
-        mock_worker.redis.get.return_value = b"invalid json {{{}"
-
-        cmd = ThinkCommand()
-        result = await cmd.execute(mock_worker, turn_id="test_turn", metadata={})
-
-        # Verify thought was not set on strategy
-        assert mock_worker._response_strategy.thought_content is None
-
-        # Verify result still succeeds
-        assert result.complete is False
-        assert result.status == TurnRequestStatus.DONE
-
-    @pytest.mark.asyncio
-    async def test_think_command_with_guidance(self, mock_worker):
+    async def test_think_command_preserves_guidance(self, mock_worker, base_kwargs):
         """Test ThinkCommand preserves guidance from metadata."""
-        thought_data = json.dumps({
-            "content": "Test thought",
-            "source": "manual",
-            "timestamp": 1234567890
-        })
-        mock_worker.redis.get.return_value = thought_data.encode("utf-8")
-
-        metadata = {"guidance": "User provided guidance"}
+        base_kwargs["metadata"] = {"guidance": "Focus on emotional memories"}
         cmd = ThinkCommand()
-        result = await cmd.execute(mock_worker, turn_id="test_turn", metadata=metadata)
+        result = await cmd.execute(mock_worker, **base_kwargs)
 
         # Verify guidance is preserved
-        assert result.plan_guidance == "User provided guidance"
+        assert result.plan_guidance == "Focus on emotional memories"
+        assert "Focus on emotional memories" in result.message
 
     @pytest.mark.asyncio
-    async def test_think_command_no_response_strategy(self, mock_worker):
-        """Test ThinkCommand handles missing response strategy gracefully."""
-        mock_worker._response_strategy = None
-        thought_data = json.dumps({
-            "content": "Test thought",
-            "source": "manual",
-            "timestamp": 1234567890
-        })
-        mock_worker.redis.get.return_value = thought_data.encode("utf-8")
-
+    async def test_think_command_truncates_long_guidance_in_message(self, mock_worker, base_kwargs):
+        """Test ThinkCommand truncates long guidance in message."""
+        long_guidance = "a" * 100
+        base_kwargs["metadata"] = {"guidance": long_guidance}
         cmd = ThinkCommand()
-        result = await cmd.execute(mock_worker, turn_id="test_turn", metadata={})
+        result = await cmd.execute(mock_worker, **base_kwargs)
 
-        # Should not crash, just skip injection
-        assert result.complete is False
-        assert result.status == TurnRequestStatus.DONE
+        # Verify guidance is preserved in full
+        assert result.plan_guidance == long_guidance
+
+        # Verify message is truncated
+        assert "..." in result.message
 
     @pytest.mark.asyncio
     async def test_think_command_name_property(self):
@@ -125,25 +77,25 @@ class TestThinkCommand:
         assert cmd.name == "think"
 
     @pytest.mark.asyncio
-    async def test_think_command_long_thought_truncation(self, mock_worker):
-        """Test ThinkCommand truncates long thoughts in message."""
-        long_thought = "a" * 100
-        thought_data = json.dumps({
-            "content": long_thought,
-            "source": "manual",
-            "timestamp": 1234567890
-        })
-        mock_worker.redis.get.return_value = thought_data.encode("utf-8")
-
+    async def test_think_command_without_metadata(self, mock_worker, base_kwargs):
+        """Test ThinkCommand handles missing metadata."""
+        base_kwargs["metadata"] = None
         cmd = ThinkCommand()
-        result = await cmd.execute(mock_worker, turn_id="test_turn", metadata={})
+        result = await cmd.execute(mock_worker, **base_kwargs)
 
-        # Verify thought was injected (full)
-        assert mock_worker._response_strategy.thought_content == long_thought
+        # Should not crash
+        assert result.complete is False
+        assert result.plan_guidance is None
 
-        # Verify message contains truncated version
-        assert "..." in result.message
-        assert len(result.message) < len(long_thought) + 50
+    @pytest.mark.asyncio
+    async def test_think_command_empty_guidance(self, mock_worker, base_kwargs):
+        """Test ThinkCommand handles empty guidance."""
+        base_kwargs["metadata"] = {"guidance": ""}
+        cmd = ThinkCommand()
+        result = await cmd.execute(mock_worker, **base_kwargs)
+
+        assert result.plan_guidance is None
+        assert "will generate reasoning" in result.message
 
 
 if __name__ == "__main__":

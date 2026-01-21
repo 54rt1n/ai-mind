@@ -30,5 +30,5 @@ class MediatorConfig:
     events_processed_cleanup_interval: int = 86400  # Seconds between cleanups (24h)
     # Semi-autonomous analysis mode
     auto_analysis_enabled: bool = True
-    auto_analysis_idle_seconds: int = 300  # 5 minutes default
+    system_idle_seconds: int = 15  # System idle threshold for triggering idle turns
     auto_analysis_cooldown_seconds: int = 60  # Prevent rapid re-triggering

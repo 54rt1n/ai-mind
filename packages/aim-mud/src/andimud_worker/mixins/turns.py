@@ -17,6 +17,8 @@ from aim_mud_types import MUDAction, MUDTurnRequest
 from aim.utils.think import extract_think_tags
 from ..adapter import build_current_context
 from aim_mud_types import MUDEvent, MUDTurn
+from aim_mud_types.decision import DecisionType, DecisionResult
+from aim_mud_types.helper import _utc_now
 from ..turns.validation import (
     resolve_target_name,
     resolve_move_location,
@@ -39,7 +41,7 @@ from ..turns.decision import (
     validate_emote,
     validate_ring,
 )
-from ..turns.processor import PhasedTurnProcessor, AgentTurnProcessor, ThinkingTurnProcessor
+from ..turns.processor import AgentTurnProcessor, ThinkingTurnProcessor
 from ..exceptions import AbortRequestedException
 
 if TYPE_CHECKING:
@@ -216,6 +218,138 @@ class TurnsMixin:
             lines.extend(self._decision_strategy._build_agent_action_hints(self.session))
         return "\n".join([line for line in lines if line])
 
+    async def _emit_decision_action(self: "MUDAgentWorker", decision: DecisionResult) -> list[MUDAction]:
+        """Emit actions for non-speak decisions.
+
+        Handles all decision types except SPEAK:
+        - MOVE: Emit move action
+        - TAKE: Emit get action
+        - DROP: Emit drop action
+        - GIVE: Emit give action
+        - EMOTE: Emit emote action
+        - WAIT: Emit subtle emote with mood
+        - PLAN_UPDATE: Emit progress emote
+        - CONFUSED: Emit confused emote
+        - AURA_TOOL: Emit generic MUDAction for room aura tools
+
+        Creates turn record and updates session state.
+
+        Args:
+            decision: DecisionResult from DecisionProcessor
+
+        Returns:
+            List of actions emitted
+        """
+        actions_taken: list[MUDAction] = []
+
+        if decision.decision_type == DecisionType.MOVE:
+            action = MUDAction(tool="move", args=decision.args)
+            actions_taken.append(action)
+            await self._emit_actions(actions_taken)
+
+        elif decision.decision_type == DecisionType.TAKE:
+            obj = decision.args.get("object")
+            if obj:
+                action = MUDAction(tool="get", args={"object": obj})
+                actions_taken.append(action)
+                await self._emit_actions(actions_taken)
+            else:
+                logger.warning("TAKE decision missing object; no action emitted")
+
+        elif decision.decision_type == DecisionType.DROP:
+            obj = decision.args.get("object")
+            if obj:
+                action = MUDAction(tool="drop", args={"object": obj})
+                actions_taken.append(action)
+                await self._emit_actions(actions_taken)
+            else:
+                logger.warning("DROP decision missing object; no action emitted")
+
+        elif decision.decision_type == DecisionType.GIVE:
+            obj = decision.args.get("object")
+            target = decision.args.get("target")
+            if obj and target:
+                action = MUDAction(tool="give", args={"object": obj, "target": target})
+                actions_taken.append(action)
+                await self._emit_actions(actions_taken)
+            else:
+                logger.warning("GIVE decision missing object or target; no action emitted")
+
+        elif decision.decision_type == DecisionType.EMOTE:
+            action_text = (decision.args.get("action") or "").strip()
+            if action_text:
+                action = MUDAction(tool="emote", args={"action": action_text})
+                actions_taken.append(action)
+                await self._emit_actions(actions_taken)
+            else:
+                logger.warning("EMOTE decision missing action text; no action emitted")
+
+        elif decision.decision_type == DecisionType.WAIT:
+            logger.info("Decision to wait; emitting subtle emote")
+            # Emit a subtle emote based on mood (if provided)
+            mood = decision.args.get("mood", "").strip()
+            if mood:
+                emote_text = f"waits {mood}."
+                logger.info(f"Wait emote with mood: {emote_text}")
+            else:
+                emote_text = "waits quietly."
+                logger.info("Wait emote with default mood")
+            action = MUDAction(tool="emote", args={"action": emote_text})
+            actions_taken.append(action)
+            await self._emit_actions(actions_taken)
+
+        elif decision.decision_type == DecisionType.PLAN_UPDATE:
+            # Plan task status was updated - emit emote about progress
+            plan_status = decision.args.get("plan_status", "unknown")
+            next_task = decision.args.get("next_task")
+
+            if plan_status == "completed":
+                emote_text = "completed the plan successfully."
+            elif next_task:
+                emote_text = f"completed a task and moved on to: {next_task}"
+            else:
+                emote_text = "updated the plan status."
+
+            logger.info(f"Plan update: status={plan_status}, next_task={next_task}")
+            action = MUDAction(tool="emote", args={"action": emote_text})
+            actions_taken.append(action)
+            await self._emit_actions(actions_taken)
+
+        elif decision.decision_type == DecisionType.CONFUSED:
+            # Decision processor failed to parse valid response
+            logger.info("Decision returned CONFUSED; emitting confused emote")
+            emote_text = "looks confused."
+            action = MUDAction(tool="emote", args={"action": emote_text})
+            actions_taken.append(action)
+            await self._emit_actions(actions_taken)
+
+        elif decision.decision_type == DecisionType.AURA_TOOL:
+            # Generic aura tool handling - emit MUDAction for Evennia to execute
+            tool_name = decision.aura_tool_name or "unknown_aura_tool"
+            action = MUDAction(tool=tool_name, args=decision.args)
+            actions_taken.append(action)
+            logger.info("Aura tool '%s' emitting action with args: %s", tool_name, decision.args)
+            await self._emit_actions(actions_taken)
+
+        # Create and store turn record
+        turn = MUDTurn(
+            timestamp=_utc_now(),
+            events_received=self.session.pending_events,
+            room_context=self.session.current_room,
+            entities_context=self.session.entities_present,
+            thinking=decision.thinking,
+            actions_taken=actions_taken,
+        )
+        self.session.add_turn(turn)
+        self.session.clear_pending_events()
+
+        logger.info(
+            f"Emitted {len(actions_taken)} action(s) for {decision.decision_type.name}. "
+            f"Session now has {len(self.session.recent_turns)} turns"
+        )
+
+        return actions_taken
+
     async def _decide_action(
         self: "MUDAgentWorker",
         idle_mode: bool,
@@ -246,6 +380,8 @@ class TurnsMixin:
             idle_mode=idle_mode,
             action_guidance=action_guidance,
             user_guidance=user_guidance,
+            max_context_tokens=self.model.max_tokens,       # Model context window
+            max_output_tokens=self.chat_config.max_tokens,  # Max output tokens
         )
         last_response = ""
         last_cleaned = ""
@@ -442,65 +578,3 @@ class TurnsMixin:
         total = await self.conversation_manager.get_total_tokens()
         return total == 0
 
-    async def process_turn(self: "MUDAgentWorker", turn_request: MUDTurnRequest, events: list[MUDEvent], user_guidance: str = "") -> None:
-        """Process a batch of events into a single agent turn.
-
-        Two-phase strategy:
-        Phase 1: Decision with TOOL role (fast, cheap)
-        Phase 2: Response with CHAT role (only if Phase 1 decided to speak)
-
-        Args:
-            turn_request: MUDTurnRequest with sequence_id and attempt_count.
-            events: List of MUDEvent objects to process.
-            user_guidance: Optional guidance for the turn (used by @choose).
-        """
-        logger.info(f"Processing turn with {len(events)} events")
-        processor = PhasedTurnProcessor(self)
-        processor.user_guidance = user_guidance
-        await processor.execute(turn_request, events)
-
-    async def process_agent_turn(self: "MUDAgentWorker", turn_request: MUDTurnRequest, events: list[MUDEvent], user_guidance: str, required_tool: str = "") -> None:
-        """Process a guided @agent turn using mud_agent.yaml action schema.
-
-        Single-phase strategy: direct action with full guidance,
-        skip decision phase entirely.
-
-        Args:
-            turn_request: MUDTurnRequest with sequence_id and attempt_count.
-            events: List of events to process
-            user_guidance: Optional guidance for the agent
-            required_tool: If set, filter allowed tools to only this tool
-        """
-        logger.info(f"Processing @agent turn with {len(events)} events, tool={required_tool or '(any)'}")
-        processor = AgentTurnProcessor.from_config(self, self.chat_config, self.config)
-        processor.user_guidance = user_guidance
-        processor.required_tool = required_tool
-        await processor.execute(turn_request, events)
-
-    async def process_think_turn(
-        self: "MUDAgentWorker",
-        turn_request: MUDTurnRequest,
-        events: list[MUDEvent],
-        thought_content: str,
-        user_guidance: str = "",
-    ) -> None:
-        """Process a THINK turn with externally injected thought content.
-
-        Uses ThinkingTurnProcessor which injects thought into:
-        1. Phase 1 decision guidance
-        2. Phase 2 response strategy context
-
-        Args:
-            turn_request: MUDTurnRequest with sequence_id and attempt_count.
-            events: List of MUDEvent objects to process.
-            thought_content: External thought to inject into processing.
-            user_guidance: Optional additional guidance for the turn.
-        """
-        logger.info(
-            "Processing @think turn with %d events, thought=%d chars",
-            len(events),
-            len(thought_content),
-        )
-        processor = ThinkingTurnProcessor(self, thought_content=thought_content)
-        processor.user_guidance = user_guidance
-        await processor.execute(turn_request, events)

@@ -111,87 +111,6 @@ class TestPaper:
         assert result is False
 
 
-class TestTray:
-    """Tests for Tray container."""
-
-    def test_tray_inherits_from_object(self):
-        """Tray inherits from Object."""
-        from andimud.typeclasses.paper import Tray
-        from andimud.typeclasses.objects import Object
-
-        assert issubclass(Tray, Object)
-
-    def test_tray_capacity_constant(self):
-        """Tray capacity is 100."""
-        from andimud.typeclasses.paper import TRAY_CAPACITY
-
-        assert TRAY_CAPACITY == 100
-
-    def test_tray_rejects_non_paper(self):
-        """Tray rejects non-paper objects."""
-        from andimud.typeclasses.paper import Tray
-
-        tray = MagicMock(spec=Tray)
-        tray.key = "paper tray"
-        tray.contents = []
-
-        non_paper = MagicMock()
-        non_paper.msg = MagicMock()
-        non_paper.move_to = MagicMock()
-        source_location = MagicMock()
-
-        # Call the actual method
-        Tray.at_object_receive(tray, non_paper, source_location)
-
-        # Verify rejection
-        non_paper.move_to.assert_called_once_with(source_location, quiet=True)
-        non_paper.msg.assert_called_once()
-        assert "Only paper" in non_paper.msg.call_args[0][0]
-
-    def test_tray_accepts_paper(self):
-        """Tray accepts Paper objects."""
-        from andimud.typeclasses.paper import Tray, Paper
-
-        tray = MagicMock(spec=Tray)
-        tray.key = "paper tray"
-        tray.contents = []
-
-        paper = MagicMock(spec=Paper)
-        paper.move_to = MagicMock()
-        source_location = MagicMock()
-
-        # Call the actual method
-        Tray.at_object_receive(tray, paper, source_location)
-
-        # Verify paper was not moved back (no rejection)
-        paper.move_to.assert_not_called()
-
-    def test_tray_rejects_when_over_capacity(self):
-        """Tray rejects paper when over capacity."""
-        from andimud.typeclasses.paper import Tray, Paper, TRAY_CAPACITY
-
-        tray = MagicMock(spec=Tray)
-        tray.key = "paper tray"
-
-        # Create contents at capacity + 1 (the paper just moved in, so we check > capacity)
-        papers = [MagicMock(spec=Paper) for _ in range(TRAY_CAPACITY + 1)]
-        tray.contents = papers
-
-        new_paper = MagicMock(spec=Paper)
-        new_paper.msg = MagicMock()
-        new_paper.move_to = MagicMock()
-        source_location = MagicMock()
-
-        # Call the method - this is called AFTER paper enters, so capacity check
-        # sees TRAY_CAPACITY + 2 papers (contents + the new one being added)
-        Tray.at_object_receive(tray, new_paper, source_location)
-
-        # Verify rejection
-        new_paper.move_to.assert_called_once_with(source_location, quiet=True)
-        new_paper.msg.assert_called_once()
-        assert "full" in new_paper.msg.call_args[0][0]
-
-
 class TestFolder:
     """Tests for Folder container."""
 
@@ -378,12 +297,6 @@ class TestConstants:
 
         assert DEFAULT_HARD_MAX_TOKENS == 600
 
-    def test_tray_capacity(self):
-        """Tray capacity is 100."""
-        from andimud.typeclasses.paper import TRAY_CAPACITY
-
-        assert TRAY_CAPACITY == 100
-
 
 class TestModuleExports:
     """Tests for module exports."""
@@ -392,7 +305,6 @@ class TestModuleExports:
         """All expected exports are available from package."""
         from andimud.typeclasses.paper import (
             Paper,
-            Tray,
             Folder,
             Book,
             Printer,
@@ -403,12 +315,10 @@ class TestModuleExports:
             estimate_chars_for_tokens,
             DEFAULT_PAGE_SIZE_TOKENS,
             DEFAULT_HARD_MAX_TOKENS,
-            TRAY_CAPACITY,
         )
 
         # Verify they're all importable and are the correct types
         assert Paper is not None
-        assert Tray is not None
         assert Folder is not None
         assert Book is not None
         assert Printer is not None
@@ -419,7 +329,6 @@ class TestModuleExports:
         assert callable(estimate_chars_for_tokens)
         assert isinstance(DEFAULT_PAGE_SIZE_TOKENS, int)
         assert isinstance(DEFAULT_HARD_MAX_TOKENS, int)
-        assert isinstance(TRAY_CAPACITY, int)
 
 
 class TestPagination:

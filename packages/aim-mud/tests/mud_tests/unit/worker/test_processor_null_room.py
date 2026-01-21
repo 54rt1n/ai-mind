@@ -13,7 +13,8 @@ import pytest
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from andimud_worker.turns.processor.phased import PhasedTurnProcessor
+from andimud_worker.turns.processor.decision import DecisionProcessor
+from andimud_worker.turns.processor.speaking import SpeakingProcessor
 from andimud_worker.turns.processor.agent import AgentTurnProcessor
 from andimud_worker.config import MUDConfig
 from andimud_worker.tools.helper import ToolHelper

@@ -143,12 +143,60 @@ class IdleCommand(Command):
                     message=f"Dream step executed (complete={is_complete})",
                 )
 
-        # Priority 5: Regular idle - fall through to process_turn
+        # Priority 5: Regular idle - check if sleeping before phased turn
+        from aim_mud_types.client import RedisMUDClient
+        from aim_mud_types.decision import DecisionType
+        from ..turns.processor.decision import DecisionProcessor
+        from ..turns.processor.speaking import SpeakingProcessor
+        from ..turns.processor.thinking import ThinkingTurnProcessor
+        from .helpers import setup_turn_context
+
+        client = RedisMUDClient(worker.redis)
+        is_sleeping = await client.get_agent_is_sleeping(worker.config.agent_id)
+
+        if is_sleeping:
+            logger.info(f"[{turn_id}] Priority 5: Agent sleeping, skipping phased turn")
+            return CommandResult(
+                complete=True,
+                flush_drain=True,
+                saved_event_id=None,
+                status=TurnRequestStatus.DONE,
+                message="Agent sleeping",
+            )
+
         logger.debug(f"[{turn_id}] Priority 5: Regular idle turn")
+
+        # Get turn_request from kwargs
+        turn_request = kwargs.get("turn_request")
+        events = worker.pending_events
+
+        # Setup turn context ONCE
+        await setup_turn_context(worker, events)
+
+        # Run DecisionProcessor for Phase 1
+        decision_processor = DecisionProcessor(worker)
+        await decision_processor.execute(turn_request, events)
+
+        # Route based on decision type
+        decision = worker._last_decision
+
+        if decision.decision_type == DecisionType.SPEAK:
+            speaking_processor = SpeakingProcessor(worker)
+            await speaking_processor.execute(turn_request, events)
+        elif decision.decision_type == DecisionType.THINK:
+            thinking_processor = ThinkingTurnProcessor(worker)
+            await thinking_processor.execute(turn_request, events)
+        else:
+            # Direct action (move, take, drop, give, emote, wait, etc.)
+            await worker._emit_decision_action(decision)
+
+        # Clear decision
+        worker._last_decision = None
+
         return CommandResult(
-            complete=False,
+            complete=True,
             flush_drain=True,
             saved_event_id=None,
             status=TurnRequestStatus.DONE,
-            message="Idle turn ready",
+            message=f"Idle turn processed: {decision.decision_type.name}",
         )

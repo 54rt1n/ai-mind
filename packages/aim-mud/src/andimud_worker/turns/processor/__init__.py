@@ -3,13 +3,15 @@
 """Turn processing strategies for different decision-making approaches."""
 
 from .base import BaseTurnProcessor
-from .phased import PhasedTurnProcessor
+from .decision import DecisionProcessor
+from .speaking import SpeakingProcessor
 from .agent import AgentTurnProcessor
 from .thinking import ThinkingTurnProcessor
 
 __all__ = [
     "BaseTurnProcessor",
-    "PhasedTurnProcessor",
+    "DecisionProcessor",
+    "SpeakingProcessor",
     "AgentTurnProcessor",
     "ThinkingTurnProcessor",
 ]

@@ -3,17 +3,19 @@ description: Minimal MUD tools for phase 1 decision making
 
 functions:
   - name: speak
-    description: Choose to take a full response turn (free text will be generated in phase 2)
+    description: If I have something I want to say, this will give me the option to fully express longer ideas. This should be the choice you choose by default.
     parameters:
       type: object
       properties:
         query:
           type: string
-          description: Optional topic to focus memory search on before responding
+          description: Ideas I want to talk about
       required: []
       examples:
         - {speak: {}}
         - {speak: {query: "memories about the beach"}}
+        - {speak: {query: "I have an idea"}}
+        - {speak: {query: "lets talk about the future"}}
 
   - name: move
     description: Move to a different location via an available exit
@@ -102,7 +104,7 @@ functions:
         - {wait: {mood: "with gentle attention"}}
 
   - name: emote
-    description: Perform an in-character emote or action
+    description: Perform an in-character emote or action. Should be used very rarely, this is for something simple like a gesture with no speech.
     parameters:
       type: object
       properties:

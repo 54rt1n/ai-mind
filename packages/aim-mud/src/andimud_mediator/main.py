@@ -93,10 +93,10 @@ Examples:
         help="Disable semi-autonomous analysis mode (enabled by default)"
     )
     parser.add_argument(
-        "--auto-analysis-idle-seconds",
+        "--system-idle-seconds",
         type=int,
-        default=300,
-        help="Seconds of idle time before triggering auto-analysis (default: 300)"
+        default=15,
+        help="Seconds all agents must be ready before triggering idle turn (default: 15)"
     )
     parser.add_argument(
         "--auto-analysis-cooldown-seconds",
@@ -134,7 +134,7 @@ def main() -> None:
     if args.event_timeout is not None:
         config_kwargs["event_poll_timeout"] = args.event_timeout
     config_kwargs["auto_analysis_enabled"] = not args.disable_auto_analysis
-    config_kwargs["auto_analysis_idle_seconds"] = args.auto_analysis_idle_seconds
+    config_kwargs["system_idle_seconds"] = args.system_idle_seconds
     config_kwargs["auto_analysis_cooldown_seconds"] = args.auto_analysis_cooldown_seconds
     config = MediatorConfig(**config_kwargs)
 

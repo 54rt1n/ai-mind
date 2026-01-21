@@ -25,7 +25,9 @@ class BaseTurnProcessor(ABC):
     Template method pattern:
     - execute() is the framework (final)
     - _decide_action() is the extension point (abstract, overridden by subclasses)
-    - setup_turn() and finalize_turn() are shared helpers
+    - finalize_turn() is shared helper
+
+    NOTE: setup_turn() removed - commands call setup_turn_context() helper instead.
     """
 
     def __init__(self, worker: "TurnsMixin"):
@@ -37,18 +39,18 @@ class BaseTurnProcessor(ABC):
         self.worker = worker
 
     async def execute(self, turn_request: MUDTurnRequest, events: list[MUDEvent]) -> None:
-        """Framework method that orchestrates the entire turn.
+        """Framework method that orchestrates the turn.
+
+        NOTE: Commands should call setup_turn_context() BEFORE calling execute().
 
         Template method that calls:
-        1. setup_turn() - Load world state, log events, update session
-        2. _decide_action() - Strategy-specific decision logic (abstract)
-        3. finalize_turn() - Save conversation, create turn record
+        1. _decide_action() - Strategy-specific decision logic (abstract)
+        2. finalize_turn() - Save conversation, create turn record
 
         Args:
             turn_request: Current turn request with sequence_id
             events: List of events to process
         """
-        await self.setup_turn(events)
         actions_taken, thinking = await self._decide_action(turn_request, events)
         await self.finalize_turn(actions_taken, thinking, events)
 
@@ -70,51 +72,6 @@ class BaseTurnProcessor(ABC):
             Tuple of (actions_taken, thinking_text)
         """
         pass
-
-    async def setup_turn(self, events: list[MUDEvent]) -> None:
-        """Common setup for any turn processing.
-
-        Loads world state, logs events, updates session, and pushes user turn
-        to conversation history.
-
-        Args:
-            events: List of events to process
-        """
-        # Update decision tool availability based on drained events
-        if hasattr(self.worker, "_refresh_emote_tools"):
-            self.worker._refresh_emote_tools(events)
-
-        # Refresh world state snapshot from agent + room profiles
-        room_id, character_id = await self.worker._load_agent_world_state()
-        if not room_id and self.worker.session.current_room and self.worker.session.current_room.room_id:
-            room_id = self.worker.session.current_room.room_id
-        if not room_id and events:
-            room_id = events[-1].room_id
-        await self.worker._load_room_profile(room_id, character_id)
-
-        # Log event details for debugging
-        for event in events:
-            logger.info(
-                f"  Event: {event.event_type.value} | "
-                f"Actor: {event.actor} | "
-                f"Room: {event.room_name or event.room_id} | "
-                f"Content: {event.content[:100] if event.content else '(none)'}..."
-            )
-
-        # Step 1: Update session context from events
-        self.worker.session.pending_events = events
-        if events:
-            latest = events[-1]
-            self.worker.session.last_event_time = latest.timestamp
-
-        # Push user turn to conversation list
-        if self.worker.conversation_manager and events:
-            await self.worker.conversation_manager.push_user_turn(
-                events=events,
-                world_state=self.worker.session.world_state,
-                room_id=self.worker.session.current_room.room_id if self.worker.session.current_room else None,
-                room_name=self.worker.session.current_room.name if self.worker.session.current_room else None,
-            )
 
     async def finalize_turn(
         self,

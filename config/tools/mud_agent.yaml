@@ -63,19 +63,32 @@ functions:
         - {action: "give", object: "flower", target: "Prax"}
         - {action: "give", object: "cup", target: "shelf"}
 
-  - name: describe
-    description: Use the 'describe' action to update the description of a room or object. You can specify the object name or the id.
+  - name: desc_room
+    description: Describe the room you are currently in. Use this to set or update the room's description with your personality.
+    parameters:
+      type: object
+      properties:
+        description:
+          type: string
+          description: Paragraph-length description of the room, infused with your personality.
+      required:
+        - description
+      examples:
+        - {action: "desc_room", description: "A warm, lived-in space with soft light filtering through gauzy curtains..."}
+
+  - name: desc_object
+    description: Describe an object in the room. Use this to set or update an object's description.
     parameters:
       type: object
       properties:
         target:
           type: string
-          description: The object or room id (dbref) to update (e.g., "#2").
+          description: The object's ID from the hints (e.g., "#123").
         description:
           type: string
-          description: Paragraph-length description infused with your personality.
+          description: Paragraph-length description of the object, infused with your personality.
       required:
         - target
         - description
       examples:
-        - {action: "describe", target: "#2", description: "A warm, lived-in space..." }
+        - {action: "desc_object", target: "#45", description: "A well-worn armchair that seems to embrace anyone who sits in it..."}

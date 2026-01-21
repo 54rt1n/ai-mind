@@ -12,6 +12,7 @@ from datetime import timedelta
 import json
 import logging
 import signal
+import time
 import warnings
 from typing import Optional
 import uuid
@@ -26,6 +27,7 @@ from aim.config import ChatConfig
 from aim.llm.llm import LLMProvider
 
 from aim_mud_types import MUDAction, MUDTurnRequest, RedisKeys, TurnRequestStatus, TurnReason
+from aim_mud_types.decision import DecisionResult
 from aim_mud_types.turn_request_helpers import (
     compute_next_attempt_at,
     transition_turn_request,
@@ -137,6 +139,9 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
 
         # Phase 2 response strategy
         self._response_strategy: Optional[MUDResponseStrategy] = None
+
+        # Decision result for routing (set by DecisionProcessor, consumed by commands)
+        self._last_decision: Optional[DecisionResult] = None
 
         # Turn request tracking
         self._last_turn_request_id: Optional[str] = None
@@ -519,19 +524,8 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                         else:
                             user_guidance = guidance
 
-                    # THINK turns use ThinkingTurnProcessor with thought content from Redis
+                    # THINK turns generate reasoning via ThinkingTurnProcessor
                     if turn_request.reason == TurnReason.THINK:
-                        thought_content = ""
-                        thought_key = RedisKeys.agent_thought(self.config.agent_id)
-                        thought_raw = await self.redis.get(thought_key)
-                        if thought_raw:
-                            try:
-                                raw_str = thought_raw.decode("utf-8") if isinstance(thought_raw, bytes) else thought_raw
-                                thought_data = json.loads(raw_str)
-                                thought_content = thought_data.get("content", "")
-                            except json.JSONDecodeError as e:
-                                logger.warning("Failed to parse thought JSON: %s", e)
-
                         # Extract guidance from metadata if provided
                         if turn_request.metadata:
                             guidance = turn_request.metadata.get("guidance", "") or ""
@@ -540,10 +534,28 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
 
                         await self.process_think_turn(
                             turn_request, events,
-                            thought_content=thought_content,
                             user_guidance=user_guidance,
                         )
                     else:
+                        # Load stored thought for regular turns (not THINK, which generates new ones)
+                        thought_key = RedisKeys.agent_thought(self.config.agent_id)
+                        thought_raw = await self.redis.get(thought_key)
+                        if thought_raw:
+                            try:
+                                raw_str = thought_raw.decode("utf-8") if isinstance(thought_raw, bytes) else thought_raw
+                                thought_data = json.loads(raw_str)
+                                thought_content = thought_data.get("content", "")
+                                timestamp = thought_data.get("timestamp", 0)
+                                age_seconds = time.time() - timestamp
+                                if age_seconds < 7200 and thought_content:  # 2-hour TTL check
+                                    if self._decision_strategy:
+                                        self._decision_strategy.thought_content = thought_content
+                                    if self._response_strategy:
+                                        self._response_strategy.thought_content = thought_content
+                                    logger.info("Loaded thought content (%d chars, %.0fs old)", len(thought_content), age_seconds)
+                            except json.JSONDecodeError as e:
+                                logger.warning("Failed to parse thought JSON: %s", e)
+
                         await self.process_turn(turn_request, events, user_guidance=user_guidance)
 
                     # CHECK: Did this turn include a speech event?

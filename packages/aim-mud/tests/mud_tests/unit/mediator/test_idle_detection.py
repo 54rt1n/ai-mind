@@ -22,7 +22,7 @@ def mediator_config():
     return MediatorConfig(
         redis_url="redis://localhost:6379",
         event_poll_timeout=0.1,
-        auto_analysis_idle_seconds=300,
+        system_idle_seconds=15,
     )
 
 

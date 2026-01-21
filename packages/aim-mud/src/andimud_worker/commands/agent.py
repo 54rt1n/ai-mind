@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from aim_mud_types import MUDTurnRequest, TurnRequestStatus
 from .base import Command
 from .result import CommandResult
+from .helpers import setup_turn_context
 
 if TYPE_CHECKING:
     from ..worker import MUDAgentWorker
@@ -19,7 +20,10 @@ logger = logging.getLogger(__name__)
 class AgentCommand(Command):
     """@agent console command - process guided action turn.
 
-    Extracted from worker.py lines 329-343
+    Uses new processor architecture:
+    1. Setup turn context
+    2. Run AgentTurnProcessor directly with guidance and tool
+    3. Processor handles tool execution and response
     """
 
     @property
@@ -31,11 +35,13 @@ class AgentCommand(Command):
 
         Args:
             worker: MUDAgentWorker instance
-        **kwargs: Contains turn_id, metadata, sequence_id, attempt_count, etc.
+            **kwargs: Contains turn_id, metadata, turn_request
 
         Returns:
-            CommandResult with complete=True, flush_drain=True
+            CommandResult with complete=True, flush_drain=False
         """
+        from ..turns.processor.agent import AgentTurnProcessor
+
         turn_id = kwargs.get("turn_id", "unknown")
 
         # Construct MUDTurnRequest from kwargs - Pydantic parses JSON metadata
@@ -57,7 +63,15 @@ class AgentCommand(Command):
             required_tool or "(any)",
             len(events),
         )
-        await worker.process_agent_turn(turn_request, events, guidance, required_tool)
+
+        # Setup turn context
+        await setup_turn_context(worker, events)
+
+        # Run AgentTurnProcessor directly
+        processor = AgentTurnProcessor.from_config(worker, worker.chat_config, worker.config)
+        processor.user_guidance = guidance
+        processor.required_tool = required_tool
+        await processor.execute(turn_request, events)
 
         # Agent turns are memory palace actions, outside MUD world
         # Events are environmental context only, don't flush drain
@@ -66,5 +80,5 @@ class AgentCommand(Command):
             flush_drain=False,
             saved_event_id=None,
             status=TurnRequestStatus.DONE,
-            message="Agent turn processed"
+            message=f"Agent turn processed: {required_tool or 'any tool'}"
         )

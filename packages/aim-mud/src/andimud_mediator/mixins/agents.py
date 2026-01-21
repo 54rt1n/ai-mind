@@ -79,16 +79,18 @@ class AgentsMixin:
                 logger.error(f"Error checking state for {agent_id}: {e}", exc_info=True)
                 continue
 
-        # Case 3: System idle - create idle turn if conditions met
-        # Conditions: ALL agents READY and player activity idle for threshold
-        if await self._all_agents_ready():
-            # Check player activity only (excludes AI agent actions)
-            # This allows agents to continue taking idle turns even after they act
-            events_idle = await self._is_player_activity_idle(
-                self.config.auto_analysis_idle_seconds
-            )
+        # Case 3: System idle - assign idle turn if all agents ready for duration
+        all_ready = await self._all_agents_ready()
 
-            if events_idle:
+        if all_ready:
+            # Track when system entered "all ready" state
+            if self._system_ready_since is None:
+                self._system_ready_since = datetime.now(timezone.utc)
+
+            # Check if system has been ready for threshold duration
+            ready_duration = (datetime.now(timezone.utc) - self._system_ready_since).total_seconds()
+            if ready_duration >= self.config.system_idle_seconds:
+                # System idle - assign turn
                 agents_list = sorted(self.registered_agents)
                 if agents_list:
                     n = len(agents_list)
@@ -97,8 +99,14 @@ class AgentsMixin:
                         assigned = await self._maybe_assign_turn(candidate, reason=TurnReason.IDLE)
                         if assigned:
                             self._turn_index = (self._turn_index + i + 1) % n
-                            logger.debug(f"Assigned idle turn to {candidate}")
+                            logger.debug(
+                                f"Assigned idle turn to {candidate} "
+                                f"(system ready for {ready_duration:.1f}s)"
+                            )
                             break
+        else:
+            # Reset system ready timestamp when agents become busy
+            self._system_ready_since = None
 
 
     async def _any_agent_processing(self) -> bool:
@@ -199,14 +207,12 @@ class AgentsMixin:
         Checks agent availability:
         - Worker offline: no turn_request hash exists
         - Worker paused: mud:agent:{id}:paused key is set to "1"
-        - Worker sleeping: agent:{id}:is_sleeping field is "true" (IDLE turns allowed)
         - Worker crashed: turn_request status is "crashed"
         - Worker busy: turn_request status is "assigned", "in_progress", or "abort_requested"
         - Failed turn in backoff: status is "fail" and current time < next_attempt_at
 
         Returns:
             True if turn was assigned, False if agent is busy/offline/crashed/paused.
-            Sleeping agents can only receive IDLE turns.
         """
         current = await self._get_turn_request(agent_id)
 
@@ -215,22 +221,13 @@ class AgentsMixin:
             logger.debug(f"Agent {agent_id} offline (no turn_request)")
             return False
 
-        # Check if agent is paused or sleeping via Redis
+        # Check if agent is paused via Redis
         from aim_mud_types.client import RedisMUDClient
         client = RedisMUDClient(self.redis)
         is_paused = await client.is_agent_paused(agent_id)
         if is_paused:
             logger.debug(f"Agent {agent_id} paused, not assigning turn")
             return False
-
-        is_sleeping = await client.get_agent_is_sleeping(agent_id)
-        if is_sleeping:
-            # Sleeping agents can receive IDLE turns (to potentially wake up)
-            turn_reason = reason if isinstance(reason, TurnReason) else TurnReason(reason)
-            if turn_reason != TurnReason.IDLE:
-                logger.debug(f"Agent {agent_id} sleeping, not assigning {turn_reason.value} turn")
-                return False
-            logger.debug(f"Agent {agent_id} sleeping, allowing IDLE turn")
 
         status = current.status
 

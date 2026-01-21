@@ -31,7 +31,8 @@ from aim_mud_types import (
 from aim_mud_types.state import AuraState
 from andimud_worker.conversation.memory.decision import MUDDecisionStrategy
 from andimud_worker.conversation import MUDConversationManager
-from andimud_worker.turns.processor.phased import PhasedTurnProcessor
+from andimud_worker.turns.processor.decision import DecisionProcessor
+from andimud_worker.turns.processor.speaking import SpeakingProcessor
 from aim.tool.dto import Tool, ToolFunction, ToolFunctionParameters
 from aim.tool.formatting import ToolUser
 

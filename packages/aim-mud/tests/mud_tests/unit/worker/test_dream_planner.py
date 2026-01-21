@@ -39,6 +39,8 @@ class TestPlannerPipeline:
         result = await command.execute(
             mock_worker,
             turn_id="test-turn",
+            sequence_id=1,
+            reason="dream",
             metadata={"pipeline": "planner"},
         )
 
@@ -71,6 +73,8 @@ class TestPlannerPipeline:
             result = await command.execute(
                 mock_worker,
                 turn_id="test-turn",
+                sequence_id=1,
+                reason="dream",
                 metadata={"pipeline": "planner", "objective": "Test objective"},
             )
 
@@ -104,6 +108,8 @@ class TestPlannerPipeline:
             result = await command.execute(
                 mock_worker,
                 turn_id="test-turn",
+                sequence_id=1,
+                reason="dream",
                 metadata={"pipeline": "planner", "objective": "Test objective"},
             )
 
@@ -127,6 +133,8 @@ class TestDreamPipelineFallback:
         result = await command.execute(
             mock_worker,
             turn_id="test-turn",
+            sequence_id=1,
+            reason="dream",
             metadata={"scenario": "analysis_dialogue"},
         )
 
@@ -140,6 +148,8 @@ class TestDreamPipelineFallback:
         result = await command.execute(
             mock_worker,
             turn_id="test-turn",
+            sequence_id=1,
+            reason="dream",
             metadata={},
         )
 
@@ -158,6 +168,8 @@ class TestDreamPipelineFallback:
         result = await command.execute(
             mock_worker,
             turn_id="test-turn",
+            sequence_id=1,
+            reason="dream",
             metadata={"scenario": "analysis_dialogue"},
         )
 
@@ -177,6 +189,8 @@ class TestDreamPipelineFallback:
         result = await command.execute(
             mock_worker,
             turn_id="test-turn",
+            sequence_id=1,
+            reason="dream",
             metadata={
                 "scenario": "journaler_dialogue",
                 "query": "What happened today?",
@@ -212,6 +226,8 @@ class TestPipelineRouting:
         result = await command.execute(
             mock_worker,
             turn_id="test-turn",
+            sequence_id=1,
+            reason="dream",
             metadata={"pipeline": "planner"},
         )
 
@@ -225,6 +241,8 @@ class TestPipelineRouting:
         result = await command.execute(
             mock_worker,
             turn_id="test-turn",
+            sequence_id=1,
+            reason="dream",
             metadata={"pipeline": "other"},
         )
 
@@ -237,6 +255,8 @@ class TestPipelineRouting:
         result = await command.execute(
             mock_worker,
             turn_id="test-turn",
+            sequence_id=1,
+            reason="dream",
             metadata={},
         )
 

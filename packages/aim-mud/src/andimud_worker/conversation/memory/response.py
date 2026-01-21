@@ -23,7 +23,7 @@ from ..manager import MUDConversationManager
 from aim_mud_types import MUDSession
 from aim.agents.persona import Persona
 from aim.chat.manager import ChatManager
-from aim.chat.strategy.xmlmemory import XMLMemoryTurnStrategy
+from aim.chat.strategy.xmlmemory import XMLMemoryTurnStrategy, DEFAULT_MAX_CONTEXT, DEFAULT_MAX_OUTPUT
 from aim.utils.tokens import count_tokens
 from aim.utils.xml import XmlFormatter
 
@@ -80,8 +80,8 @@ class MUDResponseStrategy(XMLMemoryTurnStrategy):
         user_input: str,
         session: MUDSession,
         coming_online: bool = False,
-        max_context_tokens: int = 128000,
-        max_output_tokens: int = 4096,
+        max_context_tokens: int = DEFAULT_MAX_CONTEXT,  # 32768
+        max_output_tokens: int = DEFAULT_MAX_OUTPUT,     # 4096
         memory_query: str = "",
     ) -> list[dict[str, str]]:
         """Build turns for Phase 2 full response.

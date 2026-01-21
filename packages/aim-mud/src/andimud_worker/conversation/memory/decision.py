@@ -27,7 +27,7 @@ from ..manager import MUDConversationManager
 from aim_mud_types import MUDSession, AURA_RINGABLE
 from aim.agents.persona import Persona
 from aim.chat.manager import ChatManager
-from aim.chat.strategy.xmlmemory import XMLMemoryTurnStrategy
+from aim.chat.strategy.xmlmemory import XMLMemoryTurnStrategy, DEFAULT_MAX_CONTEXT, DEFAULT_MAX_OUTPUT
 from aim.tool.loader import ToolLoader
 from aim.tool.formatting import ToolUser
 from aim.utils.tokens import count_tokens
@@ -377,6 +377,8 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
         idle_mode: bool = False,
         action_guidance: str = "",
         user_guidance: str = "",
+        max_context_tokens: int = DEFAULT_MAX_CONTEXT,  # 32768
+        max_output_tokens: int = DEFAULT_MAX_OUTPUT,     # 4096
     ) -> list[dict[str, str]]:
         """Build complete turn array for Phase 1 LLM inference.
 
@@ -439,8 +441,8 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
             user_input=user_input,
             history=history,
             content_len=content_len,
-            max_context_tokens=128000,  # Could be made configurable
-            max_output_tokens=4096,     # Could be made configurable
+            max_context_tokens=max_context_tokens,  # Use parameter from caller
+            max_output_tokens=max_output_tokens,    # Use parameter from caller
             query="",  # No query - Phase 1 doesn't use memory search
         )
 
