@@ -8,7 +8,8 @@ from typing import TYPE_CHECKING
 from aim_mud_types import MUDTurnRequest, TurnRequestStatus
 from .base import Command
 from .result import CommandResult
-from .helpers import setup_turn_context
+from ..turns.processor.thinking import ThinkingTurnProcessor
+
 
 if TYPE_CHECKING:
     from ..worker import MUDAgentWorker
@@ -40,8 +41,6 @@ class ThinkCommand(Command):
         Returns:
             CommandResult with complete=True
         """
-        from ..turns.processor.thinking import ThinkingTurnProcessor
-
         turn_id = kwargs.get("turn_id", "unknown")
 
         # Use Pydantic to parse metadata JSON
@@ -60,7 +59,7 @@ class ThinkCommand(Command):
         )
 
         # Setup turn context
-        await setup_turn_context(worker, events)
+        await worker._setup_turn_context(events)
 
         # Run ThinkingTurnProcessor directly
         processor = ThinkingTurnProcessor(worker)

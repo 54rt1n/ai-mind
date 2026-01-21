@@ -578,3 +578,110 @@ class TurnsMixin:
         total = await self.conversation_manager.get_total_tokens()
         return total == 0
 
+    async def _setup_turn_context(
+        self: "MUDAgentWorker",
+        events: list[MUDEvent]
+    ) -> None:
+        """Setup turn context - called by commands before processors.
+
+        This is the business logic that was previously in BaseTurnProcessor.setup_turn().
+        Commands call this once at the start, then all processors use the prepared state.
+
+        Performs the following setup steps:
+        1. Update decision tool availability based on drained events
+        2. Refresh world state snapshot from agent + room profiles
+        3. Log event details for debugging
+        4. Update session context from events
+        5. Push user turn to conversation history
+
+        Args:
+            worker: Worker instance with session, conversation_manager, etc.
+            events: Events to process
+
+        Example:
+            ```python
+            # In a command's execute() method:
+            await setup_turn_context(worker, events)
+            processor = PhasedTurnProcessor(worker)
+            await processor.execute(turn_request, events)
+            ```
+        """
+        # Load thought content from Redis and set on strategies
+        await self._load_thought_content()
+
+        # Update decision tool availability based on drained events
+        self._refresh_emote_tools(events)
+
+        # Refresh world state snapshot from agent + room profiles
+        room_id, character_id = await self._load_agent_world_state()
+        if not room_id and self.session.current_room and self.session.current_room.room_id:
+            room_id = self.session.current_room.room_id
+        if not room_id and events:
+            room_id = events[-1].room_id
+        await self._load_room_profile(room_id, character_id)
+
+        # Log event details for debugging
+        for event in events:
+            logger.info(
+                f"  Event: {event.event_type.value} | "
+                f"Actor: {event.actor} | "
+                f"Room: {event.room_name or event.room_id} | "
+                f"Content: {event.content[:100] if event.content else '(none)'}..."
+            )
+
+        # Apply events to session (replace mode for initial setup)
+        await self._apply_events_to_session(events, extend=False)
+
+    async def take_turn(
+        self: "MUDAgentWorker",
+        turn_id: str,
+        events: list[MUDEvent],
+        turn_request: MUDTurnRequest,
+        user_guidance: str = "",
+    ) -> DecisionResult | None:
+        """Take a turn."""
+        try:
+            # Setup turn context ONCE
+            await self._setup_turn_context(events)
+
+            from ..turns.processor.decision import DecisionProcessor
+            from ..turns.processor.speaking import SpeakingProcessor
+            from ..turns.processor.thinking import ThinkingTurnProcessor
+
+            # Run DecisionProcessor for Phase 1
+            decision_processor = DecisionProcessor(self)
+            decision_processor.user_guidance = user_guidance
+            await decision_processor.execute(turn_request, events)
+
+            # Route based on decision type
+            decision = self._last_decision
+
+            if decision.decision_type == DecisionType.SPEAK:
+                # Re-drain for new events that arrived during Phase 1, to turn (flush drain)
+                new_events = await self._drain_to_turn()
+                if new_events:
+                    logger.info(f"[{turn_id}] Captured {len(new_events)} new events for Phase 2 (SPEAK)")
+
+                speaking_processor = SpeakingProcessor(self)
+                speaking_processor.user_guidance = user_guidance
+                await speaking_processor.execute(turn_request, events)
+            elif decision.decision_type == DecisionType.THINK:
+                # Re-drain for new events that arrived during Phase 1, with settling (no flush drain)
+                new_events = await self._drain_with_settle()
+                if new_events:
+                    logger.info(f"[{turn_id}] Captured {len(new_events)} new events for Phase 2 (THINK)")
+
+                thinking_processor = ThinkingTurnProcessor(self)
+                thinking_processor.user_guidance = user_guidance
+                await thinking_processor.execute(turn_request, events)
+            else:
+                # Direct action (move, take, drop, give, emote, wait, etc.)
+                await self._emit_decision_action(decision)
+
+            # Clear decision
+            self._last_decision = None
+
+            return decision
+        except Exception as e:
+            logger.error(f"[{turn_id}] Error taking turn: {e}")
+            return None

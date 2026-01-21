@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from aim_mud_types import MUDTurnRequest, TurnRequestStatus
 from .base import Command
 from .result import CommandResult
-from .helpers import setup_turn_context
+from ..turns.processor.agent import AgentTurnProcessor
 
 if TYPE_CHECKING:
     from ..worker import MUDAgentWorker
@@ -40,7 +40,6 @@ class AgentCommand(Command):
         Returns:
             CommandResult with complete=True, flush_drain=False
         """
-        from ..turns.processor.agent import AgentTurnProcessor
 
         turn_id = kwargs.get("turn_id", "unknown")
 
@@ -65,7 +64,7 @@ class AgentCommand(Command):
         )
 
         # Setup turn context
-        await setup_turn_context(worker, events)
+        await worker._setup_turn_context(events)
 
         # Run AgentTurnProcessor directly
         processor = AgentTurnProcessor.from_config(worker, worker.chat_config, worker.config)

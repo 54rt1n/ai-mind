@@ -102,3 +102,16 @@ class PlannerMixin:
             The active plan, or None if no plan is active.
         """
         return self._active_plan
+
+    def get_plan_guidance(self: "MUDAgentWorker") -> Optional[str]:
+        """Get the plan guidance for the active plan.
+
+        Returns:
+            Plan guidance string or None if no plan is active.
+        """
+        plan = self.get_active_plan()
+        if not plan:
+            return None
+        if hasattr(self, "_decision_strategy") and self._decision_strategy:
+            return self._decision_strategy.get_plan_guidance()
+        return None

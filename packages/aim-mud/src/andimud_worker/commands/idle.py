@@ -5,10 +5,16 @@
 import logging
 from typing import TYPE_CHECKING
 
+from aim_mud_types import MUDTurnRequest, MUDEvent
+from aim_mud_types.client import RedisMUDClient
+from aim_mud_types.decision import DecisionType
 from aim_mud_types import TurnRequestStatus
 from aim_mud_types.coordination import DreamStatus
 from .base import Command
 from .result import CommandResult
+from ..turns.processor.decision import DecisionProcessor
+from ..turns.processor.speaking import SpeakingProcessor
+from ..turns.processor.thinking import ThinkingTurnProcessor
 
 if TYPE_CHECKING:
     from ..worker import MUDAgentWorker
@@ -44,36 +50,60 @@ class IdleCommand(Command):
             complete=False to fall through to process_turn
         """
         turn_id = kwargs.get("turn_id", "unknown")
+        turn_request = MUDTurnRequest.model_validate(kwargs)
+        events = worker.pending_events
+        is_sleeping = await worker._check_agent_is_sleeping()
 
+        if is_sleeping:
+            return await self._sleep_turn(worker, turn_id, events, turn_request)
+        else:
+            return await self._awake_turn(worker, turn_id, events, turn_request)
+
+
+    async def _awake_turn(self, worker: "MUDAgentWorker", turn_id: str, events: list[MUDEvent], turn_request: MUDTurnRequest) -> CommandResult:
+        """Process awake turn."""
         # Priority 1: Use active plan already loaded by worker
+        plan_guidance = worker.get_plan_guidance()
+
+        # Setup turn context
+        await worker._setup_turn_context(events)
+        # Priority 2: If we don't have a current thought, we need to generate one
+        if not worker._decision_strategy.thought_content:
+            thinking_processor = ThinkingTurnProcessor(worker)
+            if plan_guidance:
+                thinking_processor.user_guidance = plan_guidance
+            await thinking_processor.execute(turn_request, events)
+            return CommandResult(
+                complete=True,
+                flush_drain=False,
+                saved_event_id=None,
+                status=TurnRequestStatus.DONE,
+                message="Thought generated",
+            )
+
+
         plan = worker.get_active_plan()
         if plan:
-            logger.info(f"[{turn_id}] Priority 1: Active plan detected: {plan.summary}")
-
-            # Build plan guidance for user footer
-            plan_guidance = ""
-            if hasattr(worker, "_decision_strategy") and worker._decision_strategy:
-                plan_guidance = worker._decision_strategy.get_plan_guidance()
-
             # Build message with current task info
             message = "Plan active"
             if plan.current_task_id < len(plan.tasks):
                 message = f"Plan active: {plan.tasks[plan.current_task_id].summary}"
 
-            # Fall through to process_turn with plan context
-            return CommandResult(
-                complete=False,
-                flush_drain=True,
-                saved_event_id=None,
-                status=TurnRequestStatus.DONE,
-                message=message,
-                plan_guidance=plan_guidance,
-            )
+        # Priority 3: Agent awake, but no active plan
+        return CommandResult(
+            complete=True,
+            flush_drain=False,
+            saved_event_id=None,
+            status=TurnRequestStatus.DONE,
+            message="Agent awake",
+        )
 
+    async def _sleep_turn(self, worker: "MUDAgentWorker", turn_id: str, events: list[MUDEvent], turn_request: MUDTurnRequest) -> CommandResult:
+        """Process sleep turn."""
         # Load dreaming state
         dreaming_state = await worker.load_dreaming_state(worker.config.agent_id)
 
-        # Priority 2: PENDING dreams (manual commands waiting for initialization)
+        # Priority 1: PENDING dreams (manual commands waiting for initialization)
         if dreaming_state and dreaming_state.status == DreamStatus.PENDING:
             logger.info(
                 f"[{turn_id}] Priority 2: Initializing PENDING dream "
@@ -85,13 +115,13 @@ class IdleCommand(Command):
             is_complete = await worker.execute_scenario_step(initialized_state.pipeline_id)
             return CommandResult(
                 complete=True,
-                flush_drain=True,
+                flush_drain=False,
                 saved_event_id=None,
                 status=TurnRequestStatus.DONE,
                 message=f"Dream step executed (complete={is_complete})",
             )
 
-        # Priority 3: RUNNING dreams (continue step-by-step execution)
+        # Priority 2: RUNNING dreams (continue step-by-step execution)
         if dreaming_state and dreaming_state.status == DreamStatus.RUNNING:
             # Check for stale dream (missing framework/state from before code upgrade)
             if not dreaming_state.framework or not dreaming_state.state:
@@ -105,7 +135,7 @@ class IdleCommand(Command):
                 await worker.delete_dreaming_state(worker.config.agent_id)
                 return CommandResult(
                     complete=True,
-                    flush_drain=True,
+                    flush_drain=False,
                     saved_event_id=None,
                     status=TurnRequestStatus.DONE,
                     message="Stale dream aborted (missing framework/state)",
@@ -117,15 +147,15 @@ class IdleCommand(Command):
             is_complete = await worker.execute_scenario_step(dreaming_state.pipeline_id)
             return CommandResult(
                 complete=True,
-                flush_drain=True,
+                flush_drain=False,
                 saved_event_id=None,
                 status=TurnRequestStatus.DONE,
                 message=f"Dream step executed (complete={is_complete})",
             )
 
-        # Priority 4: Auto-analysis check (no active dream)
+        # Priority 3: Auto-analysis check (no active dream)
         if not dreaming_state:
-            logger.debug(f"[{turn_id}] Priority 4: Checking if should auto-analyze")
+            logger.debug(f"[{turn_id}] Priority 3: Checking if should auto-analyze")
             dream_decision = await worker._decide_dream_action()
 
             if dream_decision:
@@ -137,66 +167,17 @@ class IdleCommand(Command):
                 is_complete = await worker.execute_scenario_step(new_state.pipeline_id)
                 return CommandResult(
                     complete=True,
-                    flush_drain=True,
+                    flush_drain=False,
                     saved_event_id=None,
                     status=TurnRequestStatus.DONE,
                     message=f"Dream step executed (complete={is_complete})",
                 )
 
-        # Priority 5: Regular idle - check if sleeping before phased turn
-        from aim_mud_types.client import RedisMUDClient
-        from aim_mud_types.decision import DecisionType
-        from ..turns.processor.decision import DecisionProcessor
-        from ..turns.processor.speaking import SpeakingProcessor
-        from ..turns.processor.thinking import ThinkingTurnProcessor
-        from .helpers import setup_turn_context
-
-        client = RedisMUDClient(worker.redis)
-        is_sleeping = await client.get_agent_is_sleeping(worker.config.agent_id)
-
-        if is_sleeping:
-            logger.info(f"[{turn_id}] Priority 5: Agent sleeping, skipping phased turn")
-            return CommandResult(
-                complete=True,
-                flush_drain=True,
-                saved_event_id=None,
-                status=TurnRequestStatus.DONE,
-                message="Agent sleeping",
-            )
-
-        logger.debug(f"[{turn_id}] Priority 5: Regular idle turn")
-
-        # Get turn_request from kwargs
-        turn_request = kwargs.get("turn_request")
-        events = worker.pending_events
-
-        # Setup turn context ONCE
-        await setup_turn_context(worker, events)
-
-        # Run DecisionProcessor for Phase 1
-        decision_processor = DecisionProcessor(worker)
-        await decision_processor.execute(turn_request, events)
-
-        # Route based on decision type
-        decision = worker._last_decision
-
-        if decision.decision_type == DecisionType.SPEAK:
-            speaking_processor = SpeakingProcessor(worker)
-            await speaking_processor.execute(turn_request, events)
-        elif decision.decision_type == DecisionType.THINK:
-            thinking_processor = ThinkingTurnProcessor(worker)
-            await thinking_processor.execute(turn_request, events)
-        else:
-            # Direct action (move, take, drop, give, emote, wait, etc.)
-            await worker._emit_decision_action(decision)
-
-        # Clear decision
-        worker._last_decision = None
-
+        logger.info(f"[{turn_id}] Priority 4: Agent sleeping, skipping phased turn")
         return CommandResult(
             complete=True,
-            flush_drain=True,
+            flush_drain=False,
             saved_event_id=None,
             status=TurnRequestStatus.DONE,
-            message=f"Idle turn processed: {decision.decision_type.name}",
+            message="Agent sleeping",
         )

@@ -9,8 +9,12 @@ Extracted from worker.py lines 409-566
 import json
 import logging
 from typing import TYPE_CHECKING, Optional
+import time
 
 from aim_mud_types import RoomState, EntityState, WorldState, InventoryItem
+from aim_mud_types.client import RedisMUDClient
+from aim_mud_types import RedisKeys
+from aim_mud_types.client import RedisMUDClient
 
 if TYPE_CHECKING:
     from ...worker import MUDAgentWorker
@@ -39,7 +43,6 @@ class ProfileMixin:
         if conversation_id:
             fields["conversation_id"] = conversation_id
 
-        from aim_mud_types.client import RedisMUDClient
         client = RedisMUDClient(self.redis)
         await client.update_agent_profile_fields(self.config.agent_id, **fields)
 
@@ -50,7 +53,6 @@ class ProfileMixin:
         """
         if not self.session:
             return
-        from aim_mud_types.client import RedisMUDClient
         client = RedisMUDClient(self.redis)
         decoded = await client.get_agent_profile_raw(self.config.agent_id)
         if not decoded:
@@ -80,7 +82,6 @@ class ProfileMixin:
         """
         if not self.session:
             return None, None
-        from aim_mud_types.client import RedisMUDClient
         client = RedisMUDClient(self.redis)
         data = await client.get_agent_profile_raw(self.config.agent_id)
         if not data:
@@ -125,7 +126,6 @@ class ProfileMixin:
         """
         if not self.session or not room_id:
             return
-        from aim_mud_types.client import RedisMUDClient
         client = RedisMUDClient(self.redis)
         data = await client.get_room_profile_raw(room_id)
         if not data:
@@ -193,6 +193,33 @@ class ProfileMixin:
             if hasattr(self._decision_strategy, "update_aura_tools") and self.chat_config:
                 self._decision_strategy.update_aura_tools(auras, self.chat_config.tools_path)
 
+    async def _load_thought_content(self: "MUDAgentWorker") -> None:
+        """Load stored thought content from Redis and set on strategies.
+
+        Loads thought content from agent:{id}:thought key and sets it on
+        both decision and response strategies if present and within TTL (2 hours).
+        """
+        thought_key = RedisKeys.agent_thought(self.config.agent_id)
+        thought_raw = await self.redis.get(thought_key)
+        if not thought_raw:
+            return
+
+        try:
+            raw_str = thought_raw.decode("utf-8") if isinstance(thought_raw, bytes) else thought_raw
+            thought_data = json.loads(raw_str)
+            thought_content = thought_data.get("content", "")
+            timestamp = thought_data.get("timestamp", 0)
+            age_seconds = time.time() - timestamp
+
+            if age_seconds < 7200 and thought_content:  # 2-hour TTL check
+                if self._decision_strategy:
+                    self._decision_strategy.thought_content = thought_content
+                if self._response_strategy:
+                    self._response_strategy.thought_content = thought_content
+                logger.info("Loaded thought content (%d chars, %.0fs old)", len(thought_content), age_seconds)
+        except json.JSONDecodeError as e:
+            logger.warning("Failed to parse thought JSON: %s", e)
+
     async def _update_agent_profile(self: "MUDAgentWorker", persona_id: str = None, **fields: str) -> None:
         """Update agent profile fields in Redis.
 
@@ -207,10 +234,14 @@ class ProfileMixin:
         if persona_id is not None:
             payload["persona_id"] = persona_id
         payload.update({k: v for k, v in fields.items() if v is not None})
-        from aim_mud_types.client import RedisMUDClient
         client = RedisMUDClient(self.redis)
         await client.update_agent_profile_fields(
             self.config.agent_id,
             touch_updated_at=True,
             **payload,
         )
+
+    async def _check_agent_is_sleeping(self: "MUDAgentWorker") -> bool:
+        """Check if agent is sleeping."""
+        client = RedisMUDClient(self.redis)
+        return await client.get_agent_is_sleeping(self.config.agent_id)

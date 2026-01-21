@@ -5,11 +5,13 @@
 import logging
 from typing import TYPE_CHECKING
 
-from aim_mud_types import TurnRequestStatus
+from aim_mud_types import TurnRequestStatus, MUDTurnRequest
 from aim_mud_types.decision import DecisionType
 from .base import Command
 from .result import CommandResult
-from .helpers import setup_turn_context
+from ..turns.processor.decision import DecisionProcessor
+from ..turns.processor.speaking import SpeakingProcessor
+from ..turns.processor.thinking import ThinkingTurnProcessor
 
 if TYPE_CHECKING:
     from ..worker import MUDAgentWorker
@@ -40,14 +42,10 @@ class RetryCommand(Command):
         Returns:
             CommandResult with complete=True
         """
-        from ..turns.processor.decision import DecisionProcessor
-        from ..turns.processor.speaking import SpeakingProcessor
-        from ..turns.processor.thinking import ThinkingTurnProcessor
-
         turn_id = kwargs.get("turn_id", "unknown")
         attempt_count = kwargs.get("attempt_count", "1")
         status_reason = kwargs.get("status_reason", "")
-        turn_request = kwargs.get("turn_request")
+        turn_request = MUDTurnRequest.model_validate(kwargs)
 
         logger.info(
             "Retrying turn %s (attempt %s) - previous failure: %s",
@@ -57,15 +55,13 @@ class RetryCommand(Command):
         )
 
         # Check if sleeping before processing retry
-        from aim_mud_types.client import RedisMUDClient
-        client = RedisMUDClient(worker.redis)
-        is_sleeping = await client.get_agent_is_sleeping(worker.config.agent_id)
+        is_sleeping = await worker._check_agent_is_sleeping()
 
         if is_sleeping:
             logger.info(f"[{turn_id}] Agent sleeping, skipping retry")
             return CommandResult(
                 complete=True,
-                flush_drain=True,
+                flush_drain=False,
                 saved_event_id=None,
                 status=TurnRequestStatus.DONE,
                 message="Agent sleeping",
@@ -74,32 +70,11 @@ class RetryCommand(Command):
         # Worker has already drained events into worker.pending_events
         events = worker.pending_events
 
-        # Setup turn context ONCE
-        await setup_turn_context(worker, events)
-
-        # Run DecisionProcessor for Phase 1
-        decision_processor = DecisionProcessor(worker)
-        await decision_processor.execute(turn_request, events)
-
-        # Route based on decision type
-        decision = worker._last_decision
-
-        if decision.decision_type == DecisionType.SPEAK:
-            speaking_processor = SpeakingProcessor(worker)
-            await speaking_processor.execute(turn_request, events)
-        elif decision.decision_type == DecisionType.THINK:
-            thinking_processor = ThinkingTurnProcessor(worker)
-            await thinking_processor.execute(turn_request, events)
-        else:
-            # Direct action (move, take, drop, give, emote, wait, etc.)
-            await worker._emit_decision_action(decision)
-
-        # Clear decision
-        worker._last_decision = None
+        decision = await worker.take_turn(turn_id, events, turn_request)
 
         return CommandResult(
             complete=True,
-            flush_drain=False,
+            flush_drain=decision.should_flush,
             saved_event_id=None,
             status=TurnRequestStatus.DONE,
             message=f"Retry successful (attempt {attempt_count}): {decision.decision_type.name}"

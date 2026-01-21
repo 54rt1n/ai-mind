@@ -31,6 +31,7 @@ class DecisionResult:
     thinking: str
     raw_response: str
     cleaned_response: str
+    should_flush: bool = False
 
     # For AURA_TOOL - store the actual tool name
     aura_tool_name: Optional[str] = None

@@ -5,11 +5,16 @@
 import logging
 from typing import TYPE_CHECKING
 
-from aim_mud_types import TurnRequestStatus
+from aim_mud_types import MUDTurnRequest, TurnRequestStatus
+from aim_mud_types.client import RedisMUDClient
 from aim_mud_types.decision import DecisionType
 from .base import Command
 from .result import CommandResult
-from .helpers import setup_turn_context
+
+from ..turns.processor.decision import DecisionProcessor
+from ..turns.processor.speaking import SpeakingProcessor
+from ..turns.processor.thinking import ThinkingTurnProcessor
+
 
 if TYPE_CHECKING:
     from ..worker import MUDAgentWorker
@@ -41,13 +46,9 @@ class EventsCommand(Command):
         Returns:
             CommandResult with complete=True
         """
-        from ..turns.processor.decision import DecisionProcessor
-        from ..turns.processor.speaking import SpeakingProcessor
-        from ..turns.processor.thinking import ThinkingTurnProcessor
-
         turn_id = kwargs.get("turn_id", "unknown")
         reason = kwargs.get("reason", "events")
-        turn_request = kwargs.get("turn_request")
+        turn_request = MUDTurnRequest.model_validate(kwargs)
 
         # Worker has already drained events into worker.pending_events
         events = worker.pending_events
@@ -60,9 +61,7 @@ class EventsCommand(Command):
         )
 
         # Check if sleeping before processing events
-        from aim_mud_types.client import RedisMUDClient
-        client = RedisMUDClient(worker.redis)
-        is_sleeping = await client.get_agent_is_sleeping(worker.config.agent_id)
+        is_sleeping = await worker._check_agent_is_sleeping()
 
         if is_sleeping:
             logger.info(f"[{turn_id}] Agent sleeping, skipping event processing")
@@ -74,32 +73,11 @@ class EventsCommand(Command):
                 message="Agent sleeping",
             )
 
-        # Setup turn context ONCE
-        await setup_turn_context(worker, events)
-
-        # Run DecisionProcessor for Phase 1
-        decision_processor = DecisionProcessor(worker)
-        await decision_processor.execute(turn_request, events)
-
-        # Route based on decision type
-        decision = worker._last_decision
-
-        if decision.decision_type == DecisionType.SPEAK:
-            speaking_processor = SpeakingProcessor(worker)
-            await speaking_processor.execute(turn_request, events)
-        elif decision.decision_type == DecisionType.THINK:
-            thinking_processor = ThinkingTurnProcessor(worker)
-            await thinking_processor.execute(turn_request, events)
-        else:
-            # Direct action (move, take, drop, give, emote, wait, etc.)
-            await worker._emit_decision_action(decision)
-
-        # Clear decision
-        worker._last_decision = None
+        decision = await worker.take_turn(turn_id, events, turn_request)
 
         return CommandResult(
             complete=True,
-            flush_drain=False,
+            flush_drain=decision.should_flush,
             saved_event_id=None,
             status=TurnRequestStatus.DONE,
             message=f"Turn processed: {decision.decision_type.name}"

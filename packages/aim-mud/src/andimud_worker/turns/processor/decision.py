@@ -99,6 +99,7 @@ class DecisionProcessor(BaseTurnProcessor):
             thinking=decision_thinking,
             raw_response=decision_raw,
             cleaned_response=decision_cleaned,
+            should_flush=decision_type == DecisionType.SPEAK,
             aura_tool_name=decision_tool if decision_type == DecisionType.AURA_TOOL else None
         )
 

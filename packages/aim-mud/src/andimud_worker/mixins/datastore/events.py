@@ -292,3 +292,109 @@ class EventsMixin:
 
         # Clear pending buffers - these events will be re-drained on next turn
         self.pending_events = []
+
+    async def _apply_events_to_session(
+        self: "MUDAgentWorker",
+        events: list[MUDEvent],
+        *,
+        extend: bool = True,
+    ) -> None:
+        """Apply events to session state and conversation history.
+
+        Shared logic for setting up turn context with events. Handles:
+        1. Setting/extending worker.pending_events
+        2. Setting/extending session.pending_events
+        3. Updating session.last_event_time
+        4. Pushing events as user turn to conversation_manager
+
+        Args:
+            events: Events to apply
+            extend: If True, extend existing pending_events. If False, replace them.
+        """
+        if not events:
+            return
+
+        # Update worker.pending_events
+        if extend:
+            self.pending_events.extend(events)
+        else:
+            self.pending_events = events
+
+        # Update session.pending_events
+        if self.session:
+            if extend:
+                if not self.session.pending_events:
+                    self.session.pending_events = []
+                self.session.pending_events.extend(events)
+            else:
+                self.session.pending_events = events
+
+            # Update last_event_time from latest event
+            latest = events[-1]
+            self.session.last_event_time = latest.timestamp
+
+        # Push events as user turn to conversation history
+        if self.conversation_manager:
+            room_id = None
+            room_name = None
+            if self.session and self.session.current_room:
+                room_id = self.session.current_room.room_id
+                room_name = self.session.current_room.name
+
+            await self.conversation_manager.push_user_turn(
+                events=events,
+                world_state=self.session.world_state if self.session else None,
+                room_id=room_id,
+                room_name=room_name,
+            )
+
+    async def _drain_to_turn(self: "MUDAgentWorker") -> list[MUDEvent]:
+        """Re-drain events that arrived during Phase 1 processing.
+
+        This method should be called after DecisionProcessor completes and before
+        SpeakingProcessor or ThinkingTurnProcessor runs. It captures events that
+        arrived while Phase 1 was executing, ensuring Phase 2 has the most current
+        context.
+
+        The method:
+        1. Drains new events with settling (same logic as initial drain)
+        2. Appends to worker.pending_events and session.pending_events
+        3. Pushes new events as another user turn to conversation_manager
+        4. Returns the new events for logging/inspection
+
+        Returns:
+            List of newly drained events (empty if no new events arrived).
+
+        Example:
+            ```python
+            # After Phase 1 decision
+            decision = worker._last_decision
+
+            if decision.decision_type == DecisionType.SPEAK:
+                # Re-drain for new events
+                new_events = await worker._drain_to_turn()
+                if new_events:
+                    logger.info(f"Captured {len(new_events)} new events for Phase 2")
+
+                # Run Phase 2 with combined events
+                speaking_processor = SpeakingProcessor(worker)
+                await speaking_processor.execute(turn_request, worker.pending_events)
+            ```
+        """
+        # Drain new events with settling (no max_sequence_id cap for redrain)
+        new_events = await self._drain_with_settle()
+
+        if not new_events:
+            logger.debug("No new events arrived during Phase 1")
+            return []
+
+        logger.info(
+            f"Re-drained {len(new_events)} events for Phase 2, "
+            f"sequence_ids: {[e.metadata.get('sequence_id', 0) for e in new_events]}"
+        )
+
+        # Apply events to session (extend mode)
+        await self._apply_events_to_session(new_events, extend=True)
+        logger.debug("Pushed re-drained events to conversation history")
+
+        return new_events

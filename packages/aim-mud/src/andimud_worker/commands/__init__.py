@@ -19,7 +19,6 @@ from .idle import IdleCommand
 from .new_conversation import NewConversationCommand
 from .retry import RetryCommand
 from .think import ThinkCommand
-from .helpers import setup_turn_context
 
 __all__ = [
     "Command",
@@ -35,5 +34,4 @@ __all__ = [
     "NewConversationCommand",
     "RetryCommand",
     "ThinkCommand",
-    "setup_turn_context",
 ]
