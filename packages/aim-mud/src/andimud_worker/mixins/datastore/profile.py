@@ -220,6 +220,45 @@ class ProfileMixin:
         except json.JSONDecodeError as e:
             logger.warning("Failed to parse thought JSON: %s", e)
 
+    async def _load_workspace_state(self: "MUDAgentWorker") -> None:
+        """Load workspace state from Redis and set on strategies.
+
+        Loads workspace state from agent:{id}:workspace key and sets it on
+        the chat manager. Also enables/disables close_book tool based on
+        whether workspace has content.
+        """
+        workspace_key = RedisKeys.agent_workspace(self.config.agent_id)
+        workspace_raw = await self.redis.get(workspace_key)
+
+        if not workspace_raw:
+            # No workspace content - clear state and disable close_book
+            if self._chat_manager:
+                self._chat_manager.current_workspace = None
+            if self._decision_strategy:
+                self._decision_strategy.set_workspace_active(False)
+            return
+
+        try:
+            workspace_data = workspace_raw.decode("utf-8") if isinstance(workspace_raw, bytes) else workspace_raw
+        except (UnicodeDecodeError, AttributeError) as e:
+            logger.warning("Failed to decode workspace data: %s", e)
+            if self._decision_strategy:
+                self._decision_strategy.set_workspace_active(False)
+            return
+
+        if workspace_data:
+            if self._chat_manager:
+                self._chat_manager.current_workspace = workspace_data
+            if self._decision_strategy:
+                self._decision_strategy.set_workspace_active(True)
+            logger.info("Loaded workspace state (%d chars)", len(workspace_data))
+        else:
+            if self._chat_manager:
+                self._chat_manager.current_workspace = None
+            if self._decision_strategy:
+                self._decision_strategy.set_workspace_active(False)
+            logger.info("Workspace state empty")
+
     async def _update_agent_profile(self: "MUDAgentWorker", persona_id: str = None, **fields: str) -> None:
         """Update agent profile fields in Redis.
 

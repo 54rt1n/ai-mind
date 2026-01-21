@@ -284,3 +284,17 @@ class RedisKeys:
             Redis key for the agent's injected thought.
         """
         return f"agent:{agent_id}:thought"
+
+    @staticmethod
+    def agent_workspace(agent_id: str) -> str:
+        """Get the workspace key for a specific agent.
+
+        The workspace key stores the agent's workspace state.
+
+        Args:
+            agent_id: Unique identifier for the agent.
+
+        Returns:
+            Redis key for the agent's workspace.
+        """
+        return f"agent:{agent_id}:workspace"

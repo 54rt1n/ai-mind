@@ -3,20 +3,21 @@ description: Read and unbind books
 
 functions:
   - name: read
-    description: Read a book's table of contents or a specific page
+    description: Read a book or paper. Content is loaded into your workspace. For books, reads all pages unless a specific page number is given.
     parameters:
       type: object
       properties:
         book:
           type: string
-          description: Name of the book to read
+          description: Name of the book or paper to read
         page:
           type: integer
-          description: Specific page number to read (optional)
+          description: Specific page number to read (optional - omit to read entire book)
       required: [book]
       examples:
         - {read: {book: "My Notes"}}
         - {read: {book: "Research", page: 3}}
+        - {read: {book: "letter"}}
 
   - name: unbind
     description: Unbind a book back into a folder

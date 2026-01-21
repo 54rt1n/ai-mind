@@ -116,3 +116,12 @@ functions:
       examples:
         - {emote: {action: "smiles softly."}}
         - {emote: {action: "nods once, thoughtful."}}
+
+  - name: close_book
+    description: Close the book you're currently reading and clear your workspace
+    parameters:
+      type: object
+      properties: {}
+      required: []
+      examples:
+        - {close_book: {}}

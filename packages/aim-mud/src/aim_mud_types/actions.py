@@ -327,6 +327,18 @@ class MUDAction(BaseModel):
             symbol = self.args.get("symbol", "")
             return f"stock_quote {symbol}"
 
+        # Paper/book commands
+        elif self.tool == "read":
+            book = self.args.get("book", "")
+            page = self.args.get("page")
+            if page is not None:
+                return f"read {book} = {page}"
+            return f"read {book}"
+
+        elif self.tool == "unbind":
+            book = self.args.get("book", "")
+            return f"unbind {book}"
+
         else:
             # Generic fallback for unknown aura tools
             # Format: tool_name arg1=val1 arg2=val2

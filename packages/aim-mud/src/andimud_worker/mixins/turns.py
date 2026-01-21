@@ -14,11 +14,12 @@ from typing import TYPE_CHECKING, Optional
 import yaml
 
 from aim_mud_types import MUDAction, MUDTurnRequest
-from aim.utils.think import extract_think_tags
-from ..adapter import build_current_context
 from aim_mud_types import MUDEvent, MUDTurn
 from aim_mud_types.decision import DecisionType, DecisionResult
 from aim_mud_types.helper import _utc_now
+from aim_mud_types.redis_keys import RedisKeys
+from aim.utils.think import extract_think_tags
+from ..adapter import build_current_context
 from ..turns.validation import (
     resolve_target_name,
     resolve_move_location,
@@ -323,6 +324,11 @@ class TurnsMixin:
             actions_taken.append(action)
             await self._emit_actions(actions_taken)
 
+        elif decision.decision_type == DecisionType.CLOSE_BOOK:
+            # close_book is handled internally (workspace cleared in _decide_action)
+            # - no MUDAction needed, no visible action in the world
+            logger.info("close_book: workspace cleared, no MUDAction emitted")
+
         elif decision.decision_type == DecisionType.AURA_TOOL:
             # Generic aura tool handling - emit MUDAction for Evennia to execute
             tool_name = decision.aura_tool_name or "unknown_aura_tool"
@@ -503,6 +509,17 @@ class TurnsMixin:
                     # Return plan_update result - processor will handle appropriately
                     return "plan_update", tool_result, last_response, last_thinking, last_cleaned
 
+                # close_book: clear workspace internally, no MUDAction
+                if tool_name == "close_book":
+                    workspace_key = RedisKeys.agent_workspace(self.config.agent_id)
+                    await self.redis.delete(workspace_key)
+                    if self._chat_manager:
+                        self._chat_manager.current_workspace = None
+                    if self._decision_strategy:
+                        self._decision_strategy.set_workspace_active(False)
+                    logger.info("close_book: cleared workspace for agent %s", self.config.agent_id)
+                    return "close_book", {"success": True}, last_response, last_thinking, last_cleaned
+
                 # Generic aura tool handling - all aura tools emit MUDActions
                 if self._decision_strategy.is_aura_tool(tool_name):
                     # For ring specifically, validate targets
@@ -608,6 +625,9 @@ class TurnsMixin:
         """
         # Load thought content from Redis and set on strategies
         await self._load_thought_content()
+
+        # Load workspace state from Redis and set on chat manager
+        await self._load_workspace_state()
 
         # Update decision tool availability based on drained events
         self._refresh_emote_tools(events)

@@ -145,6 +145,7 @@ class DecisionProcessor(BaseTurnProcessor):
             "think": DecisionType.THINK,
             "plan": DecisionType.PLAN,
             "plan_update": DecisionType.PLAN_UPDATE,
+            "close_book": DecisionType.CLOSE_BOOK,
             "confused": DecisionType.CONFUSED,
         }
 

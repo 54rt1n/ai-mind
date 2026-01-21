@@ -67,6 +67,7 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
         self._cached_system_message = None
         self._base_tools = []
         self._emote_allowed = True
+        self._workspace_active = False
         self._aura_tools = []
         self._active_auras: list[str] = []
         # Conversation manager
@@ -101,6 +102,21 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
         if self._emote_allowed == allowed:
             return
         self._emote_allowed = allowed
+        self._refresh_tool_user()
+
+    def set_workspace_active(self, active: bool) -> None:
+        """Enable or disable the close_book tool based on workspace content.
+
+        When workspace has content (e.g., from reading a book), close_book
+        becomes available. When workspace is empty, close_book is hidden.
+
+        Args:
+            active: True if workspace has content, False otherwise.
+        """
+        active = bool(active)
+        if self._workspace_active == active:
+            return
+        self._workspace_active = active
         self._refresh_tool_user()
 
     def update_aura_tools(self, auras: list[str], tools_path: str) -> None:
@@ -169,6 +185,9 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
         tools = self._base_tools + self._aura_tools
         if not self._emote_allowed:
             tools = [tool for tool in tools if tool.function.name != "emote"]
+        # close_book only available when workspace has content
+        if not self._workspace_active:
+            tools = [tool for tool in tools if tool.function.name != "close_book"]
         self.tool_user = ToolUser(tools)
         self._cached_system_message = None
 

@@ -19,6 +19,7 @@ class DecisionType(Enum):
     THINK = auto()          # NEW - triggers ThinkingTurnProcessor
     PLAN = auto()           # NEW - triggers plan creation (future)
     PLAN_UPDATE = auto()    # Existing - plan status update
+    CLOSE_BOOK = auto()     # Close workspace (book reading)
     CONFUSED = auto()       # Fallback for invalid responses
     AURA_TOOL = auto()      # Dynamic tools from room auras
 
