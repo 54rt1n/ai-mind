@@ -74,7 +74,7 @@ class RetryCommand(Command):
 
         return CommandResult(
             complete=True,
-            flush_drain=decision.should_flush,
+            flush_drain=decision.should_flush if decision else False,
             saved_event_id=None,
             status=TurnRequestStatus.DONE,
             message=f"Retry successful (attempt {attempt_count}): {decision.decision_type.name}"

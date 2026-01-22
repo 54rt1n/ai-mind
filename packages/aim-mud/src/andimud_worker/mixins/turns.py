@@ -285,6 +285,30 @@ class TurnsMixin:
             else:
                 logger.warning("EMOTE decision missing action text; no action emitted")
 
+        elif decision.decision_type == DecisionType.NON_PUBLISHED:
+            action_text = (decision.args.get("action") or "").strip()
+            if action_text:
+                action = MUDAction(tool="emote", args={
+                    "action": action_text},
+                    metadata={"non_published": True},
+                )
+                actions_taken.append(action)
+                await self._emit_actions(actions_taken)
+            else:
+                logger.warning("EMOTE decision missing action text; no action emitted")
+
+        elif decision.decision_type == DecisionType.NON_REACTIVE:
+            action_text = (decision.args.get("action") or "").strip()
+            if action_text:
+                action = MUDAction(tool="emote", args={
+                    "action": action_text},
+                    metadata={"non_reactive": True},
+                )
+                actions_taken.append(action)
+                await self._emit_actions(actions_taken)
+            else:
+                logger.warning("EMOTE decision missing action text; no action emitted")
+
         elif decision.decision_type == DecisionType.WAIT:
             logger.info("Decision to wait; emitting subtle emote")
             # Emit a subtle emote based on mood (if provided)
@@ -295,7 +319,12 @@ class TurnsMixin:
             else:
                 emote_text = "waits quietly."
                 logger.info("Wait emote with default mood")
-            action = MUDAction(tool="emote", args={"action": emote_text})
+            # Mark as non_reactive so other agents don't trigger turns for idle emotes
+            action = MUDAction(
+                tool="emote",
+                args={"action": emote_text},
+                metadata={"non_reactive": True},
+            )
             actions_taken.append(action)
             await self._emit_actions(actions_taken)
 
@@ -312,7 +341,10 @@ class TurnsMixin:
                 emote_text = "updated the plan status."
 
             logger.info(f"Plan update: status={plan_status}, next_task={next_task}")
-            action = MUDAction(tool="emote", args={"action": emote_text})
+            action = MUDAction(tool="emote", args={
+                "action": emote_text},
+                metadata={"non_published": True},
+            )
             actions_taken.append(action)
             await self._emit_actions(actions_taken)
 
@@ -320,7 +352,10 @@ class TurnsMixin:
             # Decision processor failed to parse valid response
             logger.info("Decision returned CONFUSED; emitting confused emote")
             emote_text = "looks confused."
-            action = MUDAction(tool="emote", args={"action": emote_text})
+            action = MUDAction(tool="emote", args={
+                "action": emote_text},
+                metadata={"non_published": True},
+            )
             actions_taken.append(action)
             await self._emit_actions(actions_taken)
 

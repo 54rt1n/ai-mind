@@ -39,9 +39,9 @@ class AgentsMixin:
                         if datetime.now(timezone.utc) >= turn_request.next_attempt_at:
                             # Check if ANY agent is busy before assigning retry
                             # This enforces one-at-a-time concurrency
-                            if await self._any_agent_processing():
-                                logger.debug(f"Skipping retry for {agent_id} - another agent is processing")
-                                continue
+                            #if await self._any_agent_processing():
+                            #    logger.debug(f"Skipping retry for {agent_id} - another agent is processing")
+                            #    continue
 
                             logger.info(f"Retrying turn for {agent_id} (was {status.value})")
                             await self._maybe_assign_turn(agent_id, reason=TurnReason.RETRY)

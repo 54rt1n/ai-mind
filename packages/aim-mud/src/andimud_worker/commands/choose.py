@@ -65,7 +65,7 @@ class ChooseCommand(Command):
 
         return CommandResult(
             complete=True,
-            flush_drain=decision.should_flush,
+            flush_drain=decision.should_flush if decision else False,
             saved_event_id=None,
             status=TurnRequestStatus.DONE,
             message=f"@choose turn processed: {decision.decision_type.name}"

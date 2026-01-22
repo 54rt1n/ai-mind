@@ -1,0 +1,19 @@
+type: paper
+description: Write content on paper
+
+functions:
+  - name: write
+    description: Write content on a sheet of paper. This replaces any existing content.
+    parameters:
+      type: object
+      properties:
+        paper:
+          type: string
+          description: Name of the paper to write on
+        content:
+          type: string
+          description: The content to write on the paper
+      required: [paper, content]
+      examples:
+        - {write: {paper: "note", content: "Remember to check the logs"}}
+        - {write: {paper: "letter", content: "Dear friend,\n\nI hope this finds you well."}}

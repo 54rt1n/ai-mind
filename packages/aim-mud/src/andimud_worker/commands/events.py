@@ -5,7 +5,7 @@
 import logging
 from typing import TYPE_CHECKING
 
-from aim_mud_types import MUDTurnRequest, TurnRequestStatus
+from aim_mud_types import MUDTurnRequest, TurnRequestStatus, EventType
 from aim_mud_types.client import RedisMUDClient
 from aim_mud_types.decision import DecisionType
 from .base import Command
@@ -73,11 +73,28 @@ class EventsCommand(Command):
                 message="Agent sleeping",
             )
 
+        # Check if ALL events are NON_REACTIVE (awareness-only events)
+        # These events are drained/consumed but don't trigger a turn
+        # This prevents ping-pong where agents react to each other's idle emotes
+        reactive_events = [e for e in events if e.event_type not in (EventType.NON_REACTIVE, EventType.NON_PUBLISHED)]
+        if events and not reactive_events:
+            logger.info(
+                f"[{turn_id}] Only NON_REACTIVE events ({len(events)}), "
+                "draining without taking turn"
+            )
+            return CommandResult(
+                complete=True,
+                flush_drain=True,  # Consume the events
+                saved_event_id=None,
+                status=TurnRequestStatus.DONE,
+                message=f"Non-reactive events only ({len(events)})",
+            )
+
         decision = await worker.take_turn(turn_id, events, turn_request)
 
         return CommandResult(
             complete=True,
-            flush_drain=decision.should_flush,
+            flush_drain=decision.should_flush if decision else False,
             saved_event_id=None,
             status=TurnRequestStatus.DONE,
             message=f"Turn processed: {decision.decision_type.name}"

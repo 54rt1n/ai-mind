@@ -32,6 +32,8 @@ class EventType(str, Enum):
     NOTIFICATION = "notification"
     TERMINAL = "terminal"
     SYSTEM = "system"
+    NON_REACTIVE = "non_reactive"
+    NON_PUBLISHED = "non_published"
 
 
 class ActorType(str, Enum):

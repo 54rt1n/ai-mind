@@ -28,6 +28,7 @@ from .constants import (
     AURA_BIND_ACCESS,
     AURA_BOOK_ACCESS,
     AURA_COPY_ACCESS,
+    AURA_PAPER_WRITE,
 )
 from .conversation import MUDConversationEntry
 from .coordination import MUDTurnRequest, DreamerState, DreamingState, DreamStatus, TurnRequestStatus, TurnReason
@@ -186,6 +187,7 @@ __all__ = [
     "AURA_BIND_ACCESS",
     "AURA_BOOK_ACCESS",
     "AURA_COPY_ACCESS",
+    "AURA_PAPER_WRITE",
     # Redis Client
     "RedisMUDClient",
     # Turn request helpers

@@ -223,7 +223,7 @@ def format_you_see_guidance(world_state) -> str:
 
     people = [
         e.name for e in world_state.entities_present
-        if e.entity_type in ("player", "ai", "npc") and not e.is_self and e.name
+        if e.entity_type in ("player", "ai", "npc") and e.name
     ]
     if people:
         lines.append(f"People here: {', '.join(people)}")
@@ -334,14 +334,14 @@ def format_self_action_guidance(self_actions: list[MUDEvent], world_state=None) 
 
         elif event.event_type == EventType.EMOTE:
             lines.extend([
-                "You acted out an expression for everyone to see.",
+                "You successfully acted out an expression for everyone to see:",
                 "",
                 formatted,
             ])
 
         else:
             lines.extend([
-                f"You successfully {event.content.lower().strip('*').strip()}.",
+                f"I {event.content.lower().strip('*').strip()}.",
                 "",
                 formatted,
             ])

@@ -22,6 +22,8 @@ class DecisionType(Enum):
     CLOSE_BOOK = auto()     # Close workspace (book reading)
     CONFUSED = auto()       # Fallback for invalid responses
     AURA_TOOL = auto()      # Dynamic tools from room auras
+    NON_PUBLISHED = auto()  # Non-published events (e.g., commands)
+    NON_REACTIVE = auto()   # Non-reactive events (e.g., idle emotes)
 
 
 @dataclass

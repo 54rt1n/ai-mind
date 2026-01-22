@@ -145,9 +145,8 @@ class MUDAction(BaseModel):
             suffix = "/delete" if delete else ""
             return f"@alias{suffix} {self.args.get('object', '')} = {self.args.get('aliases', '')}".strip()
 
-        elif self.tool == "copy":
-            if "source" not in self.args or "destination" not in self.args:
-                return ""
+        elif self.tool == "copy" and "source" in self.args and "destination" in self.args:
+            # Builder @copy command
             return f"@copy {self.args.get('source', '')} = {self.args.get('destination', '')}".strip()
 
         elif self.tool == "cpattr":
@@ -338,6 +337,45 @@ class MUDAction(BaseModel):
         elif self.tool == "unbind":
             book = self.args.get("book", "")
             return f"unbind {book}"
+
+        elif self.tool == "write":
+            paper = self.args.get("paper", "")
+            content = self.args.get("content", "")
+            return f"write {paper} = {content}"
+
+        elif self.tool == "bind":
+            folder = self.args.get("folder", "")
+            title = self.args.get("title")
+            if title:
+                return f'bind {folder} as "{title}"'
+            return f"bind {folder}"
+
+        elif self.tool == "print":
+            terminal_type = self.args.get("terminal_type", "")
+            identifier = self.args.get("identifier", "")
+            name = self.args.get("name", "")
+            return f"print {terminal_type} = {identifier}, {name}"
+
+        elif self.tool == "scan":
+            terminal_type = self.args.get("terminal_type", "")
+            filename = self.args.get("filename", "")
+            return f"scan {terminal_type} = {filename}"
+
+        elif self.tool == "copy":
+            # Paper copy command - no args, uses paper in copier
+            return "copy"
+
+        # Web tools (container-mcp)
+        elif self.tool == "web_scrape":
+            url = self.args.get("url", "")
+            selector = self.args.get("selector")
+            if selector:
+                return f"web_scrape {url} {selector}"
+            return f"web_scrape {url}"
+
+        elif self.tool == "web_browse":
+            url = self.args.get("url", "")
+            return f"web_browse {url}"
 
         else:
             # Generic fallback for unknown aura tools
