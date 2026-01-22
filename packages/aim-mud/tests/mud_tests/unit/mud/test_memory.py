@@ -76,6 +76,7 @@ class TestMUDMemoryPersister:
         assert agent_msg.document_type == DOC_MUD_AGENT
         assert world_msg.conversation_id == conversation_id
         assert agent_msg.conversation_id == conversation_id
+        assert world_msg.user_id == "Prax"
 
     def test_conversation_id_format(self):
         conv_id = generate_conversation_id("andimud")

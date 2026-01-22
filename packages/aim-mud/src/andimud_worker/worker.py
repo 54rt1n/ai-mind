@@ -34,7 +34,7 @@ from aim_mud_types.turn_request_helpers import (
 )
 
 from .config import MUDConfig
-from .exceptions import AbortRequestedException
+from .exceptions import AbortRequestedException, TurnPreemptedException
 
 from .adapter import build_system_prompt
 from aim_mud_types import MUDSession
@@ -452,6 +452,7 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                     continue
 
                 try:
+                    preempted = False
                     # SAVE pre-drain event position for potential rollback
                     saved_event_id = self.session.last_event_id
 
@@ -479,6 +480,8 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                     # Execute command via registry
                     logger.info(f"Executing command: {turn_request.model_dump()}")
                     result = await self.command_registry.execute(self, **turn_request.model_dump())
+                    if result.turn_id:
+                        turn_id = result.turn_id
 
                     # Handle flush_drain flag
                     if result.flush_drain:
@@ -595,6 +598,12 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                         )
                         await self.update_turn_request(current, expected_turn_id=turn_id)
                     self._last_turn_request_id = turn_id
+                except TurnPreemptedException as e:
+                    preempted = True
+                    logger.info(f"Turn {turn_id} preempted: {e}")
+                    if saved_event_id:
+                        await self._restore_event_position(saved_event_id)
+                        saved_event_id = None
                 except AbortRequestedException:
                     logger.info(f"Turn {turn_id} aborted by user request")
                     current = await self._get_turn_request()
@@ -626,7 +635,7 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                         await heartbeat_task
 
                     # After turn completes (success or abort), return to ready
-                    if turn_id:  # Only if we actually processed a turn
+                    if turn_id and not preempted:  # Only if we actually processed a turn
                         turn_request = await self._get_turn_request()
                         if turn_request:
                             status = turn_request.status

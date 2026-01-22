@@ -233,7 +233,7 @@ class DialogueStrategy(FormatValidationMixin, BaseStepStrategy):
             return persona.system_prompt(
                 mood=None,
                 location=None,
-                user_id="system",
+                user_id=state.user_id,
             )
 
         # Aspect speaker - build aspect system prompt
@@ -665,7 +665,7 @@ class DialogueStrategy(FormatValidationMixin, BaseStepStrategy):
         message = ConversationMessage.create(
             doc_id=doc_id,
             conversation_id=executor.state.conversation_id,
-            user_id="system",
+            user_id=executor.state.user_id,
             persona_id=executor.persona.persona_id,
             sequence_no=len(executor.state.dialogue_turns) + 1,
             branch=executor.state.branch,

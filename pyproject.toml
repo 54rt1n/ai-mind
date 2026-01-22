@@ -31,6 +31,9 @@ test = [
     "pytest",
     "pytest-mock"
 ]
+mud = [
+    "evennia>=5.0.1",
+]
 
 [build-system]
 requires = ["hatchling"]

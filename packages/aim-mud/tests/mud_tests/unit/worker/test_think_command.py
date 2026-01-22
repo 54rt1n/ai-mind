@@ -10,12 +10,23 @@ from andimud_worker.commands.think import ThinkCommand
 
 
 @pytest.fixture
-def mock_worker():
+def mock_worker(mocker):
     """Mock worker with minimal required attributes."""
     worker = MagicMock()
     worker.config = MagicMock()
     worker.config.agent_id = "test_agent"
     worker.pending_events = []
+    # Setup async methods that ThinkCommand calls
+    worker._setup_turn_context = AsyncMock()
+
+    # Mock ThinkingTurnProcessor to avoid LLM calls
+    mock_processor = AsyncMock()
+    mock_processor.execute = AsyncMock()
+    mocker.patch(
+        "andimud_worker.commands.think.ThinkingTurnProcessor",
+        return_value=mock_processor
+    )
+
     return worker
 
 
@@ -35,26 +46,29 @@ class TestThinkCommand:
     """Tests for ThinkCommand execution."""
 
     @pytest.mark.asyncio
-    async def test_think_command_returns_incomplete(self, mock_worker, base_kwargs):
-        """Test ThinkCommand returns complete=False to fall through to processor."""
+    async def test_think_command_returns_complete(self, mock_worker, base_kwargs):
+        """Test ThinkCommand processes turn and returns complete=True."""
         cmd = ThinkCommand()
         result = await cmd.execute(mock_worker, **base_kwargs)
 
-        # Verify result falls through
-        assert result.complete is False
+        # Verify command completed processing
+        assert result.complete is True
         assert result.status == TurnRequestStatus.DONE
-        assert "Think turn ready" in result.message
+        assert "Think turn processed" in result.message
+        # Verify setup was called
+        mock_worker._setup_turn_context.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_think_command_preserves_guidance(self, mock_worker, base_kwargs):
-        """Test ThinkCommand preserves guidance from metadata."""
+    async def test_think_command_with_guidance(self, mock_worker, base_kwargs):
+        """Test ThinkCommand passes guidance to processor."""
         base_kwargs["metadata"] = {"guidance": "Focus on emotional memories"}
         cmd = ThinkCommand()
         result = await cmd.execute(mock_worker, **base_kwargs)
 
-        # Verify guidance is preserved
-        assert result.plan_guidance == "Focus on emotional memories"
+        # Verify guidance appears in message
+        assert result.complete is True
         assert "Focus on emotional memories" in result.message
+        assert result.status == TurnRequestStatus.DONE
 
     @pytest.mark.asyncio
     async def test_think_command_truncates_long_guidance_in_message(self, mock_worker, base_kwargs):
@@ -64,11 +78,12 @@ class TestThinkCommand:
         cmd = ThinkCommand()
         result = await cmd.execute(mock_worker, **base_kwargs)
 
-        # Verify guidance is preserved in full
-        assert result.plan_guidance == long_guidance
+        # Verify command completed
+        assert result.complete is True
 
-        # Verify message is truncated
+        # Verify message is truncated (50 char limit + "...")
         assert "..." in result.message
+        assert "aaa" in result.message  # Some of the guidance should be present
 
     @pytest.mark.asyncio
     async def test_think_command_name_property(self):
@@ -83,9 +98,10 @@ class TestThinkCommand:
         cmd = ThinkCommand()
         result = await cmd.execute(mock_worker, **base_kwargs)
 
-        # Should not crash
-        assert result.complete is False
-        assert result.plan_guidance is None
+        # Should not crash and should complete
+        assert result.complete is True
+        assert result.status == TurnRequestStatus.DONE
+        assert "Think turn processed" in result.message
 
     @pytest.mark.asyncio
     async def test_think_command_empty_guidance(self, mock_worker, base_kwargs):
@@ -94,8 +110,11 @@ class TestThinkCommand:
         cmd = ThinkCommand()
         result = await cmd.execute(mock_worker, **base_kwargs)
 
-        assert result.plan_guidance is None
-        assert "will generate reasoning" in result.message
+        # Empty guidance should be treated as no guidance
+        assert result.complete is True
+        assert "Think turn processed" in result.message
+        # Message should not include truncated guidance
+        assert "..." not in result.message
 
 
 if __name__ == "__main__":

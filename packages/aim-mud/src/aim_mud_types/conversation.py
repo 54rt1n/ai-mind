@@ -22,7 +22,7 @@ class MUDConversationEntry(BaseModel):
         saved: True after @write flushes to CVM (or skip_save is honored).
         doc_id: Set after CVM insert; used for deduplication.
         skip_save: If True, this entry is never persisted to CVM.
-        document_type: DOC_MUD_WORLD or DOC_MUD_AGENT.
+        document_type: DOC_MUD_WORLD, DOC_MUD_ACTION, or DOC_MUD_AGENT.
         conversation_id: Groups related turns together.
         sequence_no: Order within the conversation.
         metadata: Rich metadata (room info, actions, event details).

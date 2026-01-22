@@ -312,6 +312,7 @@ class ToolUser:
         Handles various LLM output formats:
         - Pure JSON response
         - JSON wrapped in markdown code blocks (```json ... ```)
+        - JSON wrapped in an unclosed markdown code block (```json ... EOF)
         - JSON after <think>...</think> blocks
         - Multiple JSON candidates (tries each)
         """
@@ -333,6 +334,19 @@ class ToolUser:
                 return json.loads(code_content.strip())
             except json.JSONDecodeError:
                 continue
+
+        # Handle unclosed code blocks like ```json ... EOF
+        if "```" in text and text.count("```") % 2 == 1:
+            fence_start = text.find("```")
+            if fence_start != -1:
+                fence_body = text[fence_start + 3 :]
+                # Drop optional language label on the first line
+                fence_body = re.sub(r"^\s*json\b", "", fence_body, flags=re.IGNORECASE)
+                fence_body = fence_body.lstrip()
+                try:
+                    return json.loads(fence_body)
+                except json.JSONDecodeError:
+                    pass
 
         # Look for JSON after </think> tag if present
         if "</think>" in text:

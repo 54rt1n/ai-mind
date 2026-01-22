@@ -201,7 +201,12 @@ class AgentsMixin:
             # Stream doesn't exist = idle
             return True
 
-    async def _maybe_assign_turn(self, agent_id: str, reason: "str | TurnReason" = TurnReason.EVENTS) -> bool:
+    async def _maybe_assign_turn(
+        self,
+        agent_id: str,
+        reason: "str | TurnReason" = TurnReason.EVENTS,
+        metadata: Optional[dict] = None,
+    ) -> bool:
         """Assign turn if agent is available (including ready to retry).
 
         Checks agent availability:
@@ -265,10 +270,10 @@ class AgentsMixin:
 
         # Preserve attempt_count and metadata if retrying a failed turn
         attempt_count = 0
-        metadata = None
+        preserved_metadata = None
         if status in (TurnRequestStatus.RETRY, TurnRequestStatus.FAIL):
             attempt_count = current.attempt_count
-            metadata = current.metadata  # Preserve metadata on retry
+            preserved_metadata = current.metadata  # Preserve metadata on retry
 
             # Validate: DREAM turns require metadata with scenario
             if current.reason == TurnReason.DREAM and not metadata:
@@ -310,6 +315,13 @@ class AgentsMixin:
                 )
                 return False
 
+        # Merge metadata for new assignments; preserve retry metadata on collisions
+        extra_metadata = metadata or {}
+        if preserved_metadata:
+            merged_metadata = {**extra_metadata, **preserved_metadata}
+        else:
+            merged_metadata = extra_metadata or None
+
         success, turn_request, result = await assign_turn_request_async(
             self.redis,
             agent_id,
@@ -318,7 +330,7 @@ class AgentsMixin:
             status=initial_status,
             expected_turn_id=current.turn_id,
             skip_availability_check=True,
-            **(metadata or {}),
+            **(merged_metadata or {}),
         )
 
         if success and turn_request:
@@ -410,4 +422,3 @@ class AgentsMixin:
         """
         self.registered_agents.discard(agent_id)
         logger.info(f"Unregistered agent {agent_id}")
-

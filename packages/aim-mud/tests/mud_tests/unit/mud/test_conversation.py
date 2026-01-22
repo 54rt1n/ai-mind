@@ -37,6 +37,14 @@ def _sample_event(
     )
 
 
+def _entries_from_rpush(mock_redis: AsyncMock) -> list[MUDConversationEntry]:
+    entries: list[MUDConversationEntry] = []
+    for call in mock_redis.rpush.call_args_list:
+        entry_json = call.args[1]
+        entries.append(MUDConversationEntry.model_validate_json(entry_json))
+    return entries
+
+
 def _sample_world_state() -> WorldState:
     """Create a sample WorldState for testing."""
     return WorldState(
@@ -275,15 +283,21 @@ class TestMUDConversationManagerPushUserTurn:
             room_name="The Kitchen",
         )
 
+        entries = _entries_from_rpush(mock_redis)
+        assert len(entries) == 2
+
+        world_entry = entries[0]
+        action_entry = entries[1]
+
         # Regular event should be in third person
-        assert 'Prax says, "Hello there!"' in entry.content
+        assert 'Prax says, "Hello there!"' in world_entry.content
 
         # Self-action guidance should be preserved as-is (new format)
-        assert "Now you are at" in entry.content
-        assert "[== Your Turn ==]" in entry.content
+        assert "Now you are at" in action_entry.content
+        assert "[== Your Turn ==]" in action_entry.content
 
         # Should NOT contain third-person self-action
-        assert "*You see Andi has arrived.*" not in entry.content
+        assert "*You see Andi has arrived.*" not in action_entry.content
 
     @pytest.mark.asyncio
     async def test_push_user_turn_formats_self_object_actions(self, conversation_manager, mock_redis):
@@ -464,14 +478,28 @@ class TestMUDConversationManagerSelfSpeechFiltering:
             room_name="Test Room",
         )
 
-        # Entry should contain emote and other's speech, but NOT self-speech
-        assert "waves enthusiastically" in entry.content
-        assert "Hi everyone!" in entry.content
-        assert "Hello" not in entry.content
-        assert "You: Hello" not in entry.content
+        entries = _entries_from_rpush(mock_redis)
+        assert len(entries) == 2
 
-        # Should have event_count=2 (emote + other's speech, not self-speech)
-        assert entry.metadata["event_count"] == 2
+        action_entries = [e for e in entries if e.document_type != DOC_MUD_WORLD]
+        world_entries = [e for e in entries if e.document_type == DOC_MUD_WORLD]
+
+        assert len(action_entries) == 1
+        assert len(world_entries) == 1
+
+        action_entry = action_entries[0]
+        world_entry = world_entries[0]
+
+        # Entry should contain emote and other's speech, but NOT self-speech
+        assert "waves enthusiastically" in action_entry.content
+        assert "Hi everyone!" in world_entry.content
+        assert "Hello" not in action_entry.content
+        assert "Hello" not in world_entry.content
+        assert "You: Hello" not in action_entry.content
+        assert "You: Hello" not in world_entry.content
+
+        assert action_entry.metadata["event_count"] == 1
+        assert world_entry.metadata["event_count"] == 1
 
     @pytest.mark.asyncio
     async def test_push_user_turn_self_speech_doesnt_affect_actor_metadata(self, conversation_manager, mock_redis):

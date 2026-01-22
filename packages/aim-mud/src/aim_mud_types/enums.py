@@ -20,6 +20,8 @@ class EventType(str, Enum):
         AMBIENT: Environmental or atmospheric events.
         NOTIFICATION: Interactive/environmental notifications (e.g., doorbells).
         TERMINAL: Terminal tool execution events (code, web, research, etc.).
+        CODE_ACTION: Code command output or action (targeted to caller).
+        CODE_FILE: Code file content output (targeted to caller).
         SYSTEM: System messages (login, logout, errors).
     """
 
@@ -31,6 +33,8 @@ class EventType(str, Enum):
     AMBIENT = "ambient"
     NOTIFICATION = "notification"
     TERMINAL = "terminal"
+    CODE_ACTION = "code-action"
+    CODE_FILE = "code-file"
     SYSTEM = "system"
     NON_REACTIVE = "non_reactive"
     NON_PUBLISHED = "non_published"

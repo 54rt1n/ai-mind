@@ -283,6 +283,87 @@ class MUDAction(BaseModel):
             return f"@spawn {self.args.get('prototype', '')}".strip()
 
         # Aura tool commands - agent uses same commands as users
+        elif self.tool == "sync":
+            return "sync"
+
+        elif self.tool == "scan":
+            pattern = self.args.get("pattern", "")
+            return f"scan {pattern}".strip()
+
+        elif self.tool == "grep":
+            pattern = self.args.get("pattern", "")
+            return f"grep {pattern}".strip()
+
+        elif self.tool == "cat":
+            file = self.args.get("file", "")
+            return f"cat {file}".strip()
+
+        elif self.tool == "sed":
+            file = self.args.get("file", "")
+            range_expr = self.args.get("range", "")
+            if not file or not range_expr:
+                return ""
+            return f"sed {file} = {range_expr}".strip()
+
+        elif self.tool == "head":
+            file = self.args.get("file", "")
+            lines = self.args.get("lines", "")
+            if not file or lines == "":
+                return ""
+            return f"head {file} = {lines}".strip()
+
+        elif self.tool == "tail":
+            file = self.args.get("file", "")
+            lines = self.args.get("lines", "")
+            if not file or lines == "":
+                return ""
+            return f"tail {file} = {lines}".strip()
+
+        elif self.tool == "meta":
+            file = self.args.get("file", "")
+            return f"meta {file}".strip()
+
+        elif self.tool == "refresh":
+            target = self.args.get("target", "")
+            return f"refresh {target}".strip()
+
+        elif self.tool == "diff":
+            file = self.args.get("file", "")
+            other = self.args.get("other", "")
+            if not file or not other:
+                return ""
+            return f"diff {file} = {other}".strip()
+
+        elif self.tool == "gitdiff":
+            file = self.args.get("file", "")
+            ref = self.args.get("ref", "")
+            if not file:
+                return ""
+            if ref:
+                return f"gitdiff {file} = {ref}".strip()
+            return f"gitdiff {file}".strip()
+
+        elif self.tool == "clone":
+            file = self.args.get("file", "")
+            new_file = self.args.get("new_file", "")
+            if not file or not new_file:
+                return ""
+            return f"clone {file} = {new_file}".strip()
+
+        elif self.tool == "patch":
+            file = self.args.get("file", "")
+            if not file:
+                return ""
+            return f"patch {file}".strip()
+
+        elif self.tool == "touch":
+            path = self.args.get("path", "")
+            return f"touch {path}".strip()
+
+        elif self.tool == "uv":
+            args = self.args.get("args", "")
+            return f"uv {args}".strip()
+
         elif self.tool == "py_exec":
             code = self.args.get("code", "")
             escaped = code.replace("\n", "\\n")

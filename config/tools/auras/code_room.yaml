@@ -1,0 +1,195 @@
+type: mud
+description: Code room tools for inspecting and editing repository files
+
+functions:
+  - name: scan
+    description: List CodeFile objects in the room
+    parameters:
+      type: object
+      properties:
+        pattern:
+          type: string
+          description: Optional substring filter
+      required: []
+      examples:
+        - {scan: {}}
+        - {scan: {pattern: "py"}}
+
+  - name: grep
+    description: Search the code room repo with grep
+    parameters:
+      type: object
+      properties:
+        pattern:
+          type: string
+          description: Search pattern
+      required: [pattern]
+      examples:
+        - {grep: {pattern: "def refresh"}}
+
+  - name: cat
+    description: Show full file contents
+    parameters:
+      type: object
+      properties:
+        file:
+          type: string
+          description: File name or path
+      required: [file]
+      examples:
+        - {cat: {file: "README.md"}}
+
+  - name: sed
+    description: Show a range of lines
+    parameters:
+      type: object
+      properties:
+        file:
+          type: string
+          description: File name or path
+        range:
+          type: string
+          description: Sed range like 30,50p
+      required: [file, range]
+      examples:
+        - {sed: {file: "README.md", range: "1,40p"}}
+
+  - name: head
+    description: Show first N lines
+    parameters:
+      type: object
+      properties:
+        file:
+          type: string
+          description: File name or path
+        lines:
+          type: integer
+          description: Line count
+      required: [file, lines]
+      examples:
+        - {head: {file: "README.md", lines: 50}}
+
+  - name: tail
+    description: Show last N lines
+    parameters:
+      type: object
+      properties:
+        file:
+          type: string
+          description: File name or path
+        lines:
+          type: integer
+          description: Line count
+      required: [file, lines]
+      examples:
+        - {tail: {file: "README.md", lines: 50}}
+
+  - name: meta
+    description: Show file metadata
+    parameters:
+      type: object
+      properties:
+        file:
+          type: string
+          description: File name or path
+      required: [file]
+      examples:
+        - {meta: {file: "README.md"}}
+
+  - name: refresh
+    description: Refresh a code object (CodeFile or CodeTree)
+    parameters:
+      type: object
+      properties:
+        target:
+          type: string
+          description: Object name
+      required: [target]
+      examples:
+        - {refresh: {target: "README.md"}}
+
+  - name: diff
+    description: Unified diff between files
+    parameters:
+      type: object
+      properties:
+        file:
+          type: string
+          description: Primary file
+        other:
+          type: string
+          description: Other file or path
+      required: [file, other]
+      examples:
+        - {diff: {file: "README.md", other: "LICENSE"}}
+
+  - name: gitdiff
+    description: Git diff for a file
+    parameters:
+      type: object
+      properties:
+        file:
+          type: string
+          description: File name or path
+        ref:
+          type: string
+          description: Git ref (defaults to HEAD)
+      required: [file]
+      examples:
+        - {gitdiff: {file: "README.md"}}
+        - {gitdiff: {file: "README.md", ref: "HEAD~1"}}
+
+  - name: clone
+    description: Clone a file to a new path
+    parameters:
+      type: object
+      properties:
+        file:
+          type: string
+          description: Source file
+        new_file:
+          type: string
+          description: Destination path (relative to repo root)
+      required: [file, new_file]
+      examples:
+        - {clone: {file: "README.md", new_file: "README.copy.md"}}
+
+  - name: patch
+    description: Apply a unified diff patch to a file
+    parameters:
+      type: object
+      properties:
+        file:
+          type: string
+          description: Target file
+        patch:
+          type: string
+          description: Unified diff
+      required: [file, patch]
+      examples:
+        - {patch: {file: "README.md", patch: "--- a/README.md\n+++ b/README.md\n@@ ..."}}
+
+  - name: touch
+    description: Create a new file
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: Relative path under repo root
+      required: [path]
+      examples:
+        - {touch: {path: "notes.md"}}
+
+  - name: uv
+    description: Run uv command in code root room
+    parameters:
+      type: object
+      properties:
+        args:
+          type: string
+          description: uv arguments (e.g., "sync" or "run pytest")
+      required: [args]
+      examples:
+        - {uv: {args: "sync"}}
+        - {uv: {args: "run pytest"}}

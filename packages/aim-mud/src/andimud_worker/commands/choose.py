@@ -63,6 +63,16 @@ class ChooseCommand(Command):
 
         decision = await worker.take_turn(turn_id, events, turn_request, guidance)
 
+        if decision is None:
+            logger.error("Choose turn %s produced no decision", turn_id)
+            return CommandResult(
+                complete=True,
+                flush_drain=False,
+                saved_event_id=None,
+                status=TurnRequestStatus.FAIL,
+                message="@choose turn failed: no decision"
+            )
+
         return CommandResult(
             complete=True,
             flush_drain=decision.should_flush if decision else False,

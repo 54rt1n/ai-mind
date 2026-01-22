@@ -11,7 +11,8 @@
   "models": {
     "default": "zai-org/GLM-4.6",
     "chat": "inclusionAI/Ling-1T",
-    "decision": "deepseek-ai/DeepSeek-V3-0324",
+    "decision": "XiaomiMiMo/MiMo-V2-Flash",
+    "agent": "deepseek-ai/DeepSeek-R1-0528",
     "fallback": "deepseek-ai/DeepSeek-V3-0324",
     "tool": "deepseek-ai/DeepSeek-V3-0324"
   },

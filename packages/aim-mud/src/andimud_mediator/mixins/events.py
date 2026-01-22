@@ -194,6 +194,38 @@ class EventsMixin:
         enriched["sequence_id"] = sequence_id
         logger.debug(f"Event {msg_id} assigned sequence_id={sequence_id}")
 
+        # Targeted events: deliver only to target_agent_id and skip turn assignment
+        target_agent_id = event.metadata.get("target_agent_id")
+        target_only = bool(event.metadata.get("target_only"))
+        if event.event_type in (EventType.CODE_ACTION, EventType.CODE_FILE):
+            target_only = True
+
+        if target_only and target_agent_id:
+            if self.registered_agents and target_agent_id not in self.registered_agents:
+                await self._mark_event_processed(msg_id, [])
+                return
+
+            is_sleeping = await client.get_agent_is_sleeping(target_agent_id)
+            if is_sleeping:
+                logger.debug(f"Targeted event {msg_id} skipped (agent sleeping)")
+                await self._mark_event_processed(msg_id, [])
+                return
+
+            stream_key = RedisKeys.agent_events(target_agent_id)
+            payload = dict(enriched)
+            await client.append_agent_event(
+                target_agent_id,
+                {"data": json.dumps(payload)},
+                maxlen=self.config.agent_events_maxlen,
+                approximate=True,
+                stream_key=stream_key,
+            )
+            logger.debug(
+                f"Delivered targeted event {msg_id} (seq={sequence_id}) to {target_agent_id}"
+            )
+            await self._mark_event_processed(msg_id, [target_agent_id])
+            return
+
         # Determine which agents should receive this event
         agents_to_notify = await self._agents_from_room_profile(event.room_id)
         if self.registered_agents:
@@ -301,7 +333,11 @@ class EventsMixin:
                 n = len(agents_to_notify)
                 for i in range(n):
                     candidate = agents_to_notify[(self._turn_index + i) % n]
-                    assigned = await self._maybe_assign_turn(candidate, reason=TurnReason.EVENTS)
+                    assigned = await self._maybe_assign_turn(
+                        candidate,
+                        reason=TurnReason.EVENTS,
+                        metadata={"room_auras": event.metadata.get("room_auras")},
+                    )
                     if assigned:
                         assigned_agent = candidate
                         self._turn_index = (self._turn_index + i + 1) % n

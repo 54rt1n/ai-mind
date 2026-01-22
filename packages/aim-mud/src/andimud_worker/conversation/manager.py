@@ -23,15 +23,40 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 from redis.asyncio import Redis
 
-from aim_mud_types import MUDEvent, MUDAction, WorldState, MUDConversationEntry
+from aim_mud_types import MUDEvent, MUDAction, WorldState, MUDConversationEntry, EventType
 from aim_mud_types.helper import _utc_now
 
 from ..adapter import format_event, format_self_event
-from aim.constants import DOC_MUD_WORLD, DOC_MUD_AGENT, LISTENER_ALL
+from aim.constants import (
+    DOC_MUD_WORLD,
+    DOC_MUD_AGENT,
+    DOC_MUD_ACTION,
+    DOC_CODE_ACTION,
+    DOC_CODE_FILE,
+    LISTENER_ALL,
+)
 from aim.conversation.message import ConversationMessage
 from aim.utils.tokens import count_tokens
 
 logger = logging.getLogger(__name__)
+
+CODE_EVENT_MAX_CHARS = 13000
+CODE_EVENT_SAVE_HEAD = 256
+CODE_EVENT_SAVE_TAIL = 256
+
+
+def _truncate_head(text: str, max_chars: int) -> str:
+    if max_chars <= 0:
+        return ""
+    return text[:max_chars] if len(text) > max_chars else text
+
+
+def _truncate_head_tail(text: str, head: int, tail: int) -> str:
+    if head <= 0 and tail <= 0:
+        return ""
+    if len(text) <= head + tail:
+        return text
+    return f"{text[:head]}{text[-tail:]}"
 
 
 class MUDConversationManager:
@@ -122,8 +147,8 @@ class MUDConversationManager:
     ) -> MUDConversationEntry:
         """Compile events into a user turn and push to list.
 
-        Creates a DOC_MUD_WORLD entry with formatted events and
-        rich metadata about the room and actors involved.
+        Creates a DOC_MUD_WORLD or DOC_MUD_ACTION entry per consecutive
+        actor group with rich metadata about the room and actors involved.
 
         Args:
             events: List of MUDEvent objects to compile.
@@ -134,107 +159,155 @@ class MUDConversationManager:
         Returns:
             The created MUDConversationEntry.
         """
-        # Filter out self-speech echoes - agent already has these in assistant turn
         filtered_events = [e for e in events if not e.is_self_speech_echo()]
-
-        # Format events as pure prose (CVM-ready, no XML wrapper)
-        # Use \n\n delimiter for paragraph separation
-        # Self-actions are formatted in first person, others in third person
-        if filtered_events:
-            formatted_parts = []
-            for event in filtered_events:
-                # Check if this is a self-action (from metadata flag)
-                is_self = event.metadata.get("is_self_action", False)
-
-                if is_self:
-                    # Self-actions are already formatted with rich guidance boxes
-                    # Use content directly to preserve formatting
-                    formatted_parts.append(event.content)
-                else:
-                    # Other events need third-person formatting
-                    formatted_parts.append(format_event(event))
-            content = "\n\n".join(formatted_parts)
-        else:
-            content = "[No events]"
-
-        # Count tokens
-        tokens = count_tokens(content)
-
-        # Build metadata
-        actors = list({e.actor for e in filtered_events if e.actor})
-        event_ids = [e.event_id for e in filtered_events if e.event_id]
-
-        # Get room info from world_state if not provided
-        if not room_id and world_state and world_state.room_state:
-            room_id = world_state.room_state.room_id
-        if not room_name and world_state and world_state.room_state:
-            room_name = world_state.room_state.name
-        if not room_id and events:
-            room_id = events[-1].room_id
-        if not room_name and events:
-            room_name = events[-1].room_name
-
-        metadata = {
-            "room_id": room_id,
-            "room_name": room_name,
-            "event_count": len(filtered_events),
-            "actors": actors,
-            "event_ids": event_ids,
-        }
-
-        # If the last entry is an unsaved mud-world doc, update it instead of appending.
-        # This prevents duplicate event chains when non-speech turns re-drain the same events.
-        from aim_mud_types.client import RedisMUDClient
-        client = RedisMUDClient(self.redis)
-        length = await client.get_conversation_length(self.agent_id)
         last_entry: Optional[MUDConversationEntry] = None
-        last_index: Optional[int] = None
-        if length and length > 0:
-            last_index = length - 1
-            raw_last = await client.get_conversation_entry(self.agent_id, last_index)
-            if raw_last:
-                try:
-                    last_entry = MUDConversationEntry.model_validate_json(raw_last)
-                except Exception:
-                    last_entry = None
+        group_events: list[MUDEvent] = []
+        group_actor_key: Optional[str] = None
+        group_is_self: Optional[bool] = None
 
-        event_ids_set = set(event_ids)
-        last_event_ids = set(last_entry.metadata.get("event_ids", [])) if last_entry else set()
-        should_update_last = (
-            last_entry is not None
-            and last_entry.document_type == DOC_MUD_WORLD
-            and not last_entry.saved
-            and (not last_event_ids or last_event_ids.issubset(event_ids_set))
-            and last_index is not None
-        )
+        async def flush_group() -> None:
+            nonlocal last_entry, group_events, group_actor_key, group_is_self
+            if not group_events:
+                return
 
-        if should_update_last:
-            last_entry.content = content
-            last_entry.tokens = tokens
-            last_entry.metadata = metadata
-            if filtered_events:
-                last_entry.timestamp = max(e.timestamp for e in filtered_events)
-            await client.set_conversation_entry(
-                self.agent_id,
-                last_index,
-                last_entry.model_dump_json(),
+            last_event = group_events[-1]
+            entry_room_id = last_event.room_id
+            entry_room_name = last_event.room_name
+            if not entry_room_id and world_state and world_state.room_state:
+                entry_room_id = world_state.room_state.room_id
+            if not entry_room_name and world_state and world_state.room_state:
+                entry_room_name = world_state.room_state.name
+
+            actors: list[str] = []
+            actor_ids: list[str] = []
+            event_ids: list[str] = []
+            event_types: list[str] = []
+            targets: list[str] = []
+            target_ids: list[str] = []
+            event_metadatas: list[dict] = []
+            content_parts: list[str] = []
+
+            for event in group_events:
+                if group_is_self:
+                    content_parts.append(event.content or "[No content]")
+                else:
+                    content_parts.append(format_event(event) or "[No content]")
+
+                if event.actor and event.actor not in actors:
+                    actors.append(event.actor)
+                if event.actor_id and event.actor_id not in actor_ids:
+                    actor_ids.append(event.actor_id)
+                if event.event_id:
+                    event_ids.append(event.event_id)
+                event_types.append(event.event_type.value)
+                if event.target:
+                    targets.append(event.target)
+                if event.target_id:
+                    target_ids.append(event.target_id)
+                event_metadatas.append(event.metadata)
+
+            content = "\n\n".join(content_parts)
+            tokens = count_tokens(content)
+            doc_type = DOC_MUD_ACTION if group_is_self else DOC_MUD_WORLD
+
+            metadata = {
+                "room_id": entry_room_id or room_id,
+                "room_name": entry_room_name or room_name,
+                "event_count": len(group_events),
+                "actors": actors,
+                "actor_ids": actor_ids,
+                "event_ids": event_ids,
+                "event_type": event_types[-1],
+                "event_types": event_types,
+                "actor": last_event.actor,
+                "actor_id": last_event.actor_id,
+                "target": last_event.target,
+                "target_id": last_event.target_id,
+                "targets": targets,
+                "target_ids": target_ids,
+                "event_metadata": event_metadatas[0] if len(event_metadatas) == 1 else event_metadatas,
+            }
+
+            entry = MUDConversationEntry(
+                role="user",
+                content=content,
+                tokens=tokens,
+                document_type=doc_type,
+                conversation_id=self._get_conversation_id(),
+                sequence_no=self._next_sequence_no(),
+                metadata=metadata,
+                speaker_id="world",
+                timestamp=last_event.timestamp,
             )
-            await self._trim_saved_entries()
-            return last_entry
+            await self._push_and_trim(entry)
+            last_entry = entry
 
-        entry = MUDConversationEntry(
-            role="user",
-            content=content,
-            tokens=tokens,
-            document_type=DOC_MUD_WORLD,
-            conversation_id=self._get_conversation_id(),
-            sequence_no=self._next_sequence_no(),
-            metadata=metadata,
-            speaker_id="world",
-        )
+            group_events = []
+            group_actor_key = None
+            group_is_self = None
 
-        await self._push_and_trim(entry)
-        return entry
+        for event in filtered_events:
+            if event.event_type in (EventType.CODE_ACTION, EventType.CODE_FILE):
+                await flush_group()
+                raw_content = event.content or ""
+                if not raw_content:
+                    raw_content = "(no output)"
+                content = _truncate_head(raw_content, CODE_EVENT_MAX_CHARS)
+                tokens = count_tokens(content)
+                doc_type = DOC_CODE_ACTION if event.event_type == EventType.CODE_ACTION else DOC_CODE_FILE
+                metadata = {
+                    "event_id": event.event_id,
+                    "event_type": event.event_type.value,
+                    "room_id": event.room_id,
+                    "room_name": event.room_name,
+                    "actor": event.actor,
+                    "actor_id": event.actor_id,
+                    "target": event.target,
+                    "target_id": event.target_id,
+                    "event_metadata": event.metadata,
+                }
+                entry = MUDConversationEntry(
+                    role="user",
+                    content=content,
+                    tokens=tokens,
+                    document_type=doc_type,
+                    conversation_id=self._get_conversation_id(),
+                    sequence_no=self._next_sequence_no(),
+                    metadata=metadata,
+                    speaker_id="code",
+                    timestamp=event.timestamp,
+                )
+                await self._push_and_trim(entry)
+                last_entry = entry
+                continue
+
+            is_self = event.metadata.get("is_self_action", False)
+            actor_key = event.actor_id or event.actor
+            if group_events and (group_actor_key != actor_key or group_is_self != is_self):
+                await flush_group()
+
+            if not group_events:
+                group_actor_key = actor_key
+                group_is_self = is_self
+            group_events.append(event)
+
+        await flush_group()
+
+        if last_entry is None:
+            # No events (or all self-speech filtered) -> placeholder entry
+            last_entry = MUDConversationEntry(
+                role="user",
+                content="[No events]",
+                tokens=count_tokens("[No events]"),
+                document_type=DOC_MUD_WORLD,
+                conversation_id=self._get_conversation_id(),
+                sequence_no=self._next_sequence_no(),
+                metadata={"event_count": 0},
+                speaker_id="world",
+            )
+            await self._push_and_trim(last_entry)
+
+        return last_entry
 
     async def push_assistant_turn(
         self,
@@ -380,16 +453,24 @@ class MUDConversationManager:
                 )
                 continue
 
+            persist_content = entry.content
+            if entry.document_type in (DOC_CODE_ACTION, DOC_CODE_FILE):
+                persist_content = _truncate_head_tail(
+                    persist_content,
+                    CODE_EVENT_SAVE_HEAD,
+                    CODE_EVENT_SAVE_TAIL,
+                )
+
             # Create CVM message
             msg = ConversationMessage.create(
                 conversation_id=entry.conversation_id,
                 sequence_no=entry.sequence_no,
                 role=entry.role,
-                content=entry.content,
+                content=persist_content,
                 document_type=entry.document_type,
                 speaker_id=entry.speaker_id or ("world" if entry.role == "user" else self.persona_id),
                 listener_id=LISTENER_ALL,
-                user_id="mud",
+                user_id=self._resolve_user_id(entry),
                 persona_id=self.persona_id,
                 think=entry.think,
                 metadata=json.dumps(entry.metadata) if entry.metadata else "",
@@ -417,6 +498,19 @@ class MUDConversationManager:
             logger.info(f"Flushed {flushed} entries to CVM")
 
         return flushed
+
+    @staticmethod
+    def _resolve_user_id(entry: MUDConversationEntry) -> str:
+        """Resolve user_id for persistence based on entry metadata."""
+        if entry.role != "user":
+            return "mud"
+
+        if entry.document_type in (DOC_MUD_ACTION, DOC_CODE_ACTION, DOC_CODE_FILE):
+            return "mud"
+
+        metadata = entry.metadata or {}
+        actor = metadata.get("actor") or metadata.get("actor_id")
+        return actor or "mud"
 
     async def _push_and_trim(self, entry: MUDConversationEntry) -> None:
         """Push entry to list and auto-trim old saved entries if over budget.

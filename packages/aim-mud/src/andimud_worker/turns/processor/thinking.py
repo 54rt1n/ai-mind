@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from aim_mud_types import MUDAction, MUDTurnRequest, MUDEvent, RedisKeys
 from aim.utils.think import extract_think_tags, extract_reasoning_block
 from .base import BaseTurnProcessor
+from ...exceptions import AbortRequestedException
 
 if TYPE_CHECKING:
     from ...mixins.turns import TurnsMixin
@@ -53,6 +54,36 @@ You are taking a moment to think. Output a single <reasoning> block with your th
 """
 
 
+def _append_reasoning_guidance(chat_turns: list[dict], is_critical: bool) -> None:
+    """Append reasoning format guidance to last user turn.
+
+    Args:
+        chat_turns: Chat turns to modify
+        is_critical: If True, use critical/urgent wording (before fallback)
+    """
+    if is_critical:
+        guidance = (
+            "\n\n[CRITICAL FORMAT REQUIREMENT]\n"
+            "You MUST include a <reasoning> block with the structure shown. "
+            "This is your final attempt. Follow the format exactly."
+        )
+    else:
+        guidance = (
+            "\n\n[Format Reminder]\n"
+            "Please ensure your response includes a complete <reasoning> block "
+            "with <inspiration>, <exploration>, <synthesis>, and <validation> tags."
+        )
+
+    # Find last user turn and append guidance
+    for turn in reversed(chat_turns):
+        if turn.get("role") == "user":
+            turn["content"] += guidance
+            break
+    else:
+        # No user turn found - create new one (edge case)
+        chat_turns.append({"role": "user", "content": guidance})
+
+
 class ThinkingTurnProcessor(BaseTurnProcessor):
     """Turn processor that generates structured reasoning via LLM call.
 
@@ -79,14 +110,17 @@ class ThinkingTurnProcessor(BaseTurnProcessor):
     async def _decide_action(
         self, turn_request: MUDTurnRequest, events: list[MUDEvent]
     ) -> tuple[list[MUDAction], str]:
-        """Generate structured reasoning via LLM call.
+        """Generate structured reasoning via LLM call with retry and fallback.
 
         Steps:
         1. Load previous thought if within TTL, fold into context
         2. Build full context with reasoning prompt
-        3. Call LLM
+        3. Retry loop with fallback model support:
+           - Try chat model up to max_reasoning_retries times
+           - If still failing, try fallback model once
+           - Add format guidance after each failure
         4. Extract reasoning block from response
-        5. Store to Redis with 2hr TTL
+        5. Store valid reasoning to Redis with 2hr TTL
         6. Emit emote action
 
         Args:
@@ -108,7 +142,7 @@ class ThinkingTurnProcessor(BaseTurnProcessor):
         # Build user input with guidance if provided
         user_input = REASONING_PROMPT
         if self.user_guidance:
-            user_input = f"[User Guidance: {self.user_guidance}]\n\n{user_input}"
+            user_input = f"[Link Guidance: {self.user_guidance}]\n\n{user_input}"
 
         chat_turns = await self.worker._response_strategy.build_turns(
             persona=self.worker.persona,
@@ -120,35 +154,88 @@ class ThinkingTurnProcessor(BaseTurnProcessor):
             memory_query="",  # No specific memory query for thinking
         )
 
-        # Step 3: Call LLM
-        response = await self.worker._call_llm(chat_turns, role="chat")
-        logger.debug("Thinking LLM response: %s...", response[:500] if response else "(empty)")
+        # Step 3: Retry loop with fallback model support
+        max_reasoning_retries = 3
+        reasoning_xml = ""
+        used_fallback = False
 
-        # Step 4: Extract reasoning - first think tags, then reasoning block
-        cleaned_response, think_content = extract_think_tags(response)
-        if think_content:
-            thinking_parts.append(think_content)
+        for format_attempt in range(max_reasoning_retries + 1):  # +1 for fallback
+            # Check abort before each LLM call
+            if await self.worker._check_abort_requested():
+                raise AbortRequestedException("Turn aborted before reasoning generation")
 
-        _, reasoning_content = extract_reasoning_block(cleaned_response)
+            # Determine model role
+            if format_attempt < max_reasoning_retries:
+                model_role = "chat"
+                attempt_label = f"{format_attempt + 1}/{max_reasoning_retries}"
+            else:
+                # Try fallback if configured and different from chat
+                fallback_model_name = self.worker.model_set.get_model_name("fallback")
+                chat_model_name = self.worker.model_set.get_model_name("chat")
 
-        if reasoning_content:
-            # Wrap reasoning content back in XML for storage
-            reasoning_xml = f"<reasoning>\n{reasoning_content}\n</reasoning>"
-            logger.info("Extracted reasoning block (%d chars)", len(reasoning_content))
+                if fallback_model_name == chat_model_name:
+                    logger.warning("Fallback model not configured or same as chat; skipping")
+                    break
+
+                model_role = "fallback"
+                used_fallback = True
+                attempt_label = "fallback"
+                logger.info(f"Attempting fallback model ({fallback_model_name}) after {max_reasoning_retries} failures")
+
+            # Call LLM
+            response = await self.worker._call_llm(chat_turns, role=model_role)
+            logger.debug("Thinking LLM response (attempt %s): %s...", attempt_label, response[:500] if response else "(empty)")
+
+            # Extract reasoning - first think tags, then reasoning block
+            cleaned_response, think_content = extract_think_tags(response)
+            if think_content:
+                thinking_parts.append(think_content)
+
+            _, reasoning_content = extract_reasoning_block(cleaned_response)
+
+            # Validate: check if we got reasoning content
+            if reasoning_content:
+                # Wrap reasoning content back in XML for storage
+                reasoning_xml = f"<reasoning>\n{reasoning_content}\n</reasoning>"
+                logger.info("Extracted reasoning block (%d chars, attempt %s)", len(reasoning_content), attempt_label)
+                if used_fallback:
+                    logger.info("Fallback model succeeded")
+                break
+
+            # No reasoning block found - log warning and add guidance
+            logger.warning(f"No <reasoning> block found in LLM response (attempt {attempt_label})")
+
+            # Add format guidance (gentle for retries, critical before fallback)
+            if format_attempt < max_reasoning_retries - 1:
+                # Normal guidance for early retries
+                _append_reasoning_guidance(chat_turns, is_critical=False)
+            elif format_attempt == max_reasoning_retries - 1:
+                # Critical guidance before fallback attempt
+                _append_reasoning_guidance(chat_turns, is_critical=True)
+
+        # Step 4: After-loop error handling
+        if not reasoning_xml:
+            logger.error(f"Failed to extract reasoning after {max_reasoning_retries} chat attempts" + (" and fallback" if used_fallback else ""))
+            thinking_parts.append(
+                "[ERROR] Failed to generate valid reasoning format after all retry attempts. "
+                "The model did not produce a structured <reasoning> block."
+            )
+
+        # Step 5: Store to Redis with TTL (only if valid)
+        if reasoning_xml:
+            await self._store_thought(reasoning_xml)
         else:
-            # No reasoning block found - log warning and store empty
-            logger.warning("No <reasoning> block found in LLM response")
-            reasoning_xml = ""
+            logger.warning("No valid reasoning to store; preserving previous thought in Redis")
 
-        # Step 5: Store to Redis with TTL
-        await self._store_thought(reasoning_xml)
-
-        # Step 6: Emit emote action
-        action = MUDAction(tool="emote", args={"action": "pauses thoughtfully."})
+        # Step 6: Emit emote action (always emit, even on failure)
+        action = MUDAction(tool="emote", args={"action":
+            "pauses thoughtfully."},
+            metadata={"non_published": True},
+        )
         actions_taken.append(action)
         await self.worker._emit_actions(actions_taken)
 
-        # Include reasoning in thinking output
+        # Step 7: Return with thinking output
         if reasoning_xml:
             thinking_parts.append(reasoning_xml)
 

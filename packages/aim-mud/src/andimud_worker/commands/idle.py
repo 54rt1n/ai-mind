@@ -62,6 +62,7 @@ class IdleCommand(Command):
 
     async def _awake_turn(self, worker: "MUDAgentWorker", turn_id: str, events: list[MUDEvent], turn_request: MUDTurnRequest) -> CommandResult:
         """Process awake turn."""
+        await worker.ensure_turn_id_current(turn_id)
         # Priority 1: Use active plan already loaded by worker
         plan_guidance = worker.get_plan_guidance()
 
@@ -69,6 +70,7 @@ class IdleCommand(Command):
         await worker._setup_turn_context(events)
         # Priority 2: If we don't have a current thought, we need to generate one
         if not worker._decision_strategy.thought_content:
+            claimed_turn_id = await worker.claim_idle_turn(turn_request)
             thinking_processor = ThinkingTurnProcessor(worker)
             if plan_guidance:
                 thinking_processor.user_guidance = plan_guidance
@@ -79,6 +81,7 @@ class IdleCommand(Command):
                 saved_event_id=None,
                 status=TurnRequestStatus.DONE,
                 message="Thought generated",
+                turn_id=claimed_turn_id,
             )
 
 
@@ -90,6 +93,7 @@ class IdleCommand(Command):
                 message = f"Plan active: {plan.tasks[plan.current_task_id].summary}"
 
         # Priority 3: Agent awake, but no active plan
+        await worker.ensure_turn_id_current(turn_id)
         return CommandResult(
             complete=True,
             flush_drain=False,
@@ -100,11 +104,14 @@ class IdleCommand(Command):
 
     async def _sleep_turn(self, worker: "MUDAgentWorker", turn_id: str, events: list[MUDEvent], turn_request: MUDTurnRequest) -> CommandResult:
         """Process sleep turn."""
+        await worker.ensure_turn_id_current(turn_id)
         # Load dreaming state
         dreaming_state = await worker.load_dreaming_state(worker.config.agent_id)
 
         # Priority 1: PENDING dreams (manual commands waiting for initialization)
         if dreaming_state and dreaming_state.status == DreamStatus.PENDING:
+            claimed_turn_id = await worker.claim_idle_turn(turn_request)
+            turn_id = claimed_turn_id
             logger.info(
                 f"[{turn_id}] Priority 2: Initializing PENDING dream "
                 f"(scenario={dreaming_state.scenario_name})"
@@ -119,10 +126,13 @@ class IdleCommand(Command):
                 saved_event_id=None,
                 status=TurnRequestStatus.DONE,
                 message=f"Dream step executed (complete={is_complete})",
+                turn_id=claimed_turn_id,
             )
 
         # Priority 2: RUNNING dreams (continue step-by-step execution)
         if dreaming_state and dreaming_state.status == DreamStatus.RUNNING:
+            claimed_turn_id = await worker.claim_idle_turn(turn_request)
+            turn_id = claimed_turn_id
             # Check for stale dream (missing framework/state from before code upgrade)
             if not dreaming_state.framework or not dreaming_state.state:
                 logger.warning(
@@ -139,6 +149,7 @@ class IdleCommand(Command):
                     saved_event_id=None,
                     status=TurnRequestStatus.DONE,
                     message="Stale dream aborted (missing framework/state)",
+                    turn_id=claimed_turn_id,
                 )
 
             logger.debug(
@@ -151,6 +162,7 @@ class IdleCommand(Command):
                 saved_event_id=None,
                 status=TurnRequestStatus.DONE,
                 message=f"Dream step executed (complete={is_complete})",
+                turn_id=claimed_turn_id,
             )
 
         # Priority 3: Auto-analysis check (no active dream)
@@ -159,6 +171,8 @@ class IdleCommand(Command):
             dream_decision = await worker._decide_dream_action()
 
             if dream_decision:
+                claimed_turn_id = await worker.claim_idle_turn(turn_request)
+                turn_id = claimed_turn_id
                 logger.info(
                     f"[{turn_id}] Auto-analysis: initiating {dream_decision.scenario} "
                     f"on {dream_decision.conversation_id}"
@@ -171,9 +185,11 @@ class IdleCommand(Command):
                     saved_event_id=None,
                     status=TurnRequestStatus.DONE,
                     message=f"Dream step executed (complete={is_complete})",
+                    turn_id=claimed_turn_id,
                 )
 
         logger.info(f"[{turn_id}] Priority 4: Agent sleeping, skipping phased turn")
+        await worker.ensure_turn_id_current(turn_id)
         return CommandResult(
             complete=True,
             flush_drain=False,

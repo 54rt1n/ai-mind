@@ -69,6 +69,10 @@ def format_event(event: MUDEvent, first_person: bool = False) -> str:
         # "[terminal_name] tool_name:\n<output>" by _publish_terminal_event()
         return event.content
 
+    elif event.event_type in (EventType.CODE_ACTION, EventType.CODE_FILE):
+        # Code command output - format in worker using metadata context
+        return _format_code_event(event)
+
     elif event.event_type == EventType.NOTIFICATION:
         # Interactive/environmental notifications (e.g., doorbells)
         return event.content
@@ -76,6 +80,17 @@ def format_event(event: MUDEvent, first_person: bool = False) -> str:
     else:
         # Fallback for unknown event types
         return f"[{event.event_type.value}] {event.actor}: {event.content}"
+
+def _format_code_event(event: MUDEvent) -> str:
+    """Format code event output with a command header/footer."""
+    content = event.content or "(no output)"
+    metadata = event.metadata or {}
+    command_line = metadata.get("command_line") or metadata.get("command") or "command"
+    command_line = str(command_line).strip()
+    label = "File Contents:" if event.event_type == EventType.CODE_FILE else "Command Output:"
+    header = f"[~~ You have executed `{command_line}`. ~~]"
+    footer = "[~~ End of Command Output ~~]"
+    return f"{header}\n{label}\n{content}\n{footer}"
 
 def _format_emote_with_quotes(actor: str, content: str) -> str:
     """Format an emote, extracting any quoted speech.

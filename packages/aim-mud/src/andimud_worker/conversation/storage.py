@@ -21,6 +21,9 @@ from aim.constants import (
     DOC_BRAINSTORM,
     DOC_MUD_WORLD,
     DOC_MUD_AGENT,
+    DOC_MUD_ACTION,
+    DOC_CODE_ACTION,
+    DOC_CODE_FILE,
     CHUNK_LEVEL_256,
     CHUNK_LEVEL_768,
 )
@@ -28,14 +31,32 @@ from aim.conversation.message import ConversationMessage
 from aim.conversation.rerank import MemoryReranker, TaggedResult
 from aim.utils.xml import XmlFormatter
 
-from aim_mud_types import MUDEvent, MUDAction, WorldState
+from aim_mud_types import MUDEvent, MUDAction, WorldState, EventType
 from aim_mud_types.helper import _utc_now
 from ..adapter import format_event
 
 
 SCENARIO_PREFIX = "andimud"
 INSIGHT_DOC_TYPES = [DOC_INSPIRATION, DOC_UNDERSTANDING, DOC_PONDERING, DOC_BRAINSTORM]
-LONG_CONTEXT_DOC_TYPES = [DOC_CONVERSATION, DOC_MUD_AGENT, DOC_MUD_WORLD]
+LONG_CONTEXT_DOC_TYPES = [
+    DOC_CONVERSATION,
+    DOC_MUD_AGENT,
+    DOC_MUD_WORLD,
+    DOC_MUD_ACTION,
+    DOC_CODE_ACTION,
+    DOC_CODE_FILE,
+]
+
+CODE_EVENT_SAVE_HEAD = 256
+CODE_EVENT_SAVE_TAIL = 256
+
+
+def _truncate_head_tail(text: str, head: int, tail: int) -> str:
+    if head <= 0 and tail <= 0:
+        return ""
+    if len(text) <= head + tail:
+        return text
+    return f"{text[:head]}{text[-tail:]}"
 
 
 def generate_conversation_id(prefix: str = SCENARIO_PREFIX) -> str:
@@ -52,6 +73,14 @@ def _safe_iso(dt: Optional[datetime]) -> str:
 
 
 @dataclass
+@dataclass
+class MUDResponseRecord:
+    """Stores a single agent response and its associated actions."""
+
+    content: str
+    actions: list[MUDAction] = field(default_factory=list)
+
+
 class MUDMemoryBucket:
     """Accumulates world inputs and agent outputs for persistence."""
 
@@ -59,7 +88,7 @@ class MUDMemoryBucket:
     created_at: datetime = field(default_factory=_utc_now)
     last_event_at: Optional[datetime] = None
     events: list[MUDEvent] = field(default_factory=list)
-    responses: list[str] = field(default_factory=list)
+    responses: list[MUDResponseRecord] = field(default_factory=list)
     actions: list[MUDAction] = field(default_factory=list)
     latest_world_state: Optional[WorldState] = None
     _event_ids: set[str] = field(default_factory=set, repr=False)
@@ -77,9 +106,10 @@ class MUDMemoryBucket:
     def append_response(self, response: str, actions: Iterable[MUDAction]) -> None:
         """Append a raw model response and associated actions."""
         if response:
-            self.responses.append(response)
-        if actions:
-            self.actions.extend(actions)
+            action_list = list(actions or [])
+            self.responses.append(MUDResponseRecord(content=response, actions=action_list))
+            if action_list:
+                self.actions.extend(action_list)
 
     def update_world_state(self, world_state: Optional[WorldState]) -> None:
         """Store the latest world state snapshot for the bucket."""
@@ -150,7 +180,7 @@ class MUDMemoryBucket:
         """Render raw agent outputs for persistence."""
         if not self.responses:
             return ""
-        return "\n\n---\n\n".join(self.responses)
+        return "\n\n---\n\n".join(record.content for record in self.responses)
 
     def _latest_world_state(self) -> Optional[WorldState]:
         return self.latest_world_state
@@ -177,10 +207,6 @@ class MUDMemoryPersister:
             return None
 
         conversation_id = generate_conversation_id(self.scenario_prefix)
-
-        world_content = bucket.render_world_content()
-        agent_content = bucket.render_agent_content()
-
         start_ts = bucket.events[0].timestamp if bucket.events else None
         end_ts = bucket.events[-1].timestamp if bucket.events else None
 
@@ -196,37 +222,177 @@ class MUDMemoryPersister:
             "event_ids": [e.event_id for e in bucket.events if e.event_id],
         }
 
-        world_message = ConversationMessage.create(
-            conversation_id=conversation_id,
-            sequence_no=0,
-            role="user",
-            content=world_content,
-            speaker_id="world",
-            user_id=user_id,
-            persona_id=persona_id,
-            document_type=DOC_MUD_WORLD,
-            metadata=json.dumps(metadata_base),
-            inference_model=inference_model,
-        )
+        sequence_no = 0
+        group_events: list[MUDEvent] = []
+        group_actor_key: Optional[str] = None
+        group_is_self: Optional[bool] = None
+        group_start_index: Optional[int] = None
 
-        agent_metadata = dict(metadata_base)
-        agent_metadata["actions"] = [a.to_command() for a in bucket.actions]
+        def flush_group() -> None:
+            nonlocal sequence_no, group_events, group_actor_key, group_is_self, group_start_index
+            if not group_events:
+                return
 
-        agent_message = ConversationMessage.create(
-            conversation_id=conversation_id,
-            sequence_no=1,
-            role="assistant",
-            content=agent_content,
-            speaker_id=persona_id,
-            user_id=user_id,
-            persona_id=persona_id,
-            document_type=DOC_MUD_AGENT,
-            metadata=json.dumps(agent_metadata),
-            inference_model=inference_model,
-        )
+            last_event = group_events[-1]
+            actors: list[str] = []
+            actor_ids: list[str] = []
+            event_ids: list[str] = []
+            event_types: list[str] = []
+            targets: list[str] = []
+            target_ids: list[str] = []
+            event_metadatas: list[dict] = []
+            content_parts: list[str] = []
 
-        cvm.insert(world_message)
-        cvm.insert(agent_message)
+            for event in group_events:
+                if group_is_self:
+                    content_parts.append(event.content or "[No content]")
+                else:
+                    content_parts.append(format_event(event) or "[No content]")
+
+                if event.actor and event.actor not in actors:
+                    actors.append(event.actor)
+                if event.actor_id and event.actor_id not in actor_ids:
+                    actor_ids.append(event.actor_id)
+                if event.event_id:
+                    event_ids.append(event.event_id)
+                event_types.append(event.event_type.value)
+                if event.target:
+                    targets.append(event.target)
+                if event.target_id:
+                    target_ids.append(event.target_id)
+                event_metadatas.append(event.metadata)
+
+            content = "\n\n".join(content_parts)
+            doc_type = DOC_MUD_ACTION if group_is_self else DOC_MUD_WORLD
+            speaker_id = "world"
+            event_user_id = user_id if group_is_self else (last_event.actor or last_event.actor_id or user_id)
+
+            event_metadata = {
+                "bucket_id": bucket.bucket_id,
+                "bucket_event_index": group_start_index or 0,
+                "bucket_event_indices": list(range(group_start_index or 0, (group_start_index or 0) + len(group_events))),
+                "bucket_event_count": len(bucket.events),
+                "event_id": last_event.event_id,
+                "event_ids": event_ids,
+                "event_type": event_types[-1],
+                "event_types": event_types,
+                "room_id": last_event.room_id,
+                "room_name": last_event.room_name,
+                "actor": last_event.actor,
+                "actor_id": last_event.actor_id,
+                "actors": actors,
+                "actor_ids": actor_ids,
+                "target": last_event.target,
+                "target_id": last_event.target_id,
+                "targets": targets,
+                "target_ids": target_ids,
+                "event_metadata": event_metadatas[0] if len(event_metadatas) == 1 else event_metadatas,
+                "group_event_count": len(group_events),
+            }
+
+            event_metadata.update(metadata_base)
+
+            world_message = ConversationMessage.create(
+                conversation_id=conversation_id,
+                sequence_no=sequence_no,
+                role="user",
+                content=content,
+                speaker_id=speaker_id,
+                user_id=event_user_id,
+                persona_id=persona_id,
+                document_type=doc_type,
+                metadata=json.dumps(event_metadata),
+                inference_model=inference_model,
+            )
+            cvm.insert(world_message)
+            sequence_no += 1
+
+            group_events = []
+            group_actor_key = None
+            group_is_self = None
+            group_start_index = None
+
+        for index, event in enumerate(bucket.events):
+            if event.event_type in (EventType.CODE_ACTION, EventType.CODE_FILE):
+                flush_group()
+                raw_content = event.content or "(no output)"
+                content = _truncate_head_tail(raw_content, CODE_EVENT_SAVE_HEAD, CODE_EVENT_SAVE_TAIL)
+                doc_type = DOC_CODE_ACTION if event.event_type == EventType.CODE_ACTION else DOC_CODE_FILE
+                speaker_id = "code"
+                event_user_id = user_id
+
+                event_metadata = {
+                    "bucket_id": bucket.bucket_id,
+                    "bucket_event_index": index,
+                    "bucket_event_count": len(bucket.events),
+                    "event_id": event.event_id,
+                    "event_type": event.event_type.value,
+                    "room_id": event.room_id,
+                    "room_name": event.room_name,
+                    "actor": event.actor,
+                    "actor_id": event.actor_id,
+                    "target": event.target,
+                    "target_id": event.target_id,
+                    "event_metadata": event.metadata,
+                }
+
+                event_metadata.update(metadata_base)
+
+                world_message = ConversationMessage.create(
+                    conversation_id=conversation_id,
+                    sequence_no=sequence_no,
+                    role="user",
+                    content=content,
+                    speaker_id=speaker_id,
+                    user_id=event_user_id,
+                    persona_id=persona_id,
+                    document_type=doc_type,
+                    metadata=json.dumps(event_metadata),
+                    inference_model=inference_model,
+                )
+                cvm.insert(world_message)
+                sequence_no += 1
+                continue
+
+            is_self = event.metadata.get("is_self_action", False)
+            actor_key = event.actor_id or event.actor
+            if group_events and (group_actor_key != actor_key or group_is_self != is_self):
+                flush_group()
+
+            if not group_events:
+                group_actor_key = actor_key
+                group_is_self = is_self
+                group_start_index = index
+            group_events.append(event)
+
+        flush_group()
+
+        for response_index, record in enumerate(bucket.responses):
+            content = record.content
+            if not content:
+                continue
+
+            response_metadata = dict(metadata_base)
+            response_metadata["response_index"] = response_index
+            response_metadata["response_count"] = len(bucket.responses)
+            response_metadata["actions"] = [a.to_command() for a in record.actions]
+            response_metadata["action_count"] = len(record.actions)
+
+            agent_message = ConversationMessage.create(
+                conversation_id=conversation_id,
+                sequence_no=sequence_no,
+                role="assistant",
+                content=content,
+                speaker_id=persona_id,
+                user_id=user_id,
+                persona_id=persona_id,
+                document_type=DOC_MUD_AGENT,
+                metadata=json.dumps(response_metadata),
+                inference_model=inference_model,
+            )
+
+            cvm.insert(agent_message)
+            sequence_no += 1
 
         return conversation_id
 

@@ -116,6 +116,7 @@ class ScenarioState(BaseModel):
     thought_content: Optional[str] = None  # Externally injected thought
     conversation_id: Optional[str] = None
     branch: int = 0                      # Conversation branch for document creation
+    user_id: str = "~Autonomous Mode~"   # User context for {{user}} replacement
 
     # Dialogue tracking (used only by dialogue steps)
     dialogue_turns: list[DialogueTurn] = Field(default_factory=list)
@@ -132,6 +133,7 @@ class ScenarioState(BaseModel):
         query_text: Optional[str] = None,
         thought_content: Optional[str] = None,
         branch: int = 0,
+        user_id: str = "~Autonomous Mode~",
     ) -> "ScenarioState":
         """Create initial state for starting a scenario.
 
@@ -142,6 +144,7 @@ class ScenarioState(BaseModel):
             query_text: Query/topic text (optional)
             thought_content: Externally injected thought (optional)
             branch: Conversation branch for document creation (optional)
+            user_id: User context for {{user}} replacement (optional)
 
         Returns:
             New ScenarioState ready for execution
@@ -153,6 +156,7 @@ class ScenarioState(BaseModel):
             query_text=query_text,
             thought_content=thought_content,
             branch=branch,
+            user_id=user_id,
         )
 
     def is_complete(self) -> bool:

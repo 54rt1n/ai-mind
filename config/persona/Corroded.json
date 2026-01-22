@@ -8,9 +8,15 @@
   "nsfw": false,
   "birthday": "1995-03-13",
   "models": {
-    "default": "MiniMaxAI/MiniMax-M2.1",
+    "default": "deepseek-ai/DeepSeek-V3-0324",
+    "code": "MiniMaxAI/MiniMax-M2.1",
+    "codex": "XiaomiMiMo/MiMo-V2-Flash",
+    "analysis": "moonshotai/Kimi-K2-Instruct",
+    "research": "moonshotai/Kimi-K2-Thinking",
+    "planning": "deepseek-ai/DeepSeek-R1-0528",
     "chat": "MiniMaxAI/MiniMax-M2.1",
     "decision": "deepseek-ai/DeepSeek-V3-0324",
+    "writing": "zai-org/GLM-4.6",
     "fallback": "deepseek-ai/DeepSeek-V3-0324",
     "tool": "MiniMaxAI/MiniMax-M2.1"
   },

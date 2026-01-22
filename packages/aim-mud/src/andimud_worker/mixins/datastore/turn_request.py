@@ -8,9 +8,13 @@ All methods take explicit parameters and return data.
 
 import asyncio
 import logging
+import uuid
 from typing import Optional, TYPE_CHECKING
 
 from aim_mud_types import RedisKeys, MUDTurnRequest, TurnRequestStatus
+from aim_mud_types.helper import _utc_now
+
+from ...exceptions import TurnPreemptedException
 
 if TYPE_CHECKING:
     from ...worker import MUDAgentWorker
@@ -28,6 +32,44 @@ class TurnRequestMixin:
     async def _get_turn_request(self: "MUDAgentWorker") -> Optional[MUDTurnRequest]:
         """Fetch the current turn request hash from Redis (private method)."""
         return await self.get_turn_request()
+
+    async def peek_turn_id(self: "MUDAgentWorker") -> Optional[str]:
+        """Fetch the current turn_id without loading full turn_request."""
+        key = RedisKeys.agent_turn_request(self.config.agent_id)
+        raw = await self.redis.hget(key, "turn_id")
+        if raw is None:
+            return None
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8")
+        return str(raw)
+
+    async def ensure_turn_id_current(
+        self: "MUDAgentWorker",
+        expected_turn_id: str,
+    ) -> None:
+        """Raise if the current turn_id no longer matches expected."""
+        current = await self.peek_turn_id()
+        if current != expected_turn_id:
+            raise TurnPreemptedException(
+                f"Turn preempted (expected {expected_turn_id}, current {current})"
+            )
+
+    async def claim_idle_turn(
+        self: "MUDAgentWorker",
+        turn_request: MUDTurnRequest,
+    ) -> str:
+        """Claim idle turn by rotating turn_id with CAS."""
+        old_turn_id = turn_request.turn_id
+        new_turn_id = str(uuid.uuid4())
+        turn_request.turn_id = new_turn_id
+        turn_request.heartbeat_at = _utc_now()
+        success = await self.update_turn_request(turn_request, expected_turn_id=old_turn_id)
+        if not success:
+            turn_request.turn_id = old_turn_id
+            raise TurnPreemptedException(
+                f"Turn preempted during claim (expected {old_turn_id})"
+            )
+        return new_turn_id
 
     async def get_turn_request(self: "MUDAgentWorker") -> Optional[MUDTurnRequest]:
         """Fetch the current turn request hash from Redis."""

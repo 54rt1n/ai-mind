@@ -124,7 +124,7 @@ class RenderingStrategy(BaseStepStrategy):
         message = ConversationMessage.create(
             doc_id=doc_id,
             conversation_id=executor.state.conversation_id,
-            user_id="system",  # Rendering is system-generated
+            user_id=executor.state.user_id,
             persona_id=executor.persona.persona_id,
             sequence_no=0,  # Not part of conversation sequence
             branch=executor.state.branch,

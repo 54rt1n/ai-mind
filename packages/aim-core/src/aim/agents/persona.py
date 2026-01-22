@@ -206,6 +206,11 @@ class Persona:
             parts.append(system_message)
 
         result = "\n\n".join(parts)
+
+        # Replace {{user}} placeholder with actual user_id
+        if user_id is not None:
+            result = result.replace("{{user}}", user_id)
+
         return result
 
     def description(self, show_time: bool = True, mood: Optional[str] = None) -> str:

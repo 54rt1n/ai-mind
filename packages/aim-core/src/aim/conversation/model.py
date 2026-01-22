@@ -124,18 +124,18 @@ class ConversationModel:
     def __init__(self, memory_path: str, embedding_model: str, user_timezone: Optional[str] = None, embedding_device: Optional[str] = None, **kwargs):
         super().__init__(**kwargs)
 
-        self.index = SearchIndex(Path('.', memory_path, 'indices'), embedding_model=embedding_model, device=embedding_device)
+        self.index = SearchIndex(Path(memory_path) / 'indices', embedding_model=embedding_model, device=embedding_device)
         self.memory_path = memory_path
-        self.loader = ConversationLoader(conversations_dir=os.path.join(memory_path, 'conversations'))
+        self.loader = ConversationLoader(conversations_dir=str(Path(memory_path) / 'conversations'))
         self.user_timezone = pytz.timezone(user_timezone) if user_timezone is not None else None
 
     @classmethod
     def maybe_init_folders(cls, memory_path: str):
         """Creates the necessary folders for the conversation model if they don't exist."""
-        collection_path = Path(f'./{memory_path}/conversations')
+        collection_path = Path(memory_path) / 'conversations'
         if not collection_path.exists():
             collection_path.mkdir(parents=True)
-        index_path = Path(f'./{memory_path}/indices')
+        index_path = Path(memory_path) / 'indices'
         if not index_path.exists():
             index_path.mkdir(parents=True)
 
@@ -143,9 +143,9 @@ class ConversationModel:
     def from_config(cls, config: ChatConfig) -> 'ConversationModel':
         """Creates a new conversation model from the given config.
 
-        Memory path is derived from persona_id: memory/{persona_id}/
+        Memory path is derived from config.memory_path and persona_id.
         """
-        memory_path = f"memory/{config.persona_id}"
+        memory_path = os.path.join(config.memory_path, config.persona_id)
         cls.maybe_init_folders(memory_path)
         return cls(memory_path=memory_path, embedding_model=config.embedding_model, user_timezone=config.user_timezone, embedding_device=config.embedding_device)
 
@@ -154,7 +154,7 @@ class ConversationModel:
         """
         Returns the path to the collection.
         """
-        return Path(f'./{self.memory_path}/conversations')
+        return Path(self.memory_path) / 'conversations'
     
     def refresh(self) -> None:
         """

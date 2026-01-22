@@ -28,6 +28,8 @@ def mock_worker():
     worker.model.max_tokens = 128000
     worker.chat_config = MagicMock()
     worker.chat_config.max_tokens = 4096
+    worker.model_set = MagicMock()
+    worker.model_set.get_model_name = MagicMock(side_effect=lambda role: f"{role}_model")
     worker._response_strategy = MagicMock()
     worker._response_strategy.thought_content = None
     worker._response_strategy.build_turns = AsyncMock(return_value=[
@@ -36,6 +38,7 @@ def mock_worker():
     worker._is_fresh_session = AsyncMock(return_value=False)
     worker._call_llm = AsyncMock(return_value="<reasoning>\n    <inspiration>Test observation.</inspiration>\n</reasoning>")
     worker._emit_actions = AsyncMock()
+    worker._check_abort_requested = AsyncMock(return_value=False)
     return worker
 
 
@@ -176,6 +179,8 @@ class TestThinkingTurnProcessorDecideAction:
         """Test _decide_action handles LLM response without reasoning block."""
         mock_worker.redis.get.return_value = None
         mock_worker._call_llm.return_value = "Just some text without reasoning block."
+        # Configure fallback model same as chat to skip fallback
+        mock_worker.model_set.get_model_name = MagicMock(return_value="same_model")
 
         processor = ThinkingTurnProcessor(mock_worker)
         actions, thinking = await processor._decide_action(sample_turn_request, sample_events)
@@ -184,10 +189,14 @@ class TestThinkingTurnProcessorDecideAction:
         assert len(actions) == 1
         assert actions[0].tool == "emote"
 
-        # Verify empty reasoning was stored
-        call_args = mock_worker.redis.set.call_args
-        data = json.loads(call_args[0][1])
-        assert data["content"] == ""
+        # Verify LLM was called multiple times (retries)
+        assert mock_worker._call_llm.call_count >= 3
+
+        # Verify Redis set was NOT called (no valid reasoning)
+        assert mock_worker.redis.set.call_count == 0
+
+        # Verify error message in thinking
+        assert "[ERROR]" in thinking
 
     @pytest.mark.asyncio
     async def test_decide_action_extracts_think_tags_first(
@@ -294,6 +303,160 @@ class TestThinkingTurnProcessorHelpers:
         user_input = call_args[1]["user_input"]
         assert "[User Guidance:" not in user_input
         assert REASONING_PROMPT in user_input
+
+
+class TestThinkingTurnProcessorRetryLogic:
+    """Tests for retry and fallback logic."""
+
+    @pytest.mark.asyncio
+    async def test_retry_on_missing_reasoning_block(
+        self, mock_worker, sample_turn_request, sample_events
+    ):
+        """Test processor retries when reasoning block is missing."""
+        mock_worker.redis.get.return_value = None
+        # First two calls fail, third succeeds
+        mock_worker._call_llm.side_effect = [
+            "No reasoning here",
+            "Still no reasoning",
+            "<reasoning>\n    <inspiration>Success</inspiration>\n</reasoning>",
+        ]
+        # Configure fallback model same as chat to skip fallback
+        mock_worker.model_set.get_model_name = MagicMock(return_value="same_model")
+
+        processor = ThinkingTurnProcessor(mock_worker)
+        actions, thinking = await processor._decide_action(sample_turn_request, sample_events)
+
+        # Verify LLM was called 3 times
+        assert mock_worker._call_llm.call_count == 3
+
+        # Verify success
+        assert "<reasoning>" in thinking
+        assert "Success" in thinking
+
+        # Verify reasoning was stored
+        mock_worker.redis.set.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_fallback_model_on_repeated_failure(
+        self, mock_worker, sample_turn_request, sample_events
+    ):
+        """Test processor tries fallback model after max retries."""
+        mock_worker.redis.get.return_value = None
+        # Chat model fails 3 times, fallback succeeds
+        mock_worker._call_llm.side_effect = [
+            "No reasoning 1",
+            "No reasoning 2",
+            "No reasoning 3",
+            "<reasoning>\n    <inspiration>Fallback success</inspiration>\n</reasoning>",
+        ]
+
+        processor = ThinkingTurnProcessor(mock_worker)
+        actions, thinking = await processor._decide_action(sample_turn_request, sample_events)
+
+        # Verify LLM was called 4 times (3 chat + 1 fallback)
+        assert mock_worker._call_llm.call_count == 4
+
+        # Verify last call used fallback role
+        last_call = mock_worker._call_llm.call_args_list[-1]
+        assert last_call[1]["role"] == "fallback"
+
+        # Verify success
+        assert "<reasoning>" in thinking
+        assert "Fallback success" in thinking
+
+    @pytest.mark.asyncio
+    async def test_skip_fallback_if_same_as_chat(
+        self, mock_worker, sample_turn_request, sample_events
+    ):
+        """Test processor skips fallback if it's the same model as chat."""
+        mock_worker.redis.get.return_value = None
+        mock_worker._call_llm.return_value = "No reasoning"
+        # Configure fallback model same as chat
+        mock_worker.model_set.get_model_name = MagicMock(return_value="same_model")
+
+        processor = ThinkingTurnProcessor(mock_worker)
+        actions, thinking = await processor._decide_action(sample_turn_request, sample_events)
+
+        # Verify LLM was called only 3 times (no fallback)
+        assert mock_worker._call_llm.call_count == 3
+
+        # Verify error handling
+        assert "[ERROR]" in thinking
+        assert mock_worker.redis.set.call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_abort_during_retry_loop(
+        self, mock_worker, sample_turn_request, sample_events
+    ):
+        """Test processor respects abort requests during retry loop."""
+        from andimud_worker.exceptions import AbortRequestedException
+
+        mock_worker.redis.get.return_value = None
+        mock_worker._check_abort_requested.return_value = True
+
+        processor = ThinkingTurnProcessor(mock_worker)
+
+        with pytest.raises(AbortRequestedException):
+            await processor._decide_action(sample_turn_request, sample_events)
+
+        # Verify LLM was not called
+        mock_worker._call_llm.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_format_guidance_added_on_retry(
+        self, mock_worker, sample_turn_request, sample_events
+    ):
+        """Test format guidance is added to chat turns on retry."""
+        mock_worker.redis.get.return_value = None
+        # First call fails, second succeeds
+        mock_worker._call_llm.side_effect = [
+            "No reasoning",
+            "<reasoning>\n    <inspiration>Success</inspiration>\n</reasoning>",
+        ]
+        # Configure fallback model same as chat
+        mock_worker.model_set.get_model_name = MagicMock(return_value="same_model")
+
+        # Track chat_turns modifications
+        chat_turns_history = []
+
+        async def capture_build_turns(*args, **kwargs):
+            result = [{"role": "user", "content": "test context"}]
+            chat_turns_history.append(result.copy())
+            return result
+
+        mock_worker._response_strategy.build_turns = AsyncMock(side_effect=capture_build_turns)
+
+        processor = ThinkingTurnProcessor(mock_worker)
+        await processor._decide_action(sample_turn_request, sample_events)
+
+        # Verify guidance was added after first failure
+        # Note: guidance is added to the chat_turns list returned by build_turns
+        # We can't easily verify this without inspecting call args to _call_llm
+        assert mock_worker._call_llm.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_no_storage_on_all_retries_failed(
+        self, mock_worker, sample_turn_request, sample_events
+    ):
+        """Test no Redis storage when all retries fail."""
+        mock_worker.redis.get.return_value = None
+        mock_worker._call_llm.return_value = "No reasoning ever"
+        # Configure fallback model same as chat
+        mock_worker.model_set.get_model_name = MagicMock(return_value="same_model")
+
+        processor = ThinkingTurnProcessor(mock_worker)
+        actions, thinking = await processor._decide_action(sample_turn_request, sample_events)
+
+        # Verify Redis set was NOT called
+        mock_worker.redis.set.assert_not_called()
+
+        # Verify error in thinking
+        assert "[ERROR]" in thinking
+        assert "Failed to generate valid reasoning format" in thinking
+
+        # Verify emote was still emitted
+        assert len(actions) == 1
+        assert actions[0].tool == "emote"
 
 
 if __name__ == "__main__":

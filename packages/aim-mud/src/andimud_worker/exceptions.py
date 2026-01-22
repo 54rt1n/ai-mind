@@ -5,3 +5,8 @@
 class AbortRequestedException(Exception):
     """Raised when a turn is aborted by user request."""
     pass
+
+
+class TurnPreemptedException(Exception):
+    """Raised when a turn is preempted by a newer turn_id."""
+    pass

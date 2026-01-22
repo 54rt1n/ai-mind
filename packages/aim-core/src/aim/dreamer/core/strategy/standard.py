@@ -313,7 +313,7 @@ class StandardStrategy(FormatValidationMixin, BaseStepStrategy):
         message = ConversationMessage.create(
             doc_id=doc_id,
             conversation_id=executor.state.conversation_id,
-            user_id="system",
+            user_id=executor.state.user_id,
             persona_id=executor.persona.persona_id,
             sequence_no=0,
             branch=executor.state.branch,

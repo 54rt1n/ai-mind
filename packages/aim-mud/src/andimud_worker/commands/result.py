@@ -27,3 +27,4 @@ class CommandResult:
     status: TurnRequestStatus = TurnRequestStatus.DONE
     message: Optional[str] = None
     plan_guidance: Optional[str] = None
+    turn_id: Optional[str] = None

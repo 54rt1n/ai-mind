@@ -199,6 +199,7 @@ class DreamerMixin:
             total_docs = (
                 row.get("conversation", 0) +
                 row.get("mud-world", 0) +
+                row.get("mud-action", 0) +
                 row.get("mud-agent", 0)
             )
             has_enough_docs = total_docs >= MIN_DOCS_FOR_ANALYSIS
@@ -279,7 +280,7 @@ class DreamerMixin:
         # Query documents from conversation (exclude analysis/summary)
         docs_df = self.cvm.get_conversation_history(
             conversation_id=conversation_id,
-            query_document_type=["mud-world", "mud-agent", "conversation"],
+            query_document_type=["mud-world", "mud-action", "mud-agent", "conversation"],
         )
         if docs_df.empty:
             return False

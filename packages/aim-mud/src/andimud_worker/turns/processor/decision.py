@@ -70,6 +70,32 @@ class DecisionProcessor(BaseTurnProcessor):
         Raises:
             AbortRequestedException: If turn is aborted before decision
         """
+        metadata = turn_request.metadata or {}
+        logger.info(
+            "Decision turn start: id=%s reason=%s status=%s seq=%s events=%d room_auras=%s",
+            turn_request.turn_id,
+            turn_request.reason.value if hasattr(turn_request.reason, "value") else turn_request.reason,
+            turn_request.status.value if hasattr(turn_request.status, "value") else turn_request.status,
+            turn_request.sequence_id,
+            len(events),
+            metadata.get("room_auras"),
+        )
+
+        room_auras = metadata.get("room_auras")
+        if (
+            room_auras is not None
+            and self.worker._decision_strategy
+            and self.worker.chat_config
+        ):
+            if isinstance(room_auras, (list, tuple, set)):
+                self.worker._decision_strategy.update_aura_tools(
+                    list(room_auras),
+                    self.worker.chat_config.tools_path,
+                )
+        if self.worker._decision_strategy:
+            tool_names = self.worker._decision_strategy.get_available_tool_names()
+            logger.info("Decision available tools (%d): %s", len(tool_names), ", ".join(tool_names))
+
         idle_mode = len(events) == 0
 
         # Check for abort before decision LLM call
