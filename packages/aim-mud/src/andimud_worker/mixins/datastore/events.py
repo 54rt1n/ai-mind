@@ -335,6 +335,23 @@ class EventsMixin:
 
         # Push events as user turn to conversation history
         if self.conversation_manager:
+            signature = self._compute_drain_signature(events)
+            if signature and signature == self._last_conversation_signature:
+                logger.info("Skipping duplicate conversation push for same event batch")
+                return
+
+            new_events: list[MUDEvent] = []
+            for event in events:
+                if event.event_id:
+                    if event.event_id in self._conversation_event_ids:
+                        continue
+                    new_events.append(event)
+                else:
+                    new_events.append(event)
+
+            if not new_events:
+                logger.info("Skipping conversation push; all events already recorded")
+                return
             room_id = None
             room_name = None
             if self.session and self.session.current_room:
@@ -342,11 +359,24 @@ class EventsMixin:
                 room_name = self.session.current_room.name
 
             await self.conversation_manager.push_user_turn(
-                events=events,
+                events=new_events,
                 world_state=self.session.world_state if self.session else None,
                 room_id=room_id,
                 room_name=room_name,
             )
+            for event in new_events:
+                if not event.event_id:
+                    continue
+                if event.event_id in self._conversation_event_ids:
+                    continue
+                if len(self._conversation_event_id_queue) >= 10000:
+                    oldest = self._conversation_event_id_queue.popleft()
+                    self._conversation_event_ids.discard(oldest)
+                self._conversation_event_id_queue.append(event.event_id)
+                self._conversation_event_ids.add(event.event_id)
+
+            if signature:
+                self._last_conversation_signature = signature
 
     async def _drain_to_turn(self: "MUDAgentWorker") -> list[MUDEvent]:
         """Re-drain events that arrived during Phase 1 processing.

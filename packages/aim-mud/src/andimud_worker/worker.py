@@ -9,6 +9,7 @@ Extracted from worker.py lines 1-365, 374-620, 1870-1887
 import asyncio
 import contextlib
 from datetime import timedelta
+from collections import deque
 import json
 import logging
 import signal
@@ -153,6 +154,9 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
         self.pending_events: list = []
         self._last_drain_signature: Optional[tuple[str, ...]] = None
         self._emote_used_in_drain: bool = False
+        self._last_conversation_signature: Optional[tuple[str, ...]] = None
+        self._conversation_event_ids: set[str] = set()
+        self._conversation_event_id_queue: deque[str] = deque()
 
         # Command registry
         self.command_registry = CommandRegistry.register(

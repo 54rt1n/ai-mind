@@ -241,10 +241,20 @@ class AgentsMixin:
             logger.debug(f"Agent {agent_id} crashed, not assigning")
             return False
 
-        # Block if actively processing or being aborted
-        if status in (TurnRequestStatus.ASSIGNED, TurnRequestStatus.IN_PROGRESS,
-                      TurnRequestStatus.ABORT_REQUESTED, TurnRequestStatus.EXECUTING):
-            return False
+        # Block if actively processing or being aborted (idle can be preempted)
+        if status in (
+            TurnRequestStatus.ASSIGNED,
+            TurnRequestStatus.IN_PROGRESS,
+            TurnRequestStatus.ABORT_REQUESTED,
+            TurnRequestStatus.EXECUTING,
+        ):
+            if current.reason == TurnReason.IDLE:
+                logger.info(
+                    f"Preempting idle turn for {agent_id} "
+                    f"(status={status.value}, reason={reason})"
+                )
+            else:
+                return False
 
         # Check if retry/fail turn in backoff period
         if status in (TurnRequestStatus.RETRY, TurnRequestStatus.FAIL):
