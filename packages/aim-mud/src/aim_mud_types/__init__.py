@@ -96,6 +96,12 @@ from .pause_helpers import (
     is_mediator_paused,
     is_mediator_paused_async,
 )
+from .idle_helpers import (
+    is_idle_active,
+    is_idle_active_async,
+    set_idle_active,
+    set_idle_active_async,
+)
 from .sequence_helpers import (
     next_sequence_id,
     next_sequence_id_async,
@@ -238,6 +244,10 @@ __all__ = [
     "is_agent_paused_async",
     "is_mediator_paused",
     "is_mediator_paused_async",
+    "is_idle_active",
+    "is_idle_active_async",
+    "set_idle_active",
+    "set_idle_active_async",
     # Sequence helpers (sync/async)
     "next_sequence_id",
     "next_sequence_id_async",

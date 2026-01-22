@@ -22,6 +22,7 @@ def mock_chat_config():
     "Fixture for a mock ChatConfig object."""
     config = MagicMock(spec=ChatConfig)
     config.persona_id = TEST_PERSONA_ID
+    config.memory_path = "memory"
     config.embedding_model = "mock_embedding_model"
     config.user_timezone = "UTC"
     config.embedding_device = None

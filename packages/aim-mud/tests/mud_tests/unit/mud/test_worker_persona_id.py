@@ -39,8 +39,8 @@ class TestPersonaIdFix:
 
         worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
 
-        # Mock the client's update method
-        with patch('aim_mud_types.client.RedisMUDClient') as mock_client_class:
+        # Mock the client's update method - patch where it's imported in the profile module
+        with patch('andimud_worker.mixins.datastore.profile.RedisMUDClient') as mock_client_class:
             mock_client = mock_client_class.return_value
             mock_client.update_agent_profile_fields = AsyncMock(return_value=True)
 
@@ -60,8 +60,8 @@ class TestPersonaIdFix:
 
         worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
 
-        # Mock the client's update method
-        with patch('aim_mud_types.client.RedisMUDClient') as mock_client_class:
+        # Mock the client's update method - patch where it's imported in the profile module
+        with patch('andimud_worker.mixins.datastore.profile.RedisMUDClient') as mock_client_class:
             mock_client = mock_client_class.return_value
             mock_client.update_agent_profile_fields = AsyncMock(return_value=True)
 
@@ -91,8 +91,8 @@ class TestPersonaIdFix:
         mock_persona.persona_id = "Andi"
         worker.persona = mock_persona
 
-        # Mock the client's methods
-        with patch('aim_mud_types.client.RedisMUDClient') as mock_client_class:
+        # Mock the client's methods - patch where it's imported in the profile module
+        with patch('andimud_worker.mixins.datastore.profile.RedisMUDClient') as mock_client_class:
             mock_client = mock_client_class.return_value
             mock_client.get_agent_profile_raw = AsyncMock(return_value=None)  # Empty profile
             mock_client.update_agent_profile_fields = AsyncMock(return_value=True)
@@ -151,8 +151,8 @@ class TestPersonaIdFix:
         mock_persona.persona_id = "Andi"  # Capital A from config/persona/Andi.json
         worker.persona = mock_persona
 
-        # Mock the client's methods
-        with patch('aim_mud_types.client.RedisMUDClient') as mock_client_class:
+        # Mock the client's methods - patch where it's imported in the profile module
+        with patch('andimud_worker.mixins.datastore.profile.RedisMUDClient') as mock_client_class:
             mock_client = mock_client_class.return_value
             mock_client.get_agent_profile_raw = AsyncMock(return_value=None)  # Empty profile
             mock_client.update_agent_profile_fields = AsyncMock(return_value=True)
@@ -160,6 +160,7 @@ class TestPersonaIdFix:
             await worker._load_agent_profile()
 
             # Verify persona_id from Roster is used, not lowercased agent_id
+            mock_client.update_agent_profile_fields.assert_called_once()
             call_kwargs = mock_client.update_agent_profile_fields.call_args[1]
             assert call_kwargs["persona_id"] == "Andi"  # Not "andi"
 

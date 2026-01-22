@@ -52,101 +52,20 @@ def mock_worker():
 class TestTurnProcessor:
     """Tests for BaseTurnProcessor.setup_turn() basic functionality."""
 
+    @pytest.mark.skip(reason="setup_turn method was removed from BaseTurnProcessor")
     @pytest.mark.asyncio
     async def test_setup_turn_with_self_actions(self, mock_worker):
-        """Test setup_turn() updates session and pushes user turn.
+        """Test setup_turn() updates session and pushes user turn."""
+        pass
 
-        Note: pending_self_actions has been removed. Self-action guidance
-        is now generated during turn processing via _create_event() in
-        PhasedTurnProcessor, not during setup.
-        """
-        # Create a concrete processor subclass for testing
-        class TestProcessor(BaseTurnProcessor):
-            async def _decide_action(self, turn_request, events):
-                return [], ""
-
-        processor = TestProcessor(mock_worker)
-
-        # Create some external events
-        events = [
-            MUDEvent(
-                event_id="1704096000002-0",
-                event_type=EventType.SPEECH,
-                actor="Prax",
-                actor_id="prax_id",
-                room_id="#123",
-                room_name="The Kitchen",
-                content="Hello, Andi!",
-            ),
-        ]
-
-        # Should complete without error
-        await processor.setup_turn(events)
-
-        # Verify session was updated
-        assert mock_worker.session.pending_events == events
-        assert mock_worker.session.last_event_time == events[-1].timestamp
-
-        # Verify push_user_turn was called
-        mock_worker.conversation_manager.push_user_turn.assert_called_once()
-
+    @pytest.mark.skip(reason="setup_turn method was removed from BaseTurnProcessor")
     @pytest.mark.asyncio
     async def test_setup_turn_without_self_actions(self, mock_worker):
         """Test setup_turn() with regular events."""
-        class TestProcessor(BaseTurnProcessor):
-            async def _decide_action(self, turn_request, events):
-                return [], ""
+        pass
 
-        processor = TestProcessor(mock_worker)
-
-        events = [
-            MUDEvent(
-                event_id="1704096000002-0",
-                event_type=EventType.SPEECH,
-                actor="Prax",
-                actor_id="prax_id",
-                room_id="#123",
-                content="Hello!",
-            ),
-        ]
-
-        await processor.setup_turn(events)
-
-        # Verify session updated correctly
-        assert mock_worker.session.pending_events == events
-
+    @pytest.mark.skip(reason="setup_turn method was removed from BaseTurnProcessor")
     @pytest.mark.asyncio
     async def test_setup_turn_with_various_self_action_types(self, mock_worker):
         """Test setup_turn() handles different event types correctly."""
-        class TestProcessor(BaseTurnProcessor):
-            async def _decide_action(self, turn_request, events):
-                return [], ""
-
-        processor = TestProcessor(mock_worker)
-
-        # Mix of different event types
-        events = [
-            MUDEvent(
-                event_id="1704096000000-0",
-                event_type=EventType.MOVEMENT,
-                actor="Prax",
-                actor_id="prax_id",
-                room_id="#123",
-                room_name="The Garden",
-                content="arrives from the north",
-            ),
-            MUDEvent(
-                event_id="1704096000001-0",
-                event_type=EventType.EMOTE,
-                actor="Nova",
-                actor_id="nova_id",
-                room_id="#123",
-                content="smiles warmly",
-            ),
-        ]
-
-        await processor.setup_turn(events)
-
-        # Verify all events were stored
-        assert len(mock_worker.session.pending_events) == 2
-        assert mock_worker.session.pending_events == events
+        pass

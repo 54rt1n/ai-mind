@@ -915,7 +915,7 @@ class TestFormatSelfActionGuidance:
         result = format_self_action_guidance([event])
 
         assert "[== Your Turn ==]" in result
-        assert "You acted out an expression for everyone to see" in result
+        assert "You successfully acted out an expression for everyone to see" in result
         assert "You successfully expressed: smiles warmly" in result
 
     def test_multiple_actions_movement_and_object(self):

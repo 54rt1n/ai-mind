@@ -690,80 +690,35 @@ class TestMUDAgentWorkerProcessTurn:
 
         return worker
 
+    @pytest.mark.skip(reason="process_turn method was removed; turn processing now handled via command pattern")
     @pytest.mark.asyncio
     async def test_process_turn_empty_events(self, fully_mocked_worker):
         """Test process_turn with no events."""
-        turn_request = MUDTurnRequest(
-            turn_id="test-turn-1",
-            status=TurnRequestStatus.ASSIGNED,
-            sequence_id=1,
-        )
+        pass
 
-        await fully_mocked_worker.process_turn(turn_request, [])
-
-        assert len(fully_mocked_worker.session.recent_turns) == 1
-        assert len(fully_mocked_worker.session.pending_events) == 0
-
+    @pytest.mark.skip(reason="process_turn method was removed; turn processing now handled via command pattern")
     @pytest.mark.asyncio
     async def test_process_turn_with_events(
         self, fully_mocked_worker, sample_event_data
     ):
         """Test process_turn updates session context from events."""
-        event = MUDEvent.from_dict(sample_event_data)
+        pass
 
-        turn_request = MUDTurnRequest(
-            turn_id="test-turn-2",
-            status=TurnRequestStatus.ASSIGNED,
-            sequence_id=1,
-        )
-
-        await fully_mocked_worker.process_turn(turn_request, [event])
-
-        # Verify session was updated
-        assert len(fully_mocked_worker.session.recent_turns) == 1
-        assert fully_mocked_worker.session.current_room is not None
-        assert fully_mocked_worker.session.current_room.name == "The Garden"
-        assert len(fully_mocked_worker.session.entities_present) == 2
-        assert fully_mocked_worker.session.last_action_time is not None
-
+    @pytest.mark.skip(reason="process_turn method was removed; turn processing now handled via command pattern")
     @pytest.mark.asyncio
     async def test_process_turn_adds_turn_to_history(
         self, fully_mocked_worker, sample_event_data
     ):
         """Test process_turn adds a turn record to session history."""
-        event = MUDEvent.from_dict(sample_event_data)
+        pass
 
-        turn_request = MUDTurnRequest(
-            turn_id="test-turn-3",
-            status=TurnRequestStatus.ASSIGNED,
-            sequence_id=1,
-        )
-
-        await fully_mocked_worker.process_turn(turn_request, [event])
-
-        turn = fully_mocked_worker.session.recent_turns[0]
-        assert len(turn.events_received) == 1
-        assert turn.events_received[0].actor == "Prax"
-        # Turn should have actions recorded
-        # The action type depends on LLM parsing, but should have at least one action
-        assert len(turn.actions_taken) >= 0  # May have actions or fall back gracefully
-
+    @pytest.mark.skip(reason="process_turn method was removed; turn processing now handled via command pattern")
     @pytest.mark.asyncio
     async def test_process_turn_clears_pending_events(
         self, fully_mocked_worker, sample_event_data
     ):
         """Test process_turn clears pending events after processing."""
-        event = MUDEvent.from_dict(sample_event_data)
-        # Pre-populate pending events
-        fully_mocked_worker.session.pending_events = [event]
-
-        turn_request = MUDTurnRequest(
-            turn_id="test-turn-4",
-            status=TurnRequestStatus.ASSIGNED,
-            sequence_id=1,
-        )
-
-        await fully_mocked_worker.process_turn(turn_request, [event])
+        pass
 
         assert len(fully_mocked_worker.session.pending_events) == 0
 

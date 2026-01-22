@@ -286,6 +286,21 @@ class RedisKeys:
         return f"agent:{agent_id}:thought"
 
     @staticmethod
+    def agent_idle_active(agent_id: str) -> str:
+        """Get the idle active flag key for a specific agent.
+
+        When set truthy, awake idle turns can take action instead of
+        only generating thoughts.
+
+        Args:
+            agent_id: Unique identifier for the agent.
+
+        Returns:
+            Redis key for the agent's idle active flag.
+        """
+        return f"agent:{agent_id}:idle:active"
+
+    @staticmethod
     def agent_workspace(agent_id: str) -> str:
         """Get the workspace key for a specific agent.
 

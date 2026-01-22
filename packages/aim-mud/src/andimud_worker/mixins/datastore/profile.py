@@ -220,6 +220,32 @@ class ProfileMixin:
         except json.JSONDecodeError as e:
             logger.warning("Failed to parse thought JSON: %s", e)
 
+    async def _clear_thought_content(self: "MUDAgentWorker") -> None:
+        """Clear stored thought content from Redis and strategies."""
+        if self._decision_strategy:
+            self._decision_strategy.thought_content = ""
+        if self._response_strategy:
+            self._response_strategy.thought_content = ""
+        thought_key = RedisKeys.agent_thought(self.config.agent_id)
+        try:
+            await self.redis.delete(thought_key)
+        except Exception as e:
+            logger.warning("Failed to clear thought content from Redis: %s", e)
+
+    async def _is_idle_active(self: "MUDAgentWorker") -> bool:
+        """Return True if idle active flag is set for this agent."""
+        key = RedisKeys.agent_idle_active(self.config.agent_id)
+        try:
+            raw = await self.redis.get(key)
+        except Exception as e:
+            logger.warning("Failed to read idle active flag: %s", e)
+            return False
+        if raw is None:
+            return False
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8")
+        return str(raw).strip().lower() in ("1", "true", "yes", "on")
+
     async def _load_workspace_state(self: "MUDAgentWorker") -> None:
         """Load workspace state from Redis and set on strategies.
 

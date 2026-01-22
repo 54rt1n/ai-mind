@@ -237,24 +237,30 @@ def format_you_see_guidance(world_state) -> str:
         lines.append(room.description)
 
     people = [
-        e.name for e in world_state.entities_present
+        (e.name, list(getattr(e, "contents", []) or []))
+        for e in world_state.entities_present
         if e.entity_type in ("player", "ai", "npc") and e.name
     ]
     if people:
-        lines.append(f"People here: {', '.join(people)}")
+        lines.append("People here:")
+        for name, carried in people:
+            lines.append(f"* {name}")
+            if carried:
+                lines.append(f"- {name} is carrying: [{', '.join(carried)}]")
 
     ground_items = _get_ground_items(world_state)
-    if ground_items:
-        lines.append(f"Items here: {', '.join(ground_items)}")
-
     containers = _get_container_items(world_state)
-    if containers:
-        lines.append("In containers:")
+    if ground_items or containers:
+        lines.append("Items in the room:")
+        if ground_items:
+            lines.append(f"- not in container: [{', '.join(ground_items)}]")
         for name, contents in containers.items():
+            label = f"{name} (c)"
+            lines.append(f"* {label}")
             if contents:
-                lines.append(f"- {name}: {', '.join(contents)}")
+                lines.append(f"- In {label}: [{', '.join(contents)}]")
             else:
-                lines.append(f"- {name}: (empty)")
+                lines.append(f"- In {label}: (empty)")
 
     inventory_summary = _get_current_inventory_summary(world_state)
     if inventory_summary != "none":

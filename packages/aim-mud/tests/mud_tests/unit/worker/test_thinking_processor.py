@@ -169,7 +169,7 @@ class TestThinkingTurnProcessorDecideAction:
         # Verify build_turns was called with guidance in user_input
         call_args = mock_worker._response_strategy.build_turns.call_args
         user_input = call_args[1]["user_input"]
-        assert "[User Guidance: Focus on recent memories]" in user_input
+        assert "[Link Guidance: Focus on recent memories]" in user_input
         assert REASONING_PROMPT in user_input
 
     @pytest.mark.asyncio

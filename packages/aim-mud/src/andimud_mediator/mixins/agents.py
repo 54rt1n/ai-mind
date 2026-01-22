@@ -286,7 +286,9 @@ class AgentsMixin:
             preserved_metadata = current.metadata  # Preserve metadata on retry
 
             # Validate: DREAM turns require metadata with scenario
-            if current.reason == TurnReason.DREAM and not metadata:
+            # Use preserved_metadata if no new metadata is provided
+            effective_metadata = metadata or preserved_metadata
+            if current.reason == TurnReason.DREAM and not effective_metadata:
                 logger.warning(
                     f"DREAM turn for {agent_id} has no metadata, marking as FAIL"
                 )
@@ -305,7 +307,7 @@ class AgentsMixin:
                     update_heartbeat=False,
                 )
                 return False
-            if current.reason == TurnReason.DREAM and metadata and not metadata.get("scenario"):
+            if current.reason == TurnReason.DREAM and effective_metadata and not effective_metadata.get("scenario"):
                 logger.warning(
                     f"DREAM turn for {agent_id} metadata missing scenario, marking as FAIL"
                 )

@@ -70,6 +70,45 @@ class IdleCommand(Command):
         await worker._setup_turn_context(events)
         # Priority 2: If we don't have a current thought, we need to generate one
         if not worker._decision_strategy.thought_content:
+            if await worker._is_idle_active():
+                claimed_turn_id = await worker.claim_idle_turn(turn_request)
+                await worker._clear_thought_content()
+
+                decision_processor = DecisionProcessor(worker)
+                if plan_guidance:
+                    decision_processor.user_guidance = plan_guidance
+                await decision_processor.execute(turn_request, events)
+
+                decision = worker._last_decision
+                if decision.decision_type == DecisionType.SPEAK:
+                    new_events = await worker._drain_to_turn()
+                    if new_events:
+                        logger.info(f"[{claimed_turn_id}] Captured {len(new_events)} new events for Phase 2 (SPEAK)")
+                    speaking_processor = SpeakingProcessor(worker)
+                    if plan_guidance:
+                        speaking_processor.user_guidance = plan_guidance
+                    await speaking_processor.execute(turn_request, events)
+                elif decision.decision_type == DecisionType.THINK:
+                    new_events = await worker._drain_with_settle()
+                    if new_events:
+                        logger.info(f"[{claimed_turn_id}] Captured {len(new_events)} new events for Phase 2 (THINK)")
+                    thinking_processor = ThinkingTurnProcessor(worker)
+                    if plan_guidance:
+                        thinking_processor.user_guidance = plan_guidance
+                    await thinking_processor.execute(turn_request, events)
+                else:
+                    await worker._emit_decision_action(decision)
+
+                worker._last_decision = None
+                return CommandResult(
+                    complete=True,
+                    flush_drain=decision.should_flush if decision else False,
+                    saved_event_id=None,
+                    status=TurnRequestStatus.DONE,
+                    message="Idle active decision",
+                    turn_id=claimed_turn_id,
+                )
+
             claimed_turn_id = await worker.claim_idle_turn(turn_request)
             thinking_processor = ThinkingTurnProcessor(worker)
             if plan_guidance:

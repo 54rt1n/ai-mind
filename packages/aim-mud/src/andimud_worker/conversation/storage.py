@@ -73,7 +73,6 @@ def _safe_iso(dt: Optional[datetime]) -> str:
 
 
 @dataclass
-@dataclass
 class MUDResponseRecord:
     """Stores a single agent response and its associated actions."""
 
@@ -81,6 +80,7 @@ class MUDResponseRecord:
     actions: list[MUDAction] = field(default_factory=list)
 
 
+@dataclass
 class MUDMemoryBucket:
     """Accumulates world inputs and agent outputs for persistence."""
 
