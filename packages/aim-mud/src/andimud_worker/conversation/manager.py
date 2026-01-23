@@ -281,6 +281,44 @@ class MUDConversationManager:
                 last_entry = entry
                 continue
 
+            # Don't group narrative events - each gets its own entry
+            if event.event_type == EventType.NARRATIVE:
+                await flush_group()  # Flush any pending non-narrative events
+
+                content = format_event(event) or "[No content]"
+                tokens = count_tokens(content)
+                metadata = {
+                    "room_id": event.room_id or room_id,
+                    "room_name": event.room_name or room_name,
+                    "event_count": 1,
+                    "actors": [event.actor] if event.actor else [],
+                    "actor_ids": [event.actor_id] if event.actor_id else [],
+                    "event_ids": [event.event_id] if event.event_id else [],
+                    "event_type": event.event_type.value,
+                    "event_types": [event.event_type.value],
+                    "actor": event.actor,
+                    "actor_id": event.actor_id,
+                    "target": event.target,
+                    "target_id": event.target_id,
+                    "targets": [event.target] if event.target else [],
+                    "target_ids": [event.target_id] if event.target_id else [],
+                    "event_metadata": event.metadata,
+                }
+                entry = MUDConversationEntry(
+                    role="user",
+                    content=content,
+                    tokens=tokens,
+                    document_type=DOC_MUD_WORLD,
+                    conversation_id=self._get_conversation_id(),
+                    sequence_no=self._next_sequence_no(),
+                    metadata=metadata,
+                    speaker_id="world",
+                    timestamp=event.timestamp,
+                )
+                await self._push_and_trim(entry)
+                last_entry = entry
+                continue
+
             is_self = event.metadata.get("is_self_action", False)
             actor_key = event.actor_id or event.actor
             if group_events and (group_actor_key != actor_key or group_is_self != is_self):
@@ -625,6 +663,39 @@ class MUDConversationManager:
         """
         self._conversation_id = conversation_id
         logger.info(f"Set conversation_id to {conversation_id}")
+
+    async def get_last_event_id(self) -> Optional[str]:
+        """Get the highest event_id from all conversation entries.
+
+        Scans metadata.event_ids across all entries to find the maximum,
+        which represents where we left off in the event stream.
+
+        Returns:
+            The highest event_id found, or None if no entries have event_ids.
+        """
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
+        raw_entries = await client.get_conversation_entries(self.agent_id, 0, -1)
+        if not raw_entries:
+            return None
+
+        max_event_id: Optional[str] = None
+        for raw in raw_entries:
+            if isinstance(raw, bytes):
+                raw = raw.decode("utf-8")
+            try:
+                entry = MUDConversationEntry.model_validate_json(raw)
+                event_ids = entry.metadata.get("event_ids", [])
+                # Also check single event_id field (for code events)
+                if not event_ids and "event_id" in entry.metadata:
+                    event_ids = [entry.metadata["event_id"]]
+                for eid in event_ids:
+                    if eid and (max_event_id is None or eid > max_event_id):
+                        max_event_id = eid
+            except Exception:
+                continue
+
+        return max_event_id
 
     async def retag_unsaved_entries(self, new_conversation_id: str) -> int:
         """Re-tag all unsaved entries with new conversation_id and renumber from 0.

@@ -92,10 +92,21 @@ class EventsCommand(Command):
 
         decision = await worker.take_turn(turn_id, events, turn_request)
 
+        if decision is None:
+            error_detail = worker._last_turn_error or "unknown error"
+            logger.error("Event turn %s produced no decision: %s", turn_id, error_detail)
+            return CommandResult(
+                complete=True,
+                flush_drain=False,
+                saved_event_id=None,
+                status=TurnRequestStatus.FAIL,
+                message=f"Turn failed: {error_detail}",
+            )
+
         return CommandResult(
             complete=True,
-            flush_drain=decision.should_flush if decision else False,
+            flush_drain=decision.should_flush,
             saved_event_id=None,
             status=TurnRequestStatus.DONE,
-            message=f"Turn processed: {decision.decision_type.name}"
+            message=f"Turn processed: {decision.decision_type.name}",
         )

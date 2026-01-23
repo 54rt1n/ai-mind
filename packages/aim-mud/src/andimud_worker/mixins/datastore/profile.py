@@ -72,6 +72,13 @@ class ProfileMixin:
             self.conversation_manager.set_conversation_id(conversation_id)
             logger.info(f"Loaded conversation_id: {conversation_id}")
 
+        # Recover position from conversation (source of truth)
+        if self.conversation_manager:
+            conv_last_event_id = await self.conversation_manager.get_last_event_id()
+            if conv_last_event_id:
+                self.session.last_event_id = conv_last_event_id
+                logger.info(f"Recovered last_event_id from conversation: {conv_last_event_id}")
+
     async def _load_agent_world_state(self: "MUDAgentWorker") -> tuple[Optional[str], Optional[str]]:
         """Load inventory and room pointer from agent profile.
 

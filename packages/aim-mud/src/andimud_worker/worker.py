@@ -143,6 +143,8 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
 
         # Decision result for routing (set by DecisionProcessor, consumed by commands)
         self._last_decision: Optional[DecisionResult] = None
+        self._last_turn_error: Optional[str] = None
+        self._last_turn_error_type: Optional[str] = None
 
         # Turn request tracking
         self._last_turn_request_id: Optional[str] = None
@@ -714,8 +716,21 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
             logger.error(f"Turn {turn_id} failed permanently after {attempt_count} attempts, giving up")
 
         # Set failure/retry state with metadata
-        status_reason = f"LLM call failed: {error_type}" if error_type else "Command failed"
+        error_detail = (error_message or "No error details available").strip()
+        if len(error_detail) > 200:
+            error_detail = error_detail[:197] + "..."
+        if error_type:
+            status_reason = f"LLM call failed: {error_type} - {error_detail}"
+        else:
+            status_reason = f"Turn failed: {error_detail}"
         if turn_request:
+            if turn_request.metadata is None:
+                turn_request.metadata = {}
+            elif not isinstance(turn_request.metadata, dict):
+                turn_request.metadata = {}
+            turn_request.metadata["error_detail"] = error_message
+            if error_type:
+                turn_request.metadata["error_type"] = error_type
             transition_turn_request(
                 turn_request,
                 status=status,

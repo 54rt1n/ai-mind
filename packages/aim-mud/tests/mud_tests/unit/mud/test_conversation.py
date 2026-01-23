@@ -136,6 +136,41 @@ class TestMUDConversationEntry:
         assert entry.think == "I should respond warmly."
         assert entry.role == "assistant"
 
+    def test_entry_with_last_event_id(self):
+        """Test that last_event_id field serializes and deserializes."""
+        entry = MUDConversationEntry(
+            role="user",
+            content="Test content",
+            tokens=10,
+            document_type=DOC_MUD_WORLD,
+            conversation_id="test_conv_123",
+            sequence_no=0,
+            speaker_id="world",
+            last_event_id="1704096000000-5",
+        )
+
+        # Serialize
+        json_str = entry.model_dump_json()
+        assert "1704096000000-5" in json_str
+
+        # Deserialize
+        restored = MUDConversationEntry.model_validate_json(json_str)
+        assert restored.last_event_id == "1704096000000-5"
+
+    def test_entry_last_event_id_defaults_to_none(self):
+        """Test that last_event_id defaults to None."""
+        entry = MUDConversationEntry(
+            role="user",
+            content="Test content",
+            tokens=10,
+            document_type=DOC_MUD_WORLD,
+            conversation_id="test_conv_123",
+            sequence_no=0,
+            speaker_id="world",
+        )
+
+        assert entry.last_event_id is None
+
 
 class TestMUDConversationManagerInit:
     """Test MUDConversationManager initialization."""
@@ -234,6 +269,39 @@ class TestMUDConversationManagerPushUserTurn:
         assert entry1.sequence_no == 0
         assert entry2.sequence_no == 1
         assert entry1.conversation_id == entry2.conversation_id
+
+    @pytest.mark.asyncio
+    async def test_push_user_turn_stores_last_event_id(self, conversation_manager, mock_redis):
+        """Test that push_user_turn stores last_event_id on entries."""
+        events = [_sample_event("1", "Prax", "Hello!")]
+
+        entry = await conversation_manager.push_user_turn(
+            events=events,
+            room_id="#123",
+            room_name="The Garden",
+            last_event_id="1704096000000-7",
+        )
+
+        assert entry.last_event_id == "1704096000000-7"
+
+        # Verify the entry pushed to Redis has the last_event_id
+        mock_redis.rpush.assert_called_once()
+        pushed_json = mock_redis.rpush.call_args[0][1]
+        pushed_entry = MUDConversationEntry.model_validate_json(pushed_json)
+        assert pushed_entry.last_event_id == "1704096000000-7"
+
+    @pytest.mark.asyncio
+    async def test_push_user_turn_last_event_id_defaults_to_none(self, conversation_manager, mock_redis):
+        """Test that push_user_turn without last_event_id stores None."""
+        events = [_sample_event("1", "Prax", "Hello!")]
+
+        entry = await conversation_manager.push_user_turn(
+            events=events,
+            room_id="#123",
+            room_name="The Garden",
+        )
+
+        assert entry.last_event_id is None
 
     @pytest.mark.asyncio
     async def test_push_user_turn_formats_self_actions_first_person(self, conversation_manager, mock_redis):
@@ -1196,3 +1264,88 @@ class TestMUDConversationManagerConversationID:
         assert retagged == 0
         # Pipeline should not be used
         mock_redis.pipeline.assert_not_called()
+
+
+class TestMUDConversationManagerGetLastEventId:
+    """Test MUDConversationManager.get_last_event_id method."""
+
+    @pytest.mark.asyncio
+    async def test_get_last_event_id_returns_from_most_recent_entry(self, conversation_manager, mock_redis):
+        """Test that get_last_event_id returns the last_event_id from the most recent entry."""
+        entry = MUDConversationEntry(
+            role="user",
+            content="Test message",
+            tokens=10,
+            document_type=DOC_MUD_WORLD,
+            conversation_id="test",
+            sequence_no=5,
+            speaker_id="world",
+            last_event_id="1704096000000-42",
+        )
+
+        mock_redis.lrange.return_value = [entry.model_dump_json().encode()]
+
+        result = await conversation_manager.get_last_event_id()
+
+        assert result == "1704096000000-42"
+        # Verify it queries only the last entry (-1, -1)
+        mock_redis.lrange.assert_called_once_with(conversation_manager.key, -1, -1)
+
+    @pytest.mark.asyncio
+    async def test_get_last_event_id_returns_none_for_empty_list(self, conversation_manager, mock_redis):
+        """Test that get_last_event_id returns None when conversation is empty."""
+        mock_redis.lrange.return_value = []
+
+        result = await conversation_manager.get_last_event_id()
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_get_last_event_id_returns_none_when_entry_has_no_last_event_id(self, conversation_manager, mock_redis):
+        """Test that get_last_event_id returns None when entry has no last_event_id."""
+        entry = MUDConversationEntry(
+            role="user",
+            content="Test message",
+            tokens=10,
+            document_type=DOC_MUD_WORLD,
+            conversation_id="test",
+            sequence_no=0,
+            speaker_id="world",
+            last_event_id=None,
+        )
+
+        mock_redis.lrange.return_value = [entry.model_dump_json().encode()]
+
+        result = await conversation_manager.get_last_event_id()
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_get_last_event_id_handles_parse_error(self, conversation_manager, mock_redis):
+        """Test that get_last_event_id returns None on parse error."""
+        mock_redis.lrange.return_value = [b"invalid json"]
+
+        result = await conversation_manager.get_last_event_id()
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_get_last_event_id_handles_bytes_decoding(self, conversation_manager, mock_redis):
+        """Test that get_last_event_id correctly handles bytes from Redis."""
+        entry = MUDConversationEntry(
+            role="user",
+            content="Test message",
+            tokens=10,
+            document_type=DOC_MUD_WORLD,
+            conversation_id="test",
+            sequence_no=0,
+            speaker_id="world",
+            last_event_id="1704096000000-99",
+        )
+
+        # Return as bytes (as Redis actually does)
+        mock_redis.lrange.return_value = [entry.model_dump_json().encode("utf-8")]
+
+        result = await conversation_manager.get_last_event_id()
+
+        assert result == "1704096000000-99"

@@ -580,3 +580,94 @@ class TestCrashSimulation:
 #
 # Manual test: Enter room (movement), speak during 15s settle window, verify
 # both events are captured in the same turn.
+
+
+# =============================================================================
+# Test 6: Recovery from conversation (source of truth)
+# =============================================================================
+
+
+class TestRecoveryFromConversation:
+    """Verify event position recovery from conversation entries on startup."""
+
+    @pytest.mark.asyncio
+    async def test_load_agent_profile_recovers_from_conversation(self, initialized_worker, mock_redis):
+        """Test that _load_agent_profile recovers last_event_id from conversation if available.
+
+        This validates the fix: after loading from agent profile, we also check
+        the conversation for the authoritative last_event_id. The conversation
+        is the source of truth because it persists the position atomically with
+        the turn data.
+        """
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from andimud_worker.conversation import MUDConversationManager
+        from aim_mud_types import MUDConversationEntry
+        from aim.constants import DOC_MUD_WORLD
+
+        # Arrange: Agent profile has stale position
+        mock_redis.hgetall = AsyncMock(return_value={
+            b"last_event_id": b"1-0",  # Stale position
+            b"conversation_id": b"test_conv_123",
+            b"persona_id": b"andi",
+        })
+
+        # Set up conversation manager mock
+        mock_conv_manager = MagicMock(spec=MUDConversationManager)
+        mock_conv_manager.get_last_event_id = AsyncMock(return_value="3-0")  # Newer position
+        mock_conv_manager.set_conversation_id = MagicMock()
+        initialized_worker.conversation_manager = mock_conv_manager
+
+        # Act: Load agent profile
+        await initialized_worker._load_agent_profile()
+
+        # Assert: Position was recovered from conversation (source of truth)
+        assert initialized_worker.session.last_event_id == "3-0"
+
+        # Verify conversation was queried
+        mock_conv_manager.get_last_event_id.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_load_agent_profile_uses_profile_when_conversation_empty(self, initialized_worker, mock_redis):
+        """Test that _load_agent_profile uses profile position when conversation has no last_event_id.
+
+        When the conversation doesn't have a last_event_id (e.g., empty or entries
+        without position), we should fall back to the profile position.
+        """
+        from unittest.mock import AsyncMock, MagicMock
+        from andimud_worker.conversation import MUDConversationManager
+
+        # Arrange: Agent profile has a position
+        mock_redis.hgetall = AsyncMock(return_value={
+            b"last_event_id": b"2-0",
+            b"persona_id": b"andi",
+        })
+
+        # Conversation manager returns None (no entries or no last_event_id)
+        mock_conv_manager = MagicMock(spec=MUDConversationManager)
+        mock_conv_manager.get_last_event_id = AsyncMock(return_value=None)
+        mock_conv_manager.set_conversation_id = MagicMock()
+        initialized_worker.conversation_manager = mock_conv_manager
+
+        # Act: Load agent profile
+        await initialized_worker._load_agent_profile()
+
+        # Assert: Position from profile is used (conversation had nothing)
+        assert initialized_worker.session.last_event_id == "2-0"
+
+    @pytest.mark.asyncio
+    async def test_load_agent_profile_handles_no_conversation_manager(self, initialized_worker, mock_redis):
+        """Test that _load_agent_profile works when conversation_manager is not set."""
+        from unittest.mock import AsyncMock
+
+        # Arrange: Agent profile has a position, no conversation manager
+        mock_redis.hgetall = AsyncMock(return_value={
+            b"last_event_id": b"2-0",
+            b"persona_id": b"andi",
+        })
+        initialized_worker.conversation_manager = None
+
+        # Act: Load agent profile (should not crash)
+        await initialized_worker._load_agent_profile()
+
+        # Assert: Position from profile is used
+        assert initialized_worker.session.last_event_id == "2-0"

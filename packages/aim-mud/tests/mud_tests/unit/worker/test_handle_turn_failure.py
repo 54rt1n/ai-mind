@@ -201,7 +201,7 @@ class TestHandleTurnFailure:
 
         # Assert
         updated_turn = test_worker.update_turn_request.call_args[0][0]
-        assert updated_turn.status_reason == "Command failed"  # Generic message
+        assert updated_turn.status_reason == "Turn failed: Command failed"
         assert updated_turn.status == TurnRequestStatus.RETRY  # Should still be RETRY
         assert updated_turn.completed_at is not None
 

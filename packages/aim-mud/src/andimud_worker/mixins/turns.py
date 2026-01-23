@@ -695,6 +695,8 @@ class TurnsMixin:
         user_guidance: str = "",
     ) -> DecisionResult | None:
         """Take a turn."""
+        self._last_turn_error = None
+        self._last_turn_error_type = None
         try:
             # Setup turn context ONCE
             await self._setup_turn_context(events)
@@ -738,5 +740,7 @@ class TurnsMixin:
 
             return decision
         except Exception as e:
+            self._last_turn_error = str(e)
+            self._last_turn_error_type = type(e).__name__
             logger.error(f"[{turn_id}] Error taking turn: {e}")
             return None

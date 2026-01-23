@@ -71,11 +71,28 @@ class RetryCommand(Command):
         events = worker.pending_events
 
         decision = await worker.take_turn(turn_id, events, turn_request)
+        decision_type = getattr(decision, "decision_type", None)
+
+        if not decision_type:
+            error_detail = worker._last_turn_error or "decision_type missing"
+            logger.error(
+                "Retry failed for turn %s (attempt %s): %s",
+                turn_id,
+                attempt_count,
+                error_detail,
+            )
+            return CommandResult(
+                complete=True,
+                flush_drain=decision.should_flush if decision else False,
+                saved_event_id=None,
+                status=TurnRequestStatus.FAIL,
+                message=f"Retry failed (attempt {attempt_count}): {error_detail}",
+            )
 
         return CommandResult(
             complete=True,
             flush_drain=decision.should_flush if decision else False,
             saved_event_id=None,
             status=TurnRequestStatus.DONE,
-            message=f"Retry successful (attempt {attempt_count}): {decision.decision_type.name}"
+            message=f"Retry successful (attempt {attempt_count}): {decision_type.name}",
         )
