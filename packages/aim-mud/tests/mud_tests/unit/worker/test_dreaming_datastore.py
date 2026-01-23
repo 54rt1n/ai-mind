@@ -54,7 +54,7 @@ def mock_worker(mock_redis):
 @pytest.fixture
 def sample_dreaming_state():
     """Create a sample DreamingState for testing."""
-    from aim_mud_types.coordination import DreamingState, DreamStatus
+    from aim_mud_types.models.coordination import DreamingState, DreamStatus
 
     return DreamingState(
         pipeline_id="test-pipeline-123",
@@ -136,7 +136,7 @@ async def test_save_load_round_trip(mock_worker, sample_dreaming_state, mock_red
 @pytest.mark.asyncio
 async def test_load_with_strategy_fields(mock_worker, mock_redis):
     """Test loading a DreamingState that includes strategy-based fields (framework, state)."""
-    from aim_mud_types.coordination import DreamingState, DreamStatus
+    from aim_mud_types.models.coordination import DreamingState, DreamStatus
 
     # Create state with strategy fields
     state = DreamingState(

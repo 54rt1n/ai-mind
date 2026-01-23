@@ -11,9 +11,59 @@ Architecture:
     AIM Worker -> mud:actions -> Mediator -> Evennia
 
 All events and actions flow through Redis streams using these shared types.
+
+Usage:
+    # For Redis operations, use the typed clients:
+    from aim_mud_types.client import AsyncRedisMUDClient, SyncRedisMUDClient
+
+    # Async context (workers, mediator)
+    client = AsyncRedisMUDClient(redis_client)
+    turn_request = await client.get_turn_request("andi")
+    await client.update_turn_request("andi", turn_request, expected_turn_id)
+
+    # Sync context (Evennia commands)
+    client = SyncRedisMUDClient(redis_client)
+    profile = client.get_agent_profile_raw("andi")
+    client.set_room_profile_fields("room123", {"field": "value"})
+
+    # Pure utilities (no Redis)
+    from aim_mud_types.helper import normalize_agent_id, transition_turn_request
 """
 
-from .actions import MUDAction
+# Pydantic models and enums - imported from models subpackage
+from .models import (
+    # Enums
+    EventType,
+    ActorType,
+    TurnRequestStatus,
+    TurnReason,
+    DreamStatus,
+    PlanStatus,
+    TaskStatus,
+    DecisionType,
+    # Models
+    AuraState,
+    RoomState,
+    EntityState,
+    WorldState,
+    InventoryItem,
+    WhoEntry,
+    MUDAction,
+    MUDConversationEntry,
+    AgentProfile,
+    RoomProfile,
+    MUDTurnRequest,
+    DreamerState,
+    DreamingState,
+    MUDEvent,
+    AgentPlan,
+    PlanTask,
+    MUDTurn,
+    MUDSession,
+    DecisionResult,
+)
+
+# Constants
 from .constants import (
     AURA_RINGABLE,
     AURA_WEB_ACCESS,
@@ -31,118 +81,67 @@ from .constants import (
     AURA_PAPER_WRITE,
     AURA_CODE_ROOM,
 )
-from .conversation import MUDConversationEntry
-from .coordination import MUDTurnRequest, DreamerState, DreamingState, DreamStatus, TurnRequestStatus, TurnReason
-from .decision import DecisionType, DecisionResult
-from .enums import EventType, ActorType
-from .events import MUDEvent
-from .plan import AgentPlan, PlanTask, PlanStatus, TaskStatus
-from .profile import AgentProfile, RoomProfile
+
+# Redis Keys
 from .redis_keys import RedisKeys
-from .session import MUDTurn, MUDSession
-from .state import RoomState, EntityState
-from .world_state import WorldState, InventoryItem, WhoEntry
-from .client import RedisMUDClient
-from .turn_request_helpers import (
-    assign_turn_request,
-    assign_turn_request_async,
-    update_turn_request,
-    update_turn_request_async,
-    initialize_turn_request,
-    initialize_turn_request_async,
-    atomic_heartbeat_update,
-    atomic_heartbeat_update_async,
-    delete_turn_request,
-    delete_turn_request_async,
+
+# Redis Clients (primary API for Redis operations)
+from .client import (
+    AsyncRedisMUDClient,
+    SyncRedisMUDClient,
+    # Backwards compatibility aliases
+    RedisMUDClient,
+    BaseRedisMUDClient,
+)
+
+# Pure utility functions (no Redis dependency)
+from .helper import (
+    # Time utilities
+    _utc_now,
+    _datetime_to_unix,
+    _unix_to_datetime,
+    # Redis hash utilities
+    model_to_redis_hash,
+    get_hash_field,
+    # Formatting utilities
+    format_time_ago,
+    parse_stream_timestamp,
+    # Turn request utilities (pure domain functions)
+    compute_next_attempt_at,
+    is_agent_online,
+    normalize_agent_id,
+    transition_turn_request,
     touch_turn_request_heartbeat,
     touch_turn_request_completed,
-    compute_next_attempt_at,
-    transition_turn_request,
-    transition_turn_request_and_update,
-    transition_turn_request_and_update_async,
+    # Dream command mapping
+    COMMAND_TO_SCENARIO,
+    create_pending_dream_stub,
 )
-from .agent_profile_helpers import (
-    get_agent_profile_raw,
-    update_agent_profile_fields,
-    set_agent_profile_fields,
-)
-from .room_profile_helpers import (
-    get_room_profile_raw,
-    update_room_profile_fields,
-    set_room_profile_fields,
-)
-from .conversation_helpers import (
-    get_conversation_entries,
-    get_conversation_entry,
-    append_conversation_entry,
-    set_conversation_entry,
-    pop_conversation_entry,
-    pop_last_conversation_entry,
-    get_conversation_length,
-    delete_conversation,
-    replace_conversation_entries,
-)
-from .conversation_report_helpers import (
-    get_conversation_report,
-    set_conversation_report,
-    get_conversation_report_async,
-    set_conversation_report_async,
-)
-from .pause_helpers import (
-    is_paused,
-    is_paused_async,
-    is_agent_paused,
-    is_agent_paused_async,
-    is_mediator_paused,
-    is_mediator_paused_async,
-)
-from .idle_helpers import (
-    is_idle_active,
-    is_idle_active_async,
-    set_idle_active,
-    set_idle_active_async,
-)
-from .sequence_helpers import (
-    next_sequence_id,
-    next_sequence_id_async,
-)
-from .dreamer_state_helpers import (
-    get_dreamer_state,
-    update_dreamer_state_fields,
-)
-from .mud_events_helpers import (
-    get_mud_events_last_id,
-    read_mud_events,
-    append_mud_event,
-    trim_mud_events_minid,
-    is_mud_event_processed,
-    mark_mud_event_processed,
-    get_mud_event_processed_ids,
-    get_min_processed_mud_event_id,
-    get_max_processed_mud_event_id,
-    trim_processed_mud_event_ids,
-)
-from .agent_events_helpers import (
-    get_agent_events_last_id,
-    range_agent_events,
-    range_agent_events_reverse,
-    append_agent_event,
-    get_agent_events_length,
-)
-from .mud_actions_helpers import (
-    read_mud_actions,
-    append_mud_action,
-    range_mud_actions_reverse,
-    get_mud_actions_length,
-    trim_mud_actions_maxlen,
-    is_mud_action_processed,
-    mark_mud_action_processed,
-    get_mud_action_processed_ids,
-    get_max_processed_mud_action_id,
-    trim_processed_mud_action_ids,
-)
-from .helpers import create_pending_dream_stub, normalize_agent_id, COMMAND_TO_SCENARIO
+
+
 __all__ = [
+    # Pydantic Models
+    "MUDAction",
+    "MUDConversationEntry",
+    "MUDTurnRequest",
+    "DreamerState",
+    "DreamingState",
+    "DreamStatus",
+    "MUDEvent",
+    "AgentPlan",
+    "PlanTask",
+    "AgentProfile",
+    "RoomProfile",
+    "MUDTurn",
+    "MUDSession",
+    "AuraState",
+    "RoomState",
+    "EntityState",
+    "WorldState",
+    "InventoryItem",
+    "WhoEntry",
+    "DecisionType",
+    "DecisionResult",
     # Enums
     "EventType",
     "ActorType",
@@ -150,36 +149,6 @@ __all__ = [
     "TurnReason",
     "PlanStatus",
     "TaskStatus",
-    "DecisionType",
-    # Decisions
-    "DecisionResult",
-    # State
-    "RoomState",
-    "EntityState",
-    "WorldState",
-    "InventoryItem",
-    "WhoEntry",
-    # Conversation
-    "MUDConversationEntry",
-    # Session
-    "MUDTurn",
-    "MUDSession",
-    # Events and Actions
-    "MUDEvent",
-    "MUDAction",
-    # Coordination
-    "MUDTurnRequest",
-    "DreamerState",
-    "DreamingState",
-    "DreamStatus",
-    # Plans
-    "AgentPlan",
-    "PlanTask",
-    # Profiles
-    "AgentProfile",
-    "RoomProfile",
-    # Redis Keys
-    "RedisKeys",
     # Constants
     "AURA_RINGABLE",
     "AURA_WEB_ACCESS",
@@ -188,7 +157,6 @@ __all__ = [
     "AURA_NEWS_ACCESS",
     "AURA_RESEARCH_ACCESS",
     "AURA_LIST_ACCESS",
-    # Paper system auras
     "AURA_PRINT_ACCESS",
     "AURA_SCAN_ACCESS",
     "AURA_BIND_ACCESS",
@@ -196,96 +164,29 @@ __all__ = [
     "AURA_COPY_ACCESS",
     "AURA_PAPER_WRITE",
     "AURA_CODE_ROOM",
-    # Redis Client
-    "RedisMUDClient",
-    # Turn request helpers
-    "assign_turn_request",
-    "assign_turn_request_async",
-    "update_turn_request",
-    "update_turn_request_async",
-    "initialize_turn_request",
-    "initialize_turn_request_async",
-    "atomic_heartbeat_update",
-    "atomic_heartbeat_update_async",
-    "delete_turn_request",
-    "delete_turn_request_async",
+    # Redis Keys
+    "RedisKeys",
+    # Redis Clients
+    "AsyncRedisMUDClient",
+    "SyncRedisMUDClient",
+    "RedisMUDClient",  # Backwards compatibility alias for AsyncRedisMUDClient
+    "BaseRedisMUDClient",  # Backwards compatibility alias
+    # Pure Utilities
+    "_utc_now",
+    "_datetime_to_unix",
+    "_unix_to_datetime",
+    "model_to_redis_hash",
+    "get_hash_field",
+    "format_time_ago",
+    "parse_stream_timestamp",
+    "compute_next_attempt_at",
+    "is_agent_online",
+    "normalize_agent_id",
+    "transition_turn_request",
     "touch_turn_request_heartbeat",
     "touch_turn_request_completed",
-    "compute_next_attempt_at",
-    "transition_turn_request",
-    "transition_turn_request_and_update",
-    "transition_turn_request_and_update_async",
-    # Agent/room profile helpers (sync)
-    "get_agent_profile_raw",
-    "update_agent_profile_fields",
-    "set_agent_profile_fields",
-    "get_room_profile_raw",
-    "update_room_profile_fields",
-    "set_room_profile_fields",
-    # Conversation helpers (sync)
-    "get_conversation_entries",
-    "get_conversation_entry",
-    "append_conversation_entry",
-    "set_conversation_entry",
-    "pop_conversation_entry",
-    "pop_last_conversation_entry",
-    "get_conversation_length",
-    "delete_conversation",
-    "replace_conversation_entries",
-    # Conversation report helpers (sync/async)
-    "get_conversation_report",
-    "set_conversation_report",
-    "get_conversation_report_async",
-    "set_conversation_report_async",
-    # Pause helpers (sync/async)
-    "is_paused",
-    "is_paused_async",
-    "is_agent_paused",
-    "is_agent_paused_async",
-    "is_mediator_paused",
-    "is_mediator_paused_async",
-    "is_idle_active",
-    "is_idle_active_async",
-    "set_idle_active",
-    "set_idle_active_async",
-    # Sequence helpers (sync/async)
-    "next_sequence_id",
-    "next_sequence_id_async",
-    # Dreamer state helpers (sync)
-    "get_dreamer_state",
-    "update_dreamer_state_fields",
-    # Stream helpers: mud events
-    "get_mud_events_last_id",
-    "read_mud_events",
-    "append_mud_event",
-    "trim_mud_events_minid",
-    "is_mud_event_processed",
-    "mark_mud_event_processed",
-    "get_mud_event_processed_ids",
-    "get_min_processed_mud_event_id",
-    "get_max_processed_mud_event_id",
-    "trim_processed_mud_event_ids",
-    # Stream helpers: agent events
-    "get_agent_events_last_id",
-    "range_agent_events",
-    "range_agent_events_reverse",
-    "append_agent_event",
-    "get_agent_events_length",
-    # Stream helpers: mud actions
-    "read_mud_actions",
-    "append_mud_action",
-    "range_mud_actions_reverse",
-    "get_mud_actions_length",
-    "trim_mud_actions_maxlen",
-    "is_mud_action_processed",
-    "mark_mud_action_processed",
-    "get_mud_action_processed_ids",
-    "get_max_processed_mud_action_id",
-    "trim_processed_mud_action_ids",
-    # Dream helpers
-    "create_pending_dream_stub",
-    "normalize_agent_id",
     "COMMAND_TO_SCENARIO",
+    "create_pending_dream_stub",
 ]
 
 __version__ = "0.1.0"

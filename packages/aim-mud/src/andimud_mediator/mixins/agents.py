@@ -53,11 +53,10 @@ class AgentsMixin:
                         if stale_seconds > 300:  # 5 minutes
                             stale_duration = f"{int(stale_seconds // 60)}m{int(stale_seconds % 60)}s"
 
-                            from aim_mud_types.turn_request_helpers import (
-                                transition_turn_request_and_update_async,
-                            )
-                            updated = await transition_turn_request_and_update_async(
-                                self.redis,
+                            from aim_mud_types.client import AsyncRedisMUDClient
+
+                            client = AsyncRedisMUDClient(self.redis)
+                            updated = await client.transition_turn_request_and_update(
                                 agent_id,
                                 turn_request,
                                 expected_turn_id=turn_request.turn_id,
@@ -269,7 +268,9 @@ class AgentsMixin:
         # Convert reason to TurnReason enum
         turn_reason_enum = reason if isinstance(reason, TurnReason) else TurnReason(reason)
 
-        from aim_mud_types.turn_request_helpers import assign_turn_request_async
+        from aim_mud_types.client import AsyncRedisMUDClient
+
+        assign_client = AsyncRedisMUDClient(self.redis)
 
         # Determine initial status based on reason
         # Immediate commands (FLUSH, CLEAR, NEW) get EXECUTE status for priority handling
@@ -292,11 +293,7 @@ class AgentsMixin:
                 logger.warning(
                     f"DREAM turn for {agent_id} has no metadata, marking as FAIL"
                 )
-                from aim_mud_types.turn_request_helpers import (
-                    transition_turn_request_and_update_async,
-                )
-                await transition_turn_request_and_update_async(
-                    self.redis,
+                await assign_client.transition_turn_request_and_update(
                     agent_id,
                     current,
                     expected_turn_id=current.turn_id,
@@ -311,11 +308,7 @@ class AgentsMixin:
                 logger.warning(
                     f"DREAM turn for {agent_id} metadata missing scenario, marking as FAIL"
                 )
-                from aim_mud_types.turn_request_helpers import (
-                    transition_turn_request_and_update_async,
-                )
-                await transition_turn_request_and_update_async(
-                    self.redis,
+                await assign_client.transition_turn_request_and_update(
                     agent_id,
                     current,
                     expected_turn_id=current.turn_id,
@@ -334,8 +327,7 @@ class AgentsMixin:
         else:
             merged_metadata = extra_metadata or None
 
-        success, turn_request, result = await assign_turn_request_async(
-            self.redis,
+        success, turn_request, result = await assign_client.assign_turn_request(
             agent_id,
             turn_reason_enum,
             attempt_count=attempt_count,

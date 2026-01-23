@@ -11,14 +11,14 @@ class TestPaper:
 
     def test_paper_inherits_from_object(self):
         """Paper inherits from Object."""
-        from andimud.typeclasses.paper import Paper
-        from andimud.typeclasses.objects import Object
+        from typeclasses.paper import Paper
+        from typeclasses.objects import Object
 
         assert issubclass(Paper, Object)
 
     def test_paper_has_content_when_desc_set(self):
         """Paper with db.desc has content."""
-        from andimud.typeclasses.paper import Paper
+        from typeclasses.paper import Paper
 
         paper = MagicMock(spec=Paper)
         paper.db = MagicMock()
@@ -30,7 +30,7 @@ class TestPaper:
 
     def test_paper_no_content_when_desc_empty(self):
         """Paper without db.desc is blank."""
-        from andimud.typeclasses.paper import Paper
+        from typeclasses.paper import Paper
 
         paper = MagicMock(spec=Paper)
         paper.db = MagicMock()
@@ -41,7 +41,7 @@ class TestPaper:
 
     def test_paper_no_content_when_desc_none(self):
         """Paper with None desc is blank."""
-        from andimud.typeclasses.paper import Paper
+        from typeclasses.paper import Paper
 
         paper = MagicMock(spec=Paper)
         paper.db = MagicMock()
@@ -52,7 +52,7 @@ class TestPaper:
 
     def test_paper_is_blank_when_no_content(self):
         """is_blank() returns True when paper has no content."""
-        from andimud.typeclasses.paper import Paper
+        from typeclasses.paper import Paper
 
         paper = MagicMock(spec=Paper)
         paper.db = MagicMock()
@@ -66,7 +66,7 @@ class TestPaper:
 
     def test_paper_is_not_blank_when_has_content(self):
         """is_blank() returns False when paper has content."""
-        from andimud.typeclasses.paper import Paper
+        from typeclasses.paper import Paper
 
         paper = MagicMock(spec=Paper)
         paper.db = MagicMock()
@@ -79,7 +79,7 @@ class TestPaper:
 
     def test_paper_is_bound_logic(self):
         """Paper.is_bound() checks if location is a Book instance."""
-        from andimud.typeclasses.paper import Paper, Book
+        from typeclasses.paper import Paper, Book
 
         # Verify is_bound has correct logic by inspecting the method
         # When location is None, should return False
@@ -101,7 +101,7 @@ class TestPaper:
 
     def test_paper_not_bound_when_not_in_book(self):
         """Paper is not bound when its location is not a Book."""
-        from andimud.typeclasses.paper import Paper
+        from typeclasses.paper import Paper
 
         paper = MagicMock(spec=Paper)
         paper.db = MagicMock()
@@ -116,14 +116,14 @@ class TestFolder:
 
     def test_folder_inherits_from_object(self):
         """Folder inherits from Object."""
-        from andimud.typeclasses.paper import Folder
-        from andimud.typeclasses.objects import Object
+        from typeclasses.paper import Folder
+        from typeclasses.objects import Object
 
         assert issubclass(Folder, Object)
 
     def test_folder_get_papers_returns_only_paper(self):
         """Folder.get_papers() returns only Paper objects."""
-        from andimud.typeclasses.paper import Folder, Paper
+        from typeclasses.paper import Folder, Paper
 
         folder = MagicMock(spec=Folder)
 
@@ -144,7 +144,7 @@ class TestFolder:
 
     def test_folder_has_no_at_object_receive_override(self):
         """Folder does not override at_object_receive (allows all objects)."""
-        from andimud.typeclasses.paper import Folder
+        from typeclasses.paper import Folder
 
         # Folder should not have its own at_object_receive (inherits default)
         # Check that it's not defined directly on Folder
@@ -156,14 +156,14 @@ class TestBook:
 
     def test_book_inherits_from_object(self):
         """Book inherits from Object."""
-        from andimud.typeclasses.paper import Book
-        from andimud.typeclasses.objects import Object
+        from typeclasses.paper import Book
+        from typeclasses.objects import Object
 
         assert issubclass(Book, Object)
 
     def test_book_rejects_all_objects(self):
         """Book rejects all objects (immutable)."""
-        from andimud.typeclasses.paper import Book, Paper
+        from typeclasses.paper import Book, Paper
 
         book = MagicMock(spec=Book)
         book.key = "My Book"
@@ -184,7 +184,7 @@ class TestBook:
 
     def test_book_page_count(self):
         """Book correctly counts pages."""
-        from andimud.typeclasses.paper import Book, Paper
+        from typeclasses.paper import Book, Paper
 
         book = MagicMock(spec=Book)
 
@@ -199,7 +199,7 @@ class TestBook:
 
     def test_book_get_pages_sorted_by_page_no(self):
         """Book.get_pages() returns pages sorted by page_no."""
-        from andimud.typeclasses.paper import Book, Paper
+        from typeclasses.paper import Book, Paper
 
         book = MagicMock(spec=Book)
 
@@ -226,7 +226,7 @@ class TestBook:
 
     def test_book_get_pages_handles_none_page_no(self):
         """Book.get_pages() handles papers with None page_no."""
-        from andimud.typeclasses.paper import Book, Paper
+        from typeclasses.paper import Book, Paper
 
         book = MagicMock(spec=Book)
 
@@ -249,7 +249,7 @@ class TestBook:
 
     def test_book_get_page_by_number(self):
         """Book.get_page() returns specific page by number."""
-        from andimud.typeclasses.paper import Book, Paper
+        from typeclasses.paper import Book, Paper
 
         book = MagicMock(spec=Book)
 
@@ -268,7 +268,7 @@ class TestBook:
 
     def test_book_get_page_returns_none_for_missing(self):
         """Book.get_page() returns None for non-existent page."""
-        from andimud.typeclasses.paper import Book, Paper
+        from typeclasses.paper import Book, Paper
 
         book = MagicMock(spec=Book)
 
@@ -287,13 +287,13 @@ class TestConstants:
 
     def test_page_size_tokens(self):
         """Default page size is 500 tokens."""
-        from andimud.typeclasses.paper import DEFAULT_PAGE_SIZE_TOKENS
+        from typeclasses.paper import DEFAULT_PAGE_SIZE_TOKENS
 
         assert DEFAULT_PAGE_SIZE_TOKENS == 500
 
     def test_hard_max_tokens(self):
         """Hard max is 600 tokens."""
-        from andimud.typeclasses.paper import DEFAULT_HARD_MAX_TOKENS
+        from typeclasses.paper import DEFAULT_HARD_MAX_TOKENS
 
         assert DEFAULT_HARD_MAX_TOKENS == 600
 
@@ -303,7 +303,7 @@ class TestModuleExports:
 
     def test_all_exports_available(self):
         """All expected exports are available from package."""
-        from andimud.typeclasses.paper import (
+        from typeclasses.paper import (
             Paper,
             Folder,
             Book,
@@ -336,13 +336,13 @@ class TestPagination:
 
     def test_count_tokens_empty(self):
         """Empty string has 0 tokens."""
-        from andimud.typeclasses.paper.pagination import count_tokens
+        from typeclasses.paper.pagination import count_tokens
 
         assert count_tokens("") == 0
 
     def test_count_tokens_simple(self):
         """Simple text has reasonable token count."""
-        from andimud.typeclasses.paper.pagination import count_tokens
+        from typeclasses.paper.pagination import count_tokens
 
         tokens = count_tokens("Hello, world!")
         assert tokens > 0
@@ -350,20 +350,20 @@ class TestPagination:
 
     def test_count_tokens_none_handled(self):
         """None-like empty string returns 0."""
-        from andimud.typeclasses.paper.pagination import count_tokens
+        from typeclasses.paper.pagination import count_tokens
 
         # The function checks 'if not text' so empty string returns 0
         assert count_tokens("") == 0
 
     def test_paginate_empty(self):
         """Empty content returns empty list."""
-        from andimud.typeclasses.paper.pagination import paginate
+        from typeclasses.paper.pagination import paginate
 
         assert paginate("") == []
 
     def test_paginate_short_content(self):
         """Short content fits in one page."""
-        from andimud.typeclasses.paper.pagination import paginate
+        from typeclasses.paper.pagination import paginate
 
         pages = paginate("Hello, world!")
         assert len(pages) == 1
@@ -371,7 +371,7 @@ class TestPagination:
 
     def test_paginate_long_content(self):
         """Long content gets split into multiple pages."""
-        from andimud.typeclasses.paper.pagination import paginate
+        from typeclasses.paper.pagination import paginate
 
         # Create content that's definitely more than 100 tokens
         content = "This is a test sentence. " * 200  # ~1000 tokens
@@ -380,7 +380,7 @@ class TestPagination:
 
     def test_paginate_respects_newlines(self):
         """Pagination prefers breaking at newlines."""
-        from andimud.typeclasses.paper.pagination import paginate
+        from typeclasses.paper.pagination import paginate
 
         content = "Line one.\nLine two.\nLine three.\n" * 50
         pages = paginate(content, page_size_tokens=50)
@@ -390,7 +390,7 @@ class TestPagination:
 
     def test_paginate_strips_whitespace(self):
         """Pages are stripped of leading/trailing whitespace."""
-        from andimud.typeclasses.paper.pagination import paginate
+        from typeclasses.paper.pagination import paginate
 
         content = "   Some content here   "
         pages = paginate(content)
@@ -398,13 +398,13 @@ class TestPagination:
 
     def test_estimate_chars_for_tokens_empty(self):
         """Empty string returns 0."""
-        from andimud.typeclasses.paper.pagination import estimate_chars_for_tokens
+        from typeclasses.paper.pagination import estimate_chars_for_tokens
 
         assert estimate_chars_for_tokens("", 100) == 0
 
     def test_estimate_chars_for_tokens_short_text(self):
         """Short text returns full length when under target."""
-        from andimud.typeclasses.paper.pagination import estimate_chars_for_tokens
+        from typeclasses.paper.pagination import estimate_chars_for_tokens
 
         text = "Hello"
         result = estimate_chars_for_tokens(text, 100)
@@ -412,7 +412,7 @@ class TestPagination:
 
     def test_estimate_chars_for_tokens_finds_position(self):
         """Long text finds correct character position for target tokens."""
-        from andimud.typeclasses.paper.pagination import (
+        from typeclasses.paper.pagination import (
             estimate_chars_for_tokens,
             count_tokens,
         )
@@ -431,15 +431,15 @@ class TestPrinter:
 
     def test_printer_inherits_from_object(self):
         """Printer inherits from Object."""
-        from andimud.typeclasses.paper import Printer
-        from andimud.typeclasses.objects import Object
+        from typeclasses.paper import Printer
+        from typeclasses.objects import Object
 
         assert issubclass(Printer, Object)
 
     def test_printer_get_page_size_default(self):
         """Printer uses default page size when not overridden."""
-        from andimud.typeclasses.paper.devices import Printer
-        from andimud.typeclasses.paper.constants import DEFAULT_PAGE_SIZE_TOKENS
+        from typeclasses.paper.devices import Printer
+        from typeclasses.paper.constants import DEFAULT_PAGE_SIZE_TOKENS
 
         printer = MagicMock(spec=Printer)
         printer.db = MagicMock()
@@ -451,7 +451,7 @@ class TestPrinter:
 
     def test_printer_get_page_size_override(self):
         """Printer uses custom page size when set."""
-        from andimud.typeclasses.paper.devices import Printer
+        from typeclasses.paper.devices import Printer
 
         printer = MagicMock(spec=Printer)
         printer.db = MagicMock()
@@ -460,50 +460,6 @@ class TestPrinter:
         result = Printer.get_page_size(printer)
         assert result == 300
 
-    def test_printer_get_input_tray_none_when_not_set(self):
-        """Printer returns None when input_tray not configured."""
-        from andimud.typeclasses.paper.devices import Printer
-
-        printer = MagicMock(spec=Printer)
-        printer.db = MagicMock()
-        printer.db.input_tray = None
-
-        result = Printer.get_input_tray(printer)
-        assert result is None
-
-    def test_printer_get_output_tray_none_when_not_set(self):
-        """Printer returns None when output_tray not configured."""
-        from andimud.typeclasses.paper.devices import Printer
-
-        printer = MagicMock(spec=Printer)
-        printer.db = MagicMock()
-        printer.db.output_tray = None
-
-        result = Printer.get_output_tray(printer)
-        assert result is None
-
-    def test_printer_available_paper_count_zero_when_no_tray(self):
-        """Printer returns 0 paper count when no input tray."""
-        from andimud.typeclasses.paper.devices import Printer
-
-        printer = MagicMock(spec=Printer)
-        printer.db = MagicMock()
-        printer.db.input_tray = None
-
-        # Mock get_input_tray to return None
-        with patch.object(Printer, "get_input_tray", return_value=None):
-            result = Printer.available_paper_count(printer)
-            assert result == 0
-
-    def test_printer_consume_blank_paper_empty_when_no_tray(self):
-        """Printer returns empty list when no input tray."""
-        from andimud.typeclasses.paper.devices import Printer
-
-        printer = MagicMock(spec=Printer)
-
-        with patch.object(Printer, "get_input_tray", return_value=None):
-            result = Printer.consume_blank_paper(printer, 5)
-            assert result == []
 
 
 class TestScanner:
@@ -511,14 +467,14 @@ class TestScanner:
 
     def test_scanner_inherits_from_object(self):
         """Scanner inherits from Object."""
-        from andimud.typeclasses.paper import Scanner
-        from andimud.typeclasses.objects import Object
+        from typeclasses.paper import Scanner
+        from typeclasses.objects import Object
 
         assert issubclass(Scanner, Object)
 
     def test_scanner_get_content_empty_when_nothing_inside(self):
         """Scanner returns empty string when nothing inside."""
-        from andimud.typeclasses.paper.devices import Scanner
+        from typeclasses.paper.devices import Scanner
 
         scanner = MagicMock(spec=Scanner)
         scanner.contents = []
@@ -530,8 +486,8 @@ class TestScanner:
 
     def test_scanner_get_paper_returns_paper(self):
         """Scanner.get_paper() finds Paper in contents."""
-        from andimud.typeclasses.paper.devices import Scanner
-        from andimud.typeclasses.paper import Paper
+        from typeclasses.paper.devices import Scanner
+        from typeclasses.paper import Paper
 
         scanner = MagicMock(spec=Scanner)
         paper = MagicMock(spec=Paper)
@@ -544,8 +500,8 @@ class TestScanner:
 
     def test_scanner_get_paper_returns_book(self):
         """Scanner.get_paper() finds Book in contents."""
-        from andimud.typeclasses.paper.devices import Scanner
-        from andimud.typeclasses.paper import Book
+        from typeclasses.paper.devices import Scanner
+        from typeclasses.paper import Book
 
         scanner = MagicMock(spec=Scanner)
         book = MagicMock(spec=Book)
@@ -557,7 +513,7 @@ class TestScanner:
 
     def test_scanner_get_paper_returns_none_when_empty(self):
         """Scanner.get_paper() returns None when empty."""
-        from andimud.typeclasses.paper.devices import Scanner
+        from typeclasses.paper.devices import Scanner
 
         scanner = MagicMock(spec=Scanner)
         scanner.contents = []
@@ -571,14 +527,14 @@ class TestCopier:
 
     def test_copier_inherits_from_object(self):
         """Copier inherits from Object."""
-        from andimud.typeclasses.paper import Copier
-        from andimud.typeclasses.objects import Object
+        from typeclasses.paper import Copier
+        from typeclasses.objects import Object
 
         assert issubclass(Copier, Object)
 
     def test_copier_get_original_empty(self):
         """Copier returns None when no paper inside."""
-        from andimud.typeclasses.paper.devices import Copier
+        from typeclasses.paper.devices import Copier
 
         copier = MagicMock(spec=Copier)
         copier.contents = []
@@ -588,8 +544,8 @@ class TestCopier:
 
     def test_copier_get_original_finds_paper(self):
         """Copier.get_original() finds Paper in contents."""
-        from andimud.typeclasses.paper.devices import Copier
-        from andimud.typeclasses.paper import Paper
+        from typeclasses.paper.devices import Copier
+        from typeclasses.paper import Paper
 
         copier = MagicMock(spec=Copier)
         paper = MagicMock(spec=Paper)
@@ -600,27 +556,6 @@ class TestCopier:
         result = Copier.get_original(copier)
         assert result is paper
 
-    def test_copier_get_paper_tray_none_when_not_set(self):
-        """Copier returns None when paper_tray not configured."""
-        from andimud.typeclasses.paper.devices import Copier
-
-        copier = MagicMock(spec=Copier)
-        copier.db = MagicMock()
-        copier.db.paper_tray = None
-
-        result = Copier.get_paper_tray(copier)
-        assert result is None
-
-    def test_copier_get_output_tray_none_when_not_set(self):
-        """Copier returns None when output_tray not configured."""
-        from andimud.typeclasses.paper.devices import Copier
-
-        copier = MagicMock(spec=Copier)
-        copier.db = MagicMock()
-        copier.db.output_tray = None
-
-        result = Copier.get_output_tray(copier)
-        assert result is None
 
 
 class TestCmdPrint:
@@ -628,28 +563,28 @@ class TestCmdPrint:
 
     def test_cmd_print_key(self):
         """CmdPrint has correct command key."""
-        from andimud.commands.mud.object_commands.paper import CmdPrint
+        from commands.mud.object_commands.paper import CmdPrint
 
         cmd = CmdPrint()
         assert cmd.key == "print"
 
     def test_cmd_print_help_category(self):
         """CmdPrint has correct help category."""
-        from andimud.commands.mud.object_commands.paper import CmdPrint
+        from commands.mud.object_commands.paper import CmdPrint
 
         cmd = CmdPrint()
         assert cmd.help_category.lower() == "paper commands"
 
     def test_cmd_print_locks(self):
         """CmdPrint has correct locks."""
-        from andimud.commands.mud.object_commands.paper import CmdPrint
+        from commands.mud.object_commands.paper import CmdPrint
 
         cmd = CmdPrint()
         assert cmd.locks == "cmd:all()"
 
     def test_cmd_print_requires_args(self):
         """CmdPrint requires arguments."""
-        from andimud.commands.mud.object_commands.paper import CmdPrint
+        from commands.mud.object_commands.paper import CmdPrint
 
         cmd = CmdPrint()
         cmd.caller = MagicMock()
@@ -664,7 +599,7 @@ class TestCmdPrint:
 
     def test_cmd_print_requires_equals_sign(self):
         """CmdPrint requires '=' in args."""
-        from andimud.commands.mud.object_commands.paper import CmdPrint
+        from commands.mud.object_commands.paper import CmdPrint
 
         cmd = CmdPrint()
         cmd.caller = MagicMock()
@@ -683,28 +618,28 @@ class TestCmdScan:
 
     def test_cmd_scan_key(self):
         """CmdScan has correct command key."""
-        from andimud.commands.mud.object_commands.paper import CmdScan
+        from commands.mud.object_commands.paper import CmdScan
 
         cmd = CmdScan()
         assert cmd.key == "scan"
 
     def test_cmd_scan_help_category(self):
         """CmdScan has correct help category."""
-        from andimud.commands.mud.object_commands.paper import CmdScan
+        from commands.mud.object_commands.paper import CmdScan
 
         cmd = CmdScan()
         assert cmd.help_category.lower() == "paper commands"
 
     def test_cmd_scan_locks(self):
         """CmdScan has correct locks."""
-        from andimud.commands.mud.object_commands.paper import CmdScan
+        from commands.mud.object_commands.paper import CmdScan
 
         cmd = CmdScan()
         assert cmd.locks == "cmd:all()"
 
     def test_cmd_scan_requires_args(self):
         """CmdScan requires arguments."""
-        from andimud.commands.mud.object_commands.paper import CmdScan
+        from commands.mud.object_commands.paper import CmdScan
 
         cmd = CmdScan()
         cmd.caller = MagicMock()
@@ -723,28 +658,28 @@ class TestCmdBind:
 
     def test_cmd_bind_key(self):
         """CmdBind has correct command key."""
-        from andimud.commands.mud.object_commands.paper import CmdBind
+        from commands.mud.object_commands.paper import CmdBind
 
         cmd = CmdBind()
         assert cmd.key == "bind"
 
     def test_cmd_bind_help_category(self):
         """CmdBind has correct help category."""
-        from andimud.commands.mud.object_commands.paper import CmdBind
+        from commands.mud.object_commands.paper import CmdBind
 
         cmd = CmdBind()
         assert cmd.help_category.lower() == "paper commands"
 
     def test_cmd_bind_locks(self):
         """CmdBind has correct locks."""
-        from andimud.commands.mud.object_commands.paper import CmdBind
+        from commands.mud.object_commands.paper import CmdBind
 
         cmd = CmdBind()
         assert cmd.locks == "cmd:all()"
 
     def test_cmd_bind_requires_args(self):
         """CmdBind requires arguments."""
-        from andimud.commands.mud.object_commands.paper import CmdBind
+        from commands.mud.object_commands.paper import CmdBind
 
         cmd = CmdBind()
         cmd.caller = MagicMock()
@@ -763,28 +698,28 @@ class TestCmdUnbind:
 
     def test_cmd_unbind_key(self):
         """CmdUnbind has correct command key."""
-        from andimud.commands.mud.object_commands.paper import CmdUnbind
+        from commands.mud.object_commands.paper import CmdUnbind
 
         cmd = CmdUnbind()
         assert cmd.key == "unbind"
 
     def test_cmd_unbind_help_category(self):
         """CmdUnbind has correct help category."""
-        from andimud.commands.mud.object_commands.paper import CmdUnbind
+        from commands.mud.object_commands.paper import CmdUnbind
 
         cmd = CmdUnbind()
         assert cmd.help_category.lower() == "paper commands"
 
     def test_cmd_unbind_locks(self):
         """CmdUnbind has correct locks."""
-        from andimud.commands.mud.object_commands.paper import CmdUnbind
+        from commands.mud.object_commands.paper import CmdUnbind
 
         cmd = CmdUnbind()
         assert cmd.locks == "cmd:all()"
 
     def test_cmd_unbind_requires_args(self):
         """CmdUnbind requires arguments."""
-        from andimud.commands.mud.object_commands.paper import CmdUnbind
+        from commands.mud.object_commands.paper import CmdUnbind
 
         cmd = CmdUnbind()
         cmd.caller = MagicMock()
@@ -803,35 +738,35 @@ class TestCmdReadBook:
 
     def test_cmd_read_book_key(self):
         """CmdReadBook has correct command key."""
-        from andimud.commands.mud.object_commands.paper import CmdReadBook
+        from commands.mud.object_commands.paper import CmdReadBook
 
         cmd = CmdReadBook()
         assert cmd.key == "read"
 
     def test_cmd_read_book_aliases(self):
         """CmdReadBook has correct aliases."""
-        from andimud.commands.mud.object_commands.paper import CmdReadBook
+        from commands.mud.object_commands.paper import CmdReadBook
 
         cmd = CmdReadBook()
         assert "read_book" in cmd.aliases
 
     def test_cmd_read_book_help_category(self):
         """CmdReadBook has correct help category."""
-        from andimud.commands.mud.object_commands.paper import CmdReadBook
+        from commands.mud.object_commands.paper import CmdReadBook
 
         cmd = CmdReadBook()
         assert cmd.help_category.lower() == "paper commands"
 
     def test_cmd_read_book_locks(self):
         """CmdReadBook has correct locks."""
-        from andimud.commands.mud.object_commands.paper import CmdReadBook
+        from commands.mud.object_commands.paper import CmdReadBook
 
         cmd = CmdReadBook()
         assert cmd.locks == "cmd:all()"
 
     def test_cmd_read_book_requires_args(self):
         """CmdReadBook requires arguments."""
-        from andimud.commands.mud.object_commands.paper import CmdReadBook
+        from commands.mud.object_commands.paper import CmdReadBook
 
         cmd = CmdReadBook()
         cmd.caller = MagicMock()
@@ -850,28 +785,28 @@ class TestCmdCopy:
 
     def test_cmd_copy_key(self):
         """CmdCopy has correct command key."""
-        from andimud.commands.mud.object_commands.paper import CmdCopy
+        from commands.mud.object_commands.paper import CmdCopy
 
         cmd = CmdCopy()
         assert cmd.key == "copy"
 
     def test_cmd_copy_help_category(self):
         """CmdCopy has correct help category."""
-        from andimud.commands.mud.object_commands.paper import CmdCopy
+        from commands.mud.object_commands.paper import CmdCopy
 
         cmd = CmdCopy()
         assert cmd.help_category.lower() == "paper commands"
 
     def test_cmd_copy_locks(self):
         """CmdCopy has correct locks."""
-        from andimud.commands.mud.object_commands.paper import CmdCopy
+        from commands.mud.object_commands.paper import CmdCopy
 
         cmd = CmdCopy()
         assert cmd.locks == "cmd:all()"
 
     def test_cmd_copy_no_copier_in_room(self):
         """CmdCopy fails gracefully when no copier in room."""
-        from andimud.commands.mud.object_commands.paper import CmdCopy
+        from commands.mud.object_commands.paper import CmdCopy
 
         cmd = CmdCopy()
         cmd.caller = MagicMock()
@@ -889,7 +824,7 @@ class TestPaperCommandExports:
 
     def test_all_commands_exported(self):
         """All paper commands are exported from module."""
-        from andimud.commands.mud.object_commands import (
+        from commands.mud.object_commands import (
             CmdPrint,
             CmdScan,
             CmdBind,
@@ -911,13 +846,13 @@ class TestContainerCmdSets:
 
     def test_folder_cmdset_constant_defined(self):
         """FOLDER_CMDSET constant is defined in containers module."""
-        from andimud.typeclasses.paper.containers import FOLDER_CMDSET
+        from typeclasses.paper.containers import FOLDER_CMDSET
 
         assert FOLDER_CMDSET == "commands.mud.object_commands.paper.FolderCmdSet"
 
     def test_book_cmdset_constant_defined(self):
         """BOOK_CMDSET constant is defined in containers module."""
-        from andimud.typeclasses.paper.containers import BOOK_CMDSET
+        from typeclasses.paper.containers import BOOK_CMDSET
 
         assert BOOK_CMDSET == "commands.mud.object_commands.paper.BookCmdSet"
 
@@ -927,7 +862,7 @@ class TestDeviceCmdSets:
 
     def test_copier_cmdset_constant_defined(self):
         """COPIER_CMDSET constant is defined in devices module."""
-        from andimud.typeclasses.paper.devices import COPIER_CMDSET
+        from typeclasses.paper.devices import COPIER_CMDSET
 
         assert COPIER_CMDSET == "commands.mud.object_commands.paper.CopierCmdSet"
 
@@ -971,7 +906,7 @@ class TestFolderAuras:
 
     def test_folder_get_room_auras_returns_bind_access(self):
         """Folder provides BIND_ACCESS aura."""
-        from andimud.typeclasses.paper.containers import Folder
+        from typeclasses.paper.containers import Folder
         from aim_mud_types import AURA_BIND_ACCESS
 
         folder = MagicMock(spec=Folder)
@@ -988,7 +923,7 @@ class TestFolderAuras:
 
     def test_folder_get_room_auras_disabled(self):
         """Folder returns empty list when aura_enabled is False."""
-        from andimud.typeclasses.paper.containers import Folder
+        from typeclasses.paper.containers import Folder
 
         folder = MagicMock(spec=Folder)
         folder.db = MagicMock()
@@ -1005,7 +940,7 @@ class TestBookAuras:
 
     def test_book_get_room_auras_returns_book_access(self):
         """Book provides BOOK_ACCESS aura."""
-        from andimud.typeclasses.paper.containers import Book
+        from typeclasses.paper.containers import Book
         from aim_mud_types import AURA_BOOK_ACCESS
 
         book = MagicMock(spec=Book)
@@ -1022,7 +957,7 @@ class TestBookAuras:
 
     def test_book_get_room_auras_disabled(self):
         """Book returns empty list when aura_enabled is False."""
-        from andimud.typeclasses.paper.containers import Book
+        from typeclasses.paper.containers import Book
 
         book = MagicMock(spec=Book)
         book.db = MagicMock()
@@ -1039,7 +974,7 @@ class TestCopierAuras:
 
     def test_copier_get_room_auras_returns_copy_access(self):
         """Copier provides COPY_ACCESS aura."""
-        from andimud.typeclasses.paper.devices import Copier
+        from typeclasses.paper.devices import Copier
         from aim_mud_types import AURA_COPY_ACCESS
 
         copier = MagicMock(spec=Copier)
@@ -1056,7 +991,7 @@ class TestCopierAuras:
 
     def test_copier_get_room_auras_disabled(self):
         """Copier returns empty list when aura_enabled is False."""
-        from andimud.typeclasses.paper.devices import Copier
+        from typeclasses.paper.devices import Copier
 
         copier = MagicMock(spec=Copier)
         copier.db = MagicMock()
@@ -1073,7 +1008,7 @@ class TestTerminalPrintScanAuras:
 
     def test_terminal_with_printer_provides_print_aura(self):
         """Terminal with printer configured provides PRINT_ACCESS aura."""
-        from andimud.typeclasses.terminals import Terminal
+        from typeclasses.terminals import Terminal
         from aim_mud_types import AURA_PRINT_ACCESS
 
         terminal = MagicMock(spec=Terminal)
@@ -1093,7 +1028,7 @@ class TestTerminalPrintScanAuras:
 
     def test_terminal_with_scanner_provides_scan_aura(self):
         """Terminal with scanner configured provides SCAN_ACCESS aura."""
-        from andimud.typeclasses.terminals import Terminal
+        from typeclasses.terminals import Terminal
         from aim_mud_types import AURA_SCAN_ACCESS
 
         terminal = MagicMock(spec=Terminal)
@@ -1113,7 +1048,7 @@ class TestTerminalPrintScanAuras:
 
     def test_terminal_with_both_provides_all_auras(self):
         """Terminal with both printer and scanner provides both auras."""
-        from andimud.typeclasses.terminals import Terminal
+        from typeclasses.terminals import Terminal
         from aim_mud_types import AURA_PRINT_ACCESS, AURA_SCAN_ACCESS
 
         terminal = MagicMock(spec=Terminal)
@@ -1134,7 +1069,7 @@ class TestTerminalPrintScanAuras:
 
     def test_terminal_without_printer_scanner_normal_aura_only(self):
         """Terminal without printer/scanner only provides its own aura."""
-        from andimud.typeclasses.terminals import Terminal
+        from typeclasses.terminals import Terminal
 
         terminal = MagicMock(spec=Terminal)
         terminal.db = MagicMock()
@@ -1151,7 +1086,7 @@ class TestTerminalPrintScanAuras:
 
     def test_terminal_aura_disabled_no_auras(self):
         """Terminal with aura_enabled=False returns no main aura but still print/scan if configured."""
-        from andimud.typeclasses.terminals import Terminal
+        from typeclasses.terminals import Terminal
         from aim_mud_types import AURA_PRINT_ACCESS
 
         terminal = MagicMock(spec=Terminal)

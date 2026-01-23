@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from aim_mud_types.plan import AgentPlan
+    from aim_mud_types.models.plan import AgentPlan
 
 from ...adapter import build_current_context, entries_to_chat_turns
 from ..manager import MUDConversationManager

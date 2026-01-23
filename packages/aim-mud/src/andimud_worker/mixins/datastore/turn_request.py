@@ -107,10 +107,10 @@ class TurnRequestMixin:
         Returns:
             True if updated, False if CAS failed
         """
-        from aim_mud_types.turn_request_helpers import update_turn_request_async
+        from aim_mud_types.client import AsyncRedisMUDClient
 
-        success = await update_turn_request_async(
-            self.redis,
+        client = AsyncRedisMUDClient(self.redis)
+        success = await client.update_turn_request(
             self.config.agent_id,
             turn_request,
             expected_turn_id=expected_turn_id,
@@ -137,12 +137,10 @@ class TurnRequestMixin:
             0: Key doesn't exist (normal during shutdown)
             -1: Key corrupted (missing required fields)
         """
-        from aim_mud_types.turn_request_helpers import atomic_heartbeat_update_async
+        from aim_mud_types.client import AsyncRedisMUDClient
 
-        return await atomic_heartbeat_update_async(
-            self.redis,
-            self.config.agent_id,
-        )
+        client = AsyncRedisMUDClient(self.redis)
+        return await client.atomic_heartbeat_update(self.config.agent_id)
 
     async def _heartbeat_turn_request(self: "MUDAgentWorker", stop_event) -> None:
         """Refresh the turn request heartbeat while processing a turn.

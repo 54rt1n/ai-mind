@@ -13,7 +13,7 @@ class TestCmdLastParsing:
 
     def test_parse_no_args(self):
         """Test command with no arguments shows usage."""
-        from andimud.commands.mud.actions import CmdLast
+        from commands.mud.actions import CmdLast
 
         cmd = CmdLast()
         cmd.caller = MagicMock()
@@ -25,7 +25,7 @@ class TestCmdLastParsing:
 
     def test_parse_agent_only(self):
         """Test command with just agent_id defaults to count=1."""
-        from andimud.commands.mud.actions import CmdLast
+        from commands.mud.actions import CmdLast
 
         cmd = CmdLast()
         cmd.caller = MagicMock()
@@ -45,7 +45,7 @@ class TestCmdLastParsing:
 
     def test_parse_agent_with_count(self):
         """Test command with agent_id = count."""
-        from andimud.commands.mud.actions import CmdLast
+        from commands.mud.actions import CmdLast
 
         cmd = CmdLast()
         cmd.caller = MagicMock()
@@ -63,7 +63,7 @@ class TestCmdLastParsing:
 
     def test_parse_agent_with_all(self):
         """Test command with agent_id = all."""
-        from andimud.commands.mud.actions import CmdLast
+        from commands.mud.actions import CmdLast
 
         cmd = CmdLast()
         cmd.caller = MagicMock()
@@ -81,7 +81,7 @@ class TestCmdLastParsing:
 
     def test_parse_invalid_count_zero(self):
         """Test command with zero count shows error."""
-        from andimud.commands.mud.actions import CmdLast
+        from commands.mud.actions import CmdLast
 
         cmd = CmdLast()
         cmd.caller = MagicMock()
@@ -93,7 +93,7 @@ class TestCmdLastParsing:
 
     def test_parse_invalid_count_negative(self):
         """Test command with negative count shows error."""
-        from andimud.commands.mud.actions import CmdLast
+        from commands.mud.actions import CmdLast
 
         cmd = CmdLast()
         cmd.caller = MagicMock()
@@ -105,7 +105,7 @@ class TestCmdLastParsing:
 
     def test_parse_invalid_count_text(self):
         """Test command with invalid text count shows error."""
-        from andimud.commands.mud.actions import CmdLast
+        from commands.mud.actions import CmdLast
 
         cmd = CmdLast()
         cmd.caller = MagicMock()
@@ -121,7 +121,7 @@ class TestCmdLastRedisInteraction:
 
     def test_no_conversation_history(self):
         """Test command when agent has no conversation history."""
-        from andimud.commands.mud.actions import CmdLast
+        from commands.mud.actions import CmdLast
 
         cmd = CmdLast()
         cmd.caller = MagicMock()
@@ -138,7 +138,7 @@ class TestCmdLastRedisInteraction:
 
     def test_fetch_single_entry(self):
         """Test fetching single entry uses correct Redis commands."""
-        from andimud.commands.mud.actions import CmdLast
+        from commands.mud.actions import CmdLast
 
         cmd = CmdLast()
         cmd.caller = MagicMock()
@@ -169,7 +169,7 @@ class TestCmdLastRedisInteraction:
 
     def test_fetch_multiple_entries(self):
         """Test fetching multiple entries uses correct Redis commands."""
-        from andimud.commands.mud.actions import CmdLast
+        from commands.mud.actions import CmdLast
 
         cmd = CmdLast()
         cmd.caller = MagicMock()
@@ -203,7 +203,7 @@ class TestCmdLastRedisInteraction:
 
     def test_fetch_all_entries(self):
         """Test fetching all entries uses correct Redis commands."""
-        from andimud.commands.mud.actions import CmdLast
+        from commands.mud.actions import CmdLast
 
         cmd = CmdLast()
         cmd.caller = MagicMock()
@@ -237,7 +237,7 @@ class TestCmdLastRedisInteraction:
 
     def test_count_exceeds_total(self):
         """Test requesting more entries than exist returns all available."""
-        from andimud.commands.mud.actions import CmdLast
+        from commands.mud.actions import CmdLast
 
         cmd = CmdLast()
         cmd.caller = MagicMock()
@@ -276,7 +276,7 @@ class TestCmdLastOutputFormatting:
 
     def test_single_entry_full_format(self):
         """Test single entry uses full format (backward compatible)."""
-        from andimud.commands.mud.actions import CmdLast
+        from commands.mud.actions import CmdLast
 
         cmd = CmdLast()
         cmd.caller = MagicMock()
@@ -312,7 +312,7 @@ class TestCmdLastOutputFormatting:
 
     def test_single_entry_with_think_tags(self):
         """Test single entry includes think tags when present."""
-        from andimud.commands.mud.actions import CmdLast
+        from commands.mud.actions import CmdLast
 
         cmd = CmdLast()
         cmd.caller = MagicMock()
@@ -343,7 +343,7 @@ class TestCmdLastOutputFormatting:
 
     def test_multiple_entries_condensed_format(self):
         """Test multiple entries use condensed format."""
-        from andimud.commands.mud.actions import CmdLast
+        from commands.mud.actions import CmdLast
 
         cmd = CmdLast()
         cmd.caller = MagicMock()
@@ -381,7 +381,7 @@ class TestCmdLastOutputFormatting:
 
     def test_multiple_entries_oldest_first(self):
         """Test multiple entries are shown in chronological order (oldest first)."""
-        from andimud.commands.mud.actions import CmdLast
+        from commands.mud.actions import CmdLast
 
         cmd = CmdLast()
         cmd.caller = MagicMock()
@@ -435,7 +435,7 @@ class TestCmdLastOutputFormatting:
 
     def test_long_content_shown_fully_in_condensed(self):
         """Test long content is shown fully in condensed format (no truncation)."""
-        from andimud.commands.mud.actions import CmdLast
+        from commands.mud.actions import CmdLast
 
         cmd = CmdLast()
         cmd.caller = MagicMock()
@@ -478,7 +478,7 @@ class TestCmdLastOutputFormatting:
 
     def test_long_think_shown_fully_in_condensed(self):
         """Test long think tags are shown fully in condensed format (no truncation)."""
-        from andimud.commands.mud.actions import CmdLast
+        from commands.mud.actions import CmdLast
 
         cmd = CmdLast()
         cmd.caller = MagicMock()
@@ -522,7 +522,7 @@ class TestCmdLastOutputFormatting:
 
     def test_warning_for_large_requests(self):
         """Test warning shown when fetching more than 20 entries."""
-        from andimud.commands.mud.actions import CmdLast
+        from commands.mud.actions import CmdLast
 
         cmd = CmdLast()
         cmd.caller = MagicMock()
@@ -560,7 +560,7 @@ class TestCmdLastErrorHandling:
 
     def test_json_decode_error(self):
         """Test handling of JSON decode errors."""
-        from andimud.commands.mud.actions import CmdLast
+        from commands.mud.actions import CmdLast
 
         cmd = CmdLast()
         cmd.caller = MagicMock()
@@ -581,7 +581,7 @@ class TestCmdLastErrorHandling:
 
     def test_redis_connection_error(self):
         """Test handling of Redis connection errors."""
-        from andimud.commands.mud.actions import CmdLast
+        from commands.mud.actions import CmdLast
 
         cmd = CmdLast()
         cmd.caller = MagicMock()

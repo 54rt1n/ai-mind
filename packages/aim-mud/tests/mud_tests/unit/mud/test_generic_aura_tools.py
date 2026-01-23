@@ -28,7 +28,7 @@ from aim_mud_types import (
     EntityState,
     WorldState,
 )
-from aim_mud_types.state import AuraState
+from aim_mud_types.models.state import AuraState
 from andimud_worker.conversation.memory.decision import MUDDecisionStrategy
 from andimud_worker.conversation import MUDConversationManager
 from andimud_worker.turns.processor.decision import DecisionProcessor

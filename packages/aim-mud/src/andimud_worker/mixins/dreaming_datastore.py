@@ -18,7 +18,7 @@ import logging
 from aim_mud_types.helper import _datetime_to_unix, model_to_redis_hash
 
 if TYPE_CHECKING:
-    from aim_mud_types.coordination import DreamingState
+    from aim_mud_types.models.coordination import DreamingState
     from ..worker import MUDAgentWorker
 
 logger = logging.getLogger(__name__)
@@ -46,7 +46,7 @@ class DreamingDatastoreMixin:
         Returns:
             DreamingState if exists, None otherwise.
         """
-        from aim_mud_types.coordination import DreamingState
+        from aim_mud_types.models.coordination import DreamingState
         from aim_mud_types.redis_keys import RedisKeys
 
         key = RedisKeys.agent_dreaming_state(agent_id)

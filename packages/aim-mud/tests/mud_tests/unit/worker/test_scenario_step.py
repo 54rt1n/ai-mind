@@ -7,7 +7,7 @@ import pytest
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from aim_mud_types.coordination import DreamingState, DreamStatus
+from aim_mud_types.models.coordination import DreamingState, DreamStatus
 
 
 @pytest.fixture

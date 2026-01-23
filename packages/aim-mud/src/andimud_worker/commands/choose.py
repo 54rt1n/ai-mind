@@ -6,7 +6,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from aim_mud_types import MUDTurnRequest, TurnRequestStatus
-from aim_mud_types.decision import DecisionType
+from aim_mud_types.models.decision import DecisionType
 from .base import Command
 from .result import CommandResult
 from ..turns.processor.decision import DecisionProcessor

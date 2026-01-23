@@ -17,7 +17,7 @@ from andimud_mediator.service import MediatorService
 from andimud_mediator.config import MediatorConfig
 from andimud_mediator.patterns import PLANNER_PATTERN, PLAN_PATTERN, UPDATE_PATTERN
 from aim_mud_types import MUDEvent, EventType, RedisKeys, TurnRequestStatus
-from aim_mud_types.plan import AgentPlan, PlanTask, PlanStatus, TaskStatus
+from aim_mud_types.models.plan import AgentPlan, PlanTask, PlanStatus, TaskStatus
 
 
 @pytest.fixture

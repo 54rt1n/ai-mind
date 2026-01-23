@@ -8,7 +8,7 @@ immediate commands (FLUSH, CLEAR, NEW) that should execute with EXECUTE status.
 
 import pytest
 
-from aim_mud_types.coordination import TurnReason, TurnRequestStatus
+from aim_mud_types.models.coordination import TurnReason, TurnRequestStatus
 
 
 class TestTurnReasonIsImmediateCommand:

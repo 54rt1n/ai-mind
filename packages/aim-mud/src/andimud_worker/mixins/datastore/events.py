@@ -214,6 +214,7 @@ class EventsMixin:
             All accumulated events from multiple drains.
         """
         settle_time = self.config.event_settle_seconds
+        final_settle_time = settle_time // 3
         all_events: list[MUDEvent] = []
         drain_count = 0
         empty_after_events = 0
@@ -245,9 +246,9 @@ class EventsMixin:
                 logger.info(
                     "Drained 0 events after %d total, waiting %.1fs for stragglers",
                     len(all_events),
-                    settle_time,
+                    final_settle_time,
                 )
-                await asyncio.sleep(settle_time)
+                await asyncio.sleep(final_settle_time)
                 continue
 
             all_events.extend(events)

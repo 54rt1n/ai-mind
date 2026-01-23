@@ -12,7 +12,7 @@ class TestTerminalBase:
 
     def test_terminal_has_display_output_method(self):
         """Test that Terminal class has display_output method."""
-        from andimud.typeclasses.terminals import Terminal
+        from typeclasses.terminals import Terminal
 
         # The method should exist on the class
         assert hasattr(Terminal, "display_output")
@@ -24,37 +24,37 @@ class TestTerminalTypeclass:
 
     def test_webterminal_inherits_from_terminal(self):
         """Test WebTerminal inherits from Terminal."""
-        from andimud.typeclasses.terminals import Terminal, WebTerminal
+        from typeclasses.terminals import Terminal, WebTerminal
 
         assert issubclass(WebTerminal, Terminal)
 
     def test_codeterminal_inherits_from_terminal(self):
         """Test CodeTerminal inherits from Terminal."""
-        from andimud.typeclasses.terminals import Terminal, CodeTerminal
+        from typeclasses.terminals import Terminal, CodeTerminal
 
         assert issubclass(CodeTerminal, Terminal)
 
     def test_marketterminal_inherits_from_terminal(self):
         """Test MarketTerminal inherits from Terminal."""
-        from andimud.typeclasses.terminals import Terminal, MarketTerminal
+        from typeclasses.terminals import Terminal, MarketTerminal
 
         assert issubclass(MarketTerminal, Terminal)
 
     def test_newsterminal_inherits_from_terminal(self):
         """Test NewsTerminal inherits from Terminal."""
-        from andimud.typeclasses.terminals import Terminal, NewsTerminal
+        from typeclasses.terminals import Terminal, NewsTerminal
 
         assert issubclass(NewsTerminal, Terminal)
 
     def test_researchterminal_inherits_from_terminal(self):
         """Test ResearchTerminal inherits from Terminal."""
-        from andimud.typeclasses.terminals import Terminal, ResearchTerminal
+        from typeclasses.terminals import Terminal, ResearchTerminal
 
         assert issubclass(ResearchTerminal, Terminal)
 
     def test_listterminal_inherits_from_terminal(self):
         """Test ListTerminal inherits from Terminal."""
-        from andimud.typeclasses.terminals import Terminal, ListTerminal
+        from typeclasses.terminals import Terminal, ListTerminal
 
         assert issubclass(ListTerminal, Terminal)
 
@@ -64,56 +64,56 @@ class TestTerminalCommands:
 
     def test_visit_webpage_cmd_exists(self):
         """Test CmdVisitWebpage exists and has correct key."""
-        from andimud.commands.mud.object_commands.terminal import CmdVisitWebpage
+        from commands.mud.object_commands.terminal import CmdVisitWebpage
 
         cmd = CmdVisitWebpage()
         assert cmd.key == "visit_webpage"
 
     def test_get_feed_cmd_exists(self):
         """Test CmdGetFeed exists and has correct key."""
-        from andimud.commands.mud.object_commands.terminal import CmdGetFeed
+        from commands.mud.object_commands.terminal import CmdGetFeed
 
         cmd = CmdGetFeed()
         assert cmd.key == "get_feed"
 
     def test_research_cmd_exists(self):
         """Test CmdResearch exists and has correct key."""
-        from andimud.commands.mud.object_commands.terminal import CmdResearch
+        from commands.mud.object_commands.terminal import CmdResearch
 
         cmd = CmdResearch()
         assert cmd.key == "research"
 
     def test_read_doc_cmd_exists(self):
         """Test CmdReadDoc exists and has correct key."""
-        from andimud.commands.mud.object_commands.terminal import CmdReadDoc
+        from commands.mud.object_commands.terminal import CmdReadDoc
 
         cmd = CmdReadDoc()
         assert cmd.key == "read_doc"
 
     def test_show_list_cmd_exists(self):
         """Test CmdShowList exists and has correct key."""
-        from andimud.commands.mud.object_commands.terminal import CmdShowList
+        from commands.mud.object_commands.terminal import CmdShowList
 
         cmd = CmdShowList()
         assert cmd.key == "show_list"
 
     def test_add_item_cmd_exists(self):
         """Test CmdAddItem exists and has correct key."""
-        from andimud.commands.mud.object_commands.terminal import CmdAddItem
+        from commands.mud.object_commands.terminal import CmdAddItem
 
         cmd = CmdAddItem()
         assert cmd.key == "add_item"
 
     def test_check_item_cmd_exists(self):
         """Test CmdCheckItem exists and has correct key."""
-        from andimud.commands.mud.object_commands.terminal import CmdCheckItem
+        from commands.mud.object_commands.terminal import CmdCheckItem
 
         cmd = CmdCheckItem()
         assert cmd.key == "check_item"
 
     def test_stock_quote_cmd_exists(self):
         """Test CmdStockQuote exists and has correct key."""
-        from andimud.commands.mud.object_commands.terminal import CmdStockQuote
+        from commands.mud.object_commands.terminal import CmdStockQuote
 
         cmd = CmdStockQuote()
         assert cmd.key == "stock_quote"
@@ -192,7 +192,7 @@ class TestTerminalEventPublishing:
     @pytest.fixture
     def mock_terminal(self):
         """Create a mock terminal instance with necessary attributes."""
-        from andimud.typeclasses.terminals import CodeTerminal
+        from typeclasses.terminals import CodeTerminal
         from evennia.objects.objects import DefaultRoom
 
         terminal = MagicMock(spec=CodeTerminal)
@@ -225,7 +225,7 @@ class TestTerminalEventPublishing:
 
     def test_display_output_publishes_event(self, mock_terminal, mock_caller):
         """Test that display_output calls _publish_terminal_event."""
-        from andimud.typeclasses.terminals import Terminal
+        from typeclasses.terminals import Terminal
 
         # Mock _publish_terminal_event on the terminal instance
         mock_terminal._publish_terminal_event = MagicMock()
@@ -247,18 +247,20 @@ class TestTerminalEventPublishing:
         # Second call: actual output
         assert "py_exec:" in mock_terminal.location.msg_contents.call_args_list[1][0][0]
 
-    @patch("andimud.typeclasses.terminals.redis.from_url")
-    @patch("andimud.typeclasses.terminals.append_mud_event")
-    @patch("andimud.typeclasses.terminals._utc_now")
-    def test_publish_terminal_event_structure(self, mock_utc, mock_append, mock_redis, mock_terminal, mock_caller):
+    @patch("typeclasses.terminals.redis.from_url")
+    @patch("typeclasses.terminals.SyncRedisMUDClient")
+    @patch("typeclasses.terminals._utc_now")
+    def test_publish_terminal_event_structure(self, mock_utc, mock_client_cls, mock_redis, mock_terminal, mock_caller):
         """Test that _publish_terminal_event creates correct event structure."""
-        from andimud.typeclasses.terminals import Terminal
+        from typeclasses.terminals import Terminal
         from datetime import datetime
 
         # Setup mocks
         mock_utc.return_value = datetime(2026, 1, 15, 12, 0, 0)
         mock_redis_client = MagicMock()
         mock_redis.return_value = mock_redis_client
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
 
         # Call the method directly
         Terminal._publish_terminal_event(mock_terminal, "py_exec", ">>> print('hello')\nhello", caller=mock_caller)
@@ -266,13 +268,13 @@ class TestTerminalEventPublishing:
         # Verify Redis was accessed
         mock_redis.assert_called_once_with("redis://localhost:6379")
 
-        # Verify append_mud_event was called
-        assert mock_append.called
-        call_args = mock_append.call_args[0]
-        assert len(call_args) == 2
+        # Verify client.append_mud_event was called
+        assert mock_client.append_mud_event.called
+        call_args = mock_client.append_mud_event.call_args[0]
+        assert len(call_args) == 1
 
         # Extract the payload
-        payload_wrapper = call_args[1]
+        payload_wrapper = call_args[0]
         assert "data" in payload_wrapper
         payload = json.loads(payload_wrapper["data"])
 
@@ -286,17 +288,20 @@ class TestTerminalEventPublishing:
         assert "[test_terminal] py_exec:" in payload["content"]
         assert "hello" in payload["content"]
 
-    @patch("andimud.typeclasses.terminals.redis.from_url")
-    @patch("andimud.typeclasses.terminals.append_mud_event")
-    def test_terminal_event_contains_metadata(self, mock_append, mock_redis, mock_terminal, mock_caller):
+    @patch("typeclasses.terminals.redis.from_url")
+    @patch("typeclasses.terminals.SyncRedisMUDClient")
+    def test_terminal_event_contains_metadata(self, mock_client_cls, mock_redis, mock_terminal, mock_caller):
         """Test that terminal events include proper metadata."""
-        from andimud.typeclasses.terminals import Terminal
+        from typeclasses.terminals import Terminal
+
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
 
         Terminal._publish_terminal_event(mock_terminal, "bash_exec", "$ ls\nfile1.txt", caller=mock_caller)
 
         # Get the event payload
-        call_args = mock_append.call_args[0]
-        payload_wrapper = call_args[1]
+        call_args = mock_client.append_mud_event.call_args[0]
+        payload_wrapper = call_args[0]
         payload = json.loads(payload_wrapper["data"])
 
         # Verify metadata
@@ -308,11 +313,14 @@ class TestTerminalEventPublishing:
         assert metadata["terminal_type"] == "CodeTerminal"
         assert metadata["aura_name"] == "CODE_ACCESS"
 
-    @patch("andimud.typeclasses.terminals.redis.from_url")
-    @patch("andimud.typeclasses.terminals.append_mud_event")
-    def test_terminal_event_truncates_long_output(self, mock_append, mock_redis, mock_terminal, mock_caller):
+    @patch("typeclasses.terminals.redis.from_url")
+    @patch("typeclasses.terminals.SyncRedisMUDClient")
+    def test_terminal_event_truncates_long_output(self, mock_client_cls, mock_redis, mock_terminal, mock_caller):
         """Test that terminal events truncate long output for events."""
-        from andimud.typeclasses.terminals import Terminal
+        from typeclasses.terminals import Terminal
+
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
 
         # Create output longer than 2048 chars
         long_output = "x" * 3000
@@ -320,25 +328,28 @@ class TestTerminalEventPublishing:
         Terminal._publish_terminal_event(mock_terminal, "py_exec", long_output, caller=mock_caller)
 
         # Get the event payload
-        call_args = mock_append.call_args[0]
-        payload_wrapper = call_args[1]
+        call_args = mock_client.append_mud_event.call_args[0]
+        payload_wrapper = call_args[0]
         payload = json.loads(payload_wrapper["data"])
 
         # Verify content is truncated
         assert len(payload["content"]) < 3000
         assert "(output truncated)" in payload["content"]
 
-    @patch("andimud.typeclasses.terminals.redis.from_url")
-    @patch("andimud.typeclasses.terminals.append_mud_event")
-    def test_terminal_event_handles_no_caller(self, mock_append, mock_redis, mock_terminal):
+    @patch("typeclasses.terminals.redis.from_url")
+    @patch("typeclasses.terminals.SyncRedisMUDClient")
+    def test_terminal_event_handles_no_caller(self, mock_client_cls, mock_redis, mock_terminal):
         """Test that terminal events work when caller is None (system execution)."""
-        from andimud.typeclasses.terminals import Terminal
+        from typeclasses.terminals import Terminal
+
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
 
         Terminal._publish_terminal_event(mock_terminal, "py_exec", "output", caller=None)
 
         # Get the event payload
-        call_args = mock_append.call_args[0]
-        payload_wrapper = call_args[1]
+        call_args = mock_client.append_mud_event.call_args[0]
+        payload_wrapper = call_args[0]
         payload = json.loads(payload_wrapper["data"])
 
         # Verify system actor
@@ -346,10 +357,10 @@ class TestTerminalEventPublishing:
         assert payload["actor_id"] == ""
         assert payload["actor_type"] == "system"
 
-    @patch("andimud.typeclasses.terminals.redis.from_url")
+    @patch("typeclasses.terminals.redis.from_url")
     def test_terminal_event_fails_silently_on_redis_error(self, mock_redis, mock_terminal, mock_caller):
         """Test that Redis errors don't break terminal display."""
-        from andimud.typeclasses.terminals import Terminal
+        from typeclasses.terminals import Terminal
 
         # Make Redis raise an exception
         mock_redis.side_effect = Exception("Redis connection failed")
@@ -364,10 +375,13 @@ class TestTerminalEventPublishing:
         # Second call: actual output
         assert "py_exec:" in mock_terminal.location.msg_contents.call_args_list[1][0][0]
 
-    @patch("andimud.typeclasses.terminals.append_mud_event")
-    def test_terminal_event_not_published_without_location(self, mock_append):
+    @patch("typeclasses.terminals.SyncRedisMUDClient")
+    def test_terminal_event_not_published_without_location(self, mock_client_cls):
         """Test that events are not published if terminal has no location."""
-        from andimud.typeclasses.terminals import Terminal
+        from typeclasses.terminals import Terminal
+
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
 
         # Create a mock terminal without a location
         terminal = MagicMock()
@@ -380,7 +394,7 @@ class TestTerminalEventPublishing:
         Terminal.display_output(terminal, "py_exec", "output", caller=None)
 
         # Event should not be published
-        mock_append.assert_not_called()
+        mock_client.append_mud_event.assert_not_called()
 
 
 class TestTerminalCommandMetadataArgs:
@@ -413,7 +427,7 @@ class TestTerminalCommandMetadataArgs:
 
     def test_stock_quote_reads_symbol_from_metadata(self, mock_caller, mock_terminal):
         """Test CmdStockQuote reads symbol from metadata args."""
-        from andimud.commands.mud.object_commands.terminal import CmdStockQuote
+        from commands.mud.object_commands.terminal import CmdStockQuote
 
         # Set up metadata with symbol containing /
         mock_caller.ndb.pending_action_metadata = {
@@ -444,7 +458,7 @@ class TestTerminalCommandMetadataArgs:
 
     def test_stock_quote_fallback_to_self_args(self, mock_caller, mock_terminal):
         """Test CmdStockQuote falls back to self.args when no metadata."""
-        from andimud.commands.mud.object_commands.terminal import CmdStockQuote
+        from commands.mud.object_commands.terminal import CmdStockQuote
 
         # No metadata (manual command invocation)
         mock_caller.ndb.pending_action_metadata = None
@@ -472,7 +486,7 @@ class TestTerminalCommandMetadataArgs:
 
     def test_visit_webpage_reads_url_from_metadata(self, mock_caller):
         """Test CmdVisitWebpage reads url from metadata args."""
-        from andimud.commands.mud.object_commands.terminal import CmdVisitWebpage
+        from commands.mud.object_commands.terminal import CmdVisitWebpage
 
         # Set up web terminal
         mock_terminal = MagicMock()
@@ -509,7 +523,7 @@ class TestTerminalCommandMetadataArgs:
 
     def test_py_exec_reads_code_from_metadata(self, mock_caller):
         """Test CmdPyExec reads code from metadata args."""
-        from andimud.commands.mud.object_commands.terminal import CmdPyExec
+        from commands.mud.object_commands.terminal import CmdPyExec
 
         # Set up code terminal
         mock_terminal = MagicMock()
@@ -543,7 +557,7 @@ class TestTerminalCommandMetadataArgs:
 
     def test_bash_exec_reads_command_from_metadata(self, mock_caller):
         """Test CmdBashExec reads command from metadata args."""
-        from andimud.commands.mud.object_commands.terminal import CmdBashExec
+        from commands.mud.object_commands.terminal import CmdBashExec
 
         # Set up code terminal
         mock_terminal = MagicMock()
@@ -578,7 +592,7 @@ class TestTerminalCommandMetadataArgs:
 
     def test_web_search_reads_query_from_metadata(self, mock_caller):
         """Test CmdWebSearch reads query from metadata args."""
-        from andimud.commands.mud.object_commands.terminal import CmdWebSearch
+        from commands.mud.object_commands.terminal import CmdWebSearch
 
         # Set up web terminal
         mock_terminal = MagicMock()

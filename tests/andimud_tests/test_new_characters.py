@@ -19,7 +19,7 @@ TiberiusCharacter = None
 ActorType = None
 
 try:
-    from andimud.typeclasses.ai_characters import (
+    from typeclasses.ai_characters import (
         NovaCharacter,
         CorrodedCharacter,
         LinYuCharacter,

@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Optional
 import logging
 
 if TYPE_CHECKING:
-    from aim_mud_types.plan import AgentPlan
+    from aim_mud_types.models.plan import AgentPlan
     from ..worker import MUDAgentWorker
 
 logger = logging.getLogger(__name__)
@@ -40,7 +40,7 @@ class PlannerMixin:
             AgentPlan if planner is enabled and plan is ACTIVE, None otherwise.
         """
         from aim_mud_types.client import RedisMUDClient
-        from aim_mud_types.plan import PlanStatus
+        from aim_mud_types.models.plan import PlanStatus
 
         client = RedisMUDClient(self.redis)
 

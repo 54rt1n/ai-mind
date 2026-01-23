@@ -311,13 +311,19 @@ class TestDrainWithSettle:
             "sequence_id": 1,
         }
 
+        # _drain_with_settle makes 3 drain_events calls:
+        # 1. First drain returns events, sleeps settle_time
+        # 2. Second drain returns empty, empty_after_events=1, sleeps final_settle_time
+        # 3. Third drain returns empty, empty_after_events=2, breaks
         mock_redis.xinfo_stream.side_effect = [
+            {"last-generated-id": "1-0"},
             {"last-generated-id": "1-0"},
             {"last-generated-id": "1-0"},
         ]
         mock_redis.xrange.side_effect = [
             [("1-0", {"data": json.dumps(event_data)})],
-            []
+            [],
+            [],
         ]
 
         # Mock _update_agent_profile
@@ -338,6 +344,11 @@ class TestDrainWithSettle:
         await initialized_worker._drain_with_settle()
 
         # Assert - verify REAL code called sleep with correct duration
-        # Implementation now sleeps twice: once after first batch, once after second (empty) batch
+        # Implementation sleeps twice:
+        # 1. After first batch (events): sleeps settle_time
+        # 2. After second empty batch (empty_after_events=1): sleeps final_settle_time (settle_time // 3)
         assert len(sleep_called) == 2
-        assert all(s == initialized_worker.config.event_settle_seconds for s in sleep_called)
+        settle_time = initialized_worker.config.event_settle_seconds
+        final_settle_time = settle_time // 3
+        assert sleep_called[0] == settle_time
+        assert sleep_called[1] == final_settle_time

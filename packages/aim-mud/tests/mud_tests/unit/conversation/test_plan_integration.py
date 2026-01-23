@@ -26,7 +26,7 @@ def strategy(mock_chat):
 
 @pytest.fixture
 def sample_plan():
-    from aim_mud_types.plan import AgentPlan, PlanTask, PlanStatus, TaskStatus
+    from aim_mud_types.models.plan import AgentPlan, PlanTask, PlanStatus, TaskStatus
     return AgentPlan(
         plan_id="test-plan-123", agent_id="andi",
         objective="Test the plan integration", summary="Test integration plan",
@@ -82,7 +82,7 @@ class TestGetConsciousnessHead:
         assert "Sets the foundation" in rendered
 
     def test_all_task_status_markers(self, strategy, sample_plan):
-        from aim_mud_types.plan import TaskStatus
+        from aim_mud_types.models.plan import TaskStatus
         # Modify tasks to have all status types
         sample_plan.tasks[0].status = TaskStatus.COMPLETED
         sample_plan.tasks[1].status = TaskStatus.BLOCKED

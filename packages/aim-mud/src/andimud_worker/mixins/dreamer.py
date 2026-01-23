@@ -19,7 +19,7 @@ import uuid
 import logging
 
 if TYPE_CHECKING:
-    from aim_mud_types.coordination import DreamingState
+    from aim_mud_types.models.coordination import DreamingState
     from aim.dreamer.core.framework import ScenarioFramework
     from ..worker import MUDAgentWorker
 
@@ -102,7 +102,7 @@ class DreamerMixin:
             DreamResult with success status and metadata
         """
         from aim.dreamer.core.builder import load_scenario_framework
-        from aim_mud_types.coordination import DreamStatus
+        from aim_mud_types.models.coordination import DreamStatus
         from ..conversation.storage import generate_conversation_id
         import time
 
@@ -323,7 +323,7 @@ class DreamerMixin:
         """
         from aim.dreamer.core.builder import load_scenario_framework
         from aim.dreamer.core.state import ScenarioState
-        from aim_mud_types.coordination import DreamStatus
+        from aim_mud_types.models.coordination import DreamStatus
         import json
 
         if not state.scenario_name:
@@ -370,7 +370,7 @@ class DreamerMixin:
         Creates a RUNNING DreamingState and saves to Redis.
         """
         from aim.dreamer.core.builder import load_scenario_framework
-        from aim_mud_types.coordination import DreamStatus
+        from aim_mud_types.models.coordination import DreamStatus
 
         # Load framework (strategy-based system)
         framework = load_scenario_framework(decision.scenario)
@@ -420,7 +420,7 @@ class DreamerMixin:
         from aim.dreamer.core.framework import ScenarioFramework
         from aim.dreamer.core.state import ScenarioState
         from aim.dreamer.core.strategy import ScenarioExecutor, StepFactory
-        from aim_mud_types.coordination import DreamStatus
+        from aim_mud_types.models.coordination import DreamStatus
 
         # 1. Load DreamingState from Redis
         dreaming_state = await self.load_dreaming_state(self.config.agent_id)
@@ -632,7 +632,7 @@ class DreamerMixin:
         """
         import json
         from aim.dreamer.core.state import ScenarioState
-        from aim_mud_types.coordination import DreamingState, DreamStatus
+        from aim_mud_types.models.coordination import DreamingState, DreamStatus
 
         # Compute next branch for document creation
         branch = 0

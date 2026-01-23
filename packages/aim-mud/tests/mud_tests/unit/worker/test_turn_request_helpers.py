@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 from datetime import datetime, timezone
 
 from aim_mud_types.helper import _utc_now
-from aim_mud_types.coordination import MUDTurnRequest
+from aim_mud_types.models.coordination import MUDTurnRequest
 
 
 class TestGetTurnRequest:
@@ -165,9 +165,9 @@ class TestCheckAbortRequestedDuplicate:
         )
         test_worker._get_turn_request = AsyncMock(return_value=turn_request)
 
-        # Mock the helper function from aim_mud_types where it's imported
-        with patch('aim_mud_types.turn_request_helpers.transition_turn_request_and_update_async') as mock_transition:
-            mock_transition.return_value = None  # Async function
+        # Mock the client method
+        with patch('aim_mud_types.client.AsyncRedisMUDClient.transition_turn_request_and_update') as mock_transition:
+            mock_transition.return_value = True
 
             # Act
             result = await test_worker._check_abort_requested()

@@ -13,7 +13,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from aim_mud_types import MUDAction, MUDEvent, MUDTurnRequest
-from aim_mud_types.decision import DecisionType, DecisionResult
+from aim_mud_types.models.decision import DecisionType, DecisionResult
 
 from ...exceptions import AbortRequestedException
 from .base import BaseTurnProcessor

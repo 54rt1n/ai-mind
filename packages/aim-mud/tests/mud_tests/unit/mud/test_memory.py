@@ -118,8 +118,8 @@ class TestMUDMemoryRetriever:
         ])
         mock_cvm.query.return_value = df
 
-        from aim_mud_types.session import MUDSession
-        from aim_mud_types.state import RoomState
+        from aim_mud_types.models.session import MUDSession
+        from aim_mud_types.models.state import RoomState
 
         session = MUDSession(
             agent_id="test_agent",

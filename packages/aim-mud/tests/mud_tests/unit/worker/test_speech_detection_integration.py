@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime, timezone
 
 from aim_mud_types import MUDEvent, MUDAction, EventType
-from aim_mud_types.session import MUDSession, MUDTurn
+from aim_mud_types.models.session import MUDSession, MUDTurn
 
 
 @pytest.fixture

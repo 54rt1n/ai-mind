@@ -5,7 +5,7 @@
 import logging
 from aim_mud_types import MUDEvent, EventType, TurnRequestStatus, TurnReason, normalize_agent_id
 from aim_mud_types.client import RedisMUDClient
-from aim_mud_types.plan import PlanStatus
+from aim_mud_types.models.plan import PlanStatus
 
 from ..patterns import PLANNER_PATTERN, PLAN_PATTERN, UPDATE_PATTERN
 
@@ -97,9 +97,10 @@ class PlannerMixin:
             "objective": objective,
         }
 
-        from aim_mud_types.turn_request_helpers import assign_turn_request_async
-        success, turn_request, result = await assign_turn_request_async(
-            self.redis,
+        from aim_mud_types.client import AsyncRedisMUDClient
+
+        client = AsyncRedisMUDClient(self.redis)
+        success, turn_request, result = await client.assign_turn_request(
             agent_id,
             TurnReason.DREAM,
             attempt_count=0,
@@ -178,9 +179,10 @@ class PlannerMixin:
             "plan_guidance": guidance,
         }
 
-        from aim_mud_types.turn_request_helpers import assign_turn_request_async
-        success, turn_request, result = await assign_turn_request_async(
-            self.redis,
+        from aim_mud_types.client import AsyncRedisMUDClient
+
+        update_client = AsyncRedisMUDClient(self.redis)
+        success, turn_request, result = await update_client.assign_turn_request(
             agent_id,
             TurnReason.IDLE,
             attempt_count=0,

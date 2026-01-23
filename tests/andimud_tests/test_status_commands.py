@@ -25,19 +25,21 @@ if andimud_path.exists():
 EVENNIA_AVAILABLE = False
 CmdTurns = None
 CmdEvents = None
-_format_time_ago = None
-_is_agent_online = None
-_parse_stream_timestamp = None
-_get_field = None
+format_time_ago = None
+is_agent_online = None
+parse_stream_timestamp = None
+get_hash_field = None
 
 try:
-    from andimud.commands.mud.status import (
+    from commands.mud.status import (
         CmdTurns,
         CmdEvents,
-        _format_time_ago,
-        _is_agent_online,
-        _parse_stream_timestamp,
-        _get_field,
+    )
+    from aim_mud_types import (
+        format_time_ago,
+        is_agent_online,
+        parse_stream_timestamp,
+        get_hash_field,
     )
     EVENNIA_AVAILABLE = True
 except Exception:
@@ -59,30 +61,30 @@ class TestHelperFunctions:
     def test_get_field_bytes_key(self):
         """Test _get_field handles bytes keys from Redis."""
         data = {b"status": b"ready", b"sequence_id": b"42"}
-        assert _get_field(data, "status") == "ready"
-        assert _get_field(data, "sequence_id") == "42"
+        assert get_hash_field(data, "status") == "ready"
+        assert get_hash_field(data, "sequence_id") == "42"
 
     def test_get_field_string_key(self):
         """Test _get_field handles string keys."""
         data = {"status": "ready", "sequence_id": "42"}
-        assert _get_field(data, "status") == "ready"
-        assert _get_field(data, "sequence_id") == "42"
+        assert get_hash_field(data, "status") == "ready"
+        assert get_hash_field(data, "sequence_id") == "42"
 
     def test_get_field_mixed_keys(self):
         """Test _get_field handles mixed bytes/string keys."""
         data = {b"status": b"ready", "sequence_id": "42"}
-        assert _get_field(data, "status") == "ready"
-        assert _get_field(data, "sequence_id") == "42"
+        assert get_hash_field(data, "status") == "ready"
+        assert get_hash_field(data, "sequence_id") == "42"
 
     def test_get_field_missing_key(self):
         """Test _get_field returns empty string for missing key."""
         data = {b"status": b"ready"}
-        assert _get_field(data, "missing") == ""
+        assert get_hash_field(data, "missing") == ""
 
     def test_get_field_empty_dict(self):
         """Test _get_field handles empty dict."""
         data = {}
-        assert _get_field(data, "anything") == ""
+        assert get_hash_field(data, "anything") == ""
 
     # Test _format_time_ago function
 
@@ -90,14 +92,14 @@ class TestHelperFunctions:
         """Test format for less than 1 minute ago."""
         now = datetime.now()
         timestamp_45s_ago = (now - timedelta(seconds=45)).isoformat()
-        result = _format_time_ago(timestamp_45s_ago)
+        result = format_time_ago(timestamp_45s_ago)
         assert result == "45s ago"
 
     def test_format_time_ago_zero_seconds(self):
         """Test format for zero seconds ago."""
         now = datetime.now()
         timestamp_now = now.isoformat()
-        result = _format_time_ago(timestamp_now)
+        result = format_time_ago(timestamp_now)
         # Should be 0s ago or 1s ago depending on timing
         assert "s ago" in result
 
@@ -105,14 +107,14 @@ class TestHelperFunctions:
         """Test format for minutes and seconds."""
         now = datetime.now()
         timestamp_3m_25s_ago = (now - timedelta(minutes=3, seconds=25)).isoformat()
-        result = _format_time_ago(timestamp_3m_25s_ago)
+        result = format_time_ago(timestamp_3m_25s_ago)
         assert result == "3m 25s ago"
 
     def test_format_time_ago_minutes_no_seconds(self):
         """Test format for exact minutes (no seconds)."""
         now = datetime.now()
         timestamp_5m_ago = (now - timedelta(minutes=5)).isoformat()
-        result = _format_time_ago(timestamp_5m_ago)
+        result = format_time_ago(timestamp_5m_ago)
         # Should be either "5m ago" or "5m 0s ago" depending on exact timing
         assert "5m" in result
 
@@ -120,14 +122,14 @@ class TestHelperFunctions:
         """Test format for hours and minutes."""
         now = datetime.now()
         timestamp_2h_30m_ago = (now - timedelta(hours=2, minutes=30)).isoformat()
-        result = _format_time_ago(timestamp_2h_30m_ago)
+        result = format_time_ago(timestamp_2h_30m_ago)
         assert result == "2h 30m ago"
 
     def test_format_time_ago_hours_no_minutes(self):
         """Test format for exact hours (no minutes)."""
         now = datetime.now()
         timestamp_3h_ago = (now - timedelta(hours=3)).isoformat()
-        result = _format_time_ago(timestamp_3h_ago)
+        result = format_time_ago(timestamp_3h_ago)
         # Should be "3h ago" or "3h 0m ago" depending on exact timing
         assert "3h" in result
 
@@ -135,14 +137,14 @@ class TestHelperFunctions:
         """Test format for days and hours."""
         now = datetime.now()
         timestamp_2d_5h_ago = (now - timedelta(days=2, hours=5)).isoformat()
-        result = _format_time_ago(timestamp_2d_5h_ago)
+        result = format_time_ago(timestamp_2d_5h_ago)
         assert result == "2d 5h ago"
 
     def test_format_time_ago_days_no_hours(self):
         """Test format for exact days (no hours)."""
         now = datetime.now()
         timestamp_7d_ago = (now - timedelta(days=7)).isoformat()
-        result = _format_time_ago(timestamp_7d_ago)
+        result = format_time_ago(timestamp_7d_ago)
         # Should be "7d ago" or "7d 0h ago" depending on exact timing
         assert "7d" in result
 
@@ -150,17 +152,17 @@ class TestHelperFunctions:
         """Test format for future timestamp."""
         now = datetime.now()
         timestamp_future = (now + timedelta(hours=1)).isoformat()
-        result = _format_time_ago(timestamp_future)
+        result = format_time_ago(timestamp_future)
         assert result == "in the future"
 
     def test_format_time_ago_invalid_timestamp(self):
         """Test format for invalid timestamp string."""
-        result = _format_time_ago("not-a-timestamp")
+        result = format_time_ago("not-a-timestamp")
         assert result == "unknown"
 
     def test_format_time_ago_empty_string(self):
         """Test format for empty string."""
-        result = _format_time_ago("")
+        result = format_time_ago("")
         assert result == "unknown"
 
     # Test _is_agent_online function
@@ -169,35 +171,35 @@ class TestHelperFunctions:
         """Test agent is online with fresh heartbeat."""
         now = datetime.now()
         heartbeat_2m_ago = (now - timedelta(minutes=2)).isoformat()
-        assert _is_agent_online(heartbeat_2m_ago, threshold_minutes=5) is True
+        assert is_agent_online(heartbeat_2m_ago, threshold_minutes=5) is True
 
     def test_is_agent_online_at_threshold(self):
         """Test agent at exact threshold boundary."""
         now = datetime.now()
         heartbeat_5m_ago = (now - timedelta(minutes=5)).isoformat()
         # Should be False (>= threshold is offline)
-        assert _is_agent_online(heartbeat_5m_ago, threshold_minutes=5) is False
+        assert is_agent_online(heartbeat_5m_ago, threshold_minutes=5) is False
 
     def test_is_agent_online_stale_heartbeat(self):
         """Test agent is offline with stale heartbeat."""
         now = datetime.now()
         heartbeat_10m_ago = (now - timedelta(minutes=10)).isoformat()
-        assert _is_agent_online(heartbeat_10m_ago, threshold_minutes=5) is False
+        assert is_agent_online(heartbeat_10m_ago, threshold_minutes=5) is False
 
     def test_is_agent_online_custom_threshold(self):
         """Test agent online status with custom threshold."""
         now = datetime.now()
         heartbeat_8m_ago = (now - timedelta(minutes=8)).isoformat()
-        assert _is_agent_online(heartbeat_8m_ago, threshold_minutes=10) is True
-        assert _is_agent_online(heartbeat_8m_ago, threshold_minutes=5) is False
+        assert is_agent_online(heartbeat_8m_ago, threshold_minutes=10) is True
+        assert is_agent_online(heartbeat_8m_ago, threshold_minutes=5) is False
 
     def test_is_agent_online_invalid_timestamp(self):
         """Test invalid timestamp returns False."""
-        assert _is_agent_online("not-a-timestamp") is False
+        assert is_agent_online("not-a-timestamp") is False
 
     def test_is_agent_online_empty_string(self):
         """Test empty string returns False."""
-        assert _is_agent_online("") is False
+        assert is_agent_online("") is False
 
     # Test _parse_stream_timestamp function
 
@@ -205,7 +207,7 @@ class TestHelperFunctions:
         """Test parsing valid Redis stream ID."""
         # 1736423400000 = 2025-01-09 10:30:00 UTC
         stream_id = "1736423400000-0"
-        result = _parse_stream_timestamp(stream_id)
+        result = parse_stream_timestamp(stream_id)
         assert isinstance(result, datetime)
         assert result.year == 2025
         assert result.month == 1
@@ -214,7 +216,7 @@ class TestHelperFunctions:
     def test_parse_stream_timestamp_with_sequence(self):
         """Test parsing stream ID with non-zero sequence."""
         stream_id = "1736423400000-42"
-        result = _parse_stream_timestamp(stream_id)
+        result = parse_stream_timestamp(stream_id)
         # Sequence number shouldn't affect timestamp
         assert isinstance(result, datetime)
         assert result.year == 2025
@@ -222,7 +224,7 @@ class TestHelperFunctions:
     def test_parse_stream_timestamp_invalid_format(self):
         """Test parsing invalid stream ID format."""
         stream_id = "invalid-id"
-        result = _parse_stream_timestamp(stream_id)
+        result = parse_stream_timestamp(stream_id)
         # Should return current time on error
         assert isinstance(result, datetime)
         assert abs((datetime.now() - result).total_seconds()) < 2
@@ -234,7 +236,7 @@ class TestHelperFunctions:
         full string, so this actually parses correctly.
         """
         stream_id = "1736423400000"
-        result = _parse_stream_timestamp(stream_id)
+        result = parse_stream_timestamp(stream_id)
         # Should parse successfully even without dash
         assert isinstance(result, datetime)
         assert result.year == 2025
@@ -244,7 +246,7 @@ class TestHelperFunctions:
     def test_parse_stream_timestamp_empty_string(self):
         """Test parsing empty string."""
         stream_id = ""
-        result = _parse_stream_timestamp(stream_id)
+        result = parse_stream_timestamp(stream_id)
         # Should return current time on error
         assert isinstance(result, datetime)
         assert abs((datetime.now() - result).total_seconds()) < 2

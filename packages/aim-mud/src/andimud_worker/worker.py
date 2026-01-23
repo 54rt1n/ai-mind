@@ -28,11 +28,9 @@ from aim.config import ChatConfig
 from aim.llm.llm import LLMProvider
 
 from aim_mud_types import MUDAction, MUDTurnRequest, RedisKeys, TurnRequestStatus, TurnReason
-from aim_mud_types.decision import DecisionResult
-from aim_mud_types.turn_request_helpers import (
-    compute_next_attempt_at,
-    transition_turn_request,
-)
+from aim_mud_types.models.decision import DecisionResult
+from aim_mud_types.helper import compute_next_attempt_at
+from aim_mud_types.helper import transition_turn_request
 
 from .config import MUDConfig
 from .exceptions import AbortRequestedException, TurnPreemptedException
@@ -68,6 +66,8 @@ from .commands import (
     EventsCommand,
     RetryCommand,
     ThinkCommand,
+    SleepCommand,
+    WakeCommand,
 )
 
 
@@ -172,6 +172,8 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
             EventsCommand(),
             RetryCommand(),
             ThinkCommand(),
+            SleepCommand(),
+            WakeCommand(),
         )
 
     async def start(self) -> None:
@@ -789,10 +791,10 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
         # Branch 1: No turn_request → create with status=READY
         if not turn_request:
             logger.info("No turn_request found, creating fresh ready state")
-            from aim_mud_types.turn_request_helpers import initialize_turn_request_async
+            from aim_mud_types.client import AsyncRedisMUDClient
 
-            created, new_turn_request, result = await initialize_turn_request_async(
-                self.redis,
+            client = AsyncRedisMUDClient(self.redis)
+            created, new_turn_request, result = await client.initialize_turn_request(
                 self.config.agent_id,
                 status=TurnRequestStatus.READY,
                 reason=TurnReason.EVENTS,

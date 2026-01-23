@@ -26,7 +26,7 @@ from aim_mud_types import (
     WorldState,
     AURA_RINGABLE,
 )
-from aim_mud_types.state import AuraState
+from aim_mud_types.models.state import AuraState
 from andimud_worker.turns.validation import get_ringable_objects
 from andimud_worker.turns.decision import validate_ring, DecisionResult
 from andimud_worker.conversation.memory.decision import MUDDecisionStrategy

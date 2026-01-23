@@ -39,7 +39,7 @@ def worker():
 @pytest.fixture
 def sample_plan():
     """Create a sample plan for testing."""
-    from aim_mud_types.plan import AgentPlan, PlanTask, PlanStatus, TaskStatus
+    from aim_mud_types.models.plan import AgentPlan, PlanTask, PlanStatus, TaskStatus
 
     return AgentPlan(
         plan_id="test-plan-123",
@@ -93,7 +93,7 @@ class TestCheckActivePlan:
     @pytest.mark.asyncio
     async def test_plan_not_active(self, worker, sample_plan):
         """Test returns None when plan is not ACTIVE."""
-        from aim_mud_types.plan import PlanStatus
+        from aim_mud_types.models.plan import PlanStatus
 
         sample_plan.status = PlanStatus.BLOCKED
 
@@ -110,7 +110,7 @@ class TestCheckActivePlan:
     @pytest.mark.asyncio
     async def test_plan_completed(self, worker, sample_plan):
         """Test returns None when plan is COMPLETED."""
-        from aim_mud_types.plan import PlanStatus
+        from aim_mud_types.models.plan import PlanStatus
 
         sample_plan.status = PlanStatus.COMPLETED
 
@@ -127,7 +127,7 @@ class TestCheckActivePlan:
     @pytest.mark.asyncio
     async def test_plan_paused(self, worker, sample_plan):
         """Test returns None when plan is PAUSED."""
-        from aim_mud_types.plan import PlanStatus
+        from aim_mud_types.models.plan import PlanStatus
 
         sample_plan.status = PlanStatus.PAUSED
 

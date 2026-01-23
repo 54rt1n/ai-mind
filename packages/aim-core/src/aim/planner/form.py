@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from .constants import FORM_BUILDER_MAX_TASKS
 
 if TYPE_CHECKING:
-    from aim_mud_types.plan import AgentPlan
+    from aim_mud_types.models.plan import AgentPlan
 
 
 class FormState(str, Enum):
@@ -301,7 +301,7 @@ Or use **plan_edit_task** to revise a task."""
         if self.state != FormState.COMPLETE:
             raise ValueError(f"Cannot convert incomplete form (state={self.state})")
 
-        from aim_mud_types.plan import AgentPlan, PlanTask, PlanStatus, TaskStatus
+        from aim_mud_types.models.plan import AgentPlan, PlanTask, PlanStatus, TaskStatus
 
         tasks = [
             PlanTask(

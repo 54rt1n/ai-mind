@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from aim_mud_types import MUDTurnRequest, TurnRequestStatus, EventType
 from aim_mud_types.client import RedisMUDClient
-from aim_mud_types.decision import DecisionType
+from aim_mud_types.models.decision import DecisionType
 from .base import Command
 from .result import CommandResult
 

@@ -5,8 +5,8 @@ import json
 import pytest
 from datetime import datetime, timezone
 
-from aim_mud_types.profile import RoomProfile, AgentProfile
-from aim_mud_types.state import EntityState, RoomState
+from aim_mud_types.models.profile import RoomProfile, AgentProfile
+from aim_mud_types.models.state import EntityState, RoomState
 
 
 class TestRoomProfile:

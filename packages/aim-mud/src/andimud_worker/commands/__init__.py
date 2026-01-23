@@ -19,6 +19,8 @@ from .idle import IdleCommand
 from .new_conversation import NewConversationCommand
 from .retry import RetryCommand
 from .think import ThinkCommand
+from .sleep import SleepCommand
+from .wake import WakeCommand
 
 __all__ = [
     "Command",
@@ -34,4 +36,6 @@ __all__ = [
     "NewConversationCommand",
     "RetryCommand",
     "ThinkCommand",
+    "SleepCommand",
+    "WakeCommand",
 ]

@@ -26,7 +26,7 @@ retry_redis = None
 ActionConsumer = None
 
 try:
-    from andimud.server.services.action_consumer import retry_redis, ActionConsumer
+    from server.services.action_consumer import retry_redis, ActionConsumer
     EVENNIA_AVAILABLE = True
 except Exception:
     # Skip all tests if Evennia is not available or Django is not configured
@@ -115,7 +115,7 @@ class TestActionConsumerRetryLogic:
     @pytest.fixture
     def consumer(self, mock_redis):
         """Create an ActionConsumer with mocked Redis."""
-        with patch('andimud.server.services.action_consumer.redis.from_url', return_value=mock_redis):
+        with patch('server.services.action_consumer.redis.from_url', return_value=mock_redis):
             consumer = ActionConsumer(redis_url="redis://localhost:6379")
             consumer.redis = mock_redis
             return consumer
@@ -184,7 +184,7 @@ class TestActionConsumerStreamTrimming:
     @pytest.fixture
     def consumer(self, mock_redis):
         """Create an ActionConsumer with mocked Redis."""
-        with patch('andimud.server.services.action_consumer.redis.from_url', return_value=mock_redis):
+        with patch('server.services.action_consumer.redis.from_url', return_value=mock_redis):
             consumer = ActionConsumer(redis_url="redis://localhost:6379")
             consumer.redis = mock_redis
             return consumer
@@ -256,7 +256,7 @@ class TestActionConsumerIdempotency:
     @pytest.fixture
     def consumer(self, mock_redis):
         """Create an ActionConsumer with mocked Redis."""
-        with patch('andimud.server.services.action_consumer.redis.from_url', return_value=mock_redis):
+        with patch('server.services.action_consumer.redis.from_url', return_value=mock_redis):
             consumer = ActionConsumer(redis_url="redis://localhost:6379")
             consumer.redis = mock_redis
             return consumer
@@ -319,7 +319,7 @@ class TestActionConsumerThreadSafety:
     @pytest.fixture
     def consumer(self, mock_redis):
         """Create an ActionConsumer with mocked Redis."""
-        with patch('andimud.server.services.action_consumer.redis.from_url', return_value=mock_redis):
+        with patch('server.services.action_consumer.redis.from_url', return_value=mock_redis):
             consumer = ActionConsumer(redis_url="redis://localhost:6379")
             consumer.redis = mock_redis
             return consumer
@@ -369,7 +369,7 @@ class TestActionConsumerPositionTracking:
     @pytest.fixture
     def consumer(self, mock_redis):
         """Create an ActionConsumer with mocked Redis."""
-        with patch('andimud.server.services.action_consumer.redis.from_url', return_value=mock_redis):
+        with patch('server.services.action_consumer.redis.from_url', return_value=mock_redis):
             consumer = ActionConsumer(redis_url="redis://localhost:6379")
             consumer.redis = mock_redis
             return consumer

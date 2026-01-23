@@ -9,7 +9,7 @@ import pytest
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, call
 
-from aim_mud_types.coordination import TurnRequestStatus, TurnReason
+from aim_mud_types.models.coordination import TurnRequestStatus, TurnReason
 from aim_mud_types.client import BaseRedisMUDClient
 
 

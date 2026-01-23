@@ -14,7 +14,7 @@ import pytest
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
-from aim_mud_types.coordination import MUDTurnRequest, TurnRequestStatus, TurnReason
+from aim_mud_types.models.coordination import MUDTurnRequest, TurnRequestStatus, TurnReason
 from aim_mud_types.client import RedisMUDClient
 
 

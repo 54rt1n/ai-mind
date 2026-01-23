@@ -7,9 +7,9 @@ from typing import TYPE_CHECKING
 
 from aim_mud_types import MUDTurnRequest, MUDEvent
 from aim_mud_types.client import RedisMUDClient
-from aim_mud_types.decision import DecisionType
+from aim_mud_types.models.decision import DecisionType
 from aim_mud_types import TurnRequestStatus
-from aim_mud_types.coordination import DreamStatus
+from aim_mud_types.models.coordination import DreamStatus
 from .base import Command
 from .result import CommandResult
 from ..turns.processor.decision import DecisionProcessor
@@ -70,46 +70,14 @@ class IdleCommand(Command):
         await worker._setup_turn_context(events)
         # Priority 2: If we don't have a current thought, we need to generate one
         if not worker._decision_strategy.thought_content:
-            if await worker._is_idle_active():
-                claimed_turn_id = await worker.claim_idle_turn(turn_request)
-                await worker._clear_thought_content()
-
-                decision_processor = DecisionProcessor(worker)
-                if plan_guidance:
-                    decision_processor.user_guidance = plan_guidance
-                await decision_processor.execute(turn_request, events)
-
-                decision = worker._last_decision
-                if decision.decision_type == DecisionType.SPEAK:
-                    new_events = await worker._drain_to_turn()
-                    if new_events:
-                        logger.info(f"[{claimed_turn_id}] Captured {len(new_events)} new events for Phase 2 (SPEAK)")
-                    speaking_processor = SpeakingProcessor(worker)
-                    if plan_guidance:
-                        speaking_processor.user_guidance = plan_guidance
-                    await speaking_processor.execute(turn_request, events)
-                elif decision.decision_type == DecisionType.THINK:
-                    new_events = await worker._drain_with_settle()
-                    if new_events:
-                        logger.info(f"[{claimed_turn_id}] Captured {len(new_events)} new events for Phase 2 (THINK)")
-                    thinking_processor = ThinkingTurnProcessor(worker)
-                    if plan_guidance:
-                        thinking_processor.user_guidance = plan_guidance
-                    await thinking_processor.execute(turn_request, events)
-                else:
-                    await worker._emit_decision_action(decision)
-
-                worker._last_decision = None
-                return CommandResult(
-                    complete=True,
-                    flush_drain=decision.should_flush if decision else False,
-                    saved_event_id=None,
-                    status=TurnRequestStatus.DONE,
-                    message="Idle active decision",
-                    turn_id=claimed_turn_id,
-                )
-
             claimed_turn_id = await worker.claim_idle_turn(turn_request)
+            await worker._clear_thought_content()
+
+            new_events = await worker._drain_with_settle()
+            if new_events:
+                logger.info(f"[{claimed_turn_id}] Captured {len(new_events)} new events for Phase 2 (THINK)")
+            claimed_turn_id = await worker.claim_idle_turn(turn_request)
+
             thinking_processor = ThinkingTurnProcessor(worker)
             if plan_guidance:
                 thinking_processor.user_guidance = plan_guidance
@@ -133,12 +101,41 @@ class IdleCommand(Command):
 
         # Priority 3: Agent awake, but no active plan
         await worker.ensure_turn_id_current(turn_id)
+        
+        is_active = await worker._is_idle_active()
+
+        if not is_active:
+            return CommandResult(
+                complete=True,
+                flush_drain=False,
+                saved_event_id=None,
+                status=TurnRequestStatus.DONE,
+                message="Agent awake",
+                turn_id=turn_id,
+            )
+
+
+        decision = await worker.take_turn(turn_id, events, turn_request, user_guidance=plan_guidance)
+        if decision is None:
+            error_detail = worker._last_turn_error or "unknown error"
+            logger.error("Event turn %s produced no decision: %s", turn_id, error_detail)
+            return CommandResult(
+                complete=True,
+                flush_drain=False,
+                saved_event_id=None,
+                status=TurnRequestStatus.FAIL,
+                message=f"Idle Turn failed: {error_detail}",
+                turn_id=turn_id,
+            )
+
+        await worker._clear_thought_content()
         return CommandResult(
             complete=True,
-            flush_drain=False,
+            flush_drain=decision.should_flush,
             saved_event_id=None,
             status=TurnRequestStatus.DONE,
-            message="Agent awake",
+            message=f"Idle Turn processed: {decision.decision_type.name}",
+            turn_id=turn_id,
         )
 
     async def _sleep_turn(self, worker: "MUDAgentWorker", turn_id: str, events: list[MUDEvent], turn_request: MUDTurnRequest) -> CommandResult:

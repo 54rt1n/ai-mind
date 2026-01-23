@@ -10,7 +10,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime, timezone
 
-from aim_mud_types.coordination import MUDTurnRequest, TurnRequestStatus, TurnReason
+from aim_mud_types.models.coordination import MUDTurnRequest, TurnRequestStatus, TurnReason
 from andimud_worker.config import MUDConfig
 
 

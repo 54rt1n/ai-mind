@@ -184,7 +184,7 @@ class SpeakingProcessor(BaseTurnProcessor):
             # After loop - check if valid
             if not has_emotional_state_header(cleaned_response):
                 logger.error(f"Failed after {max_chat_retries} chat attempts" + (" and fallback" if used_fallback else ""))
-                action = MUDAction(tool="emote", args={"action": "was at a loss for words."})
+                action = MUDAction(tool="emote", args={"action": "struggles with expressing themselves."})
                 actions_taken.append(action)
                 thinking_parts.append("[ERROR] Failed to generate valid response format after all retry attempts")
                 await self.worker._emit_actions(actions_taken)
@@ -206,7 +206,7 @@ class SpeakingProcessor(BaseTurnProcessor):
             logger.error(f"Error during speaking turn processing: {e}", exc_info=True)
             thinking_parts.append(f"[ERROR] Speaking turn processing failed: {e}")
             # Emit a graceful emote when LLM fails
-            action = MUDAction(tool="emote", args={"action": "was at a loss for words."})
+            action = MUDAction(tool="emote", args={"action": "looks sick and unable to speak."})
             actions_taken.append(action)
             await self.worker._emit_actions(actions_taken)
 

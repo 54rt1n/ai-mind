@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from andimud_worker.tools.helper import ToolHelper
 from aim.tool.formatting import ToolUser
 from aim.tool.dto import Tool, ToolFunction, ToolFunctionParameters
-from aim_mud_types.plan import AgentPlan, PlanTask, PlanStatus, TaskStatus
+from aim_mud_types.models.plan import AgentPlan, PlanTask, PlanStatus, TaskStatus
 
 
 @pytest.fixture

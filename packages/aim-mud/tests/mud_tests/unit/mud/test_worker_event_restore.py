@@ -14,7 +14,7 @@ from andimud_worker.config import MUDConfig
 from andimud_worker.exceptions import AbortRequestedException
 from andimud_worker.commands.result import CommandResult
 from aim_mud_types import MUDSession, MUDEvent, EventType, ActorType, RoomState
-from aim_mud_types.coordination import MUDTurnRequest
+from aim_mud_types.models.coordination import MUDTurnRequest
 
 
 @pytest.fixture

@@ -17,10 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class FlushCommand(Command):
-    """@write console command - flush conversation to CVM.
-
-    Extracted from worker.py lines 272-286
-    """
+    """@write console command - flush conversation to CVM."""
 
     @property
     def name(self) -> str:
@@ -42,9 +39,13 @@ class FlushCommand(Command):
             # Update conversation report
             await worker._update_conversation_report()
             # Emote completion
+            message = "feels more knowledgeable."
+            is_sleeping = await worker._check_agent_is_sleeping()
+            if is_sleeping:
+                message = "dreams about the day's events."
             action = MUDAction(
                 tool="emote",
-                args={"action": "feels more knowledgeable."},
+                args={"action": message},
                 metadata={"skip_worker": True},
             )
             await worker._emit_actions([action])

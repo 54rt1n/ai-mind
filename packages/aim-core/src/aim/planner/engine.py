@@ -23,7 +23,7 @@ from .form import PlanFormBuilder, FormState
 
 if TYPE_CHECKING:
     from dream_agent.client import DreamerClient
-    from aim_mud_types.plan import AgentPlan
+    from aim_mud_types.models.plan import AgentPlan
 
 logger = logging.getLogger(__name__)
 

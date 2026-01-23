@@ -51,11 +51,10 @@ class StateMixin:
             return False
 
         if turn_request.status == TurnRequestStatus.ABORT_REQUESTED:
-            from aim_mud_types.turn_request_helpers import (
-                transition_turn_request_and_update_async,
-            )
-            await transition_turn_request_and_update_async(
-                self.redis,
+            from aim_mud_types.client import AsyncRedisMUDClient
+
+            client = AsyncRedisMUDClient(self.redis)
+            await client.transition_turn_request_and_update(
                 self.config.agent_id,
                 turn_request,
                 expected_turn_id=turn_request.turn_id,

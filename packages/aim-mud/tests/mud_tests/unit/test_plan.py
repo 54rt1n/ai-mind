@@ -6,7 +6,7 @@ import json
 import pytest
 from datetime import datetime, timezone
 
-from aim_mud_types.plan import (
+from aim_mud_types.models.plan import (
     AgentPlan,
     PlanTask,
     TaskStatus,

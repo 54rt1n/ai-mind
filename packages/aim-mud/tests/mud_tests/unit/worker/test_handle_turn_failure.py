@@ -11,8 +11,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime, timedelta, timezone
 
 from aim_mud_types import TurnRequestStatus
-from aim_mud_types.session import MUDSession
-from aim_mud_types.coordination import MUDTurnRequest
+from aim_mud_types.models.session import MUDSession
+from aim_mud_types.models.coordination import MUDTurnRequest
 from aim_mud_types.helper import _utc_now
 
 

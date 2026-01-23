@@ -17,7 +17,7 @@ class TestRoomGetRoomAuras:
     @pytest.fixture
     def mock_room(self):
         """Create a mock Room instance."""
-        from andimud.typeclasses.rooms import Room
+        from typeclasses.rooms import Room
 
         room = MagicMock(spec=Room)
         room.contents = []

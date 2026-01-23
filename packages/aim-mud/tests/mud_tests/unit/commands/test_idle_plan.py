@@ -86,7 +86,7 @@ def turn_request_kwargs():
 @pytest.fixture
 def sample_plan():
     """Create a sample plan for testing."""
-    from aim_mud_types.plan import AgentPlan, PlanTask, PlanStatus, TaskStatus
+    from aim_mud_types.models.plan import AgentPlan, PlanTask, PlanStatus, TaskStatus
 
     return AgentPlan(
         plan_id="test-plan-123",

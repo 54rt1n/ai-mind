@@ -15,7 +15,7 @@ import yaml
 
 from aim_mud_types import MUDAction, MUDTurnRequest
 from aim_mud_types import MUDEvent, MUDTurn
-from aim_mud_types.decision import DecisionType, DecisionResult
+from aim_mud_types.models.decision import DecisionType, DecisionResult
 from aim_mud_types.helper import _utc_now
 from aim_mud_types.redis_keys import RedisKeys
 from aim.utils.think import extract_think_tags

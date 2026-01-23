@@ -25,8 +25,8 @@ from aim.config import ChatConfig
 @pytest.fixture
 def mock_worker():
     """Create a mock worker with necessary attributes."""
-    from aim_mud_types.session import MUDSession
-    from aim_mud_types.state import RoomState
+    from aim_mud_types.models.session import MUDSession
+    from aim_mud_types.models.state import RoomState
 
     worker = MagicMock()
     worker.agent_id = "test_agent"

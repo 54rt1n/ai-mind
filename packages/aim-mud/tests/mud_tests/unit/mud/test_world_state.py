@@ -3,7 +3,7 @@
 """Unit tests for WorldState XML serialization."""
 
 from aim_mud_types import RoomState, EntityState, WorldState
-from aim_mud_types.world_state import InventoryItem, WhoEntry
+from aim_mud_types.models.world_state import InventoryItem, WhoEntry
 
 
 def test_world_state_to_xml_with_entities_and_objects():

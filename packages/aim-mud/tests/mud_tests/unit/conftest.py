@@ -168,6 +168,9 @@ def mock_redis():
     redis.xadd = AsyncMock(return_value=b"stream-id-123")
     redis.xread = AsyncMock(return_value=[])
     redis.xack = AsyncMock(return_value=1)
+    redis.xinfo_stream = AsyncMock(return_value={"last-generated-id": "0"})
+    redis.xrange = AsyncMock(return_value=[])
+    redis.xlen = AsyncMock(return_value=0)
     redis.close = AsyncMock()
     redis.expire = AsyncMock(return_value=True)
 

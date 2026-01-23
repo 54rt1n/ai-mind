@@ -5,8 +5,8 @@
 import pytest
 from datetime import datetime, timezone
 
-from aim_mud_types.events import MUDEvent
-from aim_mud_types.enums import EventType, ActorType
+from aim_mud_types.models.events import MUDEvent
+from aim_mud_types.models.enums import EventType, ActorType
 
 
 class TestMUDEventIsSelfSpeechEcho:

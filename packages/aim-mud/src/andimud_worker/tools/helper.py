@@ -11,7 +11,7 @@ from aim.utils.xml import XmlFormatter
 from aim.tool.dto import Tool
 
 if TYPE_CHECKING:
-    from aim_mud_types.plan import AgentPlan
+    from aim_mud_types.models.plan import AgentPlan
 
 logger = logging.getLogger(__name__)
 

@@ -57,7 +57,7 @@ class TestCheckAbortRequested:
     async def test_returns_true_when_abort_requested(self, test_worker, mock_redis):
         """Test returns True and clears flag when abort_requested."""
         from aim_mud_types.helper import _utc_now
-        from aim_mud_types.coordination import MUDTurnRequest
+        from aim_mud_types.models.coordination import MUDTurnRequest
         from aim_mud_types import TurnRequestStatus
         from unittest.mock import patch
 
@@ -71,9 +71,9 @@ class TestCheckAbortRequested:
         )
         test_worker._get_turn_request = AsyncMock(return_value=turn_request)
 
-        # Mock the helper function from aim_mud_types where it's imported
-        with patch('aim_mud_types.turn_request_helpers.transition_turn_request_and_update_async') as mock_transition:
-            mock_transition.return_value = None  # Async function
+        # Mock the client method
+        with patch('aim_mud_types.client.AsyncRedisMUDClient.transition_turn_request_and_update') as mock_transition:
+            mock_transition.return_value = True
 
             result = await test_worker._check_abort_requested()
 

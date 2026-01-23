@@ -675,7 +675,7 @@ class TestMediatorAgentIdFromActor:
     ):
         """Test that _agent_id_from_actor correctly uses EntityState attributes."""
         from aim_mud_types.client import RedisMUDClient
-        from aim_mud_types.profile import EntityState
+        from aim_mud_types.models.profile import EntityState
 
         mediator = MediatorService(mock_redis, mediator_config)
 

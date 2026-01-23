@@ -81,6 +81,10 @@ def format_event(event: MUDEvent, first_person: bool = False) -> str:
         # Non-reactive idle emotes - format as regular emote
         return _format_emote_with_quotes(event.actor, event.content)
 
+    elif event.event_type == EventType.SLEEP_AWARE:
+        # Sleep-aware emotes (sleep/wake) - format as regular emote
+        return _format_emote_with_quotes(event.actor, event.content)
+
     else:
         # Fallback for unknown event types
         return f"[{event.event_type.value}] {event.actor}: {event.content}"

@@ -266,15 +266,19 @@ class EventsMixin:
             agents_for_delivery.append(self_action_agent_id)
 
         # Filter out sleeping agents (they receive NO events while sleeping)
-        sleeping_agents = []
-        for agent_id in agents_for_delivery:
-            is_sleeping = await client.get_agent_is_sleeping(agent_id)
-            if is_sleeping:
-                sleeping_agents.append(agent_id)
-        agents_for_delivery = [a for a in agents_for_delivery if a not in sleeping_agents]
-        agents_to_notify = [a for a in agents_to_notify if a not in sleeping_agents]
-        if sleeping_agents:
-            logger.debug(f"Filtered out sleeping agents: {sleeping_agents}")
+        # Exception: SLEEP_AWARE events bypass the sleep filter
+        if event.event_type != EventType.SLEEP_AWARE:
+            sleeping_agents = []
+            for agent_id in agents_for_delivery:
+                is_sleeping = await client.get_agent_is_sleeping(agent_id)
+                if is_sleeping:
+                    sleeping_agents.append(agent_id)
+            agents_for_delivery = [a for a in agents_for_delivery if a not in sleeping_agents]
+            agents_to_notify = [a for a in agents_to_notify if a not in sleeping_agents]
+            if sleeping_agents:
+                logger.debug(f"Filtered out sleeping agents: {sleeping_agents}")
+        else:
+            logger.debug(f"SLEEP_AWARE event {msg_id} bypassing sleep filter")
 
         if not agents_for_delivery:
             logger.debug(f"No agents to notify for event in room {event.room_id}")
