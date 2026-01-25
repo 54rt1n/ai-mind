@@ -17,7 +17,7 @@ from aim_mud_types import (
     WorldState,
     RoomState,
 )
-from aim.constants import DOC_MUD_WORLD, DOC_MUD_AGENT
+from aim.constants import DOC_MUD_WORLD, DOC_MUD_AGENT, DOC_MUD_ACTION
 
 
 def _sample_event(
@@ -271,37 +271,41 @@ class TestMUDConversationManagerPushUserTurn:
         assert entry1.conversation_id == entry2.conversation_id
 
     @pytest.mark.asyncio
-    async def test_push_user_turn_stores_last_event_id(self, conversation_manager, mock_redis):
-        """Test that push_user_turn stores last_event_id on entries."""
-        events = [_sample_event("1", "Prax", "Hello!")]
+    async def test_push_user_turn_stores_last_event_id_from_event(self, conversation_manager, mock_redis):
+        """Test that push_user_turn stores last_event_id from the event's event_id."""
+        # Event has event_id "1704096000000-5"
+        events = [_sample_event("1704096000000-5", "Prax", "Hello!")]
 
         entry = await conversation_manager.push_user_turn(
             events=events,
             room_id="#123",
             room_name="The Garden",
-            last_event_id="1704096000000-7",
+            last_event_id="1704096000000-7",  # Fallback, should NOT be used
         )
 
-        assert entry.last_event_id == "1704096000000-7"
+        # Should use event's event_id, not the fallback
+        assert entry.last_event_id == "1704096000000-5"
 
         # Verify the entry pushed to Redis has the last_event_id
         mock_redis.rpush.assert_called_once()
         pushed_json = mock_redis.rpush.call_args[0][1]
         pushed_entry = MUDConversationEntry.model_validate_json(pushed_json)
-        assert pushed_entry.last_event_id == "1704096000000-7"
+        assert pushed_entry.last_event_id == "1704096000000-5"
 
     @pytest.mark.asyncio
-    async def test_push_user_turn_last_event_id_defaults_to_none(self, conversation_manager, mock_redis):
-        """Test that push_user_turn without last_event_id stores None."""
-        events = [_sample_event("1", "Prax", "Hello!")]
+    async def test_push_user_turn_last_event_id_from_group_event(self, conversation_manager, mock_redis):
+        """Test that push_user_turn gets last_event_id from group's last event."""
+        events = [_sample_event("1704096000000-1", "Prax", "Hello!")]
 
         entry = await conversation_manager.push_user_turn(
             events=events,
             room_id="#123",
             room_name="The Garden",
+            # No last_event_id fallback provided
         )
 
-        assert entry.last_event_id is None
+        # Should use the event's event_id
+        assert entry.last_event_id == "1704096000000-1"
 
     @pytest.mark.asyncio
     async def test_push_user_turn_formats_self_actions_first_person(self, conversation_manager, mock_redis):
@@ -414,12 +418,17 @@ class TestMUDConversationManagerPushUserTurn:
         assert "*Andi picks up a flower*" not in entry.content
 
 
-class TestMUDConversationManagerSelfSpeechFiltering:
-    """Test MUDConversationManager self-speech echo filtering."""
+class TestMUDConversationManagerSelfSpeechRecording:
+    """Test MUDConversationManager self-speech event recording (Phase 5).
+
+    As of Phase 5, self-speech events are NO LONGER filtered. They are the
+    canonical source of truth for agent speech, creating DOC_MUD_ACTION entries
+    with first-person formatting.
+    """
 
     @pytest.mark.asyncio
-    async def test_push_user_turn_filters_self_speech(self, conversation_manager, mock_redis):
-        """Self-speech events should be filtered from conversation."""
+    async def test_push_user_turn_keeps_self_speech(self, conversation_manager, mock_redis):
+        """Self-speech events are now kept and recorded as DOC_MUD_AGENT."""
         # Create a self-speech event and a regular event
         self_speech = MUDEvent(
             event_id="1",
@@ -446,23 +455,31 @@ class TestMUDConversationManagerSelfSpeechFiltering:
         )
 
         # Push both events
-        entry = await conversation_manager.push_user_turn(
+        await conversation_manager.push_user_turn(
             events=[self_speech, other_speech],
             room_id="#123",
             room_name="Test Room",
         )
 
-        # Entry should only contain other_speech, not self_speech
-        assert "Hi Andi!" in entry.content
-        assert "Hello world" not in entry.content
-        assert "You:" not in entry.content  # No "You: Hello world"
+        entries = _entries_from_rpush(mock_redis)
 
-        # Should have event_count=1 (only the non-self-speech event)
-        assert entry.metadata["event_count"] == 1
+        # Should have 2 entries: one DOC_MUD_AGENT for self-speech, one DOC_MUD_WORLD for other
+        assert len(entries) == 2
+
+        agent_entries = [e for e in entries if e.document_type == DOC_MUD_AGENT]
+        world_entries = [e for e in entries if e.document_type == DOC_MUD_WORLD]
+
+        assert len(agent_entries) == 1
+        assert len(world_entries) == 1
+
+        # Self-speech should be in agent entry (first-person, raw content)
+        assert "Hello world" in agent_entries[0].content
+        # Other speech should be in world entry (third-person)
+        assert "Hi Andi!" in world_entries[0].content
 
     @pytest.mark.asyncio
-    async def test_push_user_turn_all_self_speech_filtered(self, conversation_manager, mock_redis):
-        """When all events are self-speech, entry should say [No events]."""
+    async def test_push_user_turn_all_self_speech_creates_agent_entry(self, conversation_manager, mock_redis):
+        """When all events are self-speech, they create DOC_MUD_AGENT entries."""
         # Create only self-speech events
         self_speech1 = MUDEvent(
             event_id="1",
@@ -494,14 +511,16 @@ class TestMUDConversationManagerSelfSpeechFiltering:
             room_name="Test Room",
         )
 
-        # Entry content should be [No events] since all were filtered
-        assert entry.content == "[No events]"
-        assert entry.metadata["event_count"] == 0
+        # Entry should be DOC_MUD_AGENT with both speeches (grouped by same actor)
+        assert entry.document_type == DOC_MUD_AGENT
+        assert "Hello world" in entry.content
+        assert "How are you?" in entry.content
+        assert entry.metadata["event_count"] == 2
 
     @pytest.mark.asyncio
     async def test_push_user_turn_self_speech_mixed_with_other_events(self, conversation_manager, mock_redis):
-        """Self-speech should be filtered but other event types from self preserved."""
-        # Self-speech (should be filtered)
+        """Self-speech and other events create separate entries by actor grouping."""
+        # Self-speech
         self_speech = MUDEvent(
             event_id="1",
             event_type=EventType.SPEECH,
@@ -514,7 +533,7 @@ class TestMUDConversationManagerSelfSpeechFiltering:
             metadata={"is_self_action": True}
         )
 
-        # Self-emote (should NOT be filtered)
+        # Self-emote (same actor, will be grouped with speech)
         self_emote = MUDEvent(
             event_id="2",
             event_type=EventType.EMOTE,
@@ -527,7 +546,7 @@ class TestMUDConversationManagerSelfSpeechFiltering:
             metadata={"is_self_action": True}
         )
 
-        # Other's speech (should NOT be filtered)
+        # Other's speech
         other_speech = MUDEvent(
             event_id="3",
             event_type=EventType.SPEECH,
@@ -540,39 +559,39 @@ class TestMUDConversationManagerSelfSpeechFiltering:
             metadata={"is_self_action": False}
         )
 
-        entry = await conversation_manager.push_user_turn(
+        await conversation_manager.push_user_turn(
             events=[self_speech, self_emote, other_speech],
             room_id="#123",
             room_name="Test Room",
         )
 
         entries = _entries_from_rpush(mock_redis)
+
+        # Should have 2 entries: DOC_MUD_AGENT for self-speech group, DOC_MUD_WORLD for other
         assert len(entries) == 2
 
-        action_entries = [e for e in entries if e.document_type != DOC_MUD_WORLD]
+        agent_entries = [e for e in entries if e.document_type == DOC_MUD_AGENT]
         world_entries = [e for e in entries if e.document_type == DOC_MUD_WORLD]
 
-        assert len(action_entries) == 1
+        assert len(agent_entries) == 1
         assert len(world_entries) == 1
 
-        action_entry = action_entries[0]
+        agent_entry = agent_entries[0]
         world_entry = world_entries[0]
 
-        # Entry should contain emote and other's speech, but NOT self-speech
-        assert "waves enthusiastically" in action_entry.content
-        assert "Hi everyone!" in world_entry.content
-        assert "Hello" not in action_entry.content
-        assert "Hello" not in world_entry.content
-        assert "You: Hello" not in action_entry.content
-        assert "You: Hello" not in world_entry.content
+        # Self events should be in agent entry (first-person, raw content)
+        assert "Hello" in agent_entry.content
+        assert "waves enthusiastically" in agent_entry.content
+        assert agent_entry.metadata["event_count"] == 2
 
-        assert action_entry.metadata["event_count"] == 1
+        # Other speech in world entry (third-person)
+        assert "Hi everyone!" in world_entry.content
         assert world_entry.metadata["event_count"] == 1
 
     @pytest.mark.asyncio
-    async def test_push_user_turn_self_speech_doesnt_affect_actor_metadata(self, conversation_manager, mock_redis):
-        """Filtered self-speech should not appear in actors list."""
-        # Self-speech (will be filtered)
+    async def test_push_user_turn_self_speech_appears_in_actor_metadata(self, conversation_manager, mock_redis):
+        """Self-speech actor appears in metadata since events are no longer filtered."""
+        # Self-speech
         self_speech = MUDEvent(
             event_id="1",
             event_type=EventType.SPEECH,
@@ -598,21 +617,25 @@ class TestMUDConversationManagerSelfSpeechFiltering:
             metadata={"is_self_action": False}
         )
 
-        entry = await conversation_manager.push_user_turn(
+        await conversation_manager.push_user_turn(
             events=[self_speech, other_speech],
             room_id="#123",
             room_name="Test Room",
         )
 
-        # Actors list should only contain Dave, not Andi (from filtered self-speech)
-        assert "Dave" in entry.metadata["actors"]
-        assert "Andi" not in entry.metadata["actors"]
-        assert len(entry.metadata["actors"]) == 1
+        entries = _entries_from_rpush(mock_redis)
+
+        # Find the self-speech entry (DOC_MUD_AGENT for speech)
+        agent_entries = [e for e in entries if e.document_type == DOC_MUD_AGENT]
+        assert len(agent_entries) == 1
+
+        # Andi should appear in the agent entry's actors
+        assert "Andi" in agent_entries[0].metadata["actors"]
 
     @pytest.mark.asyncio
-    async def test_push_user_turn_self_speech_doesnt_affect_event_ids(self, conversation_manager, mock_redis):
-        """Filtered self-speech event IDs should not appear in metadata."""
-        # Self-speech (will be filtered)
+    async def test_push_user_turn_self_speech_event_ids_in_metadata(self, conversation_manager, mock_redis):
+        """Self-speech event IDs appear in metadata since events are no longer filtered."""
+        # Self-speech
         self_speech = MUDEvent(
             event_id="self-speech-123",
             event_type=EventType.SPEECH,
@@ -638,16 +661,23 @@ class TestMUDConversationManagerSelfSpeechFiltering:
             metadata={"is_self_action": False}
         )
 
-        entry = await conversation_manager.push_user_turn(
+        await conversation_manager.push_user_turn(
             events=[self_speech, other_event],
             room_id="#123",
             room_name="Test Room",
         )
 
-        # Event IDs should only contain the other event, not self-speech
-        assert "other-event-456" in entry.metadata["event_ids"]
-        assert "self-speech-123" not in entry.metadata["event_ids"]
-        assert len(entry.metadata["event_ids"]) == 1
+        entries = _entries_from_rpush(mock_redis)
+
+        # Find entries by type
+        agent_entries = [e for e in entries if e.document_type == DOC_MUD_AGENT]
+        world_entries = [e for e in entries if e.document_type == DOC_MUD_WORLD]
+
+        # Self-speech event ID should be in agent entry
+        assert "self-speech-123" in agent_entries[0].metadata["event_ids"]
+
+        # Other event ID should be in world entry
+        assert "other-event-456" in world_entries[0].metadata["event_ids"]
 
 
 class TestMUDConversationManagerPushAssistantTurn:
@@ -1267,29 +1297,57 @@ class TestMUDConversationManagerConversationID:
 
 
 class TestMUDConversationManagerGetLastEventId:
-    """Test MUDConversationManager.get_last_event_id method."""
+    """Test MUDConversationManager.get_last_event_id method.
+
+    The method now scans ALL entries and returns the MAX event_id across all entries.
+    Event IDs are Redis stream IDs in format "timestamp-sequence" which can be
+    compared lexicographically.
+    """
 
     @pytest.mark.asyncio
-    async def test_get_last_event_id_returns_from_most_recent_entry(self, conversation_manager, mock_redis):
-        """Test that get_last_event_id returns the last_event_id from the most recent entry."""
-        entry = MUDConversationEntry(
+    async def test_get_last_event_id_returns_max_across_all_entries(self, conversation_manager, mock_redis):
+        """Test that get_last_event_id returns the maximum event_id across all entries."""
+        entry1 = MUDConversationEntry(
             role="user",
-            content="Test message",
+            content="First message",
             tokens=10,
             document_type=DOC_MUD_WORLD,
             conversation_id="test",
-            sequence_no=5,
+            sequence_no=0,
             speaker_id="world",
-            last_event_id="1704096000000-42",
+            last_event_id="1704096000000-10",
+        )
+        entry2 = MUDConversationEntry(
+            role="user",
+            content="Second message",
+            tokens=10,
+            document_type=DOC_MUD_WORLD,
+            conversation_id="test",
+            sequence_no=1,
+            speaker_id="world",
+            last_event_id="1704096000000-42",  # Max
+        )
+        entry3 = MUDConversationEntry(
+            role="user",
+            content="Third message",
+            tokens=10,
+            document_type=DOC_MUD_WORLD,
+            conversation_id="test",
+            sequence_no=2,
+            speaker_id="world",
+            last_event_id="1704096000000-5",  # Lower than entry2
         )
 
-        mock_redis.lrange.return_value = [entry.model_dump_json().encode()]
+        mock_redis.lrange.return_value = [
+            entry1.model_dump_json().encode(),
+            entry2.model_dump_json().encode(),
+            entry3.model_dump_json().encode(),
+        ]
 
         result = await conversation_manager.get_last_event_id()
 
+        # Should return the MAX event_id (1704096000000-42), not the most recent entry's
         assert result == "1704096000000-42"
-        # Verify it queries only the last entry (-1, -1)
-        mock_redis.lrange.assert_called_once_with(conversation_manager.key, -1, -1)
 
     @pytest.mark.asyncio
     async def test_get_last_event_id_returns_none_for_empty_list(self, conversation_manager, mock_redis):
@@ -1301,8 +1359,8 @@ class TestMUDConversationManagerGetLastEventId:
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_get_last_event_id_returns_none_when_entry_has_no_last_event_id(self, conversation_manager, mock_redis):
-        """Test that get_last_event_id returns None when entry has no last_event_id."""
+    async def test_get_last_event_id_returns_none_when_all_entries_have_no_last_event_id(self, conversation_manager, mock_redis):
+        """Test that get_last_event_id returns None when no entries have last_event_id."""
         entry = MUDConversationEntry(
             role="user",
             content="Test message",
@@ -1321,13 +1379,28 @@ class TestMUDConversationManagerGetLastEventId:
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_get_last_event_id_handles_parse_error(self, conversation_manager, mock_redis):
-        """Test that get_last_event_id returns None on parse error."""
-        mock_redis.lrange.return_value = [b"invalid json"]
+    async def test_get_last_event_id_handles_parse_error_gracefully(self, conversation_manager, mock_redis):
+        """Test that get_last_event_id skips invalid entries and returns max from valid ones."""
+        entry = MUDConversationEntry(
+            role="user",
+            content="Valid entry",
+            tokens=10,
+            document_type=DOC_MUD_WORLD,
+            conversation_id="test",
+            sequence_no=0,
+            speaker_id="world",
+            last_event_id="1704096000000-99",
+        )
+
+        mock_redis.lrange.return_value = [
+            b"invalid json",
+            entry.model_dump_json().encode(),
+        ]
 
         result = await conversation_manager.get_last_event_id()
 
-        assert result is None
+        # Should return the max from valid entries
+        assert result == "1704096000000-99"
 
     @pytest.mark.asyncio
     async def test_get_last_event_id_handles_bytes_decoding(self, conversation_manager, mock_redis):

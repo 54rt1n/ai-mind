@@ -53,8 +53,8 @@ class AgentCommand(Command):
             guidance = (turn_request.metadata.get("guidance", "") or "").strip()
             required_tool = (turn_request.metadata.get("tool", "") or "").strip()
 
-        # Worker has already drained events into worker.pending_events
-        events = worker.pending_events
+        # Events passed via kwargs from main loop
+        events = kwargs.get("events", [])
 
         logger.info(
             "Processing @agent turn %s with tool=%s, %d events",
@@ -72,12 +72,14 @@ class AgentCommand(Command):
         processor.required_tool = required_tool
         await processor.execute(turn_request, events)
 
+        # Get emitted action_ids from worker (set by _emit_actions during processor execution)
+        action_ids = worker._last_emitted_action_ids
+
         # Agent turns are memory palace actions, outside MUD world
         # Events are environmental context only, don't flush drain
         return CommandResult(
             complete=True,
-            flush_drain=False,
-            saved_event_id=None,
             status=TurnRequestStatus.DONE,
-            message=f"Agent turn processed: {required_tool or 'any tool'}"
+            message=f"Agent turn processed: {required_tool or 'any tool'}",
+            emitted_action_ids=action_ids,
         )

@@ -51,8 +51,8 @@ class ChooseCommand(Command):
         if turn_request.metadata:
             guidance = (turn_request.metadata.get("guidance", "") or "").strip()
 
-        # Worker has already drained events into worker.pending_events
-        events = worker.pending_events
+        # Events passed via kwargs from main loop
+        events = kwargs.get("events", [])
 
         logger.info(
             "Processing @choose turn %s with %d events, guidance=%s",
@@ -68,16 +68,15 @@ class ChooseCommand(Command):
             logger.error("Choose turn %s produced no decision: %s", turn_id, error_detail)
             return CommandResult(
                 complete=True,
-                flush_drain=False,
-                saved_event_id=None,
                 status=TurnRequestStatus.FAIL,
                 message=f"@choose turn failed: {error_detail}",
             )
 
+        # Get emitted action_ids from worker (set by _emit_actions during take_turn)
+        action_ids = worker._last_emitted_action_ids if decision.decision_type not in (DecisionType.WAIT, DecisionType.CONFUSED) else []
         return CommandResult(
             complete=True,
-            flush_drain=decision.should_flush if decision else False,
-            saved_event_id=None,
             status=TurnRequestStatus.DONE,
-            message=f"@choose turn processed: {decision.decision_type.name}"
+            message=f"@choose turn processed: {decision.decision_type.name}",
+            emitted_action_ids=action_ids,
         )

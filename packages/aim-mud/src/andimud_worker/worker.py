@@ -8,9 +8,8 @@ Extracted from worker.py lines 1-365, 374-620, 1870-1887
 
 import asyncio
 import contextlib
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from collections import deque
-import json
 import logging
 import signal
 import time
@@ -27,7 +26,7 @@ from aim.agents.persona import Persona
 from aim.config import ChatConfig
 from aim.llm.llm import LLMProvider
 
-from aim_mud_types import MUDAction, MUDTurnRequest, RedisKeys, TurnRequestStatus, TurnReason
+from aim_mud_types import MUDAction, MUDTurnRequest, TurnRequestStatus, TurnReason
 from aim_mud_types.models.decision import DecisionResult
 from aim_mud_types.helper import compute_next_attempt_at
 from aim_mud_types.helper import transition_turn_request
@@ -152,13 +151,16 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
         # Main loop task tracking for clean shutdown
         self._main_loop_task: Optional[asyncio.Task] = None
 
-        # Event accumulation buffer
-        self.pending_events: list = []
+        # Drain signature tracking (for deduplication)
         self._last_drain_signature: Optional[tuple[str, ...]] = None
         self._emote_used_in_drain: bool = False
         self._last_conversation_signature: Optional[tuple[str, ...]] = None
         self._conversation_event_ids: set[str] = set()
         self._conversation_event_id_queue: deque[str] = deque()
+
+        # Action tracking (for pending action_id correlation)
+        self._last_emitted_action_ids: list[str] = []
+        self._last_emitted_expects_echo: bool = True
 
         # Command registry
         self.command_registry = CommandRegistry.register(
@@ -272,6 +274,25 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
             f"Worker initialized. Listening on stream: {self.config.agent_stream}"
         )
         logger.info(f"Using model: {self.chat_config.default_model}")
+
+        # Recover from PENDING status on startup (action echo lost during restart)
+        existing_turn = await self._get_turn_request()
+        if existing_turn and existing_turn.status == TurnRequestStatus.PENDING:
+            logger.info("Recovering from PENDING status on startup")
+            old_turn_id = existing_turn.turn_id  # Save before transition mutates it
+            existing_turn.metadata = {}  # Clear pending_action_ids
+            transition_turn_request(
+                existing_turn,
+                status=TurnRequestStatus.READY,
+                status_reason="Recovered from PENDING on worker startup",
+                new_turn_id=True,
+                update_heartbeat=True,
+            )
+            success = await self.update_turn_request(existing_turn, expected_turn_id=old_turn_id)
+            if success:
+                logger.info("Transitioned from PENDING to READY")
+            else:
+                logger.warning("Failed to transition from PENDING to READY (CAS failed)")
 
         # Run the main worker loop
         # Track main loop task for clean shutdown synchronization
@@ -404,6 +425,92 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
 
                 # If not assigned, refresh heartbeat and wait
                 if turn_request.status != TurnRequestStatus.ASSIGNED:
+                    # Handle PENDING status - waiting for action echo from Evennia
+                    if turn_request.status == TurnRequestStatus.PENDING:
+                        pending_action_ids = set((turn_request.metadata or {}).get("pending_action_ids", []))
+                        if pending_action_ids:
+                            # Check for PENDING timeout (60 seconds)
+                            if turn_request.assigned_at:
+                                pending_duration = (datetime.now(timezone.utc) - turn_request.assigned_at).total_seconds()
+                                if pending_duration > 60:
+                                    logger.warning(
+                                        f"PENDING timeout after {pending_duration:.0f}s, transitioning to READY"
+                                    )
+                                    current = await self._get_turn_request()
+                                    if current:
+                                        current.metadata = {}
+                                        transition_turn_request(
+                                            current,
+                                            status=TurnRequestStatus.READY,
+                                            status_reason="PENDING timeout (echo not received)",
+                                            new_turn_id=True,
+                                            update_heartbeat=True,
+                                        )
+                                        await self.update_turn_request(current, expected_turn_id=turn_request.turn_id)
+                                    await asyncio.sleep(self.config.turn_request_poll_interval)
+                                    continue
+
+                            # Drain events looking for matching action_ids
+                            events = await self.drain_events(timeout=0)
+                            matched_action_ids: set[str] = set()
+                            for event in events:
+                                event_action_id = event.action_id
+                                if event_action_id and event_action_id in pending_action_ids:
+                                    matched_action_ids.add(event_action_id)
+                                    logger.debug(f"Matched echo for action_id={event_action_id}")
+
+                            if events:
+                                # Push all drained events to conversation
+                                await self._push_events_to_conversation(events)
+                                # Persist last_event_id to Redis (fixes SLEEP_AWARE tracking)
+                                last_event = events[-1]
+                                if last_event.event_id:
+                                    await self._update_agent_profile(last_event_id=last_event.event_id)
+
+                            # Check if ALL echoes received
+                            if matched_action_ids == pending_action_ids:
+                                # Transition to READY
+                                logger.info(f"All {len(pending_action_ids)} action echoes received")
+                                current = await self._get_turn_request()
+                                if current:
+                                    current.metadata = {}  # Clear pending_action_ids
+                                    transition_turn_request(
+                                        current,
+                                        status=TurnRequestStatus.READY,
+                                        status_reason="Action echo received",
+                                        new_turn_id=True,
+                                        update_heartbeat=True,
+                                    )
+                                    await self.update_turn_request(current, expected_turn_id=turn_request.turn_id)
+                                    logger.info(f"Turn transitioned to READY after action echo")
+                            elif matched_action_ids:
+                                # Partial match - update metadata and continue waiting
+                                logger.debug(
+                                    f"Partial echo: {len(matched_action_ids)}/{len(pending_action_ids)} received"
+                                )
+                                # Update heartbeat while waiting
+                                await self.atomic_heartbeat_update()
+                            else:
+                                # No matches yet - update heartbeat while waiting
+                                await self.atomic_heartbeat_update()
+                        else:
+                            # No pending_action_ids but status is PENDING - recover
+                            logger.warning("PENDING status but no pending_action_ids, transitioning to READY")
+                            current = await self._get_turn_request()
+                            if current:
+                                current.metadata = {}
+                                transition_turn_request(
+                                    current,
+                                    status=TurnRequestStatus.READY,
+                                    status_reason="Recovered from PENDING with no action_ids",
+                                    new_turn_id=True,
+                                    update_heartbeat=True,
+                                )
+                                await self.update_turn_request(current, expected_turn_id=turn_request.turn_id)
+
+                        await asyncio.sleep(self.config.turn_request_poll_interval)
+                        continue
+
                     # Keep turn_request alive when ready but idle - refresh heartbeat
                     if turn_request.status == TurnRequestStatus.READY:
                         # Atomic heartbeat update with validation
@@ -461,8 +568,6 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
 
                 try:
                     preempted = False
-                    # SAVE pre-drain event position for potential rollback
-                    saved_event_id = self.session.last_event_id
 
                     # Ensure Phase 1 tools include plan tools whenever a plan is active
                     try:
@@ -482,27 +587,58 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                         max_seq = turn_request.sequence_id
                         logger.debug(f"Draining events with sequence_id < {max_seq}")
 
-                    # Drain events into pending_events buffer, filtered by sequence_id
-                    self.pending_events = await self._drain_with_settle(max_sequence_id=max_seq)
+                    # Drain events filtered by sequence_id
+                    drained_events = await self._drain_with_settle(max_sequence_id=max_seq)
 
-                    # Execute command via registry
+                    # Execute command via registry, passing events directly
                     logger.info(f"Executing command: {turn_request.model_dump()}")
-                    result = await self.command_registry.execute(self, **turn_request.model_dump())
+                    result = await self.command_registry.execute(
+                        self,
+                        events=drained_events,
+                        **turn_request.model_dump()
+                    )
                     if result.turn_id:
                         turn_id = result.turn_id
-
-                    # Handle flush_drain flag
-                    if result.flush_drain:
-                        self.pending_events = []
-                        saved_event_id = None  # Don't restore - events were consumed
 
                     # If command completed fully, set status and continue
                     if result.complete:
                         if result.status == TurnRequestStatus.FAIL:
                             # Handle failure with backoff
                             await self._handle_turn_failure(turn_id, result.message or "Command failed")
+                        elif result.emitted_action_ids and result.expects_echo:
+                            # Command emitted actions that expect echo - set PENDING to wait
+                            current = await self._get_turn_request()
+                            if current:
+                                if current.metadata is None:
+                                    current.metadata = {}
+                                current.metadata["pending_action_ids"] = result.emitted_action_ids
+                                transition_turn_request(
+                                    current,
+                                    status=TurnRequestStatus.PENDING,
+                                    status_reason="Waiting for action echo from Evennia",
+                                    update_heartbeat=True,
+                                )
+                                await self.update_turn_request(current, expected_turn_id=turn_id)
+                            logger.info(
+                                f"Turn {turn_id} set to PENDING, waiting for action_ids: {result.emitted_action_ids}"
+                            )
+                        elif result.emitted_action_ids:
+                            # Command emitted actions but no echo expected (non_published)
+                            # Go directly to READY without waiting
+                            current = await self._get_turn_request()
+                            if current:
+                                transition_turn_request(
+                                    current,
+                                    status=TurnRequestStatus.READY,
+                                    status_reason="Actions emitted (no echo expected)",
+                                    update_heartbeat=True,
+                                )
+                                await self.update_turn_request(current, expected_turn_id=turn_id)
+                            logger.info(
+                                f"Turn {turn_id} set to READY (no echo expected for action_ids: {result.emitted_action_ids})"
+                            )
                         else:
-                            # Non-failure status (DONE, ABORTED, etc.)
+                            # No actions emitted - set to result status (DONE, ABORTED, etc.)
                             current = await self._get_turn_request()
                             if current:
                                 transition_turn_request(
@@ -513,11 +649,12 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                                     update_heartbeat=True,
                                 )
                                 await self.update_turn_request(current, expected_turn_id=turn_id)
+
                         self._last_turn_request_id = turn_id
                         continue
 
                     # Command returned complete=False, fall through to process_turn
-                    events = self.pending_events
+                    events = drained_events
                     logger.info(
                         "Processing assigned turn %s (%s) with %d events",
                         turn_id,
@@ -549,52 +686,11 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                         )
                     else:
                         # Load stored thought for regular turns (not THINK, which generates new ones)
-                        thought_key = RedisKeys.agent_thought(self.config.agent_id)
-                        thought_raw = await self.redis.get(thought_key)
-                        if thought_raw:
-                            try:
-                                raw_str = thought_raw.decode("utf-8") if isinstance(thought_raw, bytes) else thought_raw
-                                thought_data = json.loads(raw_str)
-                                thought_content = thought_data.get("content", "")
-                                timestamp = thought_data.get("timestamp", 0)
-                                age_seconds = time.time() - timestamp
-                                if age_seconds < 7200 and thought_content:  # 2-hour TTL check
-                                    if self._decision_strategy:
-                                        self._decision_strategy.thought_content = thought_content
-                                    if self._response_strategy:
-                                        self._response_strategy.thought_content = thought_content
-                                    logger.info("Loaded thought content (%d chars, %.0fs old)", len(thought_content), age_seconds)
-                            except json.JSONDecodeError as e:
-                                logger.warning("Failed to parse thought JSON: %s", e)
+                        # Uses ProfileMixin._load_thought_content() which reads from Redis hash
+                        # and sets thought_content on both decision and response strategies
+                        await self._load_thought_content()
 
                         await self.process_turn(turn_request, events, user_guidance=user_guidance)
-
-                    # CHECK: Did this turn include a speech event?
-                    has_speech = False
-                    last_turn = self.session.get_last_turn() if self.session else None
-                    if last_turn:
-                        for action in last_turn.actions_taken:
-                            if action.tool == "speak":
-                                has_speech = True
-                                logger.info(f"Turn {turn_id} included speech event, consuming drained events")
-                                break
-
-                    # CONDITIONAL CONSUMPTION: Only speech events advance last_event_id
-                    if not has_speech:
-                        # Non-speech turn: restore event position (events remain for next turn)
-                        logger.info(f"Turn {turn_id} was non-speech, restoring event position")
-                        await self._restore_event_position(saved_event_id)
-                        saved_event_id = None  # Prevent double-restore in exception handler
-                    else:
-                        # Speech turn: keep advanced last_event_id (events consumed)
-                        logger.info(f"Turn {turn_id} was speech, events consumed")
-
-                        # Persist the advanced event position ONLY for speech turns
-                        # This ensures events are consumed only when the agent actually spoke
-                        # Non-speech turns restore via _restore_event_position() which also persists
-                        await self._update_agent_profile(last_event_id=self.session.last_event_id)
-
-                        saved_event_id = None  # Events consumed, don't restore on exception
 
                     current = await self._get_turn_request()
                     if current:
@@ -609,9 +705,6 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                 except TurnPreemptedException as e:
                     preempted = True
                     logger.info(f"Turn {turn_id} preempted: {e}")
-                    if saved_event_id:
-                        await self._restore_event_position(saved_event_id)
-                        saved_event_id = None
                 except AbortRequestedException:
                     logger.info(f"Turn {turn_id} aborted by user request")
                     current = await self._get_turn_request()
@@ -624,18 +717,12 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                             update_heartbeat=True,
                         )
                         await self.update_turn_request(current, expected_turn_id=turn_id)
-                    await self._restore_event_position(saved_event_id)
                 except Exception as e:
                     logger.error(f"Error during assigned turn {turn_id}: {e}", exc_info=True)
 
                     # Handle failure with exponential backoff
                     error_type = type(e).__name__
                     await self._handle_turn_failure(turn_id, str(e), error_type)
-
-                    # Restore event position so retry gets the same events
-                    # Only restore if saved_event_id is not None (not already restored)
-                    if saved_event_id:
-                        await self._restore_event_position(saved_event_id)
                 finally:
                     heartbeat_stop.set()
                     heartbeat_task.cancel()

@@ -219,7 +219,11 @@ class TurnsMixin:
             lines.extend(self._decision_strategy._build_agent_action_hints(self.session))
         return "\n".join([line for line in lines if line])
 
-    async def _emit_decision_action(self: "MUDAgentWorker", decision: DecisionResult) -> list[MUDAction]:
+    async def _emit_decision_action(
+        self: "MUDAgentWorker",
+        decision: DecisionResult,
+        events: list[MUDEvent],
+    ) -> list[MUDAction]:
         """Emit actions for non-speak decisions.
 
         Handles all decision types except SPEAK:
@@ -237,6 +241,7 @@ class TurnsMixin:
 
         Args:
             decision: DecisionResult from DecisionProcessor
+            events: Events that triggered this decision
 
         Returns:
             List of actions emitted
@@ -290,7 +295,7 @@ class TurnsMixin:
             if action_text:
                 action = MUDAction(tool="emote", args={
                     "action": action_text},
-                    metadata={"non_published": True},
+                    metadata={MUDAction.META_NON_PUBLISHED: True},
                 )
                 actions_taken.append(action)
                 await self._emit_actions(actions_taken)
@@ -302,7 +307,7 @@ class TurnsMixin:
             if action_text:
                 action = MUDAction(tool="emote", args={
                     "action": action_text},
-                    metadata={"non_reactive": True},
+                    metadata={MUDAction.META_NON_REACTIVE: True},
                 )
                 actions_taken.append(action)
                 await self._emit_actions(actions_taken)
@@ -323,7 +328,7 @@ class TurnsMixin:
             action = MUDAction(
                 tool="emote",
                 args={"action": emote_text},
-                metadata={"non_reactive": True},
+                metadata={MUDAction.META_NON_REACTIVE: True},
             )
             actions_taken.append(action)
             await self._emit_actions(actions_taken)
@@ -343,7 +348,7 @@ class TurnsMixin:
             logger.info(f"Plan update: status={plan_status}, next_task={next_task}")
             action = MUDAction(tool="emote", args={
                 "action": emote_text},
-                metadata={"non_published": True},
+                metadata={MUDAction.META_NON_PUBLISHED: True},
             )
             actions_taken.append(action)
             await self._emit_actions(actions_taken)
@@ -354,7 +359,7 @@ class TurnsMixin:
             emote_text = "looks confused."
             action = MUDAction(tool="emote", args={
                 "action": emote_text},
-                metadata={"non_published": True},
+                metadata={MUDAction.META_NON_PUBLISHED: True},
             )
             actions_taken.append(action)
             await self._emit_actions(actions_taken)
@@ -375,14 +380,13 @@ class TurnsMixin:
         # Create and store turn record
         turn = MUDTurn(
             timestamp=_utc_now(),
-            events_received=self.session.pending_events,
+            events_received=events,
             room_context=self.session.current_room,
             entities_context=self.session.entities_present,
             thinking=decision.thinking,
             actions_taken=actions_taken,
         )
         self.session.add_turn(turn)
-        self.session.clear_pending_events()
 
         logger.info(
             f"Emitted {len(actions_taken)} action(s) for {decision.decision_type.name}. "
@@ -684,8 +688,8 @@ class TurnsMixin:
                 f"Content: {event.content[:100] if event.content else '(none)'}..."
             )
 
-        # Apply events to session (replace mode for initial setup)
-        await self._apply_events_to_session(events, extend=False)
+        # Push events to conversation history
+        await self._push_events_to_conversation(events)
 
     async def take_turn(
         self: "MUDAgentWorker",
@@ -733,7 +737,7 @@ class TurnsMixin:
                 await thinking_processor.execute(turn_request, events)
             else:
                 # Direct action (move, take, drop, give, emote, wait, etc.)
-                await self._emit_decision_action(decision)
+                await self._emit_decision_action(decision, events)
 
             # Clear decision
             self._last_decision = None

@@ -362,15 +362,22 @@ def create_pending_dream_stub(
     """
     import uuid
 
+    from andimud_worker.conversation.storage import generate_conversation_id
+
     from .models.coordination import DreamingState, DreamStatus
     from .redis_keys import RedisKeys
+
+    # Generate conversation_id for creative scenarios if not provided
+    if not conversation_id:
+        prefix = scenario_name.split("_")[0]  # "journaler" from "journaler_dialogue"
+        conversation_id = generate_conversation_id(prefix)
 
     stub = DreamingState(
         pipeline_id=str(uuid.uuid4()),
         agent_id=agent_id,
         status=DreamStatus.PENDING,
         scenario_name=scenario_name,
-        conversation_id=conversation_id or "",
+        conversation_id=conversation_id,
         query=query,
         guidance=guidance,
         created_at=_utc_now(),

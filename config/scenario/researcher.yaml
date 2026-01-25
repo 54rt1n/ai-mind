@@ -39,7 +39,7 @@ steps:
       '
     config:
       max_tokens: 4096
-      use_guidance: true
+      link_guidance: true
       is_thought: true
     output:
       document_type: step
@@ -59,7 +59,7 @@ steps:
       '
     config:
       max_tokens: 4096
-      use_guidance: true
+      link_guidance: true
       is_thought: true
     output:
       document_type: step
@@ -98,7 +98,7 @@ steps:
       '
     config:
       max_tokens: 4096
-      use_guidance: true
+      link_guidance: true
     output:
       document_type: self_rag
       weight: 0.6
@@ -136,7 +136,7 @@ steps:
       '
     config:
       max_tokens: 4096
-      use_guidance: true
+      link_guidance: true
       is_thought: true
     output:
       document_type: step

@@ -296,7 +296,7 @@ class TestMUDDecisionStrategyBuildTurns:
     ):
         """Test that build_turns handles idle mode."""
         session = _sample_session()
-        session.pending_events = []  # No pending events
+        # No pending_events field - events now in conversation history
 
         # Capture what user_input was passed to chat_turns_for
         captured_user_input = None

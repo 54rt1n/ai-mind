@@ -50,7 +50,7 @@ steps:
       Begin with "[== {{ psychologist.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
-      use_guidance: true
+      link_guidance: true
       model_role: analysis
     output:
       document_type: dialogue-psychologist
@@ -77,6 +77,7 @@ steps:
         top_n: 4
     config:
       max_tokens: 4096
+      link_guidance: true
     output:
       document_type: step
       weight: 0.5
@@ -102,7 +103,7 @@ steps:
       Begin with "[== {{ revelator.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
-      use_guidance: true
+      link_guidance: true
       model_role: analysis
     output:
       document_type: dialogue-revelator
@@ -126,6 +127,7 @@ steps:
         top_n: 4
     config:
       max_tokens: 4096
+      link_guidance: true
     output:
       document_type: step
       weight: 0.6
@@ -151,7 +153,7 @@ steps:
       Begin with "[== {{ champion.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
-      use_guidance: true
+      link_guidance: true
     output:
       document_type: dialogue-champion
       weight: 0.6
@@ -200,7 +202,7 @@ steps:
       Begin with "[== {{ psychologist.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
-      use_guidance: true
+      link_guidance: true
       model_role: analysis
     output:
       document_type: dialogue-psychologist
@@ -252,7 +254,7 @@ steps:
       Begin with "[== {{ writer.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
-      use_guidance: true
+      link_guidance: true
       model_role: writing
     output:
       document_type: dialogue-writer
@@ -306,7 +308,7 @@ steps:
     config:
       max_tokens: 4096
       is_codex: true
-      use_guidance: true
+      link_guidance: true
       model_role: codex
     output:
       document_type: codex
@@ -353,12 +355,15 @@ steps:
       Begin with "[== {{ librarian.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
-      use_guidance: true
+      link_guidance: true
     output:
       document_type: dialogue-librarian
       weight: 0.2
     context:
       - action: flush
+      - action: load_conversation
+        target: current
+        document_types: [summary, conversation, mud-world, mud-agent]
       - action: search_memories
         top_n: 20
     next: [brainstorm_response]

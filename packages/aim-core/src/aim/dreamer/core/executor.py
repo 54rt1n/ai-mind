@@ -392,8 +392,8 @@ async def execute_step(
         step_flags.append("codex")
     if step_def.config.is_thought:
         step_flags.append("thought")
-    if step_def.config.use_guidance:
-        step_flags.append("guidance")
+    if step_def.config.link_guidance:
+        step_flags.append("link_guidance")
     flags_str = f" [{', '.join(step_flags)}]" if step_flags else ""
 
     logger.info(
@@ -408,9 +408,9 @@ async def execute_step(
     # 2. Render prompt
     prompt = render_template(step_def.prompt, context)
 
-    # 3. Append guidance if use_guidance is set and guidance exists
-    if step_def.config.use_guidance and state.guidance:
-        prompt = f"{prompt}\n\n[Guidance: {state.guidance}]"
+    # 3. Append guidance if link_guidance is set and guidance exists
+    if step_def.config.link_guidance and state.guidance:
+        prompt = f"{prompt}\n\n[Link Guidance: {state.guidance}]"
 
     # 4. Load context (from DSL or accumulated from prior steps)
     # Memory retrieval is now handled by search_memories action in context DSL

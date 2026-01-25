@@ -267,21 +267,22 @@ class RedisKeys:
 
     @staticmethod
     def agent_thought(agent_id: str) -> str:
-        """Get the thought injection key for a specific agent.
+        """Get the thought state key for a specific agent.
 
-        The thought key stores external thought content to inject into
-        the agent's processing. Value is JSON:
-        {
-            "content": str,          # The thought text
-            "source": str,           # "manual" | "dreamer" | "system"
-            "timestamp": int,        # Unix timestamp when set
-        }
+        The thought key stores a ThoughtState object as a Redis hash.
+        See aim_mud_types.models.coordination.ThoughtState for schema.
+
+        Use ThoughtMixin methods for CRUD operations:
+        - get_thought_state(agent_id) -> Optional[ThoughtState]
+        - save_thought_state(thought, ttl_seconds=7200) -> bool
+        - delete_thought_state(agent_id) -> bool
+        - increment_thought_action_counter(agent_id) -> int
 
         Args:
             agent_id: Unique identifier for the agent.
 
         Returns:
-            Redis key for the agent's injected thought.
+            Redis hash key for the agent's thought state.
         """
         return f"agent:{agent_id}:thought"
 

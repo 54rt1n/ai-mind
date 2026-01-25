@@ -13,6 +13,7 @@ from aim.agents.aspects import get_aspect_or_default
 from aim.conversation.message import ConversationMessage
 from aim.utils.think import extract_think_tags
 from aim.utils.tokens import count_tokens
+from aim.utils.xml import XmlFormatter
 
 from .base import BaseStepStrategy, ScenarioStepResult
 from .functions import execute_context_actions, load_memory_docs
@@ -53,6 +54,9 @@ class DialogueStrategy(FormatValidationMixin, BaseStepStrategy):
 
     step_def: "DialogueStepDefinition"
 
+    # Match xmlmemory HUD naming for consistent XML output
+    HUD_NAME = "HUD Display Output"
+
     async def execute(self) -> ScenarioStepResult:
         """Execute dialogue step with role flipping.
 
@@ -92,8 +96,13 @@ class DialogueStrategy(FormatValidationMixin, BaseStepStrategy):
         # 2. Build template context
         ctx = self._build_template_context()
 
-        # 3. Render guidance
+        # 3. Render guidance (and append state.guidance if link_guidance is set)
         guidance = self._render_guidance(ctx)
+        if self.step_def.config.link_guidance and state.guidance:
+            if guidance:
+                guidance = f"{guidance}\n\n[Link Guidance: {state.guidance}]"
+            else:
+                guidance = f"[Link Guidance: {state.guidance}]"
 
         # 4. Build system prompt based on speaker type
         system_message = self._build_system_prompt(speaker)
@@ -478,24 +487,66 @@ class DialogueStrategy(FormatValidationMixin, BaseStepStrategy):
         )
 
     def _format_context_docs(self, docs: list[dict]) -> str:
-        """Format context documents as XML.
+        """Format context documents as XML with metadata attributes.
+
+        Uses XmlFormatter to match xmlmemory style with hierarchical tags
+        and document metadata attributes.
 
         Args:
-            docs: List of document dicts with 'content' field
+            docs: List of document dicts with content and metadata
 
         Returns:
-            XML string with context wrapped in tags
+            XML string matching xmlmemory format
         """
         if not docs:
-            return "<context>\n</context>"
+            return ""
 
-        lines = ["<context>"]
+        # Deduplicate by doc_id while preserving order
+        seen_ids = set()
+        unique_docs = []
         for doc in docs:
-            content = doc.get('content', '')
-            lines.append(f"  <document>{content}</document>")
-        lines.append("</context>")
+            doc_id = doc.get('doc_id', '')
+            if doc_id and doc_id not in seen_ids:
+                seen_ids.add(doc_id)
+                unique_docs.append(doc)
+            elif not doc_id:
+                unique_docs.append(doc)
 
-        return "\n".join(lines)
+        formatter = XmlFormatter()
+        for doc in unique_docs:
+            # Map document_type to source tag
+            doc_type = doc.get('document_type', 'memory')
+            source_tag = self._doc_type_to_tag(doc_type)
+
+            formatter.add_element(
+                self.HUD_NAME, "Active Memory", source_tag,
+                date=doc.get('date', ''),
+                type=doc_type,
+                content=doc.get('content', ''),
+                noindent=True,
+            )
+
+        return formatter.render()
+
+    def _doc_type_to_tag(self, doc_type: str) -> str:
+        """Map document_type to XML tag name.
+
+        Follows xmlmemory convention: capitalize known types,
+        prefix unknown types with 'memory_'.
+        """
+        known_tags = {
+            'journal': 'Journal',
+            'pondering': 'Pondering',
+            'brainstorm': 'Brainstorm',
+            'inspiration': 'Inspiration',
+            'understanding': 'Understanding',
+            'reflection': 'Reflection',
+            'codex': 'Codex',
+            'motd': 'MOTD',
+            'conversation': 'Conversation',
+            'summary': 'Summary',
+        }
+        return known_tags.get(doc_type, f'memory_{doc_type}')
 
     def _get_model(self):
         """Get the language model for this step."""

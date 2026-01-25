@@ -1,56 +1,47 @@
 # aim-mud-types/client/sync_mixins/thought.py
 # AI-Mind (C) 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
-"""Sync thought injection operations (read-only).
+"""Sync thought state operations.
 
-Thoughts are injected by external commands (MUD commands, dreamer, etc.)
-and consumed by workers during turn processing. This mixin provides
-read-only access to thought data.
+This mixin provides CRUD operations for ThoughtState, which tracks:
+- Reasoning content
+- Creation timestamp
+- Actions since generation (for throttle)
+
+Thoughts can come from various sources:
+- "reasoning": Generated during thinking turn
+- "manual": Injected by MUD commands (@thought)
+- "dreamer": Generated during dream processing
 """
 
-import json
 from typing import TYPE_CHECKING, Optional
 
 from ...redis_keys import RedisKeys
+from ...models.coordination import ThoughtState
 
 if TYPE_CHECKING:
     from ..base import BaseSyncRedisMUDClient
 
 
-def _decode_thought(raw: bytes | str | None) -> Optional[dict]:
-    """Decode thought JSON from Redis value.
-
-    Args:
-        raw: Raw Redis value (bytes, str, or None)
-
-    Returns:
-        Dict with {content, source, timestamp} or None if invalid/missing
-    """
-    if raw is None:
-        return None
-    if isinstance(raw, bytes):
-        raw = raw.decode("utf-8")
-    try:
-        return json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
-        return None
-
-
 class SyncThoughtMixin:
-    """Sync thought injection Redis operations (read-only).
+    """Sync thought state Redis operations.
 
-    Thoughts are external content injected into an agent's processing.
-    They can come from various sources:
-    - "manual": Injected by MUD commands (@think)
-    - "dreamer": Generated during dream processing
-    - "system": System-generated prompts
-
-    Thought data structure:
-        {
-            "content": str,      # The thought text
-            "source": str,       # Origin of the thought
-            "timestamp": int,    # Unix timestamp when set
-        }
+    ThoughtState is stored as a Redis hash at agent:{id}:thought
     """
+
+    def get_thought_state(
+        self: "BaseSyncRedisMUDClient",
+        agent_id: str
+    ) -> Optional[ThoughtState]:
+        """Fetch thought state as Pydantic model.
+
+        Args:
+            agent_id: Agent identifier
+
+        Returns:
+            ThoughtState object, or None if no thought exists or invalid format
+        """
+        key = RedisKeys.agent_thought(agent_id)
+        return self._get_hash(ThoughtState, key)
 
     def has_active_thought(
         self: "BaseSyncRedisMUDClient",
@@ -64,21 +55,59 @@ class SyncThoughtMixin:
         Returns:
             True if agent has an active thought, False otherwise
         """
-        thought_key = RedisKeys.agent_thought(agent_id)
-        return self.redis.exists(thought_key) == 1
+        key = RedisKeys.agent_thought(agent_id)
+        return self.redis.exists(key) == 1
 
     def get_thought(
         self: "BaseSyncRedisMUDClient",
         agent_id: str
     ) -> Optional[dict]:
-        """Get agent's thought data.
+        """Get agent's thought data as raw dict.
+
+        Legacy method - prefer get_thought_state().
 
         Args:
             agent_id: Agent identifier
 
         Returns:
-            Dict with {content, source, timestamp} or None if no thought
+            Dict with thought fields or None
         """
-        thought_key = RedisKeys.agent_thought(agent_id)
-        raw = self.redis.get(thought_key)
-        return _decode_thought(raw)
+        thought = self.get_thought_state(agent_id)
+        if thought is None:
+            return None
+        return thought.model_dump()
+
+    def save_thought_state(
+        self: "BaseSyncRedisMUDClient",
+        thought: ThoughtState,
+        ttl_seconds: int = 7200
+    ) -> bool:
+        """Save thought state to Redis with TTL.
+
+        Args:
+            thought: ThoughtState to save
+            ttl_seconds: Time-to-live in seconds (default: 2 hours)
+
+        Returns:
+            True if saved successfully
+        """
+        key = RedisKeys.agent_thought(thought.agent_id)
+        created = self._create_hash(key, thought, exists_ok=True)
+        if created and ttl_seconds > 0:
+            self.redis.expire(key, ttl_seconds)
+        return created
+
+    def delete_thought_state(
+        self: "BaseSyncRedisMUDClient",
+        agent_id: str
+    ) -> bool:
+        """Delete thought state from Redis.
+
+        Args:
+            agent_id: Agent identifier
+
+        Returns:
+            True if deleted (key existed)
+        """
+        key = RedisKeys.agent_thought(agent_id)
+        return self.redis.delete(key) > 0

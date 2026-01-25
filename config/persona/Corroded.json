@@ -11,7 +11,7 @@
     "default": "deepseek-ai/DeepSeek-V3-0324",
     "code": "MiniMaxAI/MiniMax-M2.1",
     "codex": "XiaomiMiMo/MiMo-V2-Flash",
-    "analysis": "moonshotai/Kimi-K2-Instruct",
+    "analysis": "zai-org/GLM-4.6",
     "research": "moonshotai/Kimi-K2-Thinking",
     "planning": "deepseek-ai/DeepSeek-R1-0528",
     "chat": "MiniMaxAI/MiniMax-M2.1",

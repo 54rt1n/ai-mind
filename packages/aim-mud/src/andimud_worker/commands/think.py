@@ -48,8 +48,8 @@ class ThinkCommand(Command):
         metadata = turn_request.metadata or {}
         guidance = metadata.get("guidance", "") if metadata else ""
 
-        # @think has no new events, uses pending events for context
-        events = worker.pending_events
+        # Events passed via kwargs from main loop
+        events = kwargs.get("events", [])
 
         logger.info(
             "[%s] Processing @think turn with %d events, guidance=%s",
@@ -74,8 +74,6 @@ class ThinkCommand(Command):
 
         return CommandResult(
             complete=True,
-            flush_drain=False,
-            saved_event_id=None,
             status=TurnRequestStatus.DONE,
             message=message,
         )

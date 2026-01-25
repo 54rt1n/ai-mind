@@ -206,9 +206,8 @@ class EventsMixin:
         speaking) to be batched together.
 
         Args:
-            max_sequence_id: Optional cap for first drain only. Subsequent
-                drains during settle window ignore this cap to capture
-                cascading events.
+            max_sequence_id: Optional cap for ALL drains. This prevents
+                capturing events from future turns during the settle window.
 
         Returns:
             All accumulated events from multiple drains.
@@ -220,10 +219,8 @@ class EventsMixin:
         empty_after_events = 0
 
         while True:
-            # Only cap the first drain with turn request's sequence_id
-            # Subsequent drains during settle have no cap to catch cascades
-            cap = max_sequence_id if drain_count == 0 else None
-            events = await self.drain_events(timeout=0, max_sequence_id=cap)
+            # Cap ALL drains at max_sequence_id to prevent cross-turn event leakage
+            events = await self.drain_events(timeout=0, max_sequence_id=max_sequence_id)
             drain_count += 1
             if not events:
                 if not all_events:
@@ -263,74 +260,24 @@ class EventsMixin:
 
         return all_events
 
-    async def _restore_event_position(
-        self: "MUDAgentWorker", saved_event_id: Optional[str]
-    ) -> None:
-        """Restore event stream position for non-speech turns or failed processing.
-
-        Called when turn processing fails or when events should not be consumed
-        (non-speech turns). Rolls back the in-memory event position to the saved
-        position so the next drain will receive the same events.
-
-        Redis persistence is NOT needed here because Redis never advanced during
-        drain - it only advances in memory. Redis persistence only happens after
-        speech check confirms a speech action occurred.
-
-        Args:
-            saved_event_id: Event ID to restore, or None to skip restoration
-        """
-        if saved_event_id is None:
-            logger.debug("Skipping event position restore (events were consumed)")
-            return
-
-        logger.info(
-            f"Restoring event position from {self.session.last_event_id} back to {saved_event_id}"
-        )
-
-        # Rollback in-memory session state
-        # Redis already has the correct position (it was never advanced during drain)
-        self.session.last_event_id = saved_event_id
-
-        # Clear pending buffers - these events will be re-drained on next turn
-        self.pending_events = []
-
-    async def _apply_events_to_session(
+    async def _push_events_to_conversation(
         self: "MUDAgentWorker",
         events: list[MUDEvent],
-        *,
-        extend: bool = True,
     ) -> None:
-        """Apply events to session state and conversation history.
+        """Push events to conversation history.
 
-        Shared logic for setting up turn context with events. Handles:
-        1. Setting/extending worker.pending_events
-        2. Setting/extending session.pending_events
-        3. Updating session.last_event_time
-        4. Pushing events as user turn to conversation_manager
+        Simplified method that:
+        1. Updates session.last_event_time
+        2. Pushes events as user turn to conversation_manager
 
         Args:
-            events: Events to apply
-            extend: If True, extend existing pending_events. If False, replace them.
+            events: Events to push to conversation history
         """
         if not events:
             return
 
-        # Update worker.pending_events
-        if extend:
-            self.pending_events.extend(events)
-        else:
-            self.pending_events = events
-
-        # Update session.pending_events
+        # Update session.last_event_time from latest event
         if self.session:
-            if extend:
-                if not self.session.pending_events:
-                    self.session.pending_events = []
-                self.session.pending_events.extend(events)
-            else:
-                self.session.pending_events = events
-
-            # Update last_event_time from latest event
             latest = events[-1]
             self.session.last_event_time = latest.timestamp
 
@@ -364,6 +311,7 @@ class EventsMixin:
                 world_state=self.session.world_state if self.session else None,
                 room_id=room_id,
                 room_name=room_name,
+                last_event_id=new_events[-1].event_id if new_events else None,
             )
             for event in new_events:
                 if not event.event_id:
@@ -389,9 +337,8 @@ class EventsMixin:
 
         The method:
         1. Drains new events with settling (same logic as initial drain)
-        2. Appends to worker.pending_events and session.pending_events
-        3. Pushes new events as another user turn to conversation_manager
-        4. Returns the new events for logging/inspection
+        2. Pushes new events to conversation history
+        3. Returns the new events to be combined with original events
 
         Returns:
             List of newly drained events (empty if no new events arrived).
@@ -409,7 +356,7 @@ class EventsMixin:
 
                 # Run Phase 2 with combined events
                 speaking_processor = SpeakingProcessor(worker)
-                await speaking_processor.execute(turn_request, worker.pending_events)
+                await speaking_processor.execute(turn_request, events + new_events)
             ```
         """
         # Drain new events with settling (no max_sequence_id cap for redrain)
@@ -424,8 +371,8 @@ class EventsMixin:
             f"sequence_ids: {[e.metadata.get('sequence_id', 0) for e in new_events]}"
         )
 
-        # Apply events to session (extend mode)
-        await self._apply_events_to_session(new_events, extend=True)
+        # Push events to conversation history
+        await self._push_events_to_conversation(new_events)
         logger.debug("Pushed re-drained events to conversation history")
 
         return new_events

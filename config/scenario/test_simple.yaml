@@ -23,7 +23,7 @@ steps:
       {% endif %}
     config:
       max_tokens: 512
-      use_guidance: false
+      link_guidance: false
     output:
       document_type: test
       weight: 1.0

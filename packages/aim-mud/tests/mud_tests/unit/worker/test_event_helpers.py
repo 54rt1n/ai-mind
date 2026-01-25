@@ -1,5 +1,5 @@
 # packages/aim-mud/tests/mud_tests/unit/worker/test_event_helpers.py
-# Tests for event restoration helper methods
+# Tests for event helper methods
 # Philosophy: Test real helper methods with mocked dependencies
 
 import pytest
@@ -20,72 +20,10 @@ def initialized_worker(test_worker):
     return test_worker
 
 
-class TestRestoreEventPosition:
-    """Tests for _restore_event_position() helper method."""
-
-    @pytest.mark.asyncio
-    async def test_restore_updates_session_last_event_id(self, initialized_worker):
-        """Test that restore updates session.last_event_id."""
-        # Arrange
-        initialized_worker.session.last_event_id = "new-id"
-        initialized_worker._update_agent_profile = AsyncMock()
-        saved_id = "old-id"
-
-        # Act
-        await initialized_worker._restore_event_position(saved_id)
-
-        # Assert
-        assert initialized_worker.session.last_event_id == "old-id"
-
-    @pytest.mark.asyncio
-    async def test_restore_clears_pending_buffers(self, initialized_worker):
-        """Test that restore clears pending event buffers."""
-        # Arrange
-        initialized_worker.pending_events = ["event1", "event2"]
-        initialized_worker._update_agent_profile = AsyncMock()
-        saved_id = "old-id"
-
-        # Act
-        await initialized_worker._restore_event_position(saved_id)
-
-        # Assert
-        assert initialized_worker.pending_events == []
-
-    @pytest.mark.asyncio
-    async def test_restore_does_not_persist_to_redis(self, initialized_worker):
-        """Test that restore does NOT persist to Redis (fix validation).
-
-        After the event position persistence fix, _restore_event_position()
-        only rolls back in memory - it does NOT persist to Redis.
-        Redis persistence only happens for confirmed speech turns.
-        """
-        # Arrange
-        initialized_worker._update_agent_profile = AsyncMock()
-        initialized_worker.session.last_event_id = "new-id"
-        saved_id = "old-id"
-
-        # Act
-        await initialized_worker._restore_event_position(saved_id)
-
-        # Assert: Position rolled back in memory
-        assert initialized_worker.session.last_event_id == "old-id"
-
-        # CRITICAL: Redis persistence NOT called (this is the fix)
-        initialized_worker._update_agent_profile.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_restore_handles_none_gracefully(self, initialized_worker):
-        """Test that restore with None saved_id is a no-op."""
-        # Arrange
-        initialized_worker.session.last_event_id = "current-id"
-        initialized_worker._update_agent_profile = AsyncMock()
-
-        # Act
-        await initialized_worker._restore_event_position(None)
-
-        # Assert
-        assert initialized_worker.session.last_event_id == "current-id"
-        initialized_worker._update_agent_profile.assert_not_called()
+# NOTE: TestRestoreEventPosition class has been removed.
+# Event position restoration via _restore_event_position was removed from the codebase.
+# Events are now consumed when they're pushed to conversation history, with each
+# conversation entry tracking its own last_event_id.
 
 
 class TestDrainWithSettle:
@@ -352,3 +290,102 @@ class TestDrainWithSettle:
         final_settle_time = settle_time // 3
         assert sleep_called[0] == settle_time
         assert sleep_called[1] == final_settle_time
+
+
+class TestPendingActionIdTracking:
+    """Tests for pending action_id tracking in the PENDING state.
+
+    When a command emits actions, the main loop sets the turn to PENDING status
+    with pending_action_ids in metadata. The loop then drains events looking for
+    events with matching action_ids. When found, it pushes to conversation and
+    transitions to READY.
+    """
+
+    @pytest.mark.asyncio
+    async def test_drain_finds_matching_action_id(self, initialized_worker, mock_redis, monkeypatch):
+        """Test that drain_events returns events with action_id in metadata."""
+        import asyncio
+        import json
+        from aim_mud_types import EventType, ActorType
+
+        # Mock asyncio.sleep to avoid actual delays
+        original_sleep = asyncio.sleep
+        async def mock_sleep(seconds):
+            await original_sleep(0)
+        monkeypatch.setattr(asyncio, 'sleep', mock_sleep)
+
+        # Setup self-action event with action_id
+        action_id = "act_12345_abcd"
+        event_data = {
+            "event_type": EventType.EMOTE.value,
+            "actor": "Andi",
+            "actor_type": ActorType.AI.value,
+            "room_id": "#123",
+            "content": "settles into a comfortable position.",
+            "timestamp": "2026-01-08T12:00:00+00:00",
+            "sequence_id": 100,
+            "is_self_action": True,
+            "action_id": action_id,
+        }
+
+        mock_redis.xinfo_stream.return_value = {"last-generated-id": "100-0"}
+        mock_redis.xrange.return_value = [
+            ("100-0", {"data": json.dumps(event_data)})
+        ]
+
+        # Act
+        result = await initialized_worker.drain_events(timeout=0)
+
+        # Assert
+        assert len(result) == 1
+        # action_id is a field on MUDEvent, not in metadata
+        assert result[0].action_id == action_id
+
+    @pytest.mark.asyncio
+    async def test_pending_action_ids_match_detection(self, initialized_worker, mock_redis, monkeypatch):
+        """Test detection of matching action_ids in pending state."""
+        import asyncio
+        import json
+        from aim_mud_types import EventType, ActorType
+
+        # Mock asyncio.sleep to avoid actual delays
+        original_sleep = asyncio.sleep
+        async def mock_sleep(seconds):
+            await original_sleep(0)
+        monkeypatch.setattr(asyncio, 'sleep', mock_sleep)
+
+        # Setup events - one matches, one doesn't
+        action_id = "act_12345_abcd"
+        pending_action_ids = [action_id, "act_67890_efgh"]
+
+        event_data = {
+            "event_type": EventType.EMOTE.value,
+            "actor": "Andi",
+            "actor_type": ActorType.AI.value,
+            "room_id": "#123",
+            "content": "stretches.",
+            "timestamp": "2026-01-08T12:00:00+00:00",
+            "sequence_id": 100,
+            "is_self_action": True,
+            "action_id": action_id,
+        }
+
+        mock_redis.xinfo_stream.return_value = {"last-generated-id": "100-0"}
+        mock_redis.xrange.return_value = [
+            ("100-0", {"data": json.dumps(event_data)})
+        ]
+
+        # Act
+        events = await initialized_worker.drain_events(timeout=0)
+
+        # Check if any event matches pending_action_ids
+        # action_id is a field on MUDEvent, not in metadata
+        matched = False
+        for event in events:
+            event_action_id = event.action_id
+            if event_action_id and event_action_id in pending_action_ids:
+                matched = True
+                break
+
+        # Assert
+        assert matched is True

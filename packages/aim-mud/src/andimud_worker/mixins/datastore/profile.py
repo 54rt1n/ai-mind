@@ -203,41 +203,67 @@ class ProfileMixin:
     async def _load_thought_content(self: "MUDAgentWorker") -> None:
         """Load stored thought content from Redis and set on strategies.
 
-        Loads thought content from agent:{id}:thought key and sets it on
-        both decision and response strategies if present and within TTL (2 hours).
+        Loads ThoughtState from agent:{id}:thought and sets thought_content
+        on both decision and response strategies if present and within TTL (2 hours).
         """
-        thought_key = RedisKeys.agent_thought(self.config.agent_id)
-        thought_raw = await self.redis.get(thought_key)
-        if not thought_raw:
+        client = RedisMUDClient(self.redis)
+        thought = await client.get_thought_state(self.config.agent_id)
+
+        if not thought or not thought.content:
             return
 
-        try:
-            raw_str = thought_raw.decode("utf-8") if isinstance(thought_raw, bytes) else thought_raw
-            thought_data = json.loads(raw_str)
-            thought_content = thought_data.get("content", "")
-            timestamp = thought_data.get("timestamp", 0)
-            age_seconds = time.time() - timestamp
+        # Check 2-hour TTL (unchanged from current behavior)
+        age_seconds = time.time() - thought.created_at.timestamp()
+        if age_seconds >= 7200:  # 2-hour TTL
+            logger.debug("Thought content expired (%.0fs old)", age_seconds)
+            return
 
-            if age_seconds < 7200 and thought_content:  # 2-hour TTL check
-                if self._decision_strategy:
-                    self._decision_strategy.thought_content = thought_content
-                if self._response_strategy:
-                    self._response_strategy.thought_content = thought_content
-                logger.info("Loaded thought content (%d chars, %.0fs old)", len(thought_content), age_seconds)
-        except json.JSONDecodeError as e:
-            logger.warning("Failed to parse thought JSON: %s", e)
+        if self._decision_strategy:
+            self._decision_strategy.thought_content = thought.content
+        if self._response_strategy:
+            self._response_strategy.thought_content = thought.content
+
+        logger.info(
+            "Loaded thought content (%d chars, %.0fs old, %d actions since)",
+            len(thought.content), age_seconds, thought.actions_since_generation
+        )
 
     async def _clear_thought_content(self: "MUDAgentWorker") -> None:
-        """Clear stored thought content from Redis and strategies."""
+        """Clear thought content from strategies only (preserve Redis state).
+
+        Note: This no longer deletes from Redis. The thought remains for
+        throttle tracking. Use client.delete_thought_state() to fully remove.
+        """
         if self._decision_strategy:
             self._decision_strategy.thought_content = ""
         if self._response_strategy:
             self._response_strategy.thought_content = ""
-        thought_key = RedisKeys.agent_thought(self.config.agent_id)
-        try:
-            await self.redis.delete(thought_key)
-        except Exception as e:
-            logger.warning("Failed to clear thought content from Redis: %s", e)
+
+    async def _should_generate_new_thought(self: "MUDAgentWorker") -> bool:
+        """Check if a new thought should be generated based on throttle.
+
+        Returns True if:
+        - No thought exists
+        - Time elapsed >= 5 minutes (THOUGHT_THROTTLE_SECONDS)
+        - Actions since generation >= 5 (THOUGHT_THROTTLE_ACTIONS)
+
+        Returns:
+            True if new thought should be generated
+        """
+        client = RedisMUDClient(self.redis)
+        return await client.should_generate_thought(self.config.agent_id)
+
+    async def _increment_thought_action_counter(self: "MUDAgentWorker") -> int:
+        """Increment the thought action counter after autonomous action.
+
+        Called after idle/autonomous actions complete. Event-reactive turns
+        do NOT increment this counter.
+
+        Returns:
+            New counter value
+        """
+        client = RedisMUDClient(self.redis)
+        return await client.increment_thought_action_counter(self.config.agent_id)
 
     async def _is_idle_active(self: "MUDAgentWorker") -> bool:
         """Return True if idle active flag is set for this agent."""

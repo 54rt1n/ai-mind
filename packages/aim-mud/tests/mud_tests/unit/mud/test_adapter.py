@@ -476,7 +476,12 @@ class TestFormatTurnResponse:
 
 
 class TestBuildCurrentContext:
-    """Tests for build_current_context function."""
+    """Tests for build_current_context function.
+
+    Note: Events are now pushed to conversation history via _push_events_to_conversation(),
+    not stored in session.pending_events. The build_current_context function only adds
+    idle mode agency prompt when include_events=True and idle_mode=True.
+    """
 
     def test_build_current_context_complete(
         self,
@@ -490,15 +495,12 @@ class TestBuildCurrentContext:
             persona_id="andi",
             current_room=sample_room,
             entities_present=sample_entities,
-            pending_events=[sample_speech_event],
         )
 
         result = build_current_context(session)
 
-        # Check events (default include_events=True) - now formatted directly
-        assert 'Prax says, "Hello, Andi! Happy New Year!"' in result
-
-        # Check formatting guidance
+        # Events are now in conversation history, not formatted here
+        # Check formatting guidance is present
         assert "[~~ Link Format Guidance ~~]" in result
 
     def test_build_current_context_exclude_events(
@@ -513,14 +515,11 @@ class TestBuildCurrentContext:
             persona_id="andi",
             current_room=sample_room,
             entities_present=sample_entities,
-            pending_events=[sample_speech_event],
         )
 
         result = build_current_context(session, include_events=False)
 
-        # Events should NOT be included
-        assert "Hello, Andi!" not in result
-
+        # Events are in conversation history, not here
         # Format guidance should still be there
         assert "[~~ Link Format Guidance ~~]" in result
 
@@ -531,7 +530,6 @@ class TestBuildCurrentContext:
             persona_id="andi",
             current_room=None,
             entities_present=[],
-            pending_events=[],
         )
 
         result = build_current_context(session, idle_mode=True, include_events=False)
@@ -548,7 +546,6 @@ class TestBuildCurrentContext:
             persona_id="andi",
             current_room=None,
             entities_present=[],
-            pending_events=[],
         )
 
         result = build_current_context(session)
@@ -569,12 +566,11 @@ class TestBuildCurrentContext:
             persona_id="andi",
             current_room=room,
             entities_present=[],
-            pending_events=[],
         )
 
         result = build_current_context(session, idle_mode=True)
 
-        # With no events and idle_mode, should have idle guidance
+        # With idle_mode=True and include_events=True (default), should have idle guidance
         assert "You don't see anything of note occuring" in result
         assert "[~~ Link Format Guidance ~~]" in result
 
@@ -591,7 +587,6 @@ class TestBuildCurrentContext:
             persona_id="andi",
             current_room=None,
             entities_present=[self_entity],
-            pending_events=[],
         )
 
         result = build_current_context(session)
@@ -603,17 +598,17 @@ class TestBuildCurrentContext:
     def test_build_current_context_no_events(
         self, sample_room: RoomState, sample_entities: list[EntityState]
     ):
-        """Test building current context with no pending events."""
+        """Test building current context - events are now in conversation history."""
         session = MUDSession(
             agent_id="andi",
             persona_id="andi",
             current_room=sample_room,
             entities_present=sample_entities,
-            pending_events=[],
         )
 
         result = build_current_context(session)
 
+        # Events are in conversation history, not formatted here
         assert "<events" not in result
 
 

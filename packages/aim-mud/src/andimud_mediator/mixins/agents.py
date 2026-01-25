@@ -98,6 +98,7 @@ class AgentsMixin:
                         assigned = await self._maybe_assign_turn(candidate, reason=TurnReason.IDLE)
                         if assigned:
                             self._turn_index = (self._turn_index + i + 1) % n
+                            self._system_ready_since = None  # Reset to enforce idle threshold between IDLE turns
                             logger.debug(
                                 f"Assigned idle turn to {candidate} "
                                 f"(system ready for {ready_duration:.1f}s)"

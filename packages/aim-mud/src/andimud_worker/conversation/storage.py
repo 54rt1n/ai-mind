@@ -471,10 +471,8 @@ class MUDMemoryRetriever:
             if names:
                 queries.append(" ".join(names))
 
-        # Speech content
-        speech_events = [e for e in session.pending_events if e.event_type.value == "speech" and e.content]
-        if speech_events:
-            queries.append(" ".join(e.content for e in speech_events))
+        # Speech content - note: pending_events removed in Phase 4, events now in conversation history
+        # This deprecated class no longer has access to events for query building
 
         return [q for q in queries if q and q.strip()]
 

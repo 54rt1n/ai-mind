@@ -42,7 +42,7 @@ steps:
       '
     config:
       max_tokens: 2048
-      use_guidance: true
+      link_guidance: true
     output:
       document_type: daydream
       weight: 0.4
@@ -61,7 +61,7 @@ steps:
       '
     config:
       max_tokens: 4096
-      use_guidance: true
+      link_guidance: true
     output:
       document_type: daydream
       weight: 0.4
@@ -80,7 +80,7 @@ steps:
       '
     config:
       max_tokens: 4096
-      use_guidance: true
+      link_guidance: true
     output:
       document_type: daydream
       weight: 0.4
@@ -99,7 +99,7 @@ steps:
       '
     config:
       max_tokens: 4096
-      use_guidance: true
+      link_guidance: true
     output:
       document_type: daydream
       weight: 0.4
@@ -118,7 +118,7 @@ steps:
       '
     config:
       max_tokens: 4096
-      use_guidance: true
+      link_guidance: true
     output:
       document_type: daydream
       weight: 0.4
@@ -137,7 +137,7 @@ steps:
       '
     config:
       max_tokens: 4096
-      use_guidance: true
+      link_guidance: true
     output:
       document_type: daydream
       weight: 0.4
@@ -156,7 +156,7 @@ steps:
       '
     config:
       max_tokens: 4096
-      use_guidance: true
+      link_guidance: true
     output:
       document_type: daydream
       weight: 0.4
@@ -177,7 +177,7 @@ steps:
       '
     config:
       max_tokens: 4096
-      use_guidance: true
+      link_guidance: true
     output:
       document_type: daydream
       weight: 0.6
@@ -196,7 +196,7 @@ steps:
       '
     config:
       max_tokens: 4096
-      use_guidance: true
+      link_guidance: true
     output:
       document_type: inspiration
       weight: 1.0

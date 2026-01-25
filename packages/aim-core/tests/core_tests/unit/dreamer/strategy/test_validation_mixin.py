@@ -60,7 +60,8 @@ class TestStrategy(FormatValidationMixin):
 def mock_persona():
     """Create a mock Persona."""
     persona = MagicMock()
-    persona.full_name = "Test Persona"
+    persona.name = "Test Persona"
+    persona.full_name = "Test Persona Full Name"
     return persona
 
 
@@ -569,7 +570,8 @@ class TestFormatValidationMixinPersonaName:
     """Tests for persona name resolution."""
 
     def test_get_persona_name_from_executor(self, mock_executor, base_step_def):
-        """Test persona name comes from executor.persona by default."""
+        """Test persona name comes from executor.persona.name by default (not full_name)."""
+        mock_executor.persona.name = "Andi"
         mock_executor.persona.full_name = "Andi Valentine"
 
         strategy = TestStrategy(
@@ -578,7 +580,7 @@ class TestFormatValidationMixinPersonaName:
         )
 
         name = strategy._get_persona_name()
-        assert name == "Andi Valentine"
+        assert name == "Andi"  # Should use .name, not .full_name
 
     def test_get_persona_name_override(self, mock_executor, base_step_def):
         """Test persona_name_override takes precedence."""
@@ -588,7 +590,8 @@ class TestFormatValidationMixinPersonaName:
             )
         )
 
-        mock_executor.persona.full_name = "Original Name"
+        mock_executor.persona.name = "Original Name"
+        mock_executor.persona.full_name = "Original Full Name"
 
         strategy = TestStrategy(
             executor=mock_executor,
@@ -610,6 +613,103 @@ class TestFormatValidationMixinPersonaName:
 
         name = strategy._get_persona_name()
         assert name == "Agent"
+
+    def test_get_persona_name_with_aspect_speaker(self, mock_executor):
+        """Test aspect speaker returns aspect.name instead of persona.name."""
+        from aim.dreamer.core.models import (
+            DialogueStepDefinition, DialogueSpeaker, SpeakerType, StepOutput
+        )
+
+        # Create dialogue step with aspect speaker
+        step_def = DialogueStepDefinition(
+            id="test_step",
+            prompt="Test prompt",
+            output=StepOutput(document_type="test"),
+            next=["end"],
+            speaker=DialogueSpeaker(type=SpeakerType.ASPECT, aspect_name="dreamer")
+        )
+
+        # Mock the aspect resolution
+        mock_aspect = MagicMock()
+        mock_aspect.name = "Andi Lumina"
+
+        mock_executor.persona.name = "Andi"
+        mock_executor.persona.full_name = "Andi Valentine"
+        mock_executor.framework = None  # No framework fallback
+
+        strategy = TestStrategy(
+            executor=mock_executor,
+            step_def=step_def
+        )
+
+        with patch('aim.agents.aspects.get_aspect_or_default', return_value=mock_aspect):
+            name = strategy._get_persona_name()
+
+        assert name == "Andi Lumina"
+
+    def test_get_persona_name_with_persona_speaker(self, mock_executor):
+        """Test persona speaker returns persona.name."""
+        from aim.dreamer.core.models import (
+            DialogueStepDefinition, DialogueSpeaker, SpeakerType, StepOutput
+        )
+
+        # Create dialogue step with persona speaker
+        step_def = DialogueStepDefinition(
+            id="test_step",
+            prompt="Test prompt",
+            output=StepOutput(document_type="test"),
+            next=["end"],
+            speaker=DialogueSpeaker(type=SpeakerType.PERSONA)
+        )
+
+        mock_executor.persona.name = "Andi"
+        mock_executor.persona.full_name = "Andi Valentine"
+
+        strategy = TestStrategy(
+            executor=mock_executor,
+            step_def=step_def
+        )
+
+        name = strategy._get_persona_name()
+        assert name == "Andi"
+
+    def test_get_persona_name_aspect_with_framework_fallback(self, mock_executor):
+        """Test aspect speaker uses framework.dialogue.primary_aspect when aspect_name not set."""
+        from aim.dreamer.core.models import (
+            DialogueStepDefinition, DialogueSpeaker, SpeakerType, StepOutput
+        )
+
+        # Create dialogue step with aspect speaker but no aspect_name
+        step_def = DialogueStepDefinition(
+            id="test_step",
+            prompt="Test prompt",
+            output=StepOutput(document_type="test"),
+            next=["end"],
+            speaker=DialogueSpeaker(type=SpeakerType.ASPECT, aspect_name=None)
+        )
+
+        # Mock the aspect resolution
+        mock_aspect = MagicMock()
+        mock_aspect.name = "The Librarian"
+
+        # Mock framework with primary_aspect
+        mock_framework = MagicMock()
+        mock_framework.dialogue = MagicMock()
+        mock_framework.dialogue.primary_aspect = "librarian"
+
+        mock_executor.persona.name = "Andi"
+        mock_executor.framework = mock_framework
+
+        strategy = TestStrategy(
+            executor=mock_executor,
+            step_def=step_def
+        )
+
+        with patch('aim.agents.aspects.get_aspect_or_default', return_value=mock_aspect) as mock_get_aspect:
+            name = strategy._get_persona_name()
+
+        assert name == "The Librarian"
+        mock_get_aspect.assert_called_once_with(mock_executor.persona, "librarian")
 
 
 class TestFormatValidationMixinEdgeCases:

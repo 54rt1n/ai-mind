@@ -71,6 +71,7 @@ steps:
       max_tokens: 4096
       is_thought: true
       model_role: analysis
+      link_guidance: true
     output:
       document_type: ner-task
       weight: 0.7
@@ -96,6 +97,7 @@ steps:
       Begin with "[== {{ psychologist.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
+      link_guidance: true
     output:
       document_type: dialogue-psychologist
       weight: 0.2
@@ -115,6 +117,7 @@ steps:
         top_n: 3
     config:
       max_tokens: 4096
+      link_guidance: true
     output:
       document_type: step
       weight: 0.25
@@ -153,6 +156,7 @@ steps:
     config:
       max_tokens: 4096
       is_thought: true
+      link_guidance: true
     output:
       document_type: step
       weight: 0.25
@@ -425,6 +429,9 @@ steps:
       weight: 0.2
     context:
       - action: flush
+      - action: load_conversation
+        target: current
+        document_types: [summary, conversation, mud-world, mud-agent]
       - action: search_memories
         top_n: 20
     next: [brainstorm_response]

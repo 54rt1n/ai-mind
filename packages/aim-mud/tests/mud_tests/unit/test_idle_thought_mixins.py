@@ -4,10 +4,11 @@
 
 import json
 import pytest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 from aim_mud_types import RedisKeys
-from aim_mud_types.client import RedisMUDClient
+from aim_mud_types.client import RedisMUDClient, SyncRedisMUDClient
+from aim_mud_types.models.coordination import ThoughtState
 
 
 @pytest.fixture
@@ -15,6 +16,13 @@ def client():
     """Create RedisMUDClient with mocked Redis."""
     mock_redis = AsyncMock()
     return RedisMUDClient(mock_redis)
+
+
+@pytest.fixture
+def sync_client():
+    """Create SyncRedisMUDClient with mocked Redis."""
+    mock_redis = MagicMock()
+    return SyncRedisMUDClient(mock_redis)
 
 
 class TestIdleMixin:
@@ -114,54 +122,236 @@ class TestThoughtMixin:
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_get_thought_success(self, client):
-        """Should return thought data as dict."""
-        thought_data = {
-            "content": "Remember to check on the garden",
-            "source": "dreamer",
-            "timestamp": 1704067200
+    async def test_get_thought_state_success(self, client):
+        """Should return ThoughtState from hash data."""
+        # Now uses hgetall returning a hash
+        client.redis.hgetall.return_value = {
+            b"agent_id": b"andi",
+            b"content": b"Remember to check on the garden",
+            b"source": b"dreamer",
+            b"created_at": b"1704067200",
+            b"actions_since_generation": b"3",
         }
-        client.redis.get.return_value = json.dumps(thought_data).encode()
+
+        result = await client.get_thought_state("andi")
+
+        assert result is not None
+        assert result.content == "Remember to check on the garden"
+        assert result.source == "dreamer"
+        assert result.actions_since_generation == 3
+
+    @pytest.mark.asyncio
+    async def test_get_thought_state_not_found(self, client):
+        """Should return None when no thought exists."""
+        client.redis.hgetall.return_value = {}
+
+        result = await client.get_thought_state("andi")
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_get_thought_legacy_success(self, client):
+        """Should return thought data as dict via legacy method."""
+        client.redis.hgetall.return_value = {
+            b"agent_id": b"andi",
+            b"content": b"Test thought",
+            b"source": b"manual",
+            b"created_at": b"1704067200",
+            b"actions_since_generation": b"0",
+        }
 
         result = await client.get_thought("andi")
 
-        assert result == thought_data
-        client.redis.get.assert_called_once_with(
+        assert result is not None
+        assert result["content"] == "Test thought"
+        assert result["source"] == "manual"
+
+    @pytest.mark.asyncio
+    async def test_get_thought_legacy_not_found(self, client):
+        """Should return None when no thought exists (legacy)."""
+        client.redis.hgetall.return_value = {}
+
+        result = await client.get_thought("andi")
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_should_generate_thought_no_thought(self, client):
+        """Should return True when no thought exists."""
+        client.redis.hgetall.return_value = {}
+
+        result = await client.should_generate_thought("andi")
+
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_should_generate_thought_action_threshold(self, client):
+        """Should return True when action threshold met."""
+        import time
+        client.redis.hgetall.return_value = {
+            b"agent_id": b"andi",
+            b"content": b"Test thought",
+            b"source": b"reasoning",
+            b"created_at": str(int(time.time())).encode(),  # Fresh
+            b"actions_since_generation": b"5",  # Threshold met
+        }
+
+        result = await client.should_generate_thought("andi")
+
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_should_generate_thought_time_threshold(self, client):
+        """Should return True when time threshold met."""
+        import time
+        old_time = int(time.time()) - 400  # 6+ minutes ago
+        client.redis.hgetall.return_value = {
+            b"agent_id": b"andi",
+            b"content": b"Test thought",
+            b"source": b"reasoning",
+            b"created_at": str(old_time).encode(),
+            b"actions_since_generation": b"0",
+        }
+
+        result = await client.should_generate_thought("andi")
+
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_should_generate_thought_throttle_active(self, client):
+        """Should return False when neither threshold met."""
+        import time
+        client.redis.hgetall.return_value = {
+            b"agent_id": b"andi",
+            b"content": b"Test thought",
+            b"source": b"reasoning",
+            b"created_at": str(int(time.time())).encode(),  # Fresh
+            b"actions_since_generation": b"2",  # Below threshold
+        }
+
+        result = await client.should_generate_thought("andi")
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_increment_thought_action_counter(self, client):
+        """Should increment action counter atomically."""
+        client.redis.hincrby.return_value = 3
+
+        result = await client.increment_thought_action_counter("andi")
+
+        assert result == 3
+        client.redis.hincrby.assert_called_once_with(
+            RedisKeys.agent_thought("andi"),
+            "actions_since_generation",
+            1
+        )
+
+
+class TestSyncThoughtMixin:
+    """Tests for SyncThoughtMixin."""
+
+    def test_get_thought_state_success(self, sync_client):
+        """Should return ThoughtState from hash data."""
+        sync_client.redis.hgetall.return_value = {
+            b"agent_id": b"andi",
+            b"content": b"Remember to check on the garden",
+            b"source": b"dreamer",
+            b"created_at": b"1704067200",
+            b"actions_since_generation": b"3",
+        }
+
+        result = sync_client.get_thought_state("andi")
+
+        assert result is not None
+        assert result.content == "Remember to check on the garden"
+        assert result.source == "dreamer"
+        assert result.actions_since_generation == 3
+
+    def test_get_thought_state_not_found(self, sync_client):
+        """Should return None when no thought exists."""
+        sync_client.redis.hgetall.return_value = {}
+
+        result = sync_client.get_thought_state("andi")
+
+        assert result is None
+
+    def test_save_thought_state_success(self, sync_client):
+        """Should save thought state via _create_hash and set TTL."""
+        sync_client.redis.eval.return_value = 1  # Lua script returns success
+
+        thought = ThoughtState(
+            agent_id="andi",
+            content="Focus on emotional connections",
+            source="manual",
+            actions_since_generation=0,
+        )
+
+        result = sync_client.save_thought_state(thought, ttl_seconds=7200)
+
+        assert result is True
+        # Verify Lua script was called (via _create_hash)
+        sync_client.redis.eval.assert_called_once()
+        # Verify TTL was set
+        sync_client.redis.expire.assert_called_once_with(
+            RedisKeys.agent_thought("andi"),
+            7200
+        )
+
+    def test_save_thought_state_no_ttl(self, sync_client):
+        """Should save thought state without TTL when ttl_seconds=0."""
+        sync_client.redis.eval.return_value = 1
+
+        thought = ThoughtState(
+            agent_id="andi",
+            content="Test content",
+            source="manual",
+        )
+
+        result = sync_client.save_thought_state(thought, ttl_seconds=0)
+
+        assert result is True
+        sync_client.redis.eval.assert_called_once()
+        # TTL should NOT be set when ttl_seconds=0
+        sync_client.redis.expire.assert_not_called()
+
+    def test_delete_thought_state_success(self, sync_client):
+        """Should delete thought state and return True when key existed."""
+        sync_client.redis.delete.return_value = 1  # Key was deleted
+
+        result = sync_client.delete_thought_state("andi")
+
+        assert result is True
+        sync_client.redis.delete.assert_called_once_with(
             RedisKeys.agent_thought("andi")
         )
 
-    @pytest.mark.asyncio
-    async def test_get_thought_not_found(self, client):
-        """Should return None when no thought exists."""
-        client.redis.get.return_value = None
+    def test_delete_thought_state_not_found(self, sync_client):
+        """Should return False when thought didn't exist."""
+        sync_client.redis.delete.return_value = 0  # No key deleted
 
-        result = await client.get_thought("andi")
+        result = sync_client.delete_thought_state("andi")
 
-        assert result is None
+        assert result is False
 
-    @pytest.mark.asyncio
-    async def test_get_thought_invalid_json(self, client):
-        """Should return None for invalid JSON."""
-        client.redis.get.return_value = b"not valid json"
+    def test_has_active_thought_true(self, sync_client):
+        """Should return True when thought exists."""
+        sync_client.redis.exists.return_value = 1
 
-        result = await client.get_thought("andi")
+        result = sync_client.has_active_thought("andi")
 
-        assert result is None
+        assert result is True
+        sync_client.redis.exists.assert_called_once_with(
+            RedisKeys.agent_thought("andi")
+        )
 
-    @pytest.mark.asyncio
-    async def test_get_thought_string_value(self, client):
-        """Should handle string value (not bytes)."""
-        thought_data = {
-            "content": "Test thought",
-            "source": "manual",
-            "timestamp": 1704067200
-        }
-        # Return string instead of bytes
-        client.redis.get.return_value = json.dumps(thought_data)
+    def test_has_active_thought_false(self, sync_client):
+        """Should return False when thought doesn't exist."""
+        sync_client.redis.exists.return_value = 0
 
-        result = await client.get_thought("andi")
+        result = sync_client.has_active_thought("andi")
 
-        assert result == thought_data
+        assert result is False
 
 
 if __name__ == "__main__":

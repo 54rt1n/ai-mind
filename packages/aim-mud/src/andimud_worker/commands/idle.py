@@ -51,7 +51,7 @@ class IdleCommand(Command):
         """
         turn_id = kwargs.get("turn_id", "unknown")
         turn_request = MUDTurnRequest.model_validate(kwargs)
-        events = worker.pending_events
+        events = kwargs.get("events", [])
         is_sleeping = await worker._check_agent_is_sleeping()
 
         if is_sleeping:
@@ -61,37 +61,47 @@ class IdleCommand(Command):
 
 
     async def _awake_turn(self, worker: "MUDAgentWorker", turn_id: str, events: list[MUDEvent], turn_request: MUDTurnRequest) -> CommandResult:
-        """Process awake turn."""
+        """Process awake turn with throttle-based thinking.
+
+        New flow:
+        1. Check if thought should be regenerated (throttle check)
+        2. If yes: generate thought, then CONTINUE to action phase (dual turn)
+        3. If no: use existing thought for action phase
+        4. Take action
+        5. Increment action counter (for throttle tracking)
+        """
         await worker.ensure_turn_id_current(turn_id)
         # Priority 1: Use active plan already loaded by worker
         plan_guidance = worker.get_plan_guidance()
 
         # Setup turn context
         await worker._setup_turn_context(events)
-        # Priority 2: If we don't have a current thought, we need to generate one
-        if not worker._decision_strategy.thought_content:
-            claimed_turn_id = await worker.claim_idle_turn(turn_request)
-            await worker._clear_thought_content()
+
+        # Phase 1: Throttle-based thought generation
+        should_think = await worker._should_generate_new_thought()
+        dual_turn = False
+
+        if should_think:
+            turn_id = await worker.claim_idle_turn(turn_request)
+            dual_turn = True
 
             new_events = await worker._drain_with_settle()
             if new_events:
-                logger.info(f"[{claimed_turn_id}] Captured {len(new_events)} new events for Phase 2 (THINK)")
-            claimed_turn_id = await worker.claim_idle_turn(turn_request)
+                logger.info(f"[{turn_id}] Captured {len(new_events)} new events for THINK phase")
 
             thinking_processor = ThinkingTurnProcessor(worker)
             if plan_guidance:
                 thinking_processor.user_guidance = plan_guidance
+
+            # Generate thought (stores with actions_since_generation=0)
             await thinking_processor.execute(turn_request, events)
-            return CommandResult(
-                complete=True,
-                flush_drain=False,
-                saved_event_id=None,
-                status=TurnRequestStatus.DONE,
-                message="Thought generated",
-                turn_id=claimed_turn_id,
-            )
+            logger.info(f"[{turn_id}] New thought generated (throttle met)")
 
+            # DUAL TURN: Continue to action phase instead of returning
+            # Reload the thought content we just generated
+            await worker._load_thought_content()
 
+        # Phase 2: Check plan status for logging
         plan = worker.get_active_plan()
         if plan:
             # Build message with current task info
@@ -99,43 +109,47 @@ class IdleCommand(Command):
             if plan.current_task_id < len(plan.tasks):
                 message = f"Plan active: {plan.tasks[plan.current_task_id].summary}"
 
-        # Priority 3: Agent awake, but no active plan
+        # Phase 3: Check if idle_active allows action
         await worker.ensure_turn_id_current(turn_id)
-        
+
         is_active = await worker._is_idle_active()
 
         if not is_active:
             return CommandResult(
                 complete=True,
-                flush_drain=False,
-                saved_event_id=None,
                 status=TurnRequestStatus.DONE,
-                message="Agent awake",
+                message="Agent awake" + (" (thought generated)" if dual_turn else ""),
                 turn_id=turn_id,
             )
 
-
+        # Phase 4: Take action
         decision = await worker.take_turn(turn_id, events, turn_request, user_guidance=plan_guidance)
         if decision is None:
             error_detail = worker._last_turn_error or "unknown error"
             logger.error("Event turn %s produced no decision: %s", turn_id, error_detail)
             return CommandResult(
                 complete=True,
-                flush_drain=False,
-                saved_event_id=None,
                 status=TurnRequestStatus.FAIL,
                 message=f"Idle Turn failed: {error_detail}",
                 turn_id=turn_id,
             )
 
+        # Phase 5: Increment action counter (for throttle tracking)
+        # Only increment for actual actions, not WAIT/CONFUSED
+        if decision.decision_type not in (DecisionType.WAIT, DecisionType.CONFUSED):
+            await worker._increment_thought_action_counter()
+
+        # Clear thought from strategies (but NOT from Redis - throttle needs it)
         await worker._clear_thought_content()
+
+        # Get emitted action_ids from worker (set by _emit_actions during take_turn)
+        action_ids = worker._last_emitted_action_ids if decision.decision_type not in (DecisionType.WAIT, DecisionType.CONFUSED) else []
         return CommandResult(
             complete=True,
-            flush_drain=decision.should_flush,
-            saved_event_id=None,
             status=TurnRequestStatus.DONE,
-            message=f"Idle Turn processed: {decision.decision_type.name}",
+            message=f"Idle Turn processed: {decision.decision_type.name}" + (" (dual)" if dual_turn else ""),
             turn_id=turn_id,
+            emitted_action_ids=action_ids,
         )
 
     async def _sleep_turn(self, worker: "MUDAgentWorker", turn_id: str, events: list[MUDEvent], turn_request: MUDTurnRequest) -> CommandResult:
@@ -158,8 +172,6 @@ class IdleCommand(Command):
             is_complete = await worker.execute_scenario_step(initialized_state.pipeline_id)
             return CommandResult(
                 complete=True,
-                flush_drain=False,
-                saved_event_id=None,
                 status=TurnRequestStatus.DONE,
                 message=f"Dream step executed (complete={is_complete})",
                 turn_id=claimed_turn_id,
@@ -181,8 +193,6 @@ class IdleCommand(Command):
                 await worker.delete_dreaming_state(worker.config.agent_id)
                 return CommandResult(
                     complete=True,
-                    flush_drain=False,
-                    saved_event_id=None,
                     status=TurnRequestStatus.DONE,
                     message="Stale dream aborted (missing framework/state)",
                     turn_id=claimed_turn_id,
@@ -194,8 +204,6 @@ class IdleCommand(Command):
             is_complete = await worker.execute_scenario_step(dreaming_state.pipeline_id)
             return CommandResult(
                 complete=True,
-                flush_drain=False,
-                saved_event_id=None,
                 status=TurnRequestStatus.DONE,
                 message=f"Dream step executed (complete={is_complete})",
                 turn_id=claimed_turn_id,
@@ -217,8 +225,6 @@ class IdleCommand(Command):
                 is_complete = await worker.execute_scenario_step(new_state.pipeline_id)
                 return CommandResult(
                     complete=True,
-                    flush_drain=False,
-                    saved_event_id=None,
                     status=TurnRequestStatus.DONE,
                     message=f"Dream step executed (complete={is_complete})",
                     turn_id=claimed_turn_id,
@@ -228,8 +234,6 @@ class IdleCommand(Command):
         await worker.ensure_turn_id_current(turn_id)
         return CommandResult(
             complete=True,
-            flush_drain=False,
-            saved_event_id=None,
             status=TurnRequestStatus.DONE,
             message="Agent sleeping",
         )

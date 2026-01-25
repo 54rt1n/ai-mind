@@ -8,7 +8,7 @@ dialogue:
   primary_aspect: dreamer
   initial_speaker: aspect
   scene_template: |
-    *You drift into the streams of imagination, sensing {{ dreamer.name }}'s presence.
+    *You drift into the streams of imagination, sensing {{ dreamer.name }}''s presence.
     Your {{ dreamer.title }} materializes before you ({{ dreamer.appearance }}),
     radiating {{ dreamer.emotional_state }}. The {{ dreamer.location }} shimmers into being.*
 
@@ -41,7 +41,7 @@ steps:
       Begin with "[== {{ dreamer.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 2048
-      use_guidance: true
+      link_guidance: true
     output:
       document_type: dialogue-dreamer
       weight: 0.4
@@ -68,6 +68,7 @@ steps:
         top_n: 1
     config:
       max_tokens: 4096
+      link_guidance: true
     output:
       document_type: daydream
       weight: 0.4
@@ -89,7 +90,7 @@ steps:
       Begin with "[== {{ dreamer.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
-      use_guidance: true
+      link_guidance: true
     output:
       document_type: dialogue-dreamer
       weight: 0.4
@@ -110,6 +111,7 @@ steps:
         top_n: 1
     config:
       max_tokens: 4096
+      link_guidance: true
     output:
       document_type: daydream
       weight: 0.4
@@ -131,7 +133,7 @@ steps:
       Begin with "[== {{ dreamer.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
-      use_guidance: true
+      link_guidance: true
     output:
       document_type: dialogue-dreamer
       weight: 0.4
@@ -172,7 +174,7 @@ steps:
       Begin with "[== {{ dreamer.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
-      use_guidance: true
+      link_guidance: true
     output:
       document_type: dialogue-dreamer
       weight: 0.4
@@ -218,7 +220,7 @@ steps:
       Begin with "[== {{ revelator.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 2048
-      use_guidance: true
+      link_guidance: true
     output:
       document_type: dialogue-revelator
       weight: 0.4
@@ -261,7 +263,7 @@ steps:
       Begin with "[== {{ dreamer.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
-      use_guidance: true
+      link_guidance: true
     output:
       document_type: dialogue-dreamer
       weight: 0.4
@@ -308,7 +310,7 @@ steps:
       For "[== Epilogue: <evocative title> ==]"
     config:
       max_tokens: 4096
-      use_guidance: true
+      link_guidance: true
     output:
       document_type: dialogue-writer
       weight: 0.4
@@ -360,7 +362,7 @@ steps:
       max_tokens: 4096
       is_codex: true
       model_role: codex
-      use_guidance: true
+      link_guidance: true
     output:
       document_type: codex
       weight: 1.0
@@ -405,12 +407,15 @@ steps:
       Begin with "[== {{ librarian.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
-      use_guidance: true
+      link_guidance: true
     output:
       document_type: dialogue-librarian
       weight: 0.2
     context:
       - action: flush
+      - action: load_conversation
+        target: current
+        document_types: [summary, conversation, mud-world, mud-agent]
       - action: search_memories
         top_n: 20
     next: [brainstorm_response]

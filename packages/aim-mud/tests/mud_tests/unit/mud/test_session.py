@@ -483,7 +483,6 @@ class TestMUDSession:
         assert session.persona_id == "andi"
         assert session.current_room is None
         assert session.entities_present == []
-        assert session.pending_events == []
         assert session.recent_turns == []
         assert session.last_event_id == "0"
         assert session.last_action_time is None
@@ -494,11 +493,6 @@ class TestMUDSession:
         now = datetime.now(timezone.utc)
         room = RoomState(room_id="#123", name="Garden")
         entity = EntityState(entity_id="1", name="Prax")
-        event = MUDEvent(
-            event_type=EventType.SPEECH,
-            actor="Prax",
-            room_id="#123",
-        )
         turn = MUDTurn(thinking="Test turn")
 
         session = MUDSession(
@@ -506,7 +500,6 @@ class TestMUDSession:
             persona_id="andi",
             current_room=room,
             entities_present=[entity],
-            pending_events=[event],
             recent_turns=[turn],
             last_event_id="1704096000000-0",
             last_action_time=now,
@@ -517,7 +510,6 @@ class TestMUDSession:
 
         assert session.current_room.name == "Garden"
         assert len(session.entities_present) == 1
-        assert len(session.pending_events) == 1
         assert len(session.recent_turns) == 1
         assert session.last_event_id == "1704096000000-0"
         assert session.last_action_time == now
@@ -551,24 +543,7 @@ class TestMUDSession:
         assert last is not None
         assert last.thinking == "Second"
 
-    def test_session_clear_pending_events(self):
-        """Test MUDSession.clear_pending_events method."""
-        event = MUDEvent(
-            event_type=EventType.SPEECH,
-            actor="Prax",
-            room_id="#123",
-        )
-        session = MUDSession(
-            agent_id="andi",
-            persona_id="andi",
-            pending_events=[event],
-        )
-
-        assert len(session.pending_events) == 1
-
-        session.clear_pending_events()
-
-        assert len(session.pending_events) == 0
+    # test_session_clear_pending_events removed - pending_events buffer eliminated in Phase 4
 
     def test_session_serialization(self):
         """Test MUDSession JSON serialization."""

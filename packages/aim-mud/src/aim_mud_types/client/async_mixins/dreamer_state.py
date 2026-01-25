@@ -5,7 +5,7 @@
 from typing import Optional, TYPE_CHECKING
 
 from ...redis_keys import RedisKeys
-from ...models.coordination import DreamerState
+from ...models.coordination import DreamerState, DreamingState, DreamStatus
 
 if TYPE_CHECKING:
     from ..base import BaseAsyncRedisMUDClient
@@ -55,3 +55,23 @@ class DreamerStateMixin:
         """
         key = RedisKeys.agent_dreamer(agent_id)
         return await self._update_fields(key, fields)
+
+    async def has_running_dream(
+        self: "BaseAsyncRedisMUDClient",
+        agent_id: str
+    ) -> bool:
+        """Check if agent has a dream in PENDING or RUNNING status.
+
+        Args:
+            agent_id: The agent ID to check
+
+        Returns:
+            True if dream is PENDING or RUNNING, False otherwise
+        """
+        key = RedisKeys.agent_dreaming_state(agent_id)
+        state = await self._get_hash(DreamingState, key)
+
+        if state is None:
+            return False
+
+        return state.status in [DreamStatus.PENDING, DreamStatus.RUNNING]

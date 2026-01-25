@@ -84,15 +84,13 @@ def build_current_context(
         parts.append(you_see)
         parts.append("")
 
-    # Pending events - only include if requested (not when already in history)
-    if include_events:
-        if session.pending_events:
-            for event in session.pending_events:
-                parts.append(format_event(event))
-        elif idle_mode:
-            parts.append(
-                "You don't see anything of note occuring. You have agency - what do you want to do?"
-            )
+    # Pending events are now in conversation history (pushed via _push_events_to_conversation)
+    # This block only adds idle mode agency prompt when include_events=True and idle
+    if include_events and idle_mode:
+        # Events are already in conversation history, but idle mode needs agency prompt
+        parts.append(
+            "You don't see anything of note occuring. You have agency - what do you want to do?"
+        )
 
     if guidance:
         parts.append(f"\n[Link Guidance: {guidance}]")

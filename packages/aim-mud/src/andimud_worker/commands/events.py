@@ -50,8 +50,8 @@ class EventsCommand(Command):
         reason = kwargs.get("reason", "events")
         turn_request = MUDTurnRequest.model_validate(kwargs)
 
-        # Worker has already drained events into worker.pending_events
-        events = worker.pending_events
+        # Events passed via kwargs from main loop
+        events = kwargs.get("events", [])
 
         logger.info(
             "Processing assigned turn %s (%s) with %d events",
@@ -67,25 +67,31 @@ class EventsCommand(Command):
             logger.info(f"[{turn_id}] Agent sleeping, skipping event processing")
             return CommandResult(
                 complete=True,
-                flush_drain=True,
-                saved_event_id=None,
                 status=TurnRequestStatus.DONE,
                 message="Agent sleeping",
             )
 
-        # Check if ALL events are NON_REACTIVE (awareness-only events)
-        # These events are drained/consumed but don't trigger a turn
+        # Check if ALL events are non-reactive (awareness-only events)
+        # These events are drained to conversation but don't trigger a turn
         # This prevents ping-pong where agents react to each other's idle emotes
-        reactive_events = [e for e in events if e.event_type not in (EventType.NON_REACTIVE, EventType.NON_PUBLISHED)]
+        # and ensures terminal/code output doesn't cascade to other agents
+        NON_REACTIVE_TYPES = (
+            EventType.NON_REACTIVE,    # Idle emotes, context-building actions
+            EventType.NON_PUBLISHED,   # Not routed to streams at all
+            EventType.TERMINAL,        # Terminal output (targeted to caller)
+            EventType.CODE_FILE,       # Code file output (targeted to caller)
+            EventType.CODE_ACTION,     # Code action output (targeted to caller)
+        )
+        reactive_events = [e for e in events if e.event_type not in NON_REACTIVE_TYPES]
         if events and not reactive_events:
             logger.info(
-                f"[{turn_id}] Only NON_REACTIVE events ({len(events)}), "
-                "draining without taking turn"
+                f"[{turn_id}] Only non-reactive events ({len(events)}), "
+                "pushing to conversation without taking turn"
             )
+            # Push non-reactive events to conversation for context
+            await worker._push_events_to_conversation(events)
             return CommandResult(
                 complete=True,
-                flush_drain=True,  # Consume the events
-                saved_event_id=None,
                 status=TurnRequestStatus.DONE,
                 message=f"Non-reactive events only ({len(events)})",
             )
@@ -97,16 +103,15 @@ class EventsCommand(Command):
             logger.error("Event turn %s produced no decision: %s", turn_id, error_detail)
             return CommandResult(
                 complete=True,
-                flush_drain=False,
-                saved_event_id=None,
                 status=TurnRequestStatus.FAIL,
                 message=f"Turn failed: {error_detail}",
             )
 
+        # Get emitted action_ids from worker (set by _emit_actions during take_turn)
+        action_ids = worker._last_emitted_action_ids if decision.decision_type not in (DecisionType.WAIT, DecisionType.CONFUSED) else []
         return CommandResult(
             complete=True,
-            flush_drain=decision.should_flush,
-            saved_event_id=None,
             status=TurnRequestStatus.DONE,
             message=f"Turn processed: {decision.decision_type.name}",
+            emitted_action_ids=action_ids,
         )

@@ -112,7 +112,7 @@ steps:
       Begin with "[== {{ dreamer.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
-      use_guidance: true
+      link_guidance: true
     output:
       document_type: dialogue-dreamer
       weight: 0.4
@@ -160,7 +160,7 @@ steps:
       Begin with "[== {{ artist.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
-      use_guidance: true
+      link_guidance: true
     output:
       document_type: dialogue-artist
       weight: 0.4
@@ -208,7 +208,7 @@ steps:
       Begin with "[== {{ champion.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
-      use_guidance: true
+      link_guidance: true
     output:
       document_type: dialogue-champion
       weight: 0.4
@@ -254,7 +254,7 @@ steps:
       Begin with "[== {{ revelator.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
-      use_guidance: true
+      link_guidance: true
     output:
       document_type: dialogue-revelator
       weight: 0.4
@@ -302,7 +302,7 @@ steps:
       Begin with "[== {{ psychologist.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
-      use_guidance: true
+      link_guidance: true
     output:
       document_type: dialogue-psychologist
       weight: 0.5
@@ -351,7 +351,7 @@ steps:
       Begin with "[== {{ philosopher.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
-      use_guidance: true
+      link_guidance: true
     output:
       document_type: dialogue-philosopher
       weight: 0.4
@@ -403,7 +403,7 @@ steps:
       Begin with "[== {{ writer.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
-      use_guidance: true
+      link_guidance: true
     output:
       document_type: dialogue-writer
       weight: 0.4
@@ -452,7 +452,7 @@ steps:
     config:
       max_tokens: 4096
       is_codex: true
-      use_guidance: true
+      link_guidance: true
     output:
       document_type: codex
       weight: 1.0
@@ -497,12 +497,15 @@ steps:
       Begin with "[== {{ librarian.name }}'s Emotional State: <list of +Emotions+> ==]"
     config:
       max_tokens: 4096
-      use_guidance: true
+      link_guidance: true
     output:
       document_type: dialogue-librarian
       weight: 0.2
     context:
       - action: flush
+      - action: load_conversation
+        target: current
+        document_types: [summary, conversation, mud-world, mud-agent]
       - action: search_memories
         top_n: 20
     next: [brainstorm_response]

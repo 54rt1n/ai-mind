@@ -106,7 +106,7 @@ class FormatValidation(BaseModel):
 class StepConfig(BaseModel):
     """Step execution configuration."""
     max_tokens: int = 1024
-    use_guidance: bool = False
+    link_guidance: bool = False
     is_thought: bool = False  # DEPRECATED: Use model_role="thought" instead
     is_codex: bool = False    # DEPRECATED: Use model_role="codex" instead
     temperature: Optional[float] = None

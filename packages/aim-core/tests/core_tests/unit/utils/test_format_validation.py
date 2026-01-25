@@ -135,3 +135,53 @@ class TestHasEmotionalStateHeader:
         response = "<think>first</think><think>second</think>[== Andi's Emotional State: +Joy+ ==]"
         # The re.sub will remove both think blocks
         assert has_emotional_state_header(response) is True
+
+
+class TestHasEmotionalStateHeaderWithPersonaName:
+    """Tests for persona-specific validation."""
+
+    def test_valid_matching_persona(self):
+        """Header matches expected persona."""
+        response = "[== Andi's Emotional State: +Joy+ ==]\n\nText"
+        assert has_emotional_state_header(response, "Andi") is True
+
+    def test_invalid_wrong_persona(self):
+        """Header is for different persona."""
+        response = "[== Andi's Emotional State: +Joy+ ==]\n\nText"
+        assert has_emotional_state_header(response, "Nova") is False
+
+    def test_valid_no_persona_specified(self):
+        """Without persona_name, accepts any persona (backwards compatible)."""
+        response = "[== RandomPerson's Emotional State: +Joy+ ==]\n\nText"
+        assert has_emotional_state_header(response) is True
+
+    def test_valid_persona_with_space(self):
+        """Persona name with space."""
+        response = "[== Lin Yu's Emotional State: +Joy+ ==]\n\nText"
+        assert has_emotional_state_header(response, "Lin Yu") is True
+
+    def test_valid_persona_after_think(self):
+        """Persona validation works after think block removal."""
+        response = "<think>thinking</think>[== Nova's Emotional State: +Joy+ ==]"
+        assert has_emotional_state_header(response, "Nova") is True
+        assert has_emotional_state_header(response, "Andi") is False
+
+    def test_persona_case_insensitive(self):
+        """Persona matching is case insensitive."""
+        response = "[== ANDI's Emotional State: +Joy+ ==]\n\nText"
+        assert has_emotional_state_header(response, "andi") is True
+
+    def test_persona_with_special_chars(self):
+        """Persona name with regex special characters is handled safely."""
+        response = "[== Test (Beta)'s Emotional State: +Joy+ ==]\n\nText"
+        assert has_emotional_state_header(response, "Test (Beta)") is True
+
+    def test_invalid_persona_substring(self):
+        """Partial persona name match should fail."""
+        response = "[== Andira's Emotional State: +Joy+ ==]\n\nText"
+        assert has_emotional_state_header(response, "Andi") is False
+
+    def test_invalid_persona_suffix(self):
+        """Persona name as suffix of another should fail."""
+        response = "[== SuperAndi's Emotional State: +Joy+ ==]\n\nText"
+        assert has_emotional_state_header(response, "Andi") is False

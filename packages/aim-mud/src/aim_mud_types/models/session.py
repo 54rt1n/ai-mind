@@ -86,7 +86,6 @@ class MUDSession(BaseModel):
     # Immediate context (rebuilt each turn)
     current_room: Optional[RoomState] = None
     entities_present: list[EntityState] = Field(default_factory=list)
-    pending_events: list[MUDEvent] = Field(default_factory=list)
     world_state: Optional[WorldState] = None
 
     # Rolling history (persists, compressed over time)
@@ -125,8 +124,3 @@ class MUDSession(BaseModel):
     def get_last_turn(self) -> Optional[MUDTurn]:
         """Get the most recent turn, if any."""
         return self.recent_turns[-1] if self.recent_turns else None
-
-    def clear_pending_events(self) -> None:
-        """Clear pending events after processing."""
-        self.pending_events = []
-        self.updated_at = _utc_now()

@@ -44,8 +44,6 @@ class ClearCommand(Command):
 
         return CommandResult(
             complete=True,
-            flush_drain=False,
-            saved_event_id=None,
             status=TurnRequestStatus.DONE,
             message="Messages cleared"
         )

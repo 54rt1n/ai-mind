@@ -174,7 +174,8 @@ class TestMovementEventMetadataFiltering:
                     # Assert _agent_id_from_actor WAS called (fallback to room lookup)
                     spy.assert_called_once_with(event.room_id, event.actor_id)
 
-                    # Actor should still be filtered but via different path
+                    # SPEECH events now get self-action routing, so both agents receive
+                    # the event: nova gets it normally, andi gets it with is_self_action=True
                     distributed_agents = []
                     for call in mock_redis.xadd.call_args_list:
                         stream_key = call[0][0]
@@ -182,9 +183,9 @@ class TestMovementEventMetadataFiltering:
                             agent_id = stream_key.split(":")[1]
                             distributed_agents.append(agent_id)
 
-                    # Both agents may receive the event (self_agent tracking for non-movement)
-                    # But actor should be filtered from distribution
-                    assert "andi" not in distributed_agents
+                    # Both agents receive the event (andi as self-action, nova normally)
+                    assert "nova" in distributed_agents
+                    assert "andi" in distributed_agents
 
     @pytest.mark.asyncio
     async def test_movement_event_falls_back_to_lookup_when_metadata_missing(self, mediator, mock_redis):

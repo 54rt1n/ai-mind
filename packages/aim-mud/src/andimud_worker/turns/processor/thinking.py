@@ -2,12 +2,10 @@
 # AI-Mind (C) 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
 """Thinking turn processor: generates structured reasoning via dedicated LLM call."""
 
-import json
 import logging
-import time
 from typing import TYPE_CHECKING
 
-from aim_mud_types import MUDAction, MUDTurnRequest, MUDEvent, RedisKeys
+from aim_mud_types import MUDAction, MUDTurnRequest, MUDEvent
 from aim.utils.think import extract_think_tags, extract_reasoning_block
 from .base import BaseTurnProcessor
 from ...exceptions import AbortRequestedException
@@ -230,7 +228,7 @@ class ThinkingTurnProcessor(BaseTurnProcessor):
         # Step 6: Emit emote action (always emit, even on failure)
         action = MUDAction(tool="emote", args={"action":
             "pauses thoughtfully."},
-            metadata={"non_published": True},
+            metadata={MUDAction.META_NON_PUBLISHED: True},
         )
         actions_taken.append(action)
         await self.worker._emit_actions(actions_taken)
@@ -243,51 +241,24 @@ class ThinkingTurnProcessor(BaseTurnProcessor):
         return actions_taken, thinking
 
     async def _load_previous_thought(self) -> None:
-        """Load previous thought if within TTL and set on response strategy.
+        """Load previous thought if within TTL and set on strategies.
 
-        Checks agent:{id}:thought for existing thought content. If present
-        and within 2hr TTL, sets thought_content on response strategy so
-        it gets folded into context via insert_at_fold().
+        Delegates to ProfileMixin._load_thought_content() which reads from
+        the Redis hash and sets thought_content on both decision and response
+        strategies if present and within 2hr TTL.
 
-        Redis failures are caught and logged - turn continues without previous thought.
+        Redis failures are caught in the ProfileMixin method.
         """
-        thought_key = RedisKeys.agent_thought(self.worker.config.agent_id)
-
-        try:
-            thought_raw = await self.worker.redis.get(thought_key)
-        except Exception as e:
-            logger.warning("Failed to load previous thought from Redis: %s", e)
-            return
-
-        if not thought_raw:
-            logger.debug("No previous thought found")
-            return
-
-        try:
-            raw_str = thought_raw.decode("utf-8") if isinstance(thought_raw, bytes) else thought_raw
-            thought_data = json.loads(raw_str)
-            thought_content = thought_data.get("content", "")
-            timestamp = thought_data.get("timestamp", 0)
-
-            age_seconds = time.time() - timestamp
-            if age_seconds < THOUGHT_TTL_SECONDS and thought_content:
-                self.worker._response_strategy.thought_content = thought_content
-                logger.info(
-                    "Loaded previous thought (%d chars, %.0fs old) into context",
-                    len(thought_content),
-                    age_seconds,
-                )
-            else:
-                logger.debug(
-                    "Previous thought expired (%.0fs old, TTL=%ds)",
-                    age_seconds,
-                    THOUGHT_TTL_SECONDS,
-                )
-        except json.JSONDecodeError as e:
-            logger.warning("Failed to parse previous thought JSON: %s", e)
+        await self.worker._load_thought_content()
 
     async def _store_thought(self, reasoning_xml: str) -> None:
-        """Store generated reasoning to Redis with TTL.
+        """Store generated reasoning to Redis as ThoughtState.
+
+        Creates a new ThoughtState with:
+        - content: The reasoning XML
+        - source: "reasoning"
+        - created_at: Current time
+        - actions_since_generation: 0 (reset on new thought)
 
         Redis failures are caught and logged - reasoning is still returned
         but won't be available for future turns.
@@ -295,19 +266,22 @@ class ThinkingTurnProcessor(BaseTurnProcessor):
         Args:
             reasoning_xml: The reasoning XML block to store
         """
-        thought_data = {
-            "content": reasoning_xml,
-            "source": "reasoning",
-            "timestamp": int(time.time()),
-        }
-        thought_key = RedisKeys.agent_thought(self.worker.config.agent_id)
+        from aim_mud_types import ThoughtState
+        from aim_mud_types.client import RedisMUDClient
+
+        thought = ThoughtState(
+            agent_id=self.worker.config.agent_id,
+            content=reasoning_xml,
+            source="reasoning",
+            actions_since_generation=0,  # Reset counter on new thought
+        )
 
         try:
-            await self.worker.redis.set(
-                thought_key,
-                json.dumps(thought_data),
-                ex=THOUGHT_TTL_SECONDS,
+            client = RedisMUDClient(self.worker.redis)
+            await client.save_thought_state(thought, ttl_seconds=THOUGHT_TTL_SECONDS)
+            logger.info(
+                "Stored reasoning to agent:%s:thought with %ds TTL",
+                self.worker.config.agent_id, THOUGHT_TTL_SECONDS
             )
-            logger.info("Stored reasoning to %s with %ds TTL", thought_key, THOUGHT_TTL_SECONDS)
         except Exception as e:
             logger.warning("Failed to store reasoning to Redis: %s", e)

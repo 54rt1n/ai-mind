@@ -2,7 +2,7 @@
 # AI-Mind (C) 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
 """MUD action model for agent commands."""
 
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import BaseModel, Field
 
@@ -19,13 +19,26 @@ class MUDAction(BaseModel):
     Attributes:
         tool: Tool name (e.g., "say", "emote", "move").
         args: Tool arguments as a dictionary.
+        metadata: Metadata dict for action flags (non_published, non_reactive, etc.).
         priority: Execution priority (lower = first). Default 5.
     """
+
+    # Metadata key constants for action flags
+    META_NON_PUBLISHED: ClassVar[str] = "non_published"  # Event won't be routed, no echo expected
+    META_NON_REACTIVE: ClassVar[str] = "non_reactive"    # Event won't trigger reactions from others
+    META_SLEEP_AWARE: ClassVar[str] = "sleep_aware"      # Event bypasses sleep filtering
 
     tool: str
     args: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
     priority: int = 5
+
+    def expects_echo(self) -> bool:
+        """Return True if this action expects an echo event from the MUD.
+
+        NON_PUBLISHED actions don't produce routed events, so no echo is expected.
+        """
+        return not self.metadata.get(self.META_NON_PUBLISHED, False)
 
     def to_command(self) -> str:
         """Convert action to Evennia command string.

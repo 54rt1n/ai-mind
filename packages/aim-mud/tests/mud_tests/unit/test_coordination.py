@@ -88,5 +88,96 @@ class TestTurnReasonThink:
         assert TurnReason.THINK in TurnReason
 
 
+class TestTurnRequestStatusPending:
+    """Tests for TurnRequestStatus.PENDING enum value."""
+
+    def test_pending_exists(self):
+        """Test PENDING is a valid TurnRequestStatus."""
+        assert TurnRequestStatus.PENDING == "pending"
+
+    def test_pending_value(self):
+        """Test PENDING enum value is correct."""
+        assert TurnRequestStatus.PENDING.value == "pending"
+
+    def test_pending_in_enum(self):
+        """Test PENDING is in the TurnRequestStatus enum."""
+        assert TurnRequestStatus.PENDING in TurnRequestStatus
+
+
+class TestTurnRequestIsAvailableForAssignment:
+    """Tests for MUDTurnRequest.is_available_for_assignment() with PENDING status."""
+
+    def test_pending_is_not_available(self):
+        """Agent waiting for action echo (PENDING) should not be available."""
+        from aim_mud_types.models.coordination import MUDTurnRequest
+
+        request = MUDTurnRequest(
+            turn_id="test-turn",
+            status=TurnRequestStatus.PENDING,
+            sequence_id=1
+        )
+
+        assert request.is_available_for_assignment() is False
+
+    def test_in_progress_is_not_available(self):
+        """Agent in progress should not be available."""
+        from aim_mud_types.models.coordination import MUDTurnRequest
+
+        request = MUDTurnRequest(
+            turn_id="test-turn",
+            status=TurnRequestStatus.IN_PROGRESS,
+            sequence_id=1
+        )
+
+        assert request.is_available_for_assignment() is False
+
+    def test_done_is_available(self):
+        """Agent that completed turn should be available."""
+        from aim_mud_types.models.coordination import MUDTurnRequest
+
+        request = MUDTurnRequest(
+            turn_id="test-turn",
+            status=TurnRequestStatus.DONE,
+            sequence_id=1
+        )
+
+        assert request.is_available_for_assignment() is True
+
+    def test_ready_is_available(self):
+        """Agent in ready state should be available."""
+        from aim_mud_types.models.coordination import MUDTurnRequest
+
+        request = MUDTurnRequest(
+            turn_id="test-turn",
+            status=TurnRequestStatus.READY,
+            sequence_id=1
+        )
+
+        assert request.is_available_for_assignment() is True
+
+    def test_busy_statuses_are_not_available(self):
+        """All busy statuses should mark agent as unavailable."""
+        from aim_mud_types.models.coordination import MUDTurnRequest
+
+        busy_statuses = [
+            TurnRequestStatus.ASSIGNED,
+            TurnRequestStatus.IN_PROGRESS,
+            TurnRequestStatus.PENDING,
+            TurnRequestStatus.ABORT_REQUESTED,
+            TurnRequestStatus.EXECUTING,
+            TurnRequestStatus.EXECUTE,
+        ]
+
+        for status in busy_statuses:
+            request = MUDTurnRequest(
+                turn_id="test-turn",
+                status=status,
+                sequence_id=1
+            )
+            assert request.is_available_for_assignment() is False, (
+                f"Status {status} should mark agent as unavailable"
+            )
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

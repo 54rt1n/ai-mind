@@ -102,20 +102,43 @@ class FormatValidationMixin:
         return None
 
     def _get_persona_name(self) -> str:
-        """Get persona name for guidance messages.
+        """Get the name to use for emotional state header validation.
 
-        Uses format_validation.persona_name_override if set,
-        otherwise falls back to persona.full_name from executor.
+        Resolution order:
+        1. format_validation.persona_name_override if set
+        2. For dialogue steps with aspect speaker: aspect.name
+        3. For dialogue steps with persona speaker: persona.name
+        4. Default: persona.name (not full_name)
+        5. Fallback: "Agent"
 
         Returns:
-            Persona name string
+            Name string for validation
         """
+        from aim.agents.aspects import get_aspect_or_default
+        from ..models import SpeakerType
+
+        # Check for explicit override first
         format_config = self._get_format_validation()
         if format_config and format_config.persona_name_override:
             return format_config.persona_name_override
 
-        if hasattr(self, 'executor') and hasattr(self.executor, 'persona'):
-            return self.executor.persona.full_name
+        # Check if this is a dialogue step with speaker info
+        if hasattr(self, 'step_def') and hasattr(self.step_def, 'speaker'):
+            speaker = self.step_def.speaker
+            if speaker and hasattr(self, 'executor') and self.executor.persona:
+                if speaker.type == SpeakerType.ASPECT:
+                    # Resolve aspect name
+                    aspect_name = speaker.aspect_name
+                    if not aspect_name and self.executor.framework and self.executor.framework.dialogue:
+                        aspect_name = self.executor.framework.dialogue.primary_aspect
+                    if aspect_name:
+                        aspect = get_aspect_or_default(self.executor.persona, aspect_name)
+                        return aspect.name
+                # For persona speaker, fall through to use persona.name
+
+        # Default: use persona.name (not full_name)
+        if hasattr(self, 'executor') and hasattr(self.executor, 'persona') and self.executor.persona:
+            return self.executor.persona.name
 
         return "Agent"
 
@@ -199,7 +222,7 @@ class FormatValidationMixin:
             # Extract think tags and validate format
             cleaned_response, _ = extract_think_tags(response)
 
-            if has_emotional_state_header(cleaned_response):
+            if has_emotional_state_header(cleaned_response, persona_name):
                 if used_fallback:
                     logger.info("Fallback model succeeded with format validation")
                 elif attempt > 0:

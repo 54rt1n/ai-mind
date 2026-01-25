@@ -72,8 +72,6 @@ class DreamCommand(Command):
             logger.error("Planner pipeline missing objective")
             return CommandResult(
                 complete=True,
-                flush_drain=False,
-                saved_event_id=None,
                 status=TurnRequestStatus.FAIL,
                 message="Planner pipeline missing objective",
             )
@@ -100,8 +98,6 @@ class DreamCommand(Command):
             worker.cvm.refresh()
             return CommandResult(
                 complete=True,
-                flush_drain=False,
-                saved_event_id=None,
                 status=TurnRequestStatus.DONE,
                 message=f"Plan created: {plan.summary}",
             )
@@ -109,8 +105,6 @@ class DreamCommand(Command):
             logger.error(f"[{turn_id}] Plan creation failed")
             return CommandResult(
                 complete=True,
-                flush_drain=False,
-                saved_event_id=None,
                 status=TurnRequestStatus.FAIL,
                 message="Plan creation failed",
             )
@@ -141,8 +135,6 @@ class DreamCommand(Command):
             logger.error("Dream turn missing scenario in metadata")
             return CommandResult(
                 complete=True,
-                flush_drain=False,
-                saved_event_id=None,
                 status=TurnRequestStatus.FAIL,
                 message="Dream turn missing scenario in metadata",
             )
@@ -166,8 +158,6 @@ class DreamCommand(Command):
             await worker._update_conversation_report()
             return CommandResult(
                 complete=True,
-                flush_drain=False,
-                saved_event_id=None,
                 status=TurnRequestStatus.DONE,
                 message=f"Dream completed: {scenario}",
             )
@@ -175,8 +165,6 @@ class DreamCommand(Command):
             logger.error(f"Dream failed: {result.error}")
             return CommandResult(
                 complete=True,
-                flush_drain=False,
-                saved_event_id=None,
                 status=TurnRequestStatus.FAIL,
                 message=result.error or "Dream failed",
             )

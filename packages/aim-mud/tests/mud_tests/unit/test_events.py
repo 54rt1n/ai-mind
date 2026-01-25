@@ -240,3 +240,110 @@ class TestMUDEventSequenceIdSerialization:
         assert restored.sequence_id is None
         assert restored.event_type == original.event_type
         assert restored.actor == original.actor
+
+
+class TestMUDEventActionIdSerialization:
+    """Test MUDEvent action_id field serialization and deserialization."""
+
+    def test_to_redis_dict_includes_action_id_when_set(self):
+        """to_redis_dict should include action_id when it's not None."""
+        event = MUDEvent(
+            event_type=EventType.EMOTE,
+            actor="Andi",
+            room_id="room1",
+            action_id="act_1705555000000_abcd1234"
+        )
+
+        redis_dict = event.to_redis_dict()
+
+        assert "action_id" in redis_dict
+        assert redis_dict["action_id"] == "act_1705555000000_abcd1234"
+
+    def test_to_redis_dict_excludes_action_id_when_none(self):
+        """to_redis_dict should not include action_id when it's None."""
+        event = MUDEvent(
+            event_type=EventType.SPEECH,
+            actor="Prax",
+            room_id="room1",
+            action_id=None
+        )
+
+        redis_dict = event.to_redis_dict()
+
+        assert "action_id" not in redis_dict
+
+    def test_from_dict_extracts_action_id(self):
+        """from_dict should extract action_id from data."""
+        data = {
+            "type": "emote",
+            "actor": "Andi",
+            "room_id": "room1",
+            "action_id": "act_1705555000000_efgh5678",
+            "timestamp": "2025-01-10T12:00:00Z"
+        }
+
+        event = MUDEvent.from_dict(data)
+
+        assert event.action_id == "act_1705555000000_efgh5678"
+
+    def test_from_dict_handles_missing_action_id(self):
+        """from_dict should handle missing action_id gracefully."""
+        data = {
+            "type": "speech",
+            "actor": "Bob",
+            "room_id": "room1",
+            "timestamp": "2025-01-10T12:00:00Z"
+        }
+
+        event = MUDEvent.from_dict(data)
+
+        assert event.action_id is None
+
+    def test_round_trip_serialization_with_action_id(self):
+        """Round-trip serialization should preserve action_id."""
+        original = MUDEvent(
+            event_type=EventType.OBJECT,
+            actor="Andi",
+            room_id="room1",
+            content="picks up a flower",
+            action_id="act_1705555000000_wxyz9999"
+        )
+
+        # Serialize to Redis dict
+        redis_dict = original.to_redis_dict()
+
+        # Deserialize back
+        restored = MUDEvent.from_dict(redis_dict)
+
+        assert restored.action_id == original.action_id
+        assert restored.event_type == original.event_type
+        assert restored.actor == original.actor
+        assert restored.content == original.content
+
+    def test_action_id_with_sequence_id(self):
+        """Event can have both action_id and sequence_id."""
+        event = MUDEvent(
+            event_type=EventType.EMOTE,
+            actor="Andi",
+            room_id="room1",
+            content="waves",
+            action_id="act_1705555000000_both1234",
+            sequence_id=42
+        )
+
+        redis_dict = event.to_redis_dict()
+
+        assert redis_dict["action_id"] == "act_1705555000000_both1234"
+        assert redis_dict["sequence_id"] == 42
+
+    def test_action_id_format_validation(self):
+        """Action ID can be any string (format is convention, not enforced)."""
+        # The format act_{timestamp}_{hex} is a convention, not a constraint
+        event = MUDEvent(
+            event_type=EventType.EMOTE,
+            actor="Andi",
+            room_id="room1",
+            action_id="any_string_is_valid"
+        )
+
+        assert event.action_id == "any_string_is_valid"

@@ -305,6 +305,7 @@ class TestWorkerExecuteStatusTransitions:
         expected_statuses = {
             "assigned",
             "in_progress",
+            "pending",
             "done",
             "fail",
             "retry",

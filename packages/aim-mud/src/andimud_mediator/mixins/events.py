@@ -246,7 +246,16 @@ class EventsMixin:
         if actor_agent_id:
             if self.registered_agents and actor_agent_id not in self.registered_agents:
                 actor_agent_id = None
-            elif event.event_type in (EventType.OBJECT, EventType.EMOTE):
+            elif event.event_type in (
+                EventType.OBJECT,
+                EventType.EMOTE,
+                EventType.SPEECH,
+                EventType.NARRATIVE,
+                EventType.NON_REACTIVE,
+                EventType.SLEEP_AWARE,
+                # Note: TERMINAL excluded - it's terminal output, not the agent's action
+                # Note: NON_PUBLISHED excluded - not routed by definition
+            ):
                 self_action_agent_id = actor_agent_id
             elif event.event_type == EventType.MOVEMENT:
                 destination_room = event.metadata.get("destination_room")

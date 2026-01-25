@@ -13,7 +13,10 @@ from .actions import MUDAction
 from .conversation import MUDConversationEntry
 from .profile import AgentProfile, RoomProfile
 from .decision import DecisionResult
-from .coordination import MUDTurnRequest, DreamerState, DreamingState
+from .coordination import (
+    MUDTurnRequest, DreamerState, DreamingState, ThoughtState,
+    THOUGHT_THROTTLE_SECONDS, THOUGHT_THROTTLE_ACTIONS,
+)
 from .events import MUDEvent
 from .plan import PlanTask, AgentPlan
 from .session import MUDTurn, MUDSession
@@ -26,6 +29,8 @@ __all__ = [
     "AuraState", "RoomState", "EntityState", "WorldState",
     "InventoryItem", "WhoEntry", "MUDAction", "MUDConversationEntry",
     "AgentProfile", "RoomProfile", "MUDTurnRequest", "DreamerState",
-    "DreamingState", "MUDEvent", "AgentPlan", "PlanTask",
+    "DreamingState", "ThoughtState", "MUDEvent", "AgentPlan", "PlanTask",
     "MUDTurn", "MUDSession", "DecisionResult",
+    # Constants
+    "THOUGHT_THROTTLE_SECONDS", "THOUGHT_THROTTLE_ACTIONS",
 ]

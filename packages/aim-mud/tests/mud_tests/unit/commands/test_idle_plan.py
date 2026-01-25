@@ -53,6 +53,11 @@ def mock_worker():
     worker._emit_decision_action = AsyncMock()
     worker._is_idle_active = AsyncMock(return_value=False)
 
+    # Thought throttle methods (new)
+    worker._should_generate_new_thought = AsyncMock(return_value=False)
+    worker._increment_thought_action_counter = AsyncMock(return_value=1)
+    worker._load_thought_content = AsyncMock()
+
     # Pending events
     worker.pending_events = []
 
@@ -248,33 +253,8 @@ class TestIdleDreamFallback:
         assert result.status == TurnRequestStatus.DONE
         assert "sleeping" in result.message.lower()
 
-    @pytest.mark.asyncio
-    async def test_flush_drain_always_true(self, command, mock_worker, turn_request_kwargs):
-        """Test flush_drain for idle turns."""
-        # Mock no pending/running dreams
-        mock_worker.load_dreaming_state.return_value = None
-        mock_worker._check_agent_is_sleeping = AsyncMock(return_value=True)
-
-        result = await command.execute(mock_worker, **turn_request_kwargs)
-
-        # Sleeping agent turns now return flush_drain=False
-        assert result.flush_drain is False
-
-
 class TestIdleCommandResult:
     """Tests for CommandResult structure."""
-
-    @pytest.mark.asyncio
-    async def test_result_flush_drain_true(self, command, mock_worker, turn_request_kwargs):
-        """Test flush_drain for idle turns."""
-        # Mock no pending/running dreams
-        mock_worker.load_dreaming_state.return_value = None
-        mock_worker._check_agent_is_sleeping = AsyncMock(return_value=True)
-
-        result = await command.execute(mock_worker, **turn_request_kwargs)
-
-        # Sleeping agent turns now return flush_drain=False
-        assert result.flush_drain is False
 
     @pytest.mark.asyncio
     async def test_result_complete_false(self, command, mock_worker, sample_plan, turn_request_kwargs):

@@ -2,7 +2,6 @@
 # AI-Mind (C) 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
 """Unit tests for ThinkingTurnProcessor."""
 
-import json
 import pytest
 import time
 from unittest.mock import MagicMock, AsyncMock, patch
@@ -32,6 +31,8 @@ def mock_worker():
     worker.model_set.get_model_name = MagicMock(side_effect=lambda role: f"{role}_model")
     worker._response_strategy = MagicMock()
     worker._response_strategy.thought_content = None
+    worker._decision_strategy = MagicMock()
+    worker._decision_strategy.thought_content = None
     worker._response_strategy.build_turns = AsyncMock(return_value=[
         {"role": "user", "content": "test context"}
     ])
@@ -39,6 +40,8 @@ def mock_worker():
     worker._call_llm = AsyncMock(return_value="<reasoning>\n    <inspiration>Test observation.</inspiration>\n</reasoning>")
     worker._emit_actions = AsyncMock()
     worker._check_abort_requested = AsyncMock(return_value=False)
+    # Default: _load_thought_content does nothing (no thought to load)
+    worker._load_thought_content = AsyncMock()
     return worker
 
 
@@ -101,59 +104,55 @@ class TestThinkingTurnProcessorDecideAction:
     ):
         """Test _decide_action stores generated reasoning to Redis."""
         mock_worker.redis.get.return_value = None
+        # Mock redis.eval to simulate successful hash creation
+        mock_worker.redis.eval.return_value = 1
+        # Mock redis.expire for TTL setting
+        mock_worker.redis.expire.return_value = True
 
         processor = ThinkingTurnProcessor(mock_worker)
         await processor._decide_action(sample_turn_request, sample_events)
 
-        # Verify Redis set was called with correct key and TTL
-        mock_worker.redis.set.assert_called_once()
-        call_args = mock_worker.redis.set.call_args
-        key = call_args[0][0]
-        data = json.loads(call_args[0][1])
+        # Verify Redis eval was called (for _create_hash Lua script)
+        assert mock_worker.redis.eval.called
+        # Verify expire was called to set TTL
+        assert mock_worker.redis.expire.called
+
+        # Check expire was called with correct key and TTL
+        expire_call = mock_worker.redis.expire.call_args
+        key = expire_call[0][0]
+        ttl = expire_call[0][1]
 
         assert key == "agent:test_agent:thought"
-        assert data["source"] == "reasoning"
-        assert "content" in data
-        assert "timestamp" in data
-        assert call_args[1]["ex"] == THOUGHT_TTL_SECONDS
+        assert ttl == THOUGHT_TTL_SECONDS
 
     @pytest.mark.asyncio
-    async def test_decide_action_loads_previous_thought_within_ttl(
+    async def test_decide_action_calls_load_thought_content(
         self, mock_worker, sample_turn_request, sample_events
     ):
-        """Test _decide_action loads previous thought if within TTL."""
-        # Setup previous thought within TTL
-        previous_thought = {
-            "content": "<reasoning>Previous reasoning</reasoning>",
-            "source": "reasoning",
-            "timestamp": int(time.time()) - 100,  # 100 seconds ago
-        }
-        mock_worker.redis.get.return_value = json.dumps(previous_thought).encode("utf-8")
+        """Test _decide_action calls _load_thought_content to load previous thought."""
+        processor = ThinkingTurnProcessor(mock_worker)
+        await processor._decide_action(sample_turn_request, sample_events)
+
+        # Verify _load_thought_content was called (delegates to ProfileMixin)
+        mock_worker._load_thought_content.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_decide_action_thought_content_set_by_load_method(
+        self, mock_worker, sample_turn_request, sample_events
+    ):
+        """Test _decide_action relies on _load_thought_content to set thought."""
+        # Mock _load_thought_content to simulate loading a thought
+        async def mock_load():
+            mock_worker._response_strategy.thought_content = "<reasoning>Loaded thought</reasoning>"
+            mock_worker._decision_strategy.thought_content = "<reasoning>Loaded thought</reasoning>"
+
+        mock_worker._load_thought_content = AsyncMock(side_effect=mock_load)
 
         processor = ThinkingTurnProcessor(mock_worker)
         await processor._decide_action(sample_turn_request, sample_events)
 
-        # Verify previous thought was set on response strategy
-        assert mock_worker._response_strategy.thought_content == "<reasoning>Previous reasoning</reasoning>"
-
-    @pytest.mark.asyncio
-    async def test_decide_action_ignores_expired_thought(
-        self, mock_worker, sample_turn_request, sample_events
-    ):
-        """Test _decide_action ignores thought outside TTL."""
-        # Setup expired thought
-        expired_thought = {
-            "content": "<reasoning>Expired reasoning</reasoning>",
-            "source": "reasoning",
-            "timestamp": int(time.time()) - THOUGHT_TTL_SECONDS - 100,  # Expired
-        }
-        mock_worker.redis.get.return_value = json.dumps(expired_thought).encode("utf-8")
-
-        processor = ThinkingTurnProcessor(mock_worker)
-        await processor._decide_action(sample_turn_request, sample_events)
-
-        # Verify expired thought was NOT set on response strategy
-        assert mock_worker._response_strategy.thought_content is None
+        # Verify thought content was set by the mock (simulating ProfileMixin behavior)
+        assert mock_worker._response_strategy.thought_content == "<reasoning>Loaded thought</reasoning>"
 
     @pytest.mark.asyncio
     async def test_decide_action_includes_user_guidance(
@@ -192,8 +191,8 @@ class TestThinkingTurnProcessorDecideAction:
         # Verify LLM was called multiple times (retries)
         assert mock_worker._call_llm.call_count >= 3
 
-        # Verify Redis set was NOT called (no valid reasoning)
-        assert mock_worker.redis.set.call_count == 0
+        # Verify Redis eval was NOT called (no valid reasoning, no storage)
+        assert mock_worker.redis.eval.call_count == 0
 
         # Verify error message in thinking
         assert "[ERROR]" in thinking
@@ -217,19 +216,18 @@ class TestThinkingTurnProcessorDecideAction:
         assert "<reasoning>" in thinking
 
     @pytest.mark.asyncio
-    async def test_decide_action_handles_invalid_previous_thought_json(
+    async def test_decide_action_continues_when_load_thought_fails(
         self, mock_worker, sample_turn_request, sample_events
     ):
-        """Test _decide_action handles invalid JSON in previous thought."""
-        mock_worker.redis.get.return_value = b"invalid json {{{"
+        """Test _decide_action continues when _load_thought_content raises."""
+        # _load_thought_content handles errors internally, but simulate it raising
+        mock_worker._load_thought_content = AsyncMock(side_effect=Exception("Redis error"))
 
         processor = ThinkingTurnProcessor(mock_worker)
-        # Should not raise
-        actions, thinking = await processor._decide_action(sample_turn_request, sample_events)
-
-        # Verify processing continued
-        assert len(actions) == 1
-        mock_worker._call_llm.assert_called_once()
+        # Should raise since _load_previous_thought doesn't catch exceptions itself
+        # (it relies on ProfileMixin to handle Redis errors)
+        with pytest.raises(Exception, match="Redis error"):
+            await processor._decide_action(sample_turn_request, sample_events)
 
 
 class TestThinkingTurnProcessorHelpers:
@@ -238,31 +236,60 @@ class TestThinkingTurnProcessorHelpers:
     @pytest.mark.asyncio
     async def test_store_thought_sets_correct_data(self, mock_worker):
         """Test _store_thought stores correct JSON structure."""
+        # Mock redis.eval to simulate successful hash creation
+        mock_worker.redis.eval.return_value = 1
+        # Mock redis.expire for TTL setting
+        mock_worker.redis.expire.return_value = True
+
         processor = ThinkingTurnProcessor(mock_worker)
 
         with patch("time.time", return_value=1234567890):
             await processor._store_thought("<reasoning>Test</reasoning>")
 
-        call_args = mock_worker.redis.set.call_args
-        key = call_args[0][0]
-        data = json.loads(call_args[0][1])
+        # Verify redis.eval was called with Lua script for HSET
+        assert mock_worker.redis.eval.called
+        eval_call_args = mock_worker.redis.eval.call_args
 
+        # The Lua script and arguments are passed to eval
+        # Keys[1] is the key, and ARGV contains field-value pairs
+        lua_script = eval_call_args[0][0]
+        num_keys = eval_call_args[0][1]
+        key = eval_call_args[0][2]
+
+        # Check key and num_keys
+        assert num_keys == 1
         assert key == "agent:test_agent:thought"
-        assert data["content"] == "<reasoning>Test</reasoning>"
-        assert data["source"] == "reasoning"
-        assert data["timestamp"] == 1234567890
-        assert call_args[1]["ex"] == THOUGHT_TTL_SECONDS
+
+        # The remaining args are field-value pairs for HSET
+        # We can verify the fields were serialized correctly by checking they're in the args
+        args_list = list(eval_call_args[0][3:])
+
+        # Convert list to dict (field, value, field, value, ...)
+        fields_dict = {}
+        for i in range(0, len(args_list), 2):
+            if i + 1 < len(args_list):
+                fields_dict[args_list[i]] = args_list[i + 1]
+
+        # Verify the fields
+        assert fields_dict.get("agent_id") == "test_agent"
+        assert fields_dict.get("content") == "<reasoning>Test</reasoning>"
+        assert fields_dict.get("source") == "reasoning"
+        assert "created_at" in fields_dict  # Timestamp is stored as created_at
+        assert fields_dict.get("actions_since_generation") == "0"
+
+        # Verify expire was called with correct key and TTL
+        expire_call = mock_worker.redis.expire.call_args
+        assert expire_call[0][0] == "agent:test_agent:thought"
+        assert expire_call[0][1] == THOUGHT_TTL_SECONDS
 
     @pytest.mark.asyncio
-    async def test_load_previous_thought_handles_no_thought(self, mock_worker):
-        """Test _load_previous_thought handles missing thought."""
-        mock_worker.redis.get.return_value = None
-
+    async def test_load_previous_thought_delegates_to_worker(self, mock_worker):
+        """Test _load_previous_thought delegates to worker._load_thought_content."""
         processor = ThinkingTurnProcessor(mock_worker)
         await processor._load_previous_thought()
 
-        # Verify thought was not set
-        assert mock_worker._response_strategy.thought_content is None
+        # Verify it delegates to ProfileMixin._load_thought_content
+        mock_worker._load_thought_content.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_decide_action_with_extremely_large_reasoning(
@@ -277,15 +304,28 @@ class TestThinkingTurnProcessorHelpers:
 
         mock_worker.redis.get.return_value = None
         mock_worker._call_llm.return_value = large_reasoning
+        # Mock redis.eval to simulate successful hash creation
+        mock_worker.redis.eval.return_value = 1
+        # Mock redis.expire for TTL setting
+        mock_worker.redis.expire.return_value = True
 
         processor = ThinkingTurnProcessor(mock_worker)
         actions, thinking = await processor._decide_action(sample_turn_request, sample_events)
 
-        # Verify reasoning was stored
-        call_args = mock_worker.redis.set.call_args
-        data = json.loads(call_args[0][1])
-        assert len(data["content"]) > 5000  # Should be large
-        assert data["source"] == "reasoning"
+        # Verify reasoning was stored by checking redis.eval was called
+        assert mock_worker.redis.eval.called
+        eval_call_args = mock_worker.redis.eval.call_args
+
+        # Extract the field-value pairs from eval args
+        args_list = list(eval_call_args[0][3:])
+        fields_dict = {}
+        for i in range(0, len(args_list), 2):
+            if i + 1 < len(args_list):
+                fields_dict[args_list[i]] = args_list[i + 1]
+
+        # Verify the content is large and has correct source
+        assert len(fields_dict.get("content", "")) > 5000  # Should be large
+        assert fields_dict.get("source") == "reasoning"
 
     @pytest.mark.asyncio
     async def test_decide_action_empty_guidance_not_included(
@@ -322,6 +362,10 @@ class TestThinkingTurnProcessorRetryLogic:
         ]
         # Configure fallback model same as chat to skip fallback
         mock_worker.model_set.get_model_name = MagicMock(return_value="same_model")
+        # Mock redis.eval to simulate successful hash creation
+        mock_worker.redis.eval.return_value = 1
+        # Mock redis.expire for TTL setting
+        mock_worker.redis.expire.return_value = True
 
         processor = ThinkingTurnProcessor(mock_worker)
         actions, thinking = await processor._decide_action(sample_turn_request, sample_events)
@@ -333,8 +377,8 @@ class TestThinkingTurnProcessorRetryLogic:
         assert "<reasoning>" in thinking
         assert "Success" in thinking
 
-        # Verify reasoning was stored
-        mock_worker.redis.set.assert_called_once()
+        # Verify reasoning was stored (redis.eval was called)
+        assert mock_worker.redis.eval.called
 
     @pytest.mark.asyncio
     async def test_fallback_model_on_repeated_failure(
@@ -447,8 +491,8 @@ class TestThinkingTurnProcessorRetryLogic:
         processor = ThinkingTurnProcessor(mock_worker)
         actions, thinking = await processor._decide_action(sample_turn_request, sample_events)
 
-        # Verify Redis set was NOT called
-        mock_worker.redis.set.assert_not_called()
+        # Verify Redis eval was NOT called (no storage when no valid reasoning)
+        mock_worker.redis.eval.assert_not_called()
 
         # Verify error in thinking
         assert "[ERROR]" in thinking

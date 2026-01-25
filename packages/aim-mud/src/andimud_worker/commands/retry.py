@@ -61,14 +61,12 @@ class RetryCommand(Command):
             logger.info(f"[{turn_id}] Agent sleeping, skipping retry")
             return CommandResult(
                 complete=True,
-                flush_drain=False,
-                saved_event_id=None,
                 status=TurnRequestStatus.DONE,
                 message="Agent sleeping",
             )
 
-        # Worker has already drained events into worker.pending_events
-        events = worker.pending_events
+        # Events passed via kwargs from main loop
+        events = kwargs.get("events", [])
 
         decision = await worker.take_turn(turn_id, events, turn_request)
         decision_type = getattr(decision, "decision_type", None)
@@ -83,16 +81,15 @@ class RetryCommand(Command):
             )
             return CommandResult(
                 complete=True,
-                flush_drain=decision.should_flush if decision else False,
-                saved_event_id=None,
                 status=TurnRequestStatus.FAIL,
                 message=f"Retry failed (attempt {attempt_count}): {error_detail}",
             )
 
+        # Get emitted action_ids from worker (set by _emit_actions during take_turn)
+        action_ids = worker._last_emitted_action_ids if decision_type not in (DecisionType.WAIT, DecisionType.CONFUSED) else []
         return CommandResult(
             complete=True,
-            flush_drain=decision.should_flush if decision else False,
-            saved_event_id=None,
             status=TurnRequestStatus.DONE,
             message=f"Retry successful (attempt {attempt_count}): {decision_type.name}",
+            emitted_action_ids=action_ids,
         )

@@ -71,8 +71,6 @@ class NewConversationCommand(Command):
 
         return CommandResult(
             complete=True,
-            flush_drain=False,
-            saved_event_id=None,
             status=TurnRequestStatus.DONE,
             message=f"New conversation: {conversation_id}" if conversation_id else "Failed to create conversation"
         )

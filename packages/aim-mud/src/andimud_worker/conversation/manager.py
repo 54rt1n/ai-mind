@@ -59,6 +59,40 @@ def _truncate_head_tail(text: str, head: int, tail: int) -> str:
     return f"{text[:head]}{text[-tail:]}"
 
 
+def _compare_stream_ids(a: str, b: str) -> int:
+    """Compare two Redis stream IDs numerically.
+
+    Redis stream IDs are in format "timestamp-sequence" (e.g., "1704096000000-42").
+    Lexicographic comparison doesn't work correctly for sequences with different
+    digit counts ("5" > "42" lexicographically). This function compares them
+    by parsing into (timestamp, sequence) tuples.
+
+    Args:
+        a: First stream ID
+        b: Second stream ID
+
+    Returns:
+        -1 if a < b, 0 if a == b, 1 if a > b
+    """
+    try:
+        a_ts, a_seq = a.split("-", 1)
+        b_ts, b_seq = b.split("-", 1)
+        a_tuple = (int(a_ts), int(a_seq))
+        b_tuple = (int(b_ts), int(b_seq))
+        if a_tuple < b_tuple:
+            return -1
+        elif a_tuple > b_tuple:
+            return 1
+        return 0
+    except (ValueError, AttributeError):
+        # Fallback to lexicographic if parsing fails
+        if a < b:
+            return -1
+        elif a > b:
+            return 1
+        return 0
+
+
 class MUDConversationManager:
     """Manages Redis conversation list for an agent.
 
@@ -156,14 +190,14 @@ class MUDConversationManager:
             world_state: Optional world state snapshot for context.
             room_id: Room identifier for metadata.
             room_name: Room name for metadata.
-            last_event_id: The last consumed event ID for stream position tracking.
+            last_event_id: Fallback last_event_id if group has no events with IDs.
 
         Returns:
             The created MUDConversationEntry.
         """
-        # Store last_event_id for the entry we're creating
-        _last_event_id = last_event_id
-        filtered_events = [e for e in events if not e.is_self_speech_echo()]
+        # Phase 5: Self-action events are now the single source of truth for agent speech.
+        # No longer filtering self-speech echoes - they create DOC_MUD_ACTION entries.
+        filtered_events = events
         last_entry: Optional[MUDConversationEntry] = None
         group_events: list[MUDEvent] = []
         group_actor_key: Optional[str] = None
@@ -175,6 +209,9 @@ class MUDConversationManager:
                 return
 
             last_event = group_events[-1]
+
+            # Compute last_event_id from this group's events
+            group_last_event_id = group_events[-1].event_id if group_events else last_event_id
             entry_room_id = last_event.room_id
             entry_room_name = last_event.room_name
             if not entry_room_id and world_state and world_state.room_state:
@@ -212,7 +249,17 @@ class MUDConversationManager:
 
             content = "\n\n".join(content_parts)
             tokens = count_tokens(content)
-            doc_type = DOC_MUD_ACTION if group_is_self else DOC_MUD_WORLD
+
+            # Determine document type
+            if group_is_self:
+                # Self-speech/narrative → DOC_MUD_AGENT, other self-actions → DOC_MUD_ACTION
+                speech_types = {EventType.SPEECH.value, EventType.NARRATIVE.value}
+                if any(et in speech_types for et in event_types):
+                    doc_type = DOC_MUD_AGENT
+                else:
+                    doc_type = DOC_MUD_ACTION
+            else:
+                doc_type = DOC_MUD_WORLD
 
             metadata = {
                 "room_id": entry_room_id or room_id,
@@ -242,7 +289,7 @@ class MUDConversationManager:
                 metadata=metadata,
                 speaker_id="world",
                 timestamp=last_event.timestamp,
-                last_event_id=_last_event_id,
+                last_event_id=group_last_event_id,
             )
             await self._push_and_trim(entry)
             last_entry = entry
@@ -281,7 +328,7 @@ class MUDConversationManager:
                     metadata=metadata,
                     speaker_id="code",
                     timestamp=event.timestamp,
-                    last_event_id=_last_event_id,
+                    last_event_id=event.event_id or last_event_id,
                 )
                 await self._push_and_trim(entry)
                 last_entry = entry
@@ -320,7 +367,7 @@ class MUDConversationManager:
                     metadata=metadata,
                     speaker_id="world",
                     timestamp=event.timestamp,
-                    last_event_id=_last_event_id,
+                    last_event_id=event.event_id or last_event_id,
                 )
                 await self._push_and_trim(entry)
                 last_entry = entry
@@ -349,7 +396,7 @@ class MUDConversationManager:
                 sequence_no=self._next_sequence_no(),
                 metadata={"event_count": 0},
                 speaker_id="world",
-                last_event_id=_last_event_id,
+                last_event_id=last_event_id,
             )
             await self._push_and_trim(last_entry)
 
@@ -453,6 +500,41 @@ class MUDConversationManager:
 
         # Return in chronological order
         return list(reversed(selected))
+
+    async def get_recent_events(self, count: int = 10) -> list[MUDConversationEntry]:
+        """Get N most recent conversation entries (not token-budget limited).
+
+        Unlike get_history() which uses token budget, this provides fixed-count
+        access for debugging commands like @last.
+
+        Args:
+            count: Maximum number of entries to return.
+
+        Returns:
+            List of entries in chronological order (oldest first).
+        """
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
+
+        # Get last N entries from Redis
+        raw_entries = await client.get_conversation_entries(self.agent_id, -count, -1)
+
+        if not raw_entries:
+            return []
+
+        # Parse entries
+        entries: list[MUDConversationEntry] = []
+        for raw in raw_entries:
+            if isinstance(raw, bytes):
+                raw = raw.decode("utf-8")
+            try:
+                entry = MUDConversationEntry.model_validate_json(raw)
+                entries.append(entry)
+            except Exception as e:
+                logger.warning(f"Failed to parse conversation entry: {e}")
+                continue
+
+        return entries
 
     async def flush_to_cvm(self, cvm) -> int:
         """Flush unsaved entries to CVM and mark as saved.
@@ -673,27 +755,35 @@ class MUDConversationManager:
         logger.info(f"Set conversation_id to {conversation_id}")
 
     async def get_last_event_id(self) -> Optional[str]:
-        """Get the last_event_id from the most recent conversation entry.
+        """Get the maximum last_event_id across all conversation entries.
 
-        Queries only the last entry in the conversation list and returns
-        its last_event_id field, which tracks stream position.
+        Scans all entries and returns the maximum event_id. Event IDs are
+        Redis stream IDs in format "timestamp-sequence" which can be compared
+        lexicographically.
 
         Returns:
-            The last_event_id from the most recent entry, or None if not set.
+            The maximum last_event_id across all entries, or None if no entries.
         """
-        # Query only the last entry (-1, -1) for efficiency
-        raw_entries = await self.redis.lrange(self.key, -1, -1)
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
+
+        raw_entries = await client.get_conversation_entries(self.agent_id, 0, -1)
         if not raw_entries:
             return None
 
-        raw = raw_entries[0]
-        if isinstance(raw, bytes):
-            raw = raw.decode("utf-8")
-        try:
-            entry = MUDConversationEntry.model_validate_json(raw)
-            return entry.last_event_id
-        except Exception:
-            return None
+        max_event_id: Optional[str] = None
+        for raw in raw_entries:
+            if isinstance(raw, bytes):
+                raw = raw.decode("utf-8")
+            try:
+                entry = MUDConversationEntry.model_validate_json(raw)
+                if entry.last_event_id:
+                    if max_event_id is None or _compare_stream_ids(entry.last_event_id, max_event_id) > 0:
+                        max_event_id = entry.last_event_id
+            except Exception:
+                continue
+
+        return max_event_id
 
     async def retag_unsaved_entries(self, new_conversation_id: str) -> int:
         """Re-tag all unsaved entries with new conversation_id and renumber from 0.

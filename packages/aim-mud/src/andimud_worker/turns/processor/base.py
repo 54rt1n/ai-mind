@@ -81,28 +81,18 @@ class BaseTurnProcessor(ABC):
     ) -> None:
         """Common teardown for any turn processing.
 
-        Pushes assistant turn to conversation history (if speak action),
-        creates turn record, and cleans up session state.
+        Creates turn record and cleans up session state.
+
+        Note: As of Phase 5, self-action events (from Evennia echo) are the
+        single source of truth for agent speech. We no longer call
+        push_assistant_turn() here - the DOC_MUD_ACTION entry created when
+        the self-speech event is drained is the canonical record.
 
         Args:
             actions_taken: List of actions that were executed
             thinking: Concatenated thinking/reasoning from all phases
             events: Original events that were processed
         """
-        # Push assistant turn to conversation list - ONLY for speak actions
-        # Non-speak actions are mechanical tool calls, not narrative content
-        if self.worker.conversation_manager:
-            for action in actions_taken:
-                if action.tool == "speak":
-                    speak_text = action.args.get("text", "")
-                    if speak_text:
-                        await self.worker.conversation_manager.push_assistant_turn(
-                            content=speak_text,
-                            think=thinking if thinking else None,
-                            actions=actions_taken,
-                        )
-                    break
-
         # Track emote usage so we can suppress repeated emotes for the same drain
         if any(action.tool == "emote" for action in actions_taken):
             if hasattr(self.worker, "_mark_emote_used_in_drain"):
@@ -120,7 +110,6 @@ class BaseTurnProcessor(ABC):
 
         # Add turn to session history
         self.worker.session.add_turn(turn)
-        self.worker.session.clear_pending_events()
 
         logger.info(
             f"Turn processed. Actions: {len(actions_taken)}. "

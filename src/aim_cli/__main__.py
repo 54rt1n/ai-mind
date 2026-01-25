@@ -304,9 +304,8 @@ def rebuild_index(co: ContextObject, agent_id: Optional[str], all_agents: bool, 
     """
     from aim.conversation.utils import rebuild_agent_index
 
-    def _discover_agents() -> list[str]:
-        """Discover all agent directories under memory/"""
-        memory_base = Path("memory")
+    def _discover_agents(memory_base: Path) -> list[str]:
+        """Discover all agent directories under memory_base/"""
         if not memory_base.exists():
             return []
         agents = []
@@ -425,11 +424,13 @@ def rebuild_index(co: ContextObject, agent_id: Optional[str], all_agents: bool, 
                 click.echo(f"[{label}] Index was already up to date!")
 
     try:
+        memory_base = Path(co.config.memory_path)
+
         # Handle --all-agents: discover and rebuild all
         if all_agents:
-            agents = _discover_agents()
+            agents = _discover_agents(memory_base)
             if not agents:
-                click.echo("No agent directories found under memory/", err=True)
+                click.echo(f"No agent directories found under {memory_base}/", err=True)
                 raise click.Abort()
             click.echo(f"Discovered {len(agents)} agents: {', '.join(agents)}")
             for agent in agents:
@@ -439,7 +440,8 @@ def rebuild_index(co: ContextObject, agent_id: Optional[str], all_agents: bool, 
                     embedding_model=co.config.embedding_model,
                     device=device,
                     batch_size=batch_size,
-                    full=full
+                    full=full,
+                    memory_base=str(memory_base)
                 )
                 _show_stats(result, agent)
             click.echo(f"\nCompleted rebuild for {len(agents)} agents.")
@@ -453,16 +455,17 @@ def rebuild_index(co: ContextObject, agent_id: Optional[str], all_agents: bool, 
                 embedding_model=co.config.embedding_model,
                 device=device,
                 batch_size=batch_size,
-                full=full
+                full=full,
+                memory_base=str(memory_base)
             )
             _show_stats(result, agent_id)
             return
 
         # Legacy path handling: custom conversations-dir and index-dir
         if conversations_dir is None and index_dir is None:
-            # Legacy default: global paths
-            conversations_dir = "memory/conversations"
-            index_dir = "memory/indices"
+            # Legacy default: global paths using configured memory_path
+            conversations_dir = str(memory_base / "conversations")
+            index_dir = str(memory_base / "indices")
         elif conversations_dir is None or index_dir is None:
             click.echo("Must specify both --conversations-dir and --index-dir, or use --agent-id", err=True)
             raise click.Abort()

@@ -30,6 +30,7 @@ class MUDEvent(BaseModel):
         event_type: Type of event (speech, emote, movement, etc.).
         actor: Name/key of the entity that caused the event.
         actor_id: Stable id (dbref) of the actor, if available.
+        action_id: Correlates event to originating worker action, if applicable.
         actor_type: Type of actor (player, ai, npc, system).
         room_id: Room where the event occurred.
         room_name: Human-readable room name.
@@ -54,6 +55,7 @@ class MUDEvent(BaseModel):
     )
     actor: str
     actor_id: str = ""
+    action_id: Optional[str] = None  # Correlates event to originating action
     actor_type: ActorType = ActorType.PLAYER
     room_id: str
     room_name: str = ""
@@ -115,17 +117,23 @@ class MUDEvent(BaseModel):
         if self.sequence_id is None:
             result.pop("sequence_id", None)
 
+        # Exclude action_id if None (events not originating from worker actions)
+        if self.action_id is None:
+            result.pop("action_id", None)
+
         return result
 
     def is_self_speech_echo(self) -> bool:
-        """Check if this is a self-speech echo event.
+        """Check if this is a self-speech event (agent's own speech echoed back).
 
-        These are events where the agent's own speech action was echoed
-        back from Evennia. They should not be added to conversation because
-        the agent already has their speech in the assistant turn.
+        Note: As of Phase 5, self-speech events are NO LONGER filtered.
+        They are the canonical source of truth for agent speech in conversation
+        history, creating DOC_MUD_AGENT entries with first-person formatting.
+
+        This method is kept for diagnostic/debugging purposes only.
 
         Returns:
-            True if this is a self-speech echo that should be filtered.
+            True if this is a self-speech event.
         """
         from .enums import EventType
         return (

@@ -17,6 +17,7 @@ class TurnRequestStatus(str, Enum):
     """Turn request status values."""
     ASSIGNED = "assigned"
     IN_PROGRESS = "in_progress"
+    PENDING = "pending"        # Waiting for action echo from Evennia
     DONE = "done"
     RETRY = "retry"            # Temporary failure, will retry after backoff
     FAIL = "fail"              # Permanent failure after max attempts
@@ -154,6 +155,7 @@ class MUDTurnRequest(BaseModel):
         if status in (
             TurnRequestStatus.ASSIGNED,
             TurnRequestStatus.IN_PROGRESS,
+            TurnRequestStatus.PENDING,
             TurnRequestStatus.ABORT_REQUESTED,
             TurnRequestStatus.EXECUTING,
             TurnRequestStatus.EXECUTE,
@@ -288,3 +290,87 @@ class DreamingState(BaseModel):
     @field_serializer("completed_at", "next_retry_at", "heartbeat_at")
     def serialize_optional_datetime(self, dt: Optional[datetime]) -> Optional[int]:
         return _datetime_to_unix(dt)
+
+    # Serializers for dict fields (converts to JSON string for Redis storage)
+    @field_serializer("scenario_config", "persona_config")
+    def serialize_required_dict(self, v: dict) -> str:
+        """Serialize dict to JSON string for Redis."""
+        if isinstance(v, str):
+            return v  # Already serialized, pass through
+        return json.dumps(v)
+
+    @field_serializer("framework", "state", "metadata")
+    def serialize_optional_dict(self, v: Optional[dict]) -> Optional[str]:
+        """Serialize optional dict to JSON string for Redis."""
+        if v is None:
+            return None
+        if isinstance(v, str):
+            return v  # Already serialized, pass through
+        return json.dumps(v)
+
+
+# Thought throttle constants
+THOUGHT_THROTTLE_SECONDS = 300  # 5 minutes
+THOUGHT_THROTTLE_ACTIONS = 5    # 5 actions
+
+
+class ThoughtState(BaseModel):
+    """Persistent thought state for throttle-based reasoning.
+
+    Stored in `agent:{id}:thought` Redis hash.
+    All datetime fields are serialized as Unix timestamps (integers).
+
+    The throttle logic regenerates thoughts when EITHER condition is met:
+    - Time-based: (now - created_at) >= THOUGHT_THROTTLE_SECONDS (300s = 5 min)
+    - Action-based: actions_since_generation >= THOUGHT_THROTTLE_ACTIONS (5)
+
+    Attributes:
+        agent_id: Owner agent identifier
+        content: The reasoning XML block (e.g., <reasoning>...</reasoning>)
+        source: Origin of thought ("reasoning", "manual", "dreamer")
+        created_at: When thought was generated (Unix timestamp in Redis)
+        actions_since_generation: Counter incremented on each idle/autonomous action
+    """
+
+    agent_id: str
+    content: str = ""
+    source: str = "reasoning"  # "reasoning" | "manual" | "dreamer"
+    created_at: datetime = Field(default_factory=_utc_now)
+    actions_since_generation: int = 0
+
+    @field_validator("created_at", mode="before")
+    @classmethod
+    def parse_datetime(cls, v):
+        return _unix_to_datetime(v) or _utc_now()
+
+    @field_validator("actions_since_generation", mode="before")
+    @classmethod
+    def parse_actions(cls, v):
+        """Handle missing/empty field for backward compatibility."""
+        if v is None or v == "":
+            return 0
+        return int(v)
+
+    @field_serializer("created_at")
+    def serialize_datetime(self, dt: datetime) -> int:
+        return _datetime_to_unix(dt)
+
+    def should_regenerate(self, now: datetime | None = None) -> bool:
+        """Check if thought should be regenerated based on throttle conditions.
+
+        Returns True if EITHER condition is met:
+        - Time elapsed >= 5 minutes (300 seconds)
+        - Actions since generation >= 5
+
+        Args:
+            now: Current time (defaults to UTC now)
+
+        Returns:
+            True if new thought should be generated
+        """
+        current = now or _utc_now()
+        age_seconds = (current - self.created_at).total_seconds()
+        return (
+            age_seconds >= THOUGHT_THROTTLE_SECONDS or
+            self.actions_since_generation >= THOUGHT_THROTTLE_ACTIONS
+        )

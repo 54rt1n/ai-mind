@@ -6,6 +6,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from aim_mud_types import MUDTurnRequest, MUDAction, TurnRequestStatus
+from aim.utils.think import extract_think_tags
 from .base import Command
 from .result import CommandResult
 
@@ -54,7 +55,7 @@ class SleepCommand(Command):
 
         # Parse turn_request
         turn_request = MUDTurnRequest.model_validate(kwargs)
-        events = worker.pending_events
+        events = kwargs.get("events", [])
 
         logger.info(
             "[%s] Processing @sleep turn with %d pending events",
@@ -78,7 +79,9 @@ class SleepCommand(Command):
 
         # Call LLM for emote generation
         response = await worker._call_llm(chat_turns, role="chat")
-        emote_text = (response or "").strip()
+        raw_response = (response or "").strip()
+        emote_text, _think_content = extract_think_tags(raw_response)
+        emote_text = emote_text.strip()
 
         # Fallback if LLM fails
         if not emote_text:
@@ -95,14 +98,14 @@ class SleepCommand(Command):
         action = MUDAction(
             tool="emote",
             args={"action": emote_text},
-            metadata={"sleep_aware": True},
+            metadata={MUDAction.META_SLEEP_AWARE: True},
         )
-        await worker._emit_actions([action])
+        action_ids, expects_echo = await worker._emit_actions([action])
 
         return CommandResult(
             complete=True,
-            flush_drain=False,
-            saved_event_id=None,
             status=TurnRequestStatus.DONE,
             message=f"Sleep turn processed: {emote_text[:50]}...",
+            emitted_action_ids=action_ids,
+            expects_echo=expects_echo,
         )

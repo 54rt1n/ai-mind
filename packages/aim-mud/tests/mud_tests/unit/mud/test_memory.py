@@ -130,7 +130,6 @@ class TestMUDMemoryRetriever:
                 description="A serene place"
             ),
             entities_present=[],
-            pending_events=[]
         )
 
         # Suppress deprecation warning for this test
