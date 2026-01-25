@@ -241,18 +241,50 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
         # Update conversation report cache
         await self._update_conversation_report()
 
-        # Initialize decision strategy
-        self._decision_strategy = MUDDecisionStrategy(self._chat_manager)
-        self._decision_strategy.set_conversation_manager(self.conversation_manager)
-        # Phase 1 strategy loads its own tools
-        self._decision_strategy.init_tools(
-            tool_file=self.config.decision_tool_file,
-            tools_path=self.chat_config.tools_path,
-        )
+        # Initialize strategies based on persona's chat_strategy
+        if self.persona.chat_strategy == "coderag":
+            # CODE_RAG: Code-focused agent (like blip)
+            from pathlib import Path
+            from aim_code.graph import CodeGraph
+            from andimud_worker.conversation.code import (
+                CodeDecisionStrategy,
+                CodeResponseStrategy,
+            )
 
-        # Initialize response strategy
-        self._response_strategy = MUDResponseStrategy(self._chat_manager)
-        self._response_strategy.set_conversation_manager(self.conversation_manager)
+            # Load call graph if available
+            graph_path = Path(self.chat_config.memory_path) / "graph"
+            code_graph = CodeGraph.load(graph_path)
+            logger.info(
+                f"Loaded code graph from {graph_path} with {len(code_graph.calls)} callers"
+            )
+
+            # Initialize code decision strategy
+            self._decision_strategy = CodeDecisionStrategy(self._chat_manager)
+            self._decision_strategy.set_conversation_manager(self.conversation_manager)
+            self._decision_strategy.set_code_graph(code_graph)
+            self._decision_strategy.init_tools(
+                tool_file=self.config.decision_tool_file,
+                tools_path=self.chat_config.tools_path,
+            )
+
+            # Initialize code response strategy
+            self._response_strategy = CodeResponseStrategy(self._chat_manager)
+            self._response_strategy.set_conversation_manager(self.conversation_manager)
+            self._response_strategy.set_code_graph(code_graph)
+        else:
+            # Default: Memory-based agent (like Andi)
+            # Initialize decision strategy
+            self._decision_strategy = MUDDecisionStrategy(self._chat_manager)
+            self._decision_strategy.set_conversation_manager(self.conversation_manager)
+            # Phase 1 strategy loads its own tools
+            self._decision_strategy.init_tools(
+                tool_file=self.config.decision_tool_file,
+                tools_path=self.chat_config.tools_path,
+            )
+
+            # Initialize response strategy
+            self._response_strategy = MUDResponseStrategy(self._chat_manager)
+            self._response_strategy.set_conversation_manager(self.conversation_manager)
 
         # Set running flag
         self.running = True
