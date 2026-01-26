@@ -12,6 +12,7 @@ including:
 """
 
 from aim.constants import DOC_SOURCE_CODE, DOC_SPEC
+from aim_code.documents import SourceDoc, SourceDocMetadata, SpecDoc
 from aim_code.strategy import FocusRequest, XMLCodeTurnStrategy
 from aim_code.tools import FocusTool
 from aim_code.graph import CodeGraph, SymbolRef, generate_mermaid
@@ -20,6 +21,10 @@ __all__ = [
     # Constants
     "DOC_SOURCE_CODE",
     "DOC_SPEC",
+    # Documents
+    "SourceDoc",
+    "SourceDocMetadata",
+    "SpecDoc",
     # Strategy
     "FocusRequest",
     "XMLCodeTurnStrategy",

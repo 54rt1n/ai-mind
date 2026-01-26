@@ -68,6 +68,7 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
         self._base_tools = []
         self._emote_allowed = True
         self._workspace_active = False
+        self._is_sleeping = False
         self._aura_tools = []
         self._active_auras: list[str] = []
         # Conversation manager
@@ -117,6 +118,21 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
         if self._workspace_active == active:
             return
         self._workspace_active = active
+        self._refresh_tool_user()
+
+    def set_is_sleeping(self, sleeping: bool) -> None:
+        """Set the agent's sleep state for tool filtering.
+
+        When sleeping: hide 'sleep' tool, show 'wake' tool
+        When awake: show 'sleep' tool, hide 'wake' tool
+
+        Args:
+            sleeping: True if agent is sleeping, False if awake.
+        """
+        sleeping = bool(sleeping)
+        if self._is_sleeping == sleeping:
+            return
+        self._is_sleeping = sleeping
         self._refresh_tool_user()
 
     def update_aura_tools(self, auras: list[str], tools_path: str) -> None:
@@ -188,6 +204,13 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
         # close_book only available when workspace has content
         if not self._workspace_active:
             tools = [tool for tool in tools if tool.function.name != "close_book"]
+        # Sleep/wake tool filtering based on sleep state
+        # When sleeping: hide 'sleep', show 'wake'
+        # When awake: show 'sleep', hide 'wake'
+        if self._is_sleeping:
+            tools = [tool for tool in tools if tool.function.name != "sleep"]
+        else:
+            tools = [tool for tool in tools if tool.function.name != "wake"]
         self.tool_user = ToolUser(tools)
         self._cached_system_message = None
 

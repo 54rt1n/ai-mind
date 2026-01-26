@@ -75,6 +75,7 @@ class EntityState(BaseModel):
         entity_type: Type of entity (player, ai, npc, object).
         description: Optional description of the entity.
         is_self: True if this entity is the perceiving agent.
+        metadata: Arbitrary key-value data (e.g., file_path for CodeFile).
     """
 
     entity_id: str
@@ -85,6 +86,7 @@ class EntityState(BaseModel):
     tags: list[str] = Field(default_factory=list)
     agent_id: str = ""
     contents: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("tags", mode="before")
     @classmethod

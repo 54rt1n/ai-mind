@@ -17,8 +17,9 @@ Components:
     - SpecDoc: DOC_SPEC document model
 """
 
+from aim_code.documents import SourceDoc, SourceDocMetadata, SpecDoc
+
 from .config import RepoConfig, SourcePath
-from .documents import SourceDoc, SourceDocMetadata, SpecDoc
 from .watcher import RepoWatcher
 
 __all__ = [

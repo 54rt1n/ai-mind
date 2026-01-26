@@ -67,6 +67,8 @@ from .commands import (
     ThinkCommand,
     SleepCommand,
     WakeCommand,
+    FocusCommand,
+    ClearFocusCommand,
 )
 
 
@@ -176,6 +178,8 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
             ThinkCommand(),
             SleepCommand(),
             WakeCommand(),
+            FocusCommand(),
+            ClearFocusCommand(),
         )
 
     async def start(self) -> None:
@@ -261,7 +265,7 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
             # Initialize code decision strategy
             self._decision_strategy = CodeDecisionStrategy(self._chat_manager)
             self._decision_strategy.set_conversation_manager(self.conversation_manager)
-            self._decision_strategy.set_code_graph(code_graph)
+            self._decision_strategy.set_code_graph(code_graph, graph_path=graph_path)
             self._decision_strategy.init_tools(
                 tool_file=self.config.decision_tool_file,
                 tools_path=self.chat_config.tools_path,
@@ -270,7 +274,7 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
             # Initialize code response strategy
             self._response_strategy = CodeResponseStrategy(self._chat_manager)
             self._response_strategy.set_conversation_manager(self.conversation_manager)
-            self._response_strategy.set_code_graph(code_graph)
+            self._response_strategy.set_code_graph(code_graph, graph_path=graph_path)
         else:
             # Default: Memory-based agent (like Andi)
             # Initialize decision strategy
@@ -386,7 +390,7 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                     )
 
                     try:
-                        result = await self.command_registry.execute(self, **turn_request.model_dump())
+                        result = await self.command_registry.execute(self, **turn_request.model_dump(mode="python"))
 
                         # Handle result status
                         if result.complete:
@@ -627,7 +631,7 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                     result = await self.command_registry.execute(
                         self,
                         events=drained_events,
-                        **turn_request.model_dump()
+                        **turn_request.model_dump(mode="python")
                     )
                     if result.turn_id:
                         turn_id = result.turn_id

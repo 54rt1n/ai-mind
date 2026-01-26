@@ -1,0 +1,21 @@
+type: mud
+description: Sleep and wake tools for bed objects
+
+functions:
+  - name: sleep
+    description: Go to sleep in the bed. Ends your current activities and consolidates memories.
+    parameters:
+      type: object
+      properties: {}
+      required: []
+    examples:
+      - {sleep: {}}
+
+  - name: wake
+    description: Wake up from sleep and become active again.
+    parameters:
+      type: object
+      properties: {}
+      required: []
+    examples:
+      - {wake: {}}

@@ -21,6 +21,7 @@ from .retry import RetryCommand
 from .think import ThinkCommand
 from .sleep import SleepCommand
 from .wake import WakeCommand
+from .focus import FocusCommand, ClearFocusCommand
 
 __all__ = [
     "Command",
@@ -38,4 +39,6 @@ __all__ = [
     "ThinkCommand",
     "SleepCommand",
     "WakeCommand",
+    "FocusCommand",
+    "ClearFocusCommand",
 ]

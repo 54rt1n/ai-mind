@@ -9,11 +9,13 @@ Usage:
 
 import argparse
 import logging
+import os
 import sys
 from pathlib import Path
 
 import yaml
 
+from aim.config import ChatConfig
 from .config import RepoConfig
 from .watcher import RepoWatcher
 
@@ -78,10 +80,14 @@ Examples:
         logger.error(f"Invalid configuration: {e}")
         return 1
 
+    # Load .env settings
+    chat_config = ChatConfig.from_env()
+    memory_path = os.path.join(chat_config.memory_path, config.agent_id)
+
     print(f"Indexing {config.repo_id} for agent {config.agent_id}...")
-    print(f"  Memory path: {config.memory_path}")
-    print(f"  Embedding model: {config.embedding_model}")
-    print(f"  Device: {config.device}")
+    print(f"  Memory path: {memory_path}")
+    print(f"  Embedding model: {chat_config.embedding_model}")
+    print(f"  Device: {chat_config.embedding_device or 'cpu'}")
     print(f"  Sources: {len(config.sources)}")
 
     # Run indexing
@@ -92,7 +98,7 @@ Examples:
         logger.exception(f"Indexing failed: {e}")
         return 1
 
-    print(f"Done. Index saved to {config.memory_path}")
+    print(f"Done. Index saved to {memory_path}")
     return 0
 
 

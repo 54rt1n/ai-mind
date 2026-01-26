@@ -23,11 +23,11 @@ class TestFocusRequest:
         """FocusRequest should accept files list."""
         from aim_code.strategy.base import FocusRequest
 
-        request = FocusRequest(files=["file.py"])
+        # New format: files is list[dict] with path, start, end
+        request = FocusRequest(files=[{"path": "file.py"}])
 
-        assert request.files == ["file.py"]
-        assert request.start_line is None
-        assert request.end_line is None
+        assert request.get_file_paths() == ["file.py"]
+        assert request.get_line_range("file.py") == (None, None)
         assert request.height == 1
         assert request.depth == 1
 
@@ -36,18 +36,43 @@ class TestFocusRequest:
         from aim_code.strategy.base import FocusRequest
 
         request = FocusRequest(
-            files=["a.py", "b.py"],
-            start_line=10,
-            end_line=50,
+            files=[
+                {"path": "a.py", "start": 10, "end": 50},
+                {"path": "b.py", "start": 100, "end": 200},
+            ],
             height=3,
             depth=2,
         )
 
-        assert request.files == ["a.py", "b.py"]
-        assert request.start_line == 10
-        assert request.end_line == 50
+        assert request.get_file_paths() == ["a.py", "b.py"]
+        assert request.get_line_range("a.py") == (10, 50)
+        assert request.get_line_range("b.py") == (100, 200)
         assert request.height == 3
         assert request.depth == 2
+
+    def test_focus_request_get_line_range_missing_file(self):
+        """get_line_range should return (None, None) for unknown file."""
+        from aim_code.strategy.base import FocusRequest
+
+        request = FocusRequest(files=[{"path": "a.py", "start": 10, "end": 50}])
+
+        assert request.get_line_range("unknown.py") == (None, None)
+
+    def test_focus_request_mixed_line_ranges(self):
+        """FocusRequest should handle mix of files with and without ranges."""
+        from aim_code.strategy.base import FocusRequest
+
+        request = FocusRequest(
+            files=[
+                {"path": "a.py", "start": 10, "end": 50},
+                {"path": "b.py"},  # No range
+                {"path": "c.py", "start": 5},  # Start only
+            ],
+        )
+
+        assert request.get_line_range("a.py") == (10, 50)
+        assert request.get_line_range("b.py") == (None, None)
+        assert request.get_line_range("c.py") == (5, None)
 
 
 class TestXMLCodeTurnStrategyFocusManagement:
@@ -74,7 +99,7 @@ class TestXMLCodeTurnStrategyFocusManagement:
         from aim_code.strategy.base import XMLCodeTurnStrategy, FocusRequest
 
         strategy = XMLCodeTurnStrategy(mock_chat_manager)
-        request = FocusRequest(files=["test.py"])
+        request = FocusRequest(files=[{"path": "test.py"}])
 
         strategy.set_focus(request)
 
@@ -85,7 +110,7 @@ class TestXMLCodeTurnStrategyFocusManagement:
         from aim_code.strategy.base import XMLCodeTurnStrategy, FocusRequest
 
         strategy = XMLCodeTurnStrategy(mock_chat_manager)
-        strategy.set_focus(FocusRequest(files=["test.py"]))
+        strategy.set_focus(FocusRequest(files=[{"path": "test.py"}]))
 
         strategy.set_focus(None)
 
@@ -96,7 +121,7 @@ class TestXMLCodeTurnStrategyFocusManagement:
         from aim_code.strategy.base import XMLCodeTurnStrategy, FocusRequest
 
         strategy = XMLCodeTurnStrategy(mock_chat_manager)
-        strategy.set_focus(FocusRequest(files=["test.py"]))
+        strategy.set_focus(FocusRequest(files=[{"path": "test.py"}]))
 
         strategy.clear_focus()
 
@@ -290,7 +315,7 @@ class TestXMLCodeTurnStrategyFocusedCode:
 
         mock_chat_manager.cvm.query.return_value = pd.DataFrame()
         strategy = XMLCodeTurnStrategy(mock_chat_manager)
-        strategy.set_focus(FocusRequest(files=["target.py"]))
+        strategy.set_focus(FocusRequest(files=[{"path": "target.py"}]))
 
         strategy.get_code_consciousness(mock_persona, "")
 
@@ -329,7 +354,8 @@ class TestXMLCodeTurnStrategyFocusedCode:
         mock_chat_manager.cvm.query.return_value = mock_results
         strategy = XMLCodeTurnStrategy(mock_chat_manager)
         # Focus on lines 15-40 (should include func2, exclude func1 and func3)
-        strategy.set_focus(FocusRequest(files=["file.py"], start_line=15, end_line=40))
+        # New format: per-file line ranges
+        strategy.set_focus(FocusRequest(files=[{"path": "file.py", "start": 15, "end": 40}]))
 
         consciousness, count = strategy.get_code_consciousness(mock_persona, "")
 
@@ -362,7 +388,7 @@ class TestXMLCodeTurnStrategyCallGraph:
 
         mock_chat_manager.cvm.query.return_value = pd.DataFrame()
         strategy = XMLCodeTurnStrategy(mock_chat_manager)
-        strategy.set_focus(FocusRequest(files=["test.py"]))
+        strategy.set_focus(FocusRequest(files=[{"path": "test.py"}]))
         # No code_graph set
 
         consciousness, _ = strategy.get_code_consciousness(mock_persona, "")
@@ -394,7 +420,7 @@ class TestXMLCodeTurnStrategyCallGraph:
 
         strategy = XMLCodeTurnStrategy(mock_chat_manager)
         strategy.set_code_graph(graph)
-        strategy.set_focus(FocusRequest(files=["file.py"]))
+        strategy.set_focus(FocusRequest(files=[{"path": "file.py"}]))
 
         consciousness, _ = strategy.get_code_consciousness(mock_persona, "")
 
@@ -449,7 +475,7 @@ class TestXMLCodeTurnStrategyModuleSpecs:
         mock_chat_manager.cvm.query.return_value = pd.DataFrame()
         strategy = XMLCodeTurnStrategy(mock_chat_manager)
         strategy.set_focus(
-            FocusRequest(files=["packages/aim-core/src/aim/config.py"])
+            FocusRequest(files=[{"path": "packages/aim-core/src/aim/config.py"}])
         )
 
         strategy.get_code_consciousness(mock_persona, "")
@@ -462,3 +488,266 @@ class TestXMLCodeTurnStrategyModuleSpecs:
             if kwargs.get("query_document_type") == DOC_SPEC:
                 spec_query_found = True
         assert spec_query_found
+
+
+class TestXMLCodeTurnStrategyTokenBudgeting:
+    """Tests for token budgeting functionality."""
+
+    @pytest.fixture
+    def mock_chat_manager(self):
+        """Create a mock ChatManager with mock CVM and config."""
+        manager = MagicMock()
+        manager.cvm = MagicMock()
+        manager.cvm.query.return_value = pd.DataFrame()
+        manager.config = MagicMock()
+        manager.config.system_message = "You are a helpful assistant."
+        return manager
+
+    @pytest.fixture
+    def mock_persona(self):
+        """Create a mock persona."""
+        return MagicMock()
+
+    def test_count_tokens_returns_int(self, mock_chat_manager):
+        """count_tokens should return an integer token count."""
+        from aim_code.strategy.base import XMLCodeTurnStrategy
+
+        strategy = XMLCodeTurnStrategy(mock_chat_manager)
+
+        result = strategy.count_tokens("Hello world")
+
+        assert isinstance(result, int)
+        assert result > 0
+
+    def test_count_tokens_empty_string(self, mock_chat_manager):
+        """count_tokens should return 0 for empty string."""
+        from aim_code.strategy.base import XMLCodeTurnStrategy
+
+        strategy = XMLCodeTurnStrategy(mock_chat_manager)
+
+        result = strategy.count_tokens("")
+
+        assert result == 0
+
+    def test_calc_max_context_tokens_reserves_output(self, mock_chat_manager):
+        """_calc_max_context_tokens should reserve space for output tokens."""
+        from aim_code.strategy.base import XMLCodeTurnStrategy
+
+        strategy = XMLCodeTurnStrategy(mock_chat_manager)
+
+        result = strategy._calc_max_context_tokens(
+            max_context_tokens=32768, max_output_tokens=4096
+        )
+
+        # Should be less than max_context - max_output
+        assert result < 32768 - 4096
+
+    def test_calc_max_context_tokens_reserves_system_prompt(self, mock_chat_manager):
+        """_calc_max_context_tokens should reserve space for system prompt."""
+        from aim_code.strategy.base import XMLCodeTurnStrategy
+
+        strategy = XMLCodeTurnStrategy(mock_chat_manager)
+        system_tokens = strategy.count_tokens("You are a helpful assistant.")
+
+        result = strategy._calc_max_context_tokens(
+            max_context_tokens=32768, max_output_tokens=4096
+        )
+
+        # Should account for system tokens
+        expected_max = 32768 - 4096 - system_tokens - 1024
+        assert result == expected_max
+
+    def test_trim_history_empty_list(self, mock_chat_manager):
+        """_trim_history should return empty list for empty input."""
+        from aim_code.strategy.base import XMLCodeTurnStrategy
+
+        strategy = XMLCodeTurnStrategy(mock_chat_manager)
+
+        result = strategy._trim_history([], 1000)
+
+        assert result == []
+
+    def test_trim_history_zero_budget(self, mock_chat_manager):
+        """_trim_history should return empty list for zero budget."""
+        from aim_code.strategy.base import XMLCodeTurnStrategy
+
+        strategy = XMLCodeTurnStrategy(mock_chat_manager)
+        history = [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi there"},
+        ]
+
+        result = strategy._trim_history(history, 0)
+
+        assert result == []
+
+    def test_trim_history_preserves_newest(self, mock_chat_manager):
+        """_trim_history should preserve newest turns when trimming."""
+        from aim_code.strategy.base import XMLCodeTurnStrategy
+
+        strategy = XMLCodeTurnStrategy(mock_chat_manager)
+        history = [
+            {"role": "user", "content": "First message"},
+            {"role": "assistant", "content": "First reply"},
+            {"role": "user", "content": "Second message"},
+            {"role": "assistant", "content": "Second reply"},
+            {"role": "user", "content": "Third message"},
+            {"role": "assistant", "content": "Third reply"},
+        ]
+
+        # Use a small budget that can only fit a few messages
+        # Each message is roughly 2-3 tokens, so 10 tokens should fit ~3-4 messages
+        result = strategy._trim_history(history, 10)
+
+        # Should have fewer turns
+        assert len(result) < len(history)
+        # Last turn should be preserved
+        assert result[-1] == history[-1]
+
+    def test_trim_history_keeps_all_when_under_budget(self, mock_chat_manager):
+        """_trim_history should keep all turns when under budget."""
+        from aim_code.strategy.base import XMLCodeTurnStrategy
+
+        strategy = XMLCodeTurnStrategy(mock_chat_manager)
+        history = [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi"},
+        ]
+
+        # Large budget should keep everything
+        result = strategy._trim_history(history, 10000)
+
+        assert len(result) == len(history)
+        assert result == history
+
+    def test_chat_turns_trims_long_history(self, mock_chat_manager, mock_persona):
+        """chat_turns_for should trim history when over budget."""
+        from aim_code.strategy.base import XMLCodeTurnStrategy
+
+        strategy = XMLCodeTurnStrategy(mock_chat_manager)
+
+        # Create a very long history that exceeds budget
+        history = [
+            {"role": "user", "content": f"Message {i} " * 100}
+            for i in range(50)
+        ] + [
+            {"role": "assistant", "content": f"Reply {i} " * 100}
+            for i in range(50)
+        ]
+        # Interleave
+        interleaved = []
+        for i in range(50):
+            interleaved.append({"role": "user", "content": f"User message {i} " * 100})
+            interleaved.append({"role": "assistant", "content": f"Assistant reply {i} " * 100})
+
+        # Call with small context
+        result = strategy.chat_turns_for(
+            mock_persona,
+            "New question",
+            history=interleaved,
+            max_context_tokens=8000,
+            max_output_tokens=1000,
+        )
+
+        # Result should be shorter than original history + user input
+        # (consciousness may or may not be included depending on CVM results)
+        total_history_turns = sum(1 for t in result if t.get("content", "").startswith("User message") or t.get("content", "").startswith("Assistant reply"))
+        assert total_history_turns < len(interleaved)
+
+    def test_consciousness_respects_token_budget(self, mock_chat_manager, mock_persona):
+        """get_code_consciousness should respect token_budget parameter."""
+        from aim_code.strategy.base import XMLCodeTurnStrategy, FocusRequest
+
+        # Mock CVM returning large content
+        large_content = "x" * 10000  # Very large content
+        mock_results = pd.DataFrame(
+            [
+                {
+                    "doc_id": "file.py::func",
+                    "content": large_content,
+                    "metadata": json.dumps({"line_start": 1, "line_end": 100}),
+                }
+            ]
+        )
+        mock_chat_manager.cvm.query.return_value = mock_results
+
+        strategy = XMLCodeTurnStrategy(mock_chat_manager)
+        strategy.set_focus(FocusRequest(files=[{"path": "file.py"}]))
+
+        # Request with small budget
+        consciousness, count = strategy.get_code_consciousness(
+            mock_persona, "test query", token_budget=500
+        )
+
+        # Consciousness should be truncated to fit budget
+        consciousness_tokens = strategy.count_tokens(consciousness)
+        # Allow some overhead for XML structure
+        assert consciousness_tokens < 600  # 500 budget + some structural overhead
+
+    def test_focused_source_respects_max_tokens(self, mock_chat_manager):
+        """_get_focused_source should truncate content to fit max_tokens."""
+        from aim_code.strategy.base import XMLCodeTurnStrategy, FocusRequest
+
+        large_content = "def function():\n    " + "x = 1\n    " * 1000
+        mock_results = pd.DataFrame(
+            [
+                {
+                    "doc_id": "file.py::func",
+                    "content": large_content,
+                    "metadata": json.dumps({"line_start": 1}),
+                }
+            ]
+        )
+        mock_chat_manager.cvm.query.return_value = mock_results
+
+        strategy = XMLCodeTurnStrategy(mock_chat_manager)
+        strategy.set_focus(FocusRequest(files=[{"path": "file.py"}]))
+
+        # Request with small budget
+        source, count = strategy._get_focused_source(max_tokens=100)
+
+        # Should be truncated
+        source_tokens = strategy.count_tokens(source)
+        assert source_tokens <= 100 or count == 1  # Either under budget or only one truncated doc
+
+    def test_format_search_results_respects_max_tokens(self, mock_chat_manager):
+        """_format_search_results should stop when budget exhausted."""
+        from aim_code.strategy.base import XMLCodeTurnStrategy
+
+        # Create many search results
+        docs = pd.DataFrame(
+            [
+                {"doc_id": f"file{i}.py::func", "content": "x" * 400}
+                for i in range(20)
+            ]
+        )
+
+        strategy = XMLCodeTurnStrategy(mock_chat_manager)
+
+        # Request with limited budget
+        result = strategy._format_search_results(docs, max_tokens=200)
+
+        # Should have fewer results than input
+        result_tokens = strategy.count_tokens(result)
+        assert result_tokens <= 200
+
+    def test_format_specs_respects_max_tokens(self, mock_chat_manager):
+        """_format_specs should stop when budget exhausted."""
+        from aim_code.strategy.base import XMLCodeTurnStrategy
+
+        # Create many specs
+        specs = pd.DataFrame(
+            [
+                {"doc_id": f"module{i}", "content": "Spec content " * 100}
+                for i in range(10)
+            ]
+        )
+
+        strategy = XMLCodeTurnStrategy(mock_chat_manager)
+
+        # Request with limited budget
+        result = strategy._format_specs(specs, max_tokens=200)
+
+        # Should have fewer results than input
+        result_tokens = strategy.count_tokens(result)
+        assert result_tokens <= 200

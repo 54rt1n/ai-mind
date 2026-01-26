@@ -13,7 +13,7 @@ This is the "slow path" - includes code consciousness building via CVM queries.
 import logging
 from typing import Optional
 
-from aim_code.strategy import XMLCodeTurnStrategy
+from aim_code.strategy import XMLCodeTurnStrategy, DEFAULT_CONSCIOUSNESS_BUDGET
 from aim_code.graph import CodeGraph
 from aim.chat.manager import ChatManager
 from aim.chat.strategy.base import DEFAULT_MAX_CONTEXT, DEFAULT_MAX_OUTPUT
@@ -104,6 +104,90 @@ class CodeResponseStrategy(XMLCodeTurnStrategy):
             )
         return formatter
 
+    def get_code_consciousness(
+        self,
+        persona: Persona,
+        query: str,
+        max_context_tokens: int = DEFAULT_MAX_CONTEXT,
+        max_output_tokens: int = DEFAULT_MAX_OUTPUT,
+        token_budget: int = DEFAULT_CONSCIOUSNESS_BUDGET,
+    ) -> tuple[str, int]:
+        """Build code consciousness for Phase 2 with world state.
+
+        Extends parent implementation to include:
+        - PraxOS header
+        - Persona thoughts
+        - Code context from parent (focused code, call graph, semantic search)
+        - World state via tail hook
+
+        Args:
+            persona: Agent persona for thoughts.
+            query: Query text for semantic code search.
+            max_context_tokens: Context limit.
+            max_output_tokens: Output limit.
+            token_budget: Maximum tokens for consciousness content.
+
+        Returns:
+            Tuple of (consciousness_content, memory_count).
+        """
+        # Build header with PraxOS, persona thoughts, and dynamic thought content
+        header_formatter = XmlFormatter()
+        header_formatter = self.get_consciousness_head(header_formatter)
+
+        header_formatter.add_element(
+            "PraxOS",
+            content="--== PraxOS Conscious Memory **Online** ==--",
+            nowrap=True,
+            priority=3,
+        )
+
+        # Add dynamic thought content if present (from recent reasoning)
+        if self.thought_content and self.thought_content.strip():
+            header_formatter.add_element(
+                self.hud_name,
+                "recent_reasoning",
+                content=self.thought_content,
+                priority=2,
+                noindent=True,
+            )
+            logger.debug(
+                "Injected thought_content into consciousness header (%d chars)",
+                len(self.thought_content),
+            )
+
+        # Add static persona thoughts
+        for thought in persona.thoughts:
+            header_formatter.add_element(
+                self.hud_name,
+                "thought",
+                content=thought,
+                nowrap=True,
+                priority=2,
+            )
+
+        header_content = header_formatter.render()
+
+        # Get code context from parent (focused code, call graph, semantic search, specs)
+        code_consciousness, memory_count = super().get_code_consciousness(
+            persona, query, max_context_tokens, max_output_tokens, token_budget
+        )
+
+        # Build world state tail
+        tail_formatter = XmlFormatter()
+        tail_formatter = self.get_consciousness_tail(tail_formatter)
+        tail_content = tail_formatter.render()
+
+        # Combine all parts
+        parts = [header_content]
+        if code_consciousness.strip():
+            parts.append(code_consciousness)
+        if tail_content.strip():
+            parts.append(tail_content)
+
+        rendered = "\n".join(parts)
+        # Ensure memory_count >= 1 so consciousness is always included
+        return rendered, max(memory_count, 1)
+
     async def build_turns(
         self,
         persona: Persona,
@@ -140,6 +224,9 @@ class CodeResponseStrategy(XMLCodeTurnStrategy):
         Returns:
             List of chat turns ready for LLM inference.
         """
+        # Reload code graph to pick up any file changes since last turn
+        self.reload_code_graph()
+
         usable = self._calc_max_context_tokens(max_context_tokens, max_output_tokens)
         history = await self._get_conversation_history(token_budget=usable // 2)
 
@@ -159,7 +246,7 @@ class CodeResponseStrategy(XMLCodeTurnStrategy):
         content_len += count_tokens(effective_user_input)
 
         # Set location context for consciousness tail
-        if session.world_state and session.world_state.room_state:
+        if session.world_state:
             self.chat.current_location = session.world_state.to_xml(include_self=False)
 
         self.chat.config.system_message = self.get_system_message(persona)

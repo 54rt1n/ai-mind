@@ -43,6 +43,8 @@ class TurnReason(str, Enum):
     THINK = "think"          # Process with injected thought content
     SLEEP = "sleep"          # Agent is falling asleep
     WAKE = "wake"            # Agent is waking up
+    FOCUS = "focus"          # Set code agent focus on files
+    CLEAR_FOCUS = "clear_focus"  # Clear code agent focus
 
     def is_immediate_command(self) -> bool:
         """Return True if this is an immediate command that uses EXECUTE status.
@@ -56,6 +58,8 @@ class TurnReason(str, Enum):
             TurnReason.FLUSH,
             TurnReason.CLEAR,
             TurnReason.NEW,
+            TurnReason.SLEEP,
+            TurnReason.WAKE,
         }
 
 

@@ -1,25 +1,30 @@
-name: focus
-description: |
-  Set focus on specific files or line ranges to build structural context.
-  Retrieves full source code and builds call graph showing dependencies.
+type: code_tools
+description: Code navigation tools for CODE_RAG agents
 
-parameters:
-  files:
-    type: array
-    items:
-      type: string
-    description: File paths to focus on
-  start_line:
-    type: integer
-    description: Optional start line to narrow focus
-  end_line:
-    type: integer
-    description: Optional end line to narrow focus
-  height:
-    type: integer
-    default: 1
-    description: Levels UP the call graph (who calls these methods)
-  depth:
-    type: integer
-    default: 1
-    description: Levels DOWN the call graph (what these methods call)
+functions:
+  - name: focus
+    description: |
+      Set focus on specific files or line ranges to build structural context.
+      Retrieves full source code and builds call graph showing dependencies.
+    parameters:
+      type: object
+      properties:
+        files:
+          type: array
+          items:
+            type: string
+          description: File paths to focus on
+        start_line:
+          type: integer
+          description: Optional start line to narrow focus
+        end_line:
+          type: integer
+          description: Optional end line to narrow focus
+        height:
+          type: integer
+          description: Levels UP the call graph (who calls these methods). Default 1.
+        depth:
+          type: integer
+          description: Levels DOWN the call graph (what these methods call). Default 1.
+      required:
+        - files

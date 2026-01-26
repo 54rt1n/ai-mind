@@ -338,6 +338,7 @@ class MUDConversationManager:
             if event.event_type == EventType.NARRATIVE:
                 await flush_group()  # Flush any pending non-narrative events
 
+                is_self = event.metadata.get("is_self_action", False)
                 content = format_event(event) or "[No content]"
                 tokens = count_tokens(content)
                 metadata = {
@@ -361,11 +362,11 @@ class MUDConversationManager:
                     role="user",
                     content=content,
                     tokens=tokens,
-                    document_type=DOC_MUD_WORLD,
+                    document_type=DOC_MUD_AGENT if is_self else DOC_MUD_WORLD,
                     conversation_id=self._get_conversation_id(),
                     sequence_no=self._next_sequence_no(),
                     metadata=metadata,
-                    speaker_id="world",
+                    speaker_id=self.agent_id if is_self else "world",
                     timestamp=event.timestamp,
                     last_event_id=event.event_id or last_event_id,
                 )

@@ -1,18 +1,14 @@
 # config/sources/ai-mind.yaml
 # Configuration for indexing the AI-Mind repository for the blip agent.
 #
-# This file specifies which source directories to index and how to configure
-# the CVM (ConversationModel) for storing code documents.
+# Memory path, embedding model, device, and timezone are loaded from .env
+# via ChatConfig.from_env(). This file only specifies repo-specific settings.
 #
 # Usage:
 #   python -m repo_watcher --config config/sources/ai-mind.yaml
 
 repo_id: ai-mind
 agent_id: blip
-memory_path: memory/blip
-embedding_model: mixedbread-ai/mxbai-embed-large-v1
-device: cuda:0
-user_timezone: America/Los_Angeles
 
 sources:
   # Core AI-Mind library

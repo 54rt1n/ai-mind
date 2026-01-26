@@ -37,7 +37,8 @@ class TestFocusToolFocusSetting:
 
         mock_strategy.set_focus.assert_called_once()
         request = mock_strategy.set_focus.call_args[0][0]
-        assert request.files == ["test.py"]
+        # Files are now list[dict] with path, start, end
+        assert request.get_file_paths() == ["test.py"]
 
     def test_focus_passes_all_parameters(self, mock_strategy):
         """focus() should pass all parameters to FocusRequest."""
@@ -54,9 +55,11 @@ class TestFocusToolFocusSetting:
         )
 
         request = mock_strategy.set_focus.call_args[0][0]
-        assert request.files == ["a.py", "b.py"]
-        assert request.start_line == 10
-        assert request.end_line == 50
+        # Files are now list[dict] with per-file line ranges
+        assert request.get_file_paths() == ["a.py", "b.py"]
+        # Global start/end are applied to all files
+        assert request.get_line_range("a.py") == (10, 50)
+        assert request.get_line_range("b.py") == (10, 50)
         assert request.height == 3
         assert request.depth == 2
 
@@ -261,3 +264,170 @@ class TestFocusToolEdgeCases:
         result = tool.focus(files=["test.py"], end_line=50)
 
         assert result["line_range"] == "start-50"
+
+
+class TestFocusToolEntityResolution:
+    """Tests for entity name to file path resolution."""
+
+    @pytest.fixture
+    def mock_strategy(self):
+        """Create a mock strategy."""
+        strategy = MagicMock()
+        strategy.chat = MagicMock()
+        strategy.chat.cvm = MagicMock()
+        strategy.chat.cvm.query.return_value = pd.DataFrame()
+        return strategy
+
+    @pytest.fixture
+    def sample_entities_dict(self):
+        """Sample entities as dicts (like raw JSON from Redis)."""
+        return [
+            {
+                "entity_id": "#1",
+                "name": "model.py",
+                "entity_type": "object",
+                "metadata": {"file_path": "/repo/src/model.py", "rel_path": "src/model.py"},
+            },
+            {
+                "entity_id": "#2",
+                "name": "utils.py",
+                "entity_type": "object",
+                "metadata": {"file_path": "/repo/src/utils.py", "rel_path": "src/utils.py"},
+            },
+            {
+                "entity_id": "#3",
+                "name": "Andi",
+                "entity_type": "ai",
+                "metadata": {},
+            },
+        ]
+
+    @pytest.fixture
+    def sample_entities_objects(self):
+        """Sample entities as objects (like EntityState instances)."""
+        entity1 = MagicMock()
+        entity1.name = "model.py"
+        entity1.metadata = {"file_path": "/repo/src/model.py", "rel_path": "src/model.py"}
+
+        entity2 = MagicMock()
+        entity2.name = "utils.py"
+        entity2.metadata = {"file_path": "/repo/src/utils.py", "rel_path": "src/utils.py"}
+
+        entity3 = MagicMock()
+        entity3.name = "Andi"
+        entity3.metadata = {}
+
+        return [entity1, entity2, entity3]
+
+    def test_resolve_entity_name_to_file_path_dict(self, mock_strategy, sample_entities_dict):
+        """Entity names without / should resolve to file paths via dict metadata."""
+        from aim_code.tools.focus import FocusTool
+
+        tool = FocusTool(mock_strategy)
+
+        result = tool.focus(files=["model.py"], entities=sample_entities_dict)
+
+        # Should resolve to full path
+        assert result["focused_files"] == ["/repo/src/model.py"]
+        # Strategy should receive resolved path in file specs
+        request = mock_strategy.set_focus.call_args[0][0]
+        assert request.get_file_paths() == ["/repo/src/model.py"]
+
+    def test_resolve_entity_name_to_file_path_object(self, mock_strategy, sample_entities_objects):
+        """Entity names without / should resolve to file paths via object metadata."""
+        from aim_code.tools.focus import FocusTool
+
+        tool = FocusTool(mock_strategy)
+
+        result = tool.focus(files=["model.py"], entities=sample_entities_objects)
+
+        # Should resolve to full path
+        assert result["focused_files"] == ["/repo/src/model.py"]
+
+    def test_paths_with_slash_pass_through(self, mock_strategy, sample_entities_dict):
+        """File paths containing / should not be resolved."""
+        from aim_code.tools.focus import FocusTool
+
+        tool = FocusTool(mock_strategy)
+
+        result = tool.focus(files=["/some/other/path.py"], entities=sample_entities_dict)
+
+        # Path with / should not be changed
+        assert result["focused_files"] == ["/some/other/path.py"]
+
+    def test_unresolved_names_pass_through(self, mock_strategy, sample_entities_dict):
+        """Entity names not found should pass through unchanged."""
+        from aim_code.tools.focus import FocusTool
+
+        tool = FocusTool(mock_strategy)
+
+        result = tool.focus(files=["unknown.py"], entities=sample_entities_dict)
+
+        # Unknown name should pass through unchanged
+        assert result["focused_files"] == ["unknown.py"]
+
+    def test_mixed_paths_and_names(self, mock_strategy, sample_entities_dict):
+        """Should handle mix of paths and entity names."""
+        from aim_code.tools.focus import FocusTool
+
+        tool = FocusTool(mock_strategy)
+
+        result = tool.focus(
+            files=["model.py", "/direct/path.py", "utils.py"],
+            entities=sample_entities_dict,
+        )
+
+        # Should resolve names but not paths
+        assert result["focused_files"] == [
+            "/repo/src/model.py",
+            "/direct/path.py",
+            "/repo/src/utils.py",
+        ]
+
+    def test_no_entities_passes_files_through(self, mock_strategy):
+        """When no entities provided, files should pass through unchanged."""
+        from aim_code.tools.focus import FocusTool
+
+        tool = FocusTool(mock_strategy)
+
+        result = tool.focus(files=["model.py", "utils.py"])
+
+        # No resolution without entities
+        assert result["focused_files"] == ["model.py", "utils.py"]
+
+    def test_empty_entities_passes_files_through(self, mock_strategy):
+        """When entities list is empty, files should pass through unchanged."""
+        from aim_code.tools.focus import FocusTool
+
+        tool = FocusTool(mock_strategy)
+
+        result = tool.focus(files=["model.py"], entities=[])
+
+        assert result["focused_files"] == ["model.py"]
+
+    def test_entity_without_file_path_passes_name_through(self, mock_strategy):
+        """Entity with empty metadata should not resolve."""
+        from aim_code.tools.focus import FocusTool
+
+        tool = FocusTool(mock_strategy)
+
+        # Andi has empty metadata, so "Andi" should pass through
+        entities = [{"name": "Andi", "metadata": {}}]
+        result = tool.focus(files=["Andi"], entities=entities)
+
+        assert result["focused_files"] == ["Andi"]
+
+    def test_first_matching_entity_wins(self, mock_strategy):
+        """When multiple entities have same name, first one is used."""
+        from aim_code.tools.focus import FocusTool
+
+        tool = FocusTool(mock_strategy)
+
+        entities = [
+            {"name": "model.py", "metadata": {"file_path": "/first/model.py"}},
+            {"name": "model.py", "metadata": {"file_path": "/second/model.py"}},
+        ]
+        result = tool.focus(files=["model.py"], entities=entities)
+
+        # First match should win
+        assert result["focused_files"] == ["/first/model.py"]

@@ -83,6 +83,7 @@ from .constants import (
     AURA_COPY_ACCESS,
     AURA_PAPER_WRITE,
     AURA_CODE_ROOM,
+    AURA_SLEEPABLE,
 )
 
 # Redis Keys
@@ -170,6 +171,7 @@ __all__ = [
     "AURA_COPY_ACCESS",
     "AURA_PAPER_WRITE",
     "AURA_CODE_ROOM",
+    "AURA_SLEEPABLE",
     # Redis Keys
     "RedisKeys",
     # Redis Clients

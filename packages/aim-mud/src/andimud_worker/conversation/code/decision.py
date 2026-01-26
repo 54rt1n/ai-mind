@@ -15,8 +15,8 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from aim_code.strategy import XMLCodeTurnStrategy, FocusRequest
-from aim_code.graph import CodeGraph
+from aim_code.strategy import XMLCodeTurnStrategy, FocusRequest, DEFAULT_CONSCIOUSNESS_BUDGET
+from aim_code.graph import CodeGraph, generate_mermaid
 from aim_code.tools import FocusTool
 from aim.chat.manager import ChatManager
 from aim.chat.strategy.base import DEFAULT_MAX_CONTEXT, DEFAULT_MAX_OUTPUT
@@ -96,12 +96,27 @@ class CodeDecisionStrategy(XMLCodeTurnStrategy):
     # =========================================================================
 
     def set_emote_allowed(self, allowed: bool) -> None:
-        """No-op for code agents. Emote is a MUD-specific feature."""
+        """Enable or disable the emote tool for decision turns."""
+        allowed = bool(allowed)
+        if self._emote_allowed == allowed:
+            return
         self._emote_allowed = allowed
+        self._refresh_tool_user()
 
     def set_workspace_active(self, active: bool) -> None:
-        """No-op for code agents. Workspace is a MUD-specific feature."""
+        """Enable or disable the close_book tool based on workspace content.
+
+        When workspace has content (e.g., from reading a book), close_book
+        becomes available. When workspace is empty, close_book is hidden.
+
+        Args:
+            active: True if workspace has content, False otherwise.
+        """
+        active = bool(active)
+        if self._workspace_active == active:
+            return
         self._workspace_active = active
+        self._refresh_tool_user()
 
     def set_context(self, redis_client, agent_id: str) -> None:
         """Set Redis context for plan tool execution.
@@ -130,8 +145,8 @@ class CodeDecisionStrategy(XMLCodeTurnStrategy):
     def init_tools(self, tool_file: str, tools_path: str) -> None:
         """Initialize tools from file, including focus tool.
 
-        Loads base tools from the specified file and creates FocusTool
-        for code navigation. Focus tool is integrated into the strategy.
+        Loads base tools from the specified file, plus the focus tool from
+        config/tools/code/focus.yaml. Creates FocusTool for code navigation.
 
         Args:
             tool_file: Path to tool definition file (absolute or relative).
@@ -151,9 +166,17 @@ class CodeDecisionStrategy(XMLCodeTurnStrategy):
         if not base_tools:
             raise ValueError(f"No tools loaded from {tool_path}")
 
+        # Load focus tool for code agents
+        focus_tool_path = Path(tools_path) / "code" / "focus.yaml"
+        if focus_tool_path.exists():
+            focus_tools = loader.load_tool_file(str(focus_tool_path))
+            if focus_tools:
+                base_tools = base_tools + focus_tools
+                logger.info("Loaded focus tool from %s", focus_tool_path)
+
         self._base_tools = base_tools
 
-        # Initialize focus tool
+        # Initialize focus tool implementation
         self._focus_tool = FocusTool(self)
 
         self._refresh_tool_user()
@@ -208,12 +231,26 @@ class CodeDecisionStrategy(XMLCodeTurnStrategy):
         self._refresh_tool_user()
 
     def _refresh_tool_user(self) -> None:
-        """Rebuild ToolUser with current tool set."""
+        """Rebuild ToolUser with current tool set and filters.
+
+        Applies the same filters as MUDDecisionStrategy:
+        - Removes emote if not allowed
+        - Removes close_book if workspace not active
+        """
         if not self._base_tools:
             self.tool_user = None
             self._cached_system_message = None
             return
         tools = self._base_tools + self._aura_tools
+
+        # Filter emote if not allowed
+        if not self._emote_allowed:
+            tools = [t for t in tools if getattr(t.function, "name", None) != "emote"]
+
+        # Filter close_book if workspace not active
+        if not self._workspace_active:
+            tools = [t for t in tools if getattr(t.function, "name", None) != "close_book"]
+
         self.tool_user = ToolUser(tools)
         self._cached_system_message = None
 
@@ -281,6 +318,95 @@ class CodeDecisionStrategy(XMLCodeTurnStrategy):
             )
         return formatter
 
+    def get_code_consciousness(
+        self,
+        persona: "Persona",
+        query: str,
+        max_context_tokens: int = DEFAULT_MAX_CONTEXT,
+        max_output_tokens: int = DEFAULT_MAX_OUTPUT,
+        token_budget: int = DEFAULT_CONSCIOUSNESS_BUDGET,
+    ) -> tuple[str, int]:
+        """Build consciousness for Phase 1 with focused code context.
+
+        When focus is set, includes:
+        - PraxOS header
+        - Persona thoughts
+        - Focused code source
+        - Call graph mermaid diagram
+        - World state XML
+
+        Skips expensive semantic CVM search (that's for Phase 2).
+
+        Args:
+            persona: Agent persona for thoughts.
+            query: Query text (unused in Phase 1 - no semantic search).
+            max_context_tokens: Context limit (unused).
+            max_output_tokens: Output limit (unused).
+
+        Returns:
+            Tuple of (consciousness_content, memory_count).
+            memory_count reflects actual content added.
+        """
+        formatter = XmlFormatter()
+        memory_count = 0
+
+        # Add head content (currently empty for code agents)
+        formatter = self.get_consciousness_head(formatter)
+
+        # Add PraxOS header like MUDDecisionStrategy
+        formatter.add_element(
+            "PraxOS",
+            content="--== PraxOS Conscious Memory **Online** ==--",
+            nowrap=True,
+            priority=3,
+        )
+
+        # Add persona thoughts
+        for thought in persona.thoughts:
+            formatter.add_element(
+                self.hud_name,
+                "thought",
+                content=thought,
+                nowrap=True,
+                priority=2,
+            )
+
+        # Include focused code and call graph when focus is set
+        if self.focus:
+            # Focused code source
+            focused_source, focus_count = self._get_focused_source()
+            if focused_source:
+                formatter.add_element(
+                    "code", "focused",
+                    content=focused_source,
+                    noindent=True,
+                )
+                memory_count += focus_count
+
+            # Call graph mermaid diagram
+            if self.code_graph:
+                focused_symbols = self._get_focused_symbols()
+                if focused_symbols:
+                    edges = self.code_graph.get_neighborhood(
+                        symbols=focused_symbols,
+                        height=self.focus.height,
+                        depth=self.focus.depth,
+                    )
+                    if edges:
+                        mermaid = generate_mermaid(edges)
+                        formatter.add_element(
+                            "code", "call_graph",
+                            content=f"```mermaid\n{mermaid}\n```",
+                            noindent=True,
+                        )
+
+        # Add world state via tail hook
+        formatter = self.get_consciousness_tail(formatter)
+
+        rendered = formatter.render()
+        # Return at least 1 to ensure consciousness is included
+        return rendered, max(memory_count, 1)
+
     async def build_turns(
         self,
         persona: Persona,
@@ -318,6 +444,9 @@ class CodeDecisionStrategy(XMLCodeTurnStrategy):
                 "conversation_manager not set - call set_conversation_manager() first"
             )
 
+        # Reload code graph to pick up any file changes since last turn
+        self.reload_code_graph()
+
         history = await self._get_conversation_history(token_budget=8000)
 
         # Build user turn with decision guidance
@@ -333,7 +462,7 @@ class CodeDecisionStrategy(XMLCodeTurnStrategy):
         )
 
         # Set location context for consciousness tail hook
-        if session.world_state and session.world_state.room_state:
+        if session.world_state:
             self.chat.current_location = session.world_state.to_xml(include_self=False)
 
         self.chat.config.system_message = self.get_system_message(persona)

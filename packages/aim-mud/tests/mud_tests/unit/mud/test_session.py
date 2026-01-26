@@ -147,6 +147,38 @@ class TestEntityState:
         assert entity.entity_id == "obj1"
         assert entity.name == "Key"
         assert entity.entity_type == "object"
+
+    def test_entity_state_metadata_default_empty(self):
+        """Test EntityState metadata defaults to empty dict."""
+        entity = EntityState(entity_id="obj1", name="model.py")
+
+        assert entity.metadata == {}
+
+    def test_entity_state_metadata_with_file_paths(self):
+        """Test EntityState metadata can store file paths for CodeFile entities."""
+        entity = EntityState(
+            entity_id="#123",
+            name="model.py",
+            entity_type="object",
+            metadata={
+                "file_path": "/repo/src/model.py",
+                "rel_path": "src/model.py",
+            },
+        )
+
+        assert entity.metadata["file_path"] == "/repo/src/model.py"
+        assert entity.metadata["rel_path"] == "src/model.py"
+
+    def test_entity_state_metadata_model_validate(self):
+        """Test EntityState.model_validate with metadata."""
+        data = {
+            "entity_id": "#123",
+            "name": "utils.py",
+            "metadata": {"file_path": "/repo/utils.py"},
+        }
+        entity = EntityState.model_validate(data)
+
+        assert entity.metadata == {"file_path": "/repo/utils.py"}
         assert entity.is_self is False
 
 

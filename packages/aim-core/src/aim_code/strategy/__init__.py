@@ -10,9 +10,10 @@ Provides XMLCodeTurnStrategy for code agents like blip, with:
 - Module spec integration
 """
 
-from .base import FocusRequest, XMLCodeTurnStrategy
+from .base import FocusRequest, XMLCodeTurnStrategy, DEFAULT_CONSCIOUSNESS_BUDGET
 
 __all__ = [
+    "DEFAULT_CONSCIOUSNESS_BUDGET",
     "FocusRequest",
     "XMLCodeTurnStrategy",
 ]

@@ -1,19 +1,20 @@
-# repo_watcher/documents.py
+# aim_code/documents.py
 # AI-Mind (C) 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
 """
 Document models for CODE_RAG indexing.
 
-These Pydantic models define the structure of documents indexed by repo-watcher:
+These Pydantic models define the structure of documents indexed for code search:
 
 - SourceDoc: Semantic code chunks (DOC_SOURCE_CODE) - file/class/function boundaries
 - SpecDoc: Module-level design specifications (DOC_SPEC) - from SPEC.md files
 
 Both models map to ConversationMessage fields for storage in the CVM index.
 The doc_id format enables efficient filtering:
-- SourceDoc: "file_path::symbol_path" for prefix/exact lookups
+- SourceDoc: "file_path::symbol_path:line_start" for unique symbol identification
 - SpecDoc: "module.path" for module-level queries
 """
 
+import hashlib
 import json
 from typing import Optional
 
@@ -37,6 +38,7 @@ class SourceDocMetadata(BaseModel):
     symbol_type: str  # "file" | "class" | "function" | "method"
     line_start: int
     line_end: int
+    content_hash: str  # SHA256 of symbol content for change detection
     parent_symbol: Optional[str] = None
     signature: Optional[str] = None
     imports: list[str] = []
@@ -46,16 +48,17 @@ class SourceDoc(BaseModel):
     """Source code document for indexing.
 
     Maps to ConversationMessage fields for storage in the CVM index.
-    The doc_id uses fully qualified symbol path for efficient filtering:
-    - "packages/aim-core/src/aim/config.py::ChatConfig.from_env"
+    The doc_id uses fully qualified symbol path with line number:
+    - "packages/aim-core/src/aim/config.py::ChatConfig.from_env:42"
 
     This enables:
     - File prefix filtering via Tantivy query on doc_id prefix
     - Exact symbol lookup via Tantivy exact match on doc_id
     - Semantic search via embedding search on content field
+    - Unique identification even for nested functions with same name
     """
 
-    doc_id: str  # "file_path::symbol_path"
+    doc_id: str  # "file_path::symbol_path:line_start"
     document_type: str = DOC_SOURCE_CODE
     content: str
     metadata: str  # JSON-encoded SourceDocMetadata
@@ -91,11 +94,12 @@ class SourceDoc(BaseModel):
         Returns:
             SourceDoc ready for indexing.
         """
-        doc_id = f"{file_path}::{symbol_path}" if symbol_path else file_path
+        doc_id = f"{file_path}::{symbol_path}:{meta.line_start}" if symbol_path else file_path
         return cls(
             doc_id=doc_id,
             content=content,
             metadata=meta.model_dump_json(),
+            conversation_id=file_path,
             persona_id=persona_id,
             timestamp=timestamp,
         )
@@ -115,7 +119,7 @@ class SpecDoc(BaseModel):
     doc_id: str  # Module path: "aim.conversation"
     document_type: str = DOC_SPEC
     content: str
-    metadata: str  # JSON: {"file_path": "...", "module_path": "..."}
+    metadata: str  # JSON: {"file_path": "...", "module_path": "...", "content_hash": "..."}
     conversation_id: str = "specs"
     user_id: str = "repo-watcher"
     persona_id: str
@@ -145,10 +149,16 @@ class SpecDoc(BaseModel):
         Returns:
             SpecDoc ready for indexing.
         """
+        content_hash = hashlib.sha256(content.encode()).hexdigest()
         return cls(
             doc_id=module_path,
             content=content,
-            metadata=json.dumps({"file_path": file_path, "module_path": module_path}),
+            metadata=json.dumps({
+                "file_path": file_path,
+                "module_path": module_path,
+                "content_hash": content_hash,
+            }),
+            conversation_id=file_path,
             persona_id=persona_id,
             timestamp=timestamp,
         )

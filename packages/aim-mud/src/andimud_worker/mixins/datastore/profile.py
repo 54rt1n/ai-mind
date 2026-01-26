@@ -200,6 +200,11 @@ class ProfileMixin:
             if hasattr(self._decision_strategy, "update_aura_tools") and self.chat_config:
                 self._decision_strategy.update_aura_tools(auras, self.chat_config.tools_path)
 
+            # Sync sleep state for sleep/wake tool filtering
+            if hasattr(self._decision_strategy, "set_is_sleeping"):
+                is_sleeping = await self._check_agent_is_sleeping()
+                self._decision_strategy.set_is_sleeping(is_sleeping)
+
     async def _load_thought_content(self: "MUDAgentWorker") -> None:
         """Load stored thought content from Redis and set on strategies.
 
@@ -317,6 +322,83 @@ class ProfileMixin:
             if self._decision_strategy:
                 self._decision_strategy.set_workspace_active(False)
             logger.info("Workspace state empty")
+
+    async def _load_focus_state(self: "MUDAgentWorker") -> None:
+        """Load focus state from Redis and set on strategies.
+
+        Loads focus state from agent profile and restores it on the
+        decision and response strategies.
+
+        Expected format (new per-file ranges):
+            {
+                "files": [
+                    {"path": "model.py", "start": 10, "end": 50},
+                    {"path": "utils.py"}
+                ],
+                "height": 2,
+                "depth": 1
+            }
+        """
+        client = RedisMUDClient(self.redis)
+        data = await client.get_agent_profile_raw(self.config.agent_id)
+        if not data:
+            return
+
+        focus_raw = data.get("focus")
+        if not focus_raw:
+            return
+
+        try:
+            if isinstance(focus_raw, bytes):
+                focus_raw = focus_raw.decode("utf-8")
+            if not focus_raw.strip():
+                return
+
+            focus_data = json.loads(focus_raw)
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            logger.warning("Failed to parse focus data: %s", e)
+            return
+
+        files = focus_data.get("files", [])
+        if not files:
+            return
+
+        # Validate files format - must be list of dicts with 'path' key
+        if not isinstance(files, list):
+            logger.warning("Invalid focus files format: expected list, got %s", type(files))
+            return
+
+        # Check if files are in new format (list of dicts) or old format (list of strings)
+        if files and isinstance(files[0], str):
+            # Old format detected - cannot migrate without global start/end
+            # Log warning and skip loading
+            logger.warning(
+                "Focus data in old format (list of strings). "
+                "Clear focus and re-set with new per-file format."
+            )
+            return
+
+        # Import FocusRequest here to avoid circular imports
+        from aim_code.strategy.base import FocusRequest
+
+        focus_request = FocusRequest(
+            files=files,  # list[dict] with path, start, end
+            height=focus_data.get("height", 1),
+            depth=focus_data.get("depth", 1),
+        )
+
+        # Set focus on decision strategy
+        if self._decision_strategy is not None and hasattr(self._decision_strategy, "set_focus"):
+            self._decision_strategy.set_focus(focus_request)
+
+        # Set focus on response strategy
+        if self._response_strategy is not None and hasattr(self._response_strategy, "set_focus"):
+            self._response_strategy.set_focus(focus_request)
+
+        logger.info(
+            "Loaded focus state (%d files)",
+            len(files),
+        )
 
     async def _update_agent_profile(self: "MUDAgentWorker", persona_id: str = None, **fields: str) -> None:
         """Update agent profile fields in Redis.

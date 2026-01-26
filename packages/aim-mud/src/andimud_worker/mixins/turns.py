@@ -43,7 +43,8 @@ from ..turns.decision import (
     validate_ring,
 )
 from ..turns.processor import AgentTurnProcessor, ThinkingTurnProcessor
-from ..exceptions import AbortRequestedException
+from ..exceptions import AbortRequestedException, ContextOverflowError
+from aim.utils.tokens import count_tokens
 
 if TYPE_CHECKING:
     from ..worker import MUDAgentWorker
@@ -57,6 +58,81 @@ class TurnsMixin:
 
     These methods are mixed into MUDAgentWorker in main.py.
     """
+
+    # Immediate requery constants for overflow handling
+    IMMEDIATE_REQUERY_MAX_RETRIES = 2
+    OVERFLOW_ERROR_TEMPLATE = """[OVERFLOW ERROR] Context budget exceeded by {overflow} tokens.
+Total: {input_tokens} input + {output_tokens} output = {total} tokens
+Model limit: {model_limit} tokens
+
+The focused code is too large. Try:
+1. Narrower line range (focus on specific methods, not entire files)
+2. Fewer files (focus on 1-2 files instead of many)
+3. Smaller height/depth for call graph traversal
+
+Current focus will be cleared. Please refocus with a smaller scope."""
+
+    def _measure_total_tokens(self: "MUDAgentWorker", turns: list[dict], system_message: str) -> int:
+        """Measure total tokens for turns + system message.
+
+        Args:
+            turns: List of chat turns with role and content.
+            system_message: The system message that will be prepended.
+
+        Returns:
+            Total token count for the entire context.
+        """
+        total = count_tokens(system_message)
+        for turn in turns:
+            content = turn.get("content", "")
+            if content:
+                total += count_tokens(content)
+        return total
+
+    def _get_model_context_limit(self: "MUDAgentWorker") -> int:
+        """Get current model's context limit.
+
+        Returns:
+            Maximum context tokens for the current model.
+        """
+        if self.model and hasattr(self.model, "max_tokens"):
+            return self.model.max_tokens
+        # Fallback to common default
+        return 32768
+
+    def _format_overflow_error(
+        self: "MUDAgentWorker",
+        total_tokens: int,
+        model_limit: int,
+        output_tokens: int = 4096,
+    ) -> str:
+        """Format overflow error message.
+
+        Args:
+            total_tokens: Total input tokens used.
+            model_limit: Maximum context tokens for the model.
+            output_tokens: Reserved tokens for output (default 4096).
+
+        Returns:
+            Formatted error message with actionable guidance.
+        """
+        input_tokens = total_tokens
+        overflow = (input_tokens + output_tokens) - model_limit
+        return self.OVERFLOW_ERROR_TEMPLATE.format(
+            overflow=overflow,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total=input_tokens + output_tokens,
+            model_limit=model_limit,
+        )
+
+    def _is_code_strategy(self: "MUDAgentWorker") -> bool:
+        """Check if using CODE_RAG strategy (has clear_focus method).
+
+        Returns:
+            True if the decision strategy has clear_focus method.
+        """
+        return hasattr(self._decision_strategy, "clear_focus")
 
     def _init_agent_action_spec(self: "MUDAgentWorker") -> None:
         """Load @agent action specification from YAML.
@@ -369,6 +445,39 @@ class TurnsMixin:
             # - no MUDAction needed, no visible action in the world
             logger.info("close_book: workspace cleared, no MUDAction emitted")
 
+        elif decision.decision_type == DecisionType.FOCUS:
+            # focus is handled internally (focus set on strategy in _decide_action)
+            # Emit a non-published action to report the focus result
+            focus_files = decision.args.get("focused_files", [])
+            symbols_count = decision.args.get("symbols_in_focus", 0)
+            line_range = decision.args.get("line_range", "all")
+            focus_report = f"Focused on {', '.join(focus_files)} (lines {line_range}, {symbols_count} symbols)"
+            action = MUDAction(
+                tool="focus",
+                args=decision.args,
+                metadata={MUDAction.META_NON_PUBLISHED: True},
+            )
+            actions_taken.append(action)
+            await self._emit_actions(actions_taken)
+            logger.info("focus: %s", focus_report)
+
+            # Persist focus to agent profile for @status display
+            # Get focus from strategy and save to Redis
+            if self._decision_strategy and hasattr(self._decision_strategy, "focus") and self._decision_strategy.focus:
+                focus = self._decision_strategy.focus
+                focus_data = {
+                    "files": focus.files,  # list[dict] with path, start, end
+                    "height": focus.height,
+                    "depth": focus.depth,
+                }
+                from aim_mud_types.client import RedisMUDClient
+                client = RedisMUDClient(self.redis)
+                await client.update_agent_profile_fields(
+                    self.config.agent_id,
+                    focus=json.dumps(focus_data),
+                )
+                logger.debug("Focus persisted to agent profile")
+
         elif decision.decision_type == DecisionType.AURA_TOOL:
             # Generic aura tool handling - emit MUDAction for Evennia to execute
             tool_name = decision.aura_tool_name or "unknown_aura_tool"
@@ -406,6 +515,11 @@ class TurnsMixin:
 
         Originally from worker.py lines 943-1114
 
+        For CODE_RAG strategies, includes immediate requery on overflow:
+        - Detects context overflow BEFORE sending to LLM
+        - Clears focus and injects error message
+        - Retries up to IMMEDIATE_REQUERY_MAX_RETRIES times
+
         Args:
             idle_mode: Whether this is an idle/spontaneous action
             role: Model role to use (defaults to "tool" for fast decisions)
@@ -415,19 +529,64 @@ class TurnsMixin:
 
         Returns:
             Tuple of (tool_name, args, raw_response, thinking, cleaned_text)
+
+        Raises:
+            ContextOverflowError: If context exceeds limit after max retries.
         """
         if not self._decision_strategy.tool_user:
             raise ValueError("Decision tools not initialized")
 
-        turns = await self._decision_strategy.build_turns(
-            persona=self.persona,
-            session=self.session,
-            idle_mode=idle_mode,
-            action_guidance=action_guidance,
-            user_guidance=user_guidance,
-            max_context_tokens=self.model.max_tokens,       # Model context window
-            max_output_tokens=self.chat_config.max_tokens,  # Max output tokens
-        )
+        # Immediate requery loop for overflow handling (CODE_RAG only)
+        overflow_retry_count = 0
+        overflow_error_message: Optional[str] = None
+
+        while overflow_retry_count <= self.IMMEDIATE_REQUERY_MAX_RETRIES:
+            # Build turns (includes consciousness with focused code)
+            turns = await self._decision_strategy.build_turns(
+                persona=self.persona,
+                session=self.session,
+                idle_mode=idle_mode,
+                action_guidance=action_guidance,
+                user_guidance=user_guidance,
+                max_context_tokens=self.model.max_tokens,       # Model context window
+                max_output_tokens=self.chat_config.max_tokens,  # Max output tokens
+            )
+
+            # If there was an overflow error from previous iteration, inject it
+            if overflow_error_message:
+                turns.append({"role": "user", "content": overflow_error_message})
+
+            # Check for overflow BEFORE sending to LLM (CODE_RAG strategies only)
+            if self._is_code_strategy():
+                system_message = self._decision_strategy.get_system_message(self.persona)
+                total_tokens = self._measure_total_tokens(turns, system_message)
+                model_limit = self._get_model_context_limit()
+                output_reservation = self.chat_config.max_tokens or 4096
+
+                if total_tokens + output_reservation > model_limit:
+                    # Overflow detected
+                    if overflow_retry_count >= self.IMMEDIATE_REQUERY_MAX_RETRIES:
+                        # Max retries exceeded - fail with actionable error
+                        raise ContextOverflowError(
+                            f"Focus too large after {self.IMMEDIATE_REQUERY_MAX_RETRIES} retries. "
+                            f"Total: {total_tokens} tokens, limit: {model_limit}"
+                        )
+
+                    # Clear focus and prepare error message for next iteration
+                    self._decision_strategy.clear_focus()
+                    logger.warning(
+                        f"Immediate requery: overflow detected ({total_tokens} tokens), "
+                        f"clearing focus (attempt {overflow_retry_count + 1}/{self.IMMEDIATE_REQUERY_MAX_RETRIES})"
+                    )
+                    overflow_error_message = self._format_overflow_error(
+                        total_tokens, model_limit, output_reservation
+                    )
+                    overflow_retry_count += 1
+                    continue
+
+            # No overflow (or not a code strategy) - proceed with LLM call
+            break
+
         last_response = ""
         last_cleaned = ""
         last_thinking = ""
@@ -559,6 +718,50 @@ class TurnsMixin:
                     logger.info("close_book: cleared workspace for agent %s", self.config.agent_id)
                     return "close_book", {"success": True}, last_response, last_thinking, last_cleaned
 
+                # focus: CODE_RAG tool to set code focus on strategy
+                if tool_name == "focus":
+                    focus_tool = getattr(self._decision_strategy, "get_focus_tool", lambda: None)()
+                    if focus_tool is None:
+                        error_guidance = (
+                            "focus tool not available. "
+                            "This tool requires a code agent with CODE_RAG strategy."
+                        )
+                        turns.append({"role": "assistant", "content": response})
+                        turns.append({"role": "user", "content": error_guidance})
+                        logger.warning(
+                            "focus called but no focus tool impl (attempt %d/%d)",
+                            attempt + 1, self.config.decision_max_retries,
+                        )
+                        continue
+
+                    # Execute focus tool (sets focus on decision strategy)
+                    # Pass entities for name resolution (e.g., "model.py" -> "/repo/src/model.py")
+                    entities = self.session.entities_present if self.session else []
+                    tool_result = focus_tool.focus(
+                        files=args.get("files", []),
+                        start_line=args.get("start_line"),
+                        end_line=args.get("end_line"),
+                        height=args.get("height", 1),
+                        depth=args.get("depth", 1),
+                        entities=entities,
+                    )
+
+                    # Also set focus on response strategy so Phase 2 has access
+                    # Use resolved files from tool_result to ensure consistency
+                    if hasattr(self, "_response_strategy") and self._response_strategy:
+                        from aim_code.strategy import FocusRequest
+                        focus_request = FocusRequest(
+                            files=tool_result.get("focused_files", args.get("files", [])),
+                            start_line=args.get("start_line"),
+                            end_line=args.get("end_line"),
+                            height=args.get("height", 1),
+                            depth=args.get("depth", 1),
+                        )
+                        self._response_strategy.set_focus(focus_request)
+
+                    logger.info("focus: set focus on %s", args.get("files", []))
+                    return "focus", tool_result, last_response, last_thinking, last_cleaned
+
                 # Generic aura tool handling - all aura tools emit MUDActions
                 if self._decision_strategy.is_aura_tool(tool_name):
                     # For ring specifically, validate targets
@@ -667,6 +870,9 @@ class TurnsMixin:
 
         # Load workspace state from Redis and set on chat manager
         await self._load_workspace_state()
+
+        # Load focus state from Redis and set on strategies (for code agents)
+        await self._load_focus_state()
 
         # Update decision tool availability based on drained events
         self._refresh_emote_tools(events)

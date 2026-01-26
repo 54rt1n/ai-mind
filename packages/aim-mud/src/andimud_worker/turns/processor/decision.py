@@ -172,6 +172,7 @@ class DecisionProcessor(BaseTurnProcessor):
             "plan": DecisionType.PLAN,
             "plan_update": DecisionType.PLAN_UPDATE,
             "close_book": DecisionType.CLOSE_BOOK,
+            "focus": DecisionType.FOCUS,
             "confused": DecisionType.CONFUSED,
         }
 

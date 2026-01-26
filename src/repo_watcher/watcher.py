@@ -8,7 +8,9 @@ Performs two-pass indexing:
 - Pass 2: Resolve calls, build call graph edges
 """
 
+import hashlib
 import logging
+import os
 from pathlib import Path
 from typing import Iterator
 
@@ -21,10 +23,12 @@ from aim_code.graph import (
     Symbol,
 )
 from aim_code.graph.models import ParsedFile as GraphParsedFile
+from aim.config import ChatConfig
 from aim.conversation.model import ConversationModel
 
+from aim_code.documents import SourceDoc, SourceDocMetadata, SpecDoc
+
 from .config import RepoConfig, SourcePath
-from .documents import SourceDoc, SourceDocMetadata, SpecDoc
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +66,8 @@ class RepoWatcher:
         """Initialize watcher with configuration.
 
         Args:
-            config: Repository configuration specifying sources and CVM settings.
+            config: Repository configuration specifying sources.
+                    Memory path, embedding model, etc. loaded from .env via ChatConfig.
         """
         self.config = config
         self.registry = ParserRegistry()
@@ -71,6 +76,7 @@ class RepoWatcher:
         self.module_registry = ModuleRegistry()
         self.file_cache: dict[str, GraphParsedFile] = {}
         self.cvm: ConversationModel = None  # type: ignore[assignment]
+        self.chat_config: ChatConfig = None  # type: ignore[assignment]
 
     def run(self) -> None:
         """Run two-pass indexing.
@@ -90,14 +96,16 @@ class RepoWatcher:
         # Pass 1: Index symbols
         file_count = 0
         symbol_count = 0
+        skip_count = 0
         for source in self.config.sources:
             for file_path in self._iter_files(source):
-                symbols = self._pass1_index_symbols(
+                symbols, skipped = self._pass1_index_symbols(
                     str(file_path), source.language, str(source.path)
                 )
                 file_count += 1
                 symbol_count += symbols
-        logger.info(f"Pass 1 complete: {file_count} files, {symbol_count} symbols indexed")
+                skip_count += skipped
+        logger.info(f"Pass 1 complete: {file_count} files, {symbol_count} symbols indexed, {skip_count} unchanged (skipped)")
 
         # Index SPEC.md files
         spec_count = self._index_spec_files()
@@ -111,23 +119,29 @@ class RepoWatcher:
         logger.info(f"Pass 2 complete: {edge_count} edges in call graph")
 
         # Save graph
-        graph_path = Path(self.config.memory_path) / "graph"
+        graph_path = Path(self.cvm.memory_path) / "graph"
         self.graph.save(graph_path)
         logger.info(f"Graph saved to {graph_path}")
 
     def _init_cvm(self) -> None:
         """Initialize the ConversationModel for indexing.
 
-        Creates necessary directories and sets up the CVM with
-        the configured embedding model and device.
+        Loads settings from .env via ChatConfig.from_env() to get memory_path,
+        embedding_model, etc. Builds the agent's memory path as:
+        $MEMORY_PATH/$agent_id
         """
-        memory_path = str(self.config.memory_path)
+        # Load from .env to get memory_path, embedding_model, etc.
+        self.chat_config = ChatConfig.from_env()
+
+        # Build memory path: $MEMORY_PATH/$agent_id
+        memory_path = os.path.join(self.chat_config.memory_path, self.config.agent_id)
+
         ConversationModel.maybe_init_folders(memory_path)
         self.cvm = ConversationModel(
             memory_path=memory_path,
-            embedding_model=self.config.embedding_model,
-            embedding_device=self.config.device,
-            user_timezone=self.config.user_timezone,
+            embedding_model=self.chat_config.embedding_model,
+            embedding_device=self.chat_config.embedding_device,
+            user_timezone=self.chat_config.user_timezone,
         )
 
     def _iter_files(self, source: SourcePath) -> Iterator[Path]:
@@ -156,7 +170,7 @@ class RepoWatcher:
 
     def _pass1_index_symbols(
         self, file_path: str, language: str, source_root: str
-    ) -> int:
+    ) -> tuple[int, int]:
         """Pass 1: Extract symbols and index as DOC_SOURCE_CODE documents.
 
         Args:
@@ -165,13 +179,13 @@ class RepoWatcher:
             source_root: Root directory of the source tree for module derivation.
 
         Returns:
-            Number of symbols indexed from this file.
+            Tuple of (symbols_indexed, symbols_skipped).
         """
         try:
             content = Path(file_path).read_text()
         except Exception as e:
             logger.warning(f"Could not read {file_path}: {e}")
-            return 0
+            return (0, 0)
 
         timestamp = int(Path(file_path).stat().st_mtime)
 
@@ -183,13 +197,13 @@ class RepoWatcher:
         parser = self.registry.get_parser(language)
         if not parser or not parser.is_available():
             logger.debug(f"No parser available for {language}, skipping {file_path}")
-            return 0
+            return (0, 0)
 
         try:
             parsed = parser.parse_file(content, file_path)
         except Exception as e:
             logger.warning(f"Parse error in {file_path}: {e}")
-            return 0
+            return (0, 0)
 
         # Convert ExtractedSymbol -> Symbol for graph cache (strips content)
         symbols = [
@@ -215,22 +229,27 @@ class RepoWatcher:
 
         # Index each symbol as DOC_SOURCE_CODE
         lines = content.split("\n")
+        indexed_count = 0
+        skipped_count = 0
         for symbol in parsed.symbols:
             symbol_path = (
                 f"{symbol.parent}.{symbol.name}" if symbol.parent else symbol.name
             )
+            # Get symbol content from file (line numbers are 1-indexed)
+            symbol_content = "\n".join(
+                lines[symbol.line_start - 1 : symbol.line_end]
+            )
+            # Hash content for change detection
+            content_hash = hashlib.sha256(symbol_content.encode()).hexdigest()
             meta = SourceDocMetadata(
                 symbol_name=symbol.name,
                 symbol_type=symbol.symbol_type,
                 line_start=symbol.line_start,
                 line_end=symbol.line_end,
+                content_hash=content_hash,
                 parent_symbol=symbol.parent,
                 signature=symbol.signature,
                 imports=list(parsed.imports.keys()),
-            )
-            # Get symbol content from file (line numbers are 1-indexed)
-            symbol_content = "\n".join(
-                lines[symbol.line_start - 1 : symbol.line_end]
             )
 
             doc = SourceDoc.create(
@@ -241,33 +260,69 @@ class RepoWatcher:
                 persona_id=self.config.agent_id,
                 timestamp=timestamp,
             )
-            self._insert_doc(doc)
+            if self._insert_doc(doc):
+                indexed_count += 1
+            else:
+                skipped_count += 1
 
             # Add to symbol table for pass 2 resolution
             self.symbol_table.add(
                 file_path, symbol.name, symbol.parent, symbol.line_start
             )
 
-        return len(parsed.symbols)
+        return (indexed_count, skipped_count)
 
-    def _insert_doc(self, doc: SourceDoc | SpecDoc) -> None:
-        """Insert a document into the CVM.
+    def _insert_doc(self, doc: SourceDoc | SpecDoc) -> bool:
+        """Insert a document directly into the search index (no JSONL).
 
-        Converts the Pydantic model to a dict and adds required fields
-        for ConversationMessage compatibility.
+        Skips insertion if a document with the same doc_id and content_hash
+        already exists (unchanged file).
 
         Args:
             doc: SourceDoc or SpecDoc to insert.
+
+        Returns:
+            True if document was inserted, False if skipped (unchanged).
         """
+        import json
+
+        # Check if document already exists with same hash
+        existing = self.cvm.index.get_document(doc.doc_id)
+        if existing:
+            existing_meta = existing.get("metadata", "{}")
+            if isinstance(existing_meta, str):
+                try:
+                    existing_meta = json.loads(existing_meta)
+                except json.JSONDecodeError:
+                    existing_meta = {}
+
+            # Parse new doc metadata
+            new_meta = doc.metadata
+            if isinstance(new_meta, str):
+                try:
+                    new_meta = json.loads(new_meta)
+                except json.JSONDecodeError:
+                    new_meta = {}
+
+            # Compare content hashes
+            existing_hash = existing_meta.get("content_hash", "")
+            new_hash = new_meta.get("content_hash", "")
+            if existing_hash and new_hash and existing_hash == new_hash:
+                logger.debug(f"Skipping unchanged: {doc.doc_id}")
+                return False
+
         doc_dict = doc.model_dump()
-        # Add fields required by ConversationMessage that aren't in our models
+        # Add fields required by ConversationMessage
         doc_dict.setdefault("speaker_id", doc.user_id)
         doc_dict.setdefault("listener_id", doc.persona_id)
         doc_dict.setdefault("reference_id", doc.conversation_id)
-        # Convert to ConversationMessage and insert
+        # Validate and normalize via ConversationMessage
         from aim.conversation.message import ConversationMessage
         message = ConversationMessage.from_dict(doc_dict)
-        self.cvm.insert(message)
+        # Insert directly into index, bypassing JSONL
+        logger.info(f"Inserting {doc.doc_id} into index")
+        self.cvm.index.add_document(message.to_dict())
+        return True
 
     def _pass2_build_graph(self, file_path: str, parsed: GraphParsedFile) -> int:
         """Pass 2: Resolve calls and build call graph edges.

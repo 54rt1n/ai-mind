@@ -20,6 +20,7 @@ class DecisionType(Enum):
     PLAN = auto()           # NEW - triggers plan creation (future)
     PLAN_UPDATE = auto()    # Existing - plan status update
     CLOSE_BOOK = auto()     # Close workspace (book reading)
+    FOCUS = auto()          # CODE_RAG focus tool for code agents
     CONFUSED = auto()       # Fallback for invalid responses
     AURA_TOOL = auto()      # Dynamic tools from room auras
     NON_PUBLISHED = auto()  # Non-published events (e.g., commands)

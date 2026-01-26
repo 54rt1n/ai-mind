@@ -471,6 +471,13 @@ class MUDAction(BaseModel):
             url = self.args.get("url", "")
             return f"web_browse {url}"
 
+        # Sleep/wake aura tools (agent-initiated)
+        elif self.tool == "sleep":
+            return "agent_sleep"
+
+        elif self.tool == "wake":
+            return "agent_wake"
+
         else:
             # Generic fallback for unknown aura tools
             # Format: tool_name arg1=val1 arg2=val2

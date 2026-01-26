@@ -3,12 +3,11 @@
 """
 Configuration models for repo-watcher indexing service.
 
-Defines the structure of YAML configuration files used to specify
-which source paths to index and how to configure the CVM.
+Uses ChatConfig.from_env() for memory_path, embedding_model, etc.
+RepoConfig only defines repo-specific settings (sources to index).
 """
 
 from pathlib import Path
-from typing import Optional
 
 from pydantic import BaseModel
 
@@ -30,24 +29,15 @@ class SourcePath(BaseModel):
 class RepoConfig(BaseModel):
     """Configuration for a watched repository.
 
-    This model maps directly to the YAML configuration file format.
-
-    Attributes:
-        repo_id: Unique identifier for this repository.
-        agent_id: Agent to index for (e.g., "blip").
-        memory_path: Path to store CVM indices and call graph.
-        embedding_model: Model name for FAISS embeddings.
-        device: Device for embedding generation ("cpu", "cuda:0", etc.).
-        user_timezone: Optional timezone for timestamp handling.
-        sources: List of source paths to index.
+    Memory path, embedding model, device, and timezone are loaded from
+    .env via ChatConfig.from_env(). This config only specifies:
+    - repo_id: Identifier for this repository
+    - agent_id: Agent to index for (used as persona_id for memory path)
+    - sources: List of source paths to index
 
     Example YAML:
         repo_id: ai-mind
         agent_id: blip
-        memory_path: memory/blip
-        embedding_model: mixedbread-ai/mxbai-embed-large-v1
-        device: cuda:0
-        user_timezone: America/Los_Angeles
         sources:
           - path: packages/aim-core/src
             recursive: true
@@ -56,8 +46,4 @@ class RepoConfig(BaseModel):
 
     repo_id: str
     agent_id: str
-    memory_path: Path
-    embedding_model: str
-    device: str = "cpu"
-    user_timezone: Optional[str] = None
     sources: list[SourcePath]

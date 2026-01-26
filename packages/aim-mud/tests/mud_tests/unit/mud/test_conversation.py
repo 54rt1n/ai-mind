@@ -1422,3 +1422,71 @@ class TestMUDConversationManagerGetLastEventId:
         result = await conversation_manager.get_last_event_id()
 
         assert result == "1704096000000-99"
+
+
+class TestNarrativeDocumentType:
+    """Test that narrative events get correct document_type based on is_self_action.
+
+    This is critical for Andi's memory indexing. Self-narratives must be tagged
+    as DOC_MUD_AGENT so they're attributed to her, not as world events.
+    """
+
+    @pytest.mark.asyncio
+    async def test_self_narrative_gets_agent_document_type(self, conversation_manager, mock_redis):
+        """Self-narration (is_self_action=True) must be DOC_MUD_AGENT, not DOC_MUD_WORLD.
+
+        When Andi narrates her own actions via @act, the resulting conversation entry
+        must be attributed to her (DOC_MUD_AGENT) so her memories are correctly indexed.
+        """
+        narrative_event = MUDEvent(
+            event_id="1704096000000-0",
+            event_type=EventType.NARRATIVE,
+            actor="Andi",
+            actor_id="#456",
+            room_id="#123",
+            room_name="The Garden",
+            content="Andi stretches her arms and feels the warmth of the sun.",
+            timestamp=datetime.now(timezone.utc),
+            metadata={"is_self_action": True},  # This is Andi's own narration
+        )
+
+        world_state = _sample_world_state()
+        await conversation_manager.push_user_turn([narrative_event], world_state)
+
+        # Get the entry that was pushed
+        entries = _entries_from_rpush(mock_redis)
+        assert len(entries) == 1
+
+        entry = entries[0]
+        assert entry.document_type == DOC_MUD_AGENT, (
+            f"Self-narrative should be DOC_MUD_AGENT but got {entry.document_type}. "
+            "Andi's own narrations are being lost as world events!"
+        )
+        assert entry.speaker_id == "test_agent", (
+            f"Self-narrative speaker_id should be the agent, not '{entry.speaker_id}'"
+        )
+
+    @pytest.mark.asyncio
+    async def test_other_narrative_gets_world_document_type(self, conversation_manager, mock_redis):
+        """Other's narration (is_self_action=False) should be DOC_MUD_WORLD."""
+        narrative_event = MUDEvent(
+            event_id="1704096000000-0",
+            event_type=EventType.NARRATIVE,
+            actor="Prax",
+            actor_id="#789",
+            room_id="#123",
+            room_name="The Garden",
+            content="Prax gestures dramatically toward the horizon.",
+            timestamp=datetime.now(timezone.utc),
+            metadata={"is_self_action": False},  # This is someone else's narration
+        )
+
+        world_state = _sample_world_state()
+        await conversation_manager.push_user_turn([narrative_event], world_state)
+
+        entries = _entries_from_rpush(mock_redis)
+        assert len(entries) == 1
+
+        entry = entries[0]
+        assert entry.document_type == DOC_MUD_WORLD
+        assert entry.speaker_id == "world"
