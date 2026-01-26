@@ -394,17 +394,8 @@ def create_pending_dream_stub(
         persona_config={},
     )
 
-    # Serialize and save
-    stub_data = stub.model_dump(mode='json')
-
-    # JSON-encode complex types
-    for field in ['execution_order', 'completed_steps', 'context_doc_ids',
-                  'step_doc_ids', 'scenario_config', 'persona_config']:
-        if field in stub_data:
-            stub_data[field] = json.dumps(stub_data[field])
-
-    # Filter None values
-    stub_data = {k: v for k, v in stub_data.items() if v is not None}
+    # Serialize using standardized helper (avoids double-encoding)
+    stub_data = model_to_redis_hash(stub)
 
     # Save to Redis (works with both sync and async)
     key = RedisKeys.agent_dreaming_state(agent_id)
