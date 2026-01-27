@@ -10,4 +10,5 @@ Legacy modules:
 - dreamer.server: Old distributed dreamer server infrastructure
 - dreamer.inline: Old inline scheduler for synchronous dream execution
 - dreamer.core.dialogue: Old dialogue system (DialogueScenario, DialogueStrategy)
+- refiner: Old exploration engine and context gathering system
 """

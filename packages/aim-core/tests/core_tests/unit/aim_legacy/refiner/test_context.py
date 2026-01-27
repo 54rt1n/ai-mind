@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pandas as pd
 
-from aim.refiner.context import (
+from aim_legacy.refiner.context import (
     ContextGatherer,
     GatheredContext,
     get_paradigm_doc_types,
@@ -141,7 +141,7 @@ class TestContextGatherer:
     @pytest.fixture
     def gatherer(self, mock_cvm, mock_token_counter):
         """Create a ContextGatherer with mocked dependencies."""
-        with patch('aim.refiner.context.MemoryReranker') as mock_reranker_class:
+        with patch('aim_legacy.refiner.context.MemoryReranker') as mock_reranker_class:
             mock_reranker_instance = MagicMock()
             mock_reranker_instance.rerank.return_value = []
             mock_reranker_class.return_value = mock_reranker_instance
@@ -150,19 +150,19 @@ class TestContextGatherer:
     # Test initialization
     def test_init_stores_cvm(self, mock_cvm, mock_token_counter):
         """ContextGatherer should store the CVM reference."""
-        with patch('aim.refiner.context.MemoryReranker'):
+        with patch('aim_legacy.refiner.context.MemoryReranker'):
             gatherer = ContextGatherer(mock_cvm, mock_token_counter)
         assert gatherer.cvm is mock_cvm
 
     def test_init_stores_token_counter(self, mock_cvm, mock_token_counter):
         """ContextGatherer should store the token counter."""
-        with patch('aim.refiner.context.MemoryReranker'):
+        with patch('aim_legacy.refiner.context.MemoryReranker'):
             gatherer = ContextGatherer(mock_cvm, mock_token_counter)
         assert gatherer.token_counter is mock_token_counter
 
     def test_init_creates_reranker(self, mock_cvm, mock_token_counter):
         """ContextGatherer should create a MemoryReranker."""
-        with patch('aim.refiner.context.MemoryReranker') as mock_reranker_class:
+        with patch('aim_legacy.refiner.context.MemoryReranker') as mock_reranker_class:
             gatherer = ContextGatherer(mock_cvm, mock_token_counter)
             mock_reranker_class.assert_called_once()
 
@@ -230,7 +230,7 @@ class TestContextGatherer:
             {"doc_id": "1", "content": "test", "document_type": "codex"},
         ])
 
-        with patch('aim.refiner.context.MemoryReranker') as mock_reranker_class:
+        with patch('aim_legacy.refiner.context.MemoryReranker') as mock_reranker_class:
             mock_reranker_class.return_value = MagicMock()
             gatherer = ContextGatherer(mock_cvm, mock_token_counter)
             result = await gatherer.broad_gather(paradigm="brainstorm")
@@ -243,7 +243,7 @@ class TestContextGatherer:
         """broad_gather should call cvm.sample_by_type for random sampling."""
         mock_cvm.sample_by_type.return_value = pd.DataFrame()
 
-        with patch('aim.refiner.context.MemoryReranker') as mock_reranker_class:
+        with patch('aim_legacy.refiner.context.MemoryReranker') as mock_reranker_class:
             mock_reranker_class.return_value = MagicMock()
             gatherer = ContextGatherer(mock_cvm, mock_token_counter)
             await gatherer.broad_gather(paradigm="brainstorm")
@@ -255,7 +255,7 @@ class TestContextGatherer:
         """broad_gather should return empty context when no docs found."""
         mock_cvm_empty.sample_by_type.return_value = pd.DataFrame()
 
-        with patch('aim.refiner.context.MemoryReranker') as mock_reranker_class:
+        with patch('aim_legacy.refiner.context.MemoryReranker') as mock_reranker_class:
             mock_reranker_class.return_value = MagicMock()
             gatherer = ContextGatherer(mock_cvm_empty, mock_token_counter)
             result = await gatherer.broad_gather(paradigm="brainstorm")
@@ -271,7 +271,7 @@ class TestContextGatherer:
             {"doc_id": "2", "content": "Second doc", "document_type": "journal"},
         ])
 
-        with patch('aim.refiner.context.MemoryReranker') as mock_reranker_class:
+        with patch('aim_legacy.refiner.context.MemoryReranker') as mock_reranker_class:
             mock_reranker_class.return_value = MagicMock()
             gatherer = ContextGatherer(mock_cvm, mock_token_counter)
             result = await gatherer.broad_gather(paradigm="brainstorm", token_budget=1000)
@@ -283,7 +283,7 @@ class TestContextGatherer:
         """broad_gather should pass paradigm doc types to sample_by_type."""
         mock_cvm.sample_by_type.return_value = pd.DataFrame()
 
-        with patch('aim.refiner.context.MemoryReranker') as mock_reranker_class:
+        with patch('aim_legacy.refiner.context.MemoryReranker') as mock_reranker_class:
             mock_reranker_class.return_value = MagicMock()
             gatherer = ContextGatherer(mock_cvm, mock_token_counter)
             await gatherer.broad_gather(paradigm="critique")
@@ -297,7 +297,7 @@ class TestContextGatherer:
     @pytest.mark.asyncio
     async def test_targeted_gather_uses_topic(self, mock_cvm, mock_token_counter):
         """targeted_gather should query using the topic."""
-        with patch('aim.refiner.context.MemoryReranker') as mock_reranker_class:
+        with patch('aim_legacy.refiner.context.MemoryReranker') as mock_reranker_class:
             mock_reranker = MagicMock()
             mock_reranker.rerank.return_value = []
             mock_reranker_class.return_value = mock_reranker
@@ -314,7 +314,7 @@ class TestContextGatherer:
     @pytest.mark.asyncio
     async def test_targeted_gather_returns_context(self, mock_cvm, mock_token_counter):
         """targeted_gather should return GatheredContext."""
-        with patch('aim.refiner.context.MemoryReranker') as mock_reranker_class:
+        with patch('aim_legacy.refiner.context.MemoryReranker') as mock_reranker_class:
             mock_reranker = MagicMock()
             mock_row = MagicMock()
             mock_row.to_dict.return_value = {"content": "test", "document_type": "codex"}
@@ -329,7 +329,7 @@ class TestContextGatherer:
     @pytest.mark.asyncio
     async def test_targeted_gather_empty_returns_empty(self, mock_cvm_empty, mock_token_counter):
         """targeted_gather should return empty context when no docs found."""
-        with patch('aim.refiner.context.MemoryReranker') as mock_reranker_class:
+        with patch('aim_legacy.refiner.context.MemoryReranker') as mock_reranker_class:
             mock_reranker = MagicMock()
             mock_reranker.rerank.return_value = []
             mock_reranker_class.return_value = mock_reranker
@@ -342,7 +342,7 @@ class TestContextGatherer:
     @pytest.mark.asyncio
     async def test_targeted_gather_stores_approach_as_paradigm(self, mock_cvm, mock_token_counter):
         """targeted_gather should store approach as paradigm in context."""
-        with patch('aim.refiner.context.MemoryReranker') as mock_reranker_class:
+        with patch('aim_legacy.refiner.context.MemoryReranker') as mock_reranker_class:
             mock_reranker = MagicMock()
             mock_reranker.rerank.return_value = []
             mock_reranker_class.return_value = mock_reranker
@@ -355,7 +355,7 @@ class TestContextGatherer:
     @pytest.mark.asyncio
     async def test_targeted_gather_counts_documents(self, mock_cvm, mock_token_counter):
         """targeted_gather should count conversation vs other docs."""
-        with patch('aim.refiner.context.MemoryReranker') as mock_reranker_class:
+        with patch('aim_legacy.refiner.context.MemoryReranker') as mock_reranker_class:
             mock_reranker = MagicMock()
             mock_row1 = MagicMock()
             mock_row1.to_dict.return_value = {"content": "conv", "document_type": "conversation"}
@@ -373,7 +373,7 @@ class TestContextGatherer:
     # Test _query_by_buckets
     def test_query_by_buckets_queries_conversations_insights_and_broad(self, mock_cvm, mock_token_counter):
         """_query_by_buckets should query conversations, insights, and broad doc types."""
-        with patch('aim.refiner.context.MemoryReranker') as mock_reranker_class:
+        with patch('aim_legacy.refiner.context.MemoryReranker') as mock_reranker_class:
             mock_reranker_class.return_value = MagicMock()
             gatherer = ContextGatherer(mock_cvm, mock_token_counter)
 

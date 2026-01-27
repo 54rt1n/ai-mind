@@ -28,14 +28,14 @@ import sys
 from dataclasses import replace
 from typing import Optional
 
-from ..config import ChatConfig
-from ..llm.models import LanguageModelV2
-from ..conversation.model import ConversationModel
-from ..agents.persona import Persona
+from aim.config import ChatConfig
+from aim.llm.models import LanguageModelV2
+from aim.conversation.model import ConversationModel
+from aim.agents.persona import Persona
 from .context import ContextGatherer
 from .paradigm import Paradigm
-from ..tool.formatting import ToolUser
-from ..utils.tokens import count_tokens
+from aim.tool.formatting import ToolUser
+from aim.utils.tokens import count_tokens
 
 # Note: DreamerClient import removed - it's in src/, not in this package
 # This __main__.py is primarily for testing refiner in isolation

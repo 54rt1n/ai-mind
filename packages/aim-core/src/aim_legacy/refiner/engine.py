@@ -21,17 +21,17 @@ import uuid
 from dataclasses import replace
 from typing import Optional, TYPE_CHECKING
 
-from ..agents.persona import Persona
-from ..llm.llm import is_retryable_error
+from aim.agents.persona import Persona
+from aim.llm.llm import is_retryable_error
 from .context import ContextGatherer
 from .paradigm import Paradigm
-from ..tool.formatting import ToolUser
-from ..utils.tokens import count_tokens
+from aim.tool.formatting import ToolUser
+from aim.utils.tokens import count_tokens
 
 if TYPE_CHECKING:
-    from ..config import ChatConfig
-    from ..conversation.model import ConversationModel
-    from ..utils.redis_cache import RedisCache
+    from aim.config import ChatConfig
+    from aim.conversation.model import ConversationModel
+    from aim.utils.redis_cache import RedisCache
 
 logger = logging.getLogger(__name__)
 

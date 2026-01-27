@@ -21,10 +21,10 @@ from typing import TYPE_CHECKING, Optional
 
 import yaml
 
-from ..tool.dto import Tool, ToolFunction, ToolFunctionParameters
-from ..tool.formatting import ToolUser
-from ..utils.xml import XmlFormatter
-from ..agents.aspects import (
+from aim.tool.dto import Tool, ToolFunction, ToolFunctionParameters
+from aim.tool.formatting import ToolUser
+from aim.utils.xml import XmlFormatter
+from aim.agents.aspects import (
     get_aspect,
     create_default_aspect,
     build_librarian_scene,
@@ -35,7 +35,7 @@ from ..agents.aspects import (
 )
 
 if TYPE_CHECKING:
-    from ..agents.persona import Persona
+    from aim.agents.persona import Persona
 
 logger = logging.getLogger(__name__)
 

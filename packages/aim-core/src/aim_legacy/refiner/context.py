@@ -16,8 +16,8 @@ from typing import TYPE_CHECKING, Callable, Optional, List, Tuple
 
 import pandas as pd
 
-from ..conversation.rerank import MemoryReranker, TaggedResult
-from ..constants import (
+from aim.conversation.rerank import MemoryReranker, TaggedResult
+from aim.constants import (
     DOC_CONVERSATION,
     DOC_BRAINSTORM,
     DOC_PONDERING,
@@ -37,7 +37,7 @@ from ..constants import (
 INSIGHT_DOC_TYPES = [DOC_INSPIRATION, DOC_UNDERSTANDING, DOC_PONDERING, DOC_BRAINSTORM]
 
 if TYPE_CHECKING:
-    from ..conversation.model import ConversationModel
+    from aim.conversation.model import ConversationModel
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +92,7 @@ def _resolve_doc_types(names: List[str]) -> List[str]:
 
 def get_paradigm_doc_types(paradigm: str) -> List[str]:
     """Get document types for a paradigm from config."""
-    from aim.refiner.paradigm import Paradigm
+    from aim_legacy.refiner.paradigm import Paradigm
 
     try:
         p = Paradigm.load(paradigm)
@@ -104,7 +104,7 @@ def get_paradigm_doc_types(paradigm: str) -> List[str]:
 
 def get_approach_doc_types(approach: str, paradigm: str = "") -> List[str]:
     """Get document types for an approach from config."""
-    from aim.refiner.paradigm import Paradigm
+    from aim_legacy.refiner.paradigm import Paradigm
 
     # Try to get from the paradigm config first
     if paradigm:

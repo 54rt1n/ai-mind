@@ -18,7 +18,7 @@ class TestParadigmLoading:
 
     def test_load_brainstorm(self):
         """Should load brainstorm paradigm from config."""
-        from aim.refiner.paradigm import Paradigm
+        from aim_legacy.refiner.paradigm import Paradigm
 
         paradigm = Paradigm.load("brainstorm")
         assert paradigm.name == "brainstorm"
@@ -26,7 +26,7 @@ class TestParadigmLoading:
 
     def test_load_daydream(self):
         """Should load daydream paradigm from config."""
-        from aim.refiner.paradigm import Paradigm
+        from aim_legacy.refiner.paradigm import Paradigm
 
         paradigm = Paradigm.load("daydream")
         assert paradigm.name == "daydream"
@@ -34,7 +34,7 @@ class TestParadigmLoading:
 
     def test_load_knowledge(self):
         """Should load knowledge paradigm from config."""
-        from aim.refiner.paradigm import Paradigm
+        from aim_legacy.refiner.paradigm import Paradigm
 
         paradigm = Paradigm.load("knowledge")
         assert paradigm.name == "knowledge"
@@ -42,7 +42,7 @@ class TestParadigmLoading:
 
     def test_load_critique(self):
         """Should load critique paradigm from config."""
-        from aim.refiner.paradigm import Paradigm
+        from aim_legacy.refiner.paradigm import Paradigm
 
         paradigm = Paradigm.load("critique")
         assert paradigm.name == "critique"
@@ -50,7 +50,7 @@ class TestParadigmLoading:
 
     def test_load_journaler(self):
         """Should load journaler paradigm from config."""
-        from aim.refiner.paradigm import Paradigm
+        from aim_legacy.refiner.paradigm import Paradigm
 
         paradigm = Paradigm.load("journaler")
         assert paradigm.name == "journaler"
@@ -58,7 +58,7 @@ class TestParadigmLoading:
 
     def test_load_invalid_raises(self):
         """Should raise ValueError for non-existent paradigm."""
-        from aim.refiner.paradigm import Paradigm
+        from aim_legacy.refiner.paradigm import Paradigm
 
         with pytest.raises(ValueError, match="No config found"):
             Paradigm.load("nonexistent")
@@ -69,7 +69,7 @@ class TestParadigmAvailable:
 
     def test_available_returns_list(self):
         """available() should return list of paradigm names."""
-        from aim.refiner.paradigm import Paradigm
+        from aim_legacy.refiner.paradigm import Paradigm
 
         available = Paradigm.available()
         assert isinstance(available, list)
@@ -77,7 +77,7 @@ class TestParadigmAvailable:
 
     def test_available_contains_expected(self):
         """available() should include known paradigms."""
-        from aim.refiner.paradigm import Paradigm
+        from aim_legacy.refiner.paradigm import Paradigm
 
         available = Paradigm.available()
         assert "brainstorm" in available
@@ -87,7 +87,7 @@ class TestParadigmAvailable:
 
     def test_available_with_exclude(self):
         """available(exclude=...) should filter out specified paradigms."""
-        from aim.refiner.paradigm import Paradigm
+        from aim_legacy.refiner.paradigm import Paradigm
 
         available = Paradigm.available(exclude=["journaler"])
         assert "journaler" not in available
@@ -99,7 +99,7 @@ class TestParadigmScenarioRouting:
 
     def test_brainstorm_routes_by_approach(self):
         """Brainstorm should route based on approach."""
-        from aim.refiner.paradigm import Paradigm
+        from aim_legacy.refiner.paradigm import Paradigm
 
         paradigm = Paradigm.load("brainstorm")
         assert paradigm.get_scenario("philosopher") == "philosopher_dialogue"
@@ -107,7 +107,7 @@ class TestParadigmScenarioRouting:
 
     def test_daydream_always_routes_to_daydream(self):
         """Daydream should always route to daydream_dialogue scenario."""
-        from aim.refiner.paradigm import Paradigm
+        from aim_legacy.refiner.paradigm import Paradigm
 
         paradigm = Paradigm.load("daydream")
         assert paradigm.get_scenario("daydream") == "daydream_dialogue"
@@ -115,7 +115,7 @@ class TestParadigmScenarioRouting:
 
     def test_knowledge_routes_to_researcher_or_approach(self):
         """Knowledge should route based on approach to dialogue scenarios."""
-        from aim.refiner.paradigm import Paradigm
+        from aim_legacy.refiner.paradigm import Paradigm
 
         paradigm = Paradigm.load("knowledge")
         # Knowledge has scenarios_by_approach, now routing to dialogue scenarios
@@ -125,7 +125,7 @@ class TestParadigmScenarioRouting:
 
     def test_critique_routes_to_critique(self):
         """Critique should route to critique_dialogue scenario."""
-        from aim.refiner.paradigm import Paradigm
+        from aim_legacy.refiner.paradigm import Paradigm
 
         paradigm = Paradigm.load("critique")
         assert paradigm.get_scenario("critique") == "critique_dialogue"
@@ -136,7 +136,7 @@ class TestParadigmDocTypes:
 
     def test_brainstorm_doc_types(self):
         """Brainstorm should have expected doc_types."""
-        from aim.refiner.paradigm import Paradigm
+        from aim_legacy.refiner.paradigm import Paradigm
 
         paradigm = Paradigm.load("brainstorm")
         assert len(paradigm.doc_types) > 0
@@ -144,7 +144,7 @@ class TestParadigmDocTypes:
 
     def test_approach_doc_types(self):
         """Should return approach-specific doc types."""
-        from aim.refiner.paradigm import Paradigm
+        from aim_legacy.refiner.paradigm import Paradigm
 
         paradigm = Paradigm.load("brainstorm")
         philosopher_types = paradigm.get_approach_doc_types("philosopher")
@@ -156,7 +156,7 @@ class TestParadigmTools:
 
     def test_get_select_tool(self):
         """Should return select_topic tool."""
-        from aim.refiner.paradigm import Paradigm
+        from aim_legacy.refiner.paradigm import Paradigm
 
         paradigm = Paradigm.load("brainstorm")
         tool = paradigm.get_select_tool()
@@ -164,7 +164,7 @@ class TestParadigmTools:
 
     def test_get_validate_tool(self):
         """Should return validate_exploration tool."""
-        from aim.refiner.paradigm import Paradigm
+        from aim_legacy.refiner.paradigm import Paradigm
 
         paradigm = Paradigm.load("brainstorm")
         tool = paradigm.get_validate_tool()
@@ -175,20 +175,7 @@ class TestParadigmImports:
     """Tests for Paradigm imports."""
 
     def test_import_from_paradigm_module(self):
-        """Should be importable from aim.refiner.paradigm."""
-        from aim.refiner.paradigm import Paradigm
+        """Should be importable from aim_legacy.refiner.paradigm."""
+        from aim_legacy.refiner.paradigm import Paradigm
 
         assert Paradigm is not None
-
-    def test_import_from_refiner_package(self):
-        """Should be importable from aim.refiner."""
-        from aim.refiner import Paradigm
-
-        assert Paradigm is not None
-
-    def test_both_imports_are_same_class(self):
-        """Both import paths should reference the same class."""
-        from aim.refiner.paradigm import Paradigm as P1
-        from aim.refiner import Paradigm as P2
-
-        assert P1 is P2

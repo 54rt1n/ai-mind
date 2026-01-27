@@ -130,7 +130,7 @@ async def run_refiner_loop(
         stop_event: Event to signal when to stop the loop
         nodelay: If True, run first check immediately without waiting
     """
-    from aim.refiner.engine import ExplorationEngine  # Type hint import
+    from aim_legacy.refiner.engine import ExplorationEngine  # Type hint import
 
     logger.info(f"Refiner loop started, checking every {interval}s{' (nodelay)' if nodelay else ''}")
 
@@ -257,7 +257,7 @@ async def run_watcher(args: argparse.Namespace) -> int:
     try:
         # Set up refiner if enabled
         if args.refiner:
-            from aim.refiner.engine import ExplorationEngine
+            from aim_legacy.refiner.engine import ExplorationEngine
             from aim.app.dream_agent.client import DreamerClient
 
             dreamer_client = DreamerClient.direct(config)

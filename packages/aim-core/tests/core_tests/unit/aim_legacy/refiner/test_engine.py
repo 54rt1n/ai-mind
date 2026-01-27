@@ -10,8 +10,8 @@ from dataclasses import dataclass
 import pandas as pd
 
 from aim.config import ChatConfig
-from aim.refiner.context import GatheredContext
-from aim.refiner.paradigm import Paradigm
+from aim_legacy.refiner.context import GatheredContext
+from aim_legacy.refiner.paradigm import Paradigm
 
 
 @dataclass
@@ -165,7 +165,7 @@ This territory has been well-explored...
     @pytest.fixture
     def engine(self, mock_config, mock_cvm, mock_dreamer_client, mock_persona):
         """Create an ExplorationEngine with mocked dependencies."""
-        from aim.refiner.engine import ExplorationEngine
+        from aim_legacy.refiner.engine import ExplorationEngine
 
         with patch('aim.refiner.engine.Persona') as MockPersona:
             MockPersona.from_config.return_value = mock_persona
@@ -180,7 +180,7 @@ This territory has been well-explored...
     # Test initialization
     def test_engine_initializes_with_config(self, mock_config, mock_cvm, mock_dreamer_client, mock_persona):
         """Engine should initialize with provided config."""
-        from aim.refiner.engine import ExplorationEngine
+        from aim_legacy.refiner.engine import ExplorationEngine
 
         with patch('aim.refiner.engine.Persona') as MockPersona:
             MockPersona.from_config.return_value = mock_persona
@@ -197,7 +197,7 @@ This territory has been well-explored...
 
     def test_engine_uses_model_name_parameter(self, mock_config, mock_cvm, mock_dreamer_client, mock_persona):
         """Engine should use provided model_name parameter."""
-        from aim.refiner.engine import ExplorationEngine
+        from aim_legacy.refiner.engine import ExplorationEngine
 
         with patch('aim.refiner.engine.Persona') as MockPersona:
             MockPersona.from_config.return_value = mock_persona
@@ -470,7 +470,7 @@ class TestExplorationEngineToolValidation:
         self, mock_config, mock_cvm, mock_dreamer_client, mock_persona, sample_documents
     ):
         """Engine should use ToolUser.process_response() for validation."""
-        from aim.refiner.engine import ExplorationEngine
+        from aim_legacy.refiner.engine import ExplorationEngine
 
         with patch('aim.refiner.engine.Persona') as MockPersona:
             MockPersona.from_config.return_value = mock_persona
@@ -504,7 +504,7 @@ class TestExplorationEngineToolValidation:
         self, mock_config, mock_cvm, mock_dreamer_client, mock_persona, sample_documents
     ):
         """Engine should handle invalid tool calls gracefully."""
-        from aim.refiner.engine import ExplorationEngine
+        from aim_legacy.refiner.engine import ExplorationEngine
 
         with patch('aim.refiner.engine.Persona') as MockPersona:
             MockPersona.from_config.return_value = mock_persona
@@ -535,7 +535,7 @@ class TestExplorationEngineToolValidation:
         self, mock_config, mock_cvm, mock_dreamer_client, mock_persona, sample_documents
     ):
         """Engine should accept valid validation responses."""
-        from aim.refiner.engine import ExplorationEngine
+        from aim_legacy.refiner.engine import ExplorationEngine
 
         with patch('aim.refiner.engine.Persona') as MockPersona:
             MockPersona.from_config.return_value = mock_persona
@@ -572,7 +572,7 @@ class TestExplorationEngineToolValidation:
         self, mock_config, mock_cvm, mock_dreamer_client, mock_persona, sample_documents
     ):
         """Engine should handle rejection responses."""
-        from aim.refiner.engine import ExplorationEngine
+        from aim_legacy.refiner.engine import ExplorationEngine
 
         with patch('aim.refiner.engine.Persona') as MockPersona:
             MockPersona.from_config.return_value = mock_persona
