@@ -42,10 +42,15 @@ class RetryCommand(Command):
         Returns:
             CommandResult with complete=True
         """
-        turn_id = kwargs.get("turn_id", "unknown")
-        attempt_count = kwargs.get("attempt_count", "1")
-        status_reason = kwargs.get("status_reason", "")
-        turn_request = MUDTurnRequest.model_validate(kwargs)
+        # Get turn_request directly from kwargs
+        turn_request = kwargs.get("turn_request")
+        if not turn_request:
+            # Fallback for backward compatibility
+            turn_request = MUDTurnRequest.model_validate(kwargs)
+
+        turn_id = turn_request.turn_id or "unknown"
+        attempt_count = turn_request.attempt_count or 1
+        status_reason = turn_request.status_reason or ""
 
         logger.info(
             "Retrying turn %s (attempt %s) - previous failure: %s",

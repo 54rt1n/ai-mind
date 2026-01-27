@@ -112,3 +112,114 @@ class AgentEventsStreamMixin:
         """Return agent events stream length."""
         key = self._agent_events_stream_key(agent_id, stream_key)
         return await self.redis.xlen(key)
+
+    async def delete_agent_events_stream(
+        self: "BaseAsyncRedisMUDClient",
+        agent_id: str,
+        *,
+        stream_key: Optional[str] = None,
+    ) -> bool:
+        """Delete the agent events stream key entirely.
+
+        Returns:
+            True if the key was deleted, False if it didn't exist.
+        """
+        key = self._agent_events_stream_key(agent_id, stream_key)
+        result = await self.redis.delete(key)
+        return result > 0
+
+    async def delete_agent_events_if_drained(
+        self: "BaseAsyncRedisMUDClient",
+        agent_id: str,
+        *,
+        conversation_key: Optional[str] = None,
+        stream_key: Optional[str] = None,
+    ) -> bool:
+        """Atomically delete agent events stream if fully drained.
+
+        Uses a Lua script to atomically:
+        1. Read the last conversation entry from the Redis list
+        2. Parse JSON to extract last_event_id field
+        3. Get stream's last-generated-id via XINFO STREAM
+        4. Compare the two IDs
+        5. Delete stream if they match
+
+        This prevents race conditions where new events arrive between
+        reading the conversation and checking the stream state.
+
+        Args:
+            agent_id: The agent ID.
+            conversation_key: Optional override for conversation list key.
+            stream_key: Optional override for stream key.
+
+        Returns:
+            True if the stream was deleted (was fully drained).
+            False if stream has newer events, conversation is empty,
+            last entry has no last_event_id, or stream doesn't exist.
+        """
+        conv_key = conversation_key or RedisKeys.agent_conversation(agent_id)
+        event_key = self._agent_events_stream_key(agent_id, stream_key)
+
+        # Lua script: atomically read conversation and stream, delete if IDs match
+        lua_script = """
+        -- KEYS[1]: conversation list key (mud:agent:{id}:conversation)
+        -- KEYS[2]: stream key (agent:{id}:events)
+
+        -- 1. Check if conversation list exists and has entries
+        local list_len = redis.call('LLEN', KEYS[1])
+        if list_len == 0 then
+            return 0  -- No conversation entries, nothing to compare
+        end
+
+        -- 2. Get the LAST entry from the conversation list
+        local last_entry_json = redis.call('LINDEX', KEYS[1], -1)
+        if not last_entry_json then
+            return 0  -- Should not happen if LLEN > 0, but guard anyway
+        end
+
+        -- 3. Parse JSON to extract last_event_id
+        local cjson = require("cjson")
+        local ok, entry = pcall(cjson.decode, last_entry_json)
+        if not ok or not entry then
+            return 0  -- JSON parse failed
+        end
+
+        local expected_id = entry.last_event_id
+        if not expected_id or expected_id == "" then
+            return 0  -- No last_event_id in conversation entry
+        end
+
+        -- 4. Check if stream exists
+        local exists = redis.call('EXISTS', KEYS[2])
+        if exists == 0 then
+            return 0  -- Stream doesn't exist, nothing to delete
+        end
+
+        -- 5. Get stream's last-generated-id via XINFO STREAM
+        local info = redis.call('XINFO', 'STREAM', KEYS[2])
+
+        -- Parse the info array to find last-generated-id
+        -- XINFO STREAM returns flat array: [field1, value1, field2, value2, ...]
+        local last_id = nil
+        for i = 1, #info, 2 do
+            if info[i] == 'last-generated-id' then
+                last_id = info[i + 1]
+                break
+            end
+        end
+
+        if not last_id or last_id == "" then
+            return 0  -- Stream has no last-generated-id
+        end
+
+        -- 6. Compare IDs (both are strings like "1704096000000-42")
+        if last_id == expected_id then
+            redis.call('DEL', KEYS[2])
+            return 1  -- Deleted
+        end
+
+        return 0  -- IDs don't match, stream has newer events
+        """
+
+        result = await self.redis.eval(lua_script, 2, conv_key, event_key)
+        return result == 1

@@ -38,10 +38,13 @@ class DreamCommand(Command):
         Returns:
             CommandResult with complete=True, status=TurnRequestStatus.DONE or FAIL
         """
-        turn_id = kwargs.get("turn_id", "unknown")
+        # Get turn_request directly from kwargs
+        turn_request = kwargs.get("turn_request")
+        if not turn_request:
+            # Fallback for backward compatibility
+            turn_request = MUDTurnRequest.model_validate(kwargs)
 
-        # Use Pydantic to parse metadata JSON
-        turn_request = MUDTurnRequest.model_validate(kwargs)
+        turn_id = turn_request.turn_id or "unknown"
         metadata = turn_request.metadata or {}
 
         # Check for planner pipeline

@@ -2,12 +2,26 @@
 # AI-Mind (C) 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
 """Shared string constants for MUD integration."""
 
+from enum import Enum
+
+
+class ListItemStatus(str, Enum):
+    """Valid statuses for MCP list items."""
+    TODO = "TODO"
+    DONE = "DONE"
+    WAITING = "WAITING"
+    CANCELLED = "CANCELLED"
+    NEXT = "NEXT"
+    SOMEDAY = "SOMEDAY"
+
 # Aura names
 AURA_RINGABLE = "RINGABLE"
 AURA_WEB_ACCESS = "WEB_ACCESS"
 AURA_CODE_ACCESS = "CODE_ACCESS"
 AURA_MARKET_ACCESS = "MARKET_ACCESS"
+AURA_STOCK_TRADING = "STOCK_TRADING"
 AURA_NEWS_ACCESS = "NEWS_ACCESS"
+AURA_NEWS_MANAGEMENT = "NEWS_MANAGEMENT"
 AURA_RESEARCH_ACCESS = "RESEARCH_ACCESS"
 AURA_LIST_ACCESS = "LIST_ACCESS"
 

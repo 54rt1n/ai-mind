@@ -53,8 +53,15 @@ class FocusCommand(Command):
         Returns:
             CommandResult with complete=True
         """
-        turn_id = kwargs.get("turn_id", "unknown")
-        metadata = kwargs.get("metadata")
+        # Get turn_request directly from kwargs
+        turn_request = kwargs.get("turn_request")
+        if turn_request:
+            turn_id = turn_request.turn_id or "unknown"
+            metadata = turn_request.metadata
+        else:
+            # Fallback for backward compatibility
+            turn_id = kwargs.get("turn_id", "unknown")
+            metadata = kwargs.get("metadata")
 
         if not metadata:
             logger.warning("[%s] Focus command received without metadata", turn_id)
@@ -129,7 +136,13 @@ class ClearFocusCommand(Command):
         Returns:
             CommandResult with complete=True
         """
-        turn_id = kwargs.get("turn_id", "unknown")
+        # Get turn_request directly from kwargs
+        turn_request = kwargs.get("turn_request")
+        if turn_request:
+            turn_id = turn_request.turn_id or "unknown"
+        else:
+            # Fallback for backward compatibility
+            turn_id = kwargs.get("turn_id", "unknown")
 
         # Clear focus on decision strategy
         decision_strategy = worker._decision_strategy

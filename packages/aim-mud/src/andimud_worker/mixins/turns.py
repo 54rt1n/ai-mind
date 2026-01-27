@@ -397,14 +397,17 @@ Current focus will be cleared. Please refocus with a smaller scope."""
             if mood:
                 emote_text = f"waits {mood}."
                 logger.info(f"Wait emote with mood: {emote_text}")
+                # Custom mood: non_reactive (published but doesn't trigger reactions)
+                metadata = {MUDAction.META_NON_REACTIVE: True}
             else:
                 emote_text = "waits quietly."
                 logger.info("Wait emote with default mood")
-            # Mark as non_reactive so other agents don't trigger turns for idle emotes
+                # Default: non_published (not routed to event streams at all)
+                metadata = {MUDAction.META_NON_PUBLISHED: True}
             action = MUDAction(
                 tool="emote",
                 args={"action": emote_text},
-                metadata={MUDAction.META_NON_REACTIVE: True},
+                metadata=metadata,
             )
             actions_taken.append(action)
             await self._emit_actions(actions_taken)
@@ -479,12 +482,35 @@ Current focus will be cleared. Please refocus with a smaller scope."""
                 logger.debug("Focus persisted to agent profile")
 
         elif decision.decision_type == DecisionType.AURA_TOOL:
-            # Generic aura tool handling - emit MUDAction for Evennia to execute
             tool_name = decision.aura_tool_name or "unknown_aura_tool"
-            action = MUDAction(tool=tool_name, args=decision.args)
-            actions_taken.append(action)
-            logger.info("Aura tool '%s' emitting action with args: %s", tool_name, decision.args)
-            await self._emit_actions(actions_taken)
+
+            # Special-case: sleep and wake have dedicated commands with side effects
+            # (emote generation, conversation ID rotation, CVM flush)
+            if tool_name in ("sleep", "wake"):
+                command = self.command_registry.get_command(tool_name)
+                if command:
+                    logger.info("Aura tool '%s' routing to dedicated command", tool_name)
+                    # Invoke command with agent=True to trigger conversation management
+                    await command.execute(
+                        self,
+                        turn_id=f"agent_{tool_name}",
+                        reason=tool_name,
+                        sequence_id=0,  # Not validated by command
+                        metadata={"agent": True},
+                        events=events,
+                    )
+                    # Command emitted emote action, now emit sleep/wake action for Evennia
+                    action = MUDAction(tool=tool_name, args=decision.args)
+                    actions_taken.append(action)
+                    await self._emit_actions(actions_taken)
+                else:
+                    logger.warning("Command '%s' not found in registry", tool_name)
+            else:
+                # Generic aura tool handling - emit MUDAction for Evennia to execute
+                action = MUDAction(tool=tool_name, args=decision.args)
+                actions_taken.append(action)
+                logger.info("Aura tool '%s' emitting action with args: %s", tool_name, decision.args)
+                await self._emit_actions(actions_taken)
 
         # Create and store turn record
         turn = MUDTurn(

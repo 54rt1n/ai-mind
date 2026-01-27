@@ -34,6 +34,7 @@ test = [
 ]
 mud = [
     "evennia>=5.0.1",
+    "yfinance"
 ]
 
 [build-system]

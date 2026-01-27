@@ -46,9 +46,14 @@ class EventsCommand(Command):
         Returns:
             CommandResult with complete=True
         """
-        turn_id = kwargs.get("turn_id", "unknown")
-        reason = kwargs.get("reason", "events")
-        turn_request = MUDTurnRequest.model_validate(kwargs)
+        # Get turn_request directly from kwargs
+        turn_request = kwargs.get("turn_request")
+        if not turn_request:
+            # Fallback for backward compatibility
+            turn_request = MUDTurnRequest.model_validate(kwargs)
+
+        turn_id = turn_request.turn_id or "unknown"
+        reason = turn_request.reason or "events"
 
         # Events passed via kwargs from main loop
         events = kwargs.get("events", [])

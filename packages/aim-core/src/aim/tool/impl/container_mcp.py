@@ -197,18 +197,22 @@ class ContainerMCPTool(ToolImplementation):
     # Market Terminal Tools
     # =========================================================================
 
-    def market_query(self, symbol: str, period: str = "1d", **kwargs: Any) -> Dict[str, Any]:
+    def market_query(self, symbol: str, period: Optional[str] = None, **kwargs: Any) -> Dict[str, Any]:
         """Query stock/crypto prices.
 
         Args:
             symbol: Stock/crypto symbol (e.g., "AAPL", "BTC-USD").
-            period: Historical period (default: "1d").
+            period: Historical period. If None, returns full data including
+                    fundamentals, news, and trend analysis.
             **kwargs: Additional parameters (ignored).
 
         Returns:
             Dictionary with market data.
         """
-        return self._call_mcp("market_query", {"symbol": symbol, "period": period})
+        args: Dict[str, Any] = {"symbol": symbol}
+        if period is not None:
+            args["period"] = period
+        return self._call_mcp("market_query", args)
 
     def rss_fetch(self, url: str, limit: int = 10, **kwargs: Any) -> Dict[str, Any]:
         """Fetch and parse an RSS feed.
@@ -265,34 +269,194 @@ class ContainerMCPTool(ToolImplementation):
         Returns:
             Dictionary with list items.
         """
-        return self._call_mcp("list_get", {"list_id": list_id})
+        return self._call_mcp("list_get", {"name": list_id})
 
     def list_modify(
         self,
         list_id: str,
         action: str,
-        text: Optional[str] = None,
-        item_id: Optional[str] = None,
+        item_text: Optional[str] = None,
+        item_index: Optional[int] = None,
+        status: Optional[str] = None,
+        tags: Optional[List[str]] = None,
         **kwargs: Any
     ) -> Dict[str, Any]:
-        """Modify a list (add item, complete item, etc.).
+        """Modify a list (add item, update item, remove item).
 
         Args:
             list_id: List identifier.
-            action: Action to perform ("add", "complete", etc.).
-            text: Text for new items (required for "add" action).
-            item_id: Item identifier (required for "complete" action).
+            action: Action to perform ("add", "update", "remove").
+            item_text: Text for items (required for "add" action).
+            item_index: Item index (required for "update"/"remove" actions).
+            status: Optional status for the item.
+            tags: Optional list of tags.
             **kwargs: Additional parameters (ignored).
 
         Returns:
             Dictionary with operation result.
         """
-        args: Dict[str, Any] = {"list_id": list_id, "action": action}
-        if text is not None:
-            args["text"] = text
-        if item_id is not None:
-            args["item_id"] = item_id
+        args: Dict[str, Any] = {"list_name": list_id, "action": action}
+        if item_text is not None:
+            args["item_text"] = item_text
+        if item_index is not None:
+            args["item_index"] = item_index
+        if status is not None:
+            args["status"] = status
+        if tags is not None:
+            args["tags"] = tags
         return self._call_mcp("list_modify", args)
+
+    # =========================================================================
+    # Ledger/Portfolio Tools
+    # =========================================================================
+
+    def ledger_get(self, ledger_id: str, **kwargs: Any) -> Dict[str, Any]:
+        """Get all ledger entries.
+
+        Args:
+            ledger_id: The ledger list identifier.
+            **kwargs: Additional parameters (ignored).
+
+        Returns:
+            Dict with 'items' list of ledger entries.
+        """
+        return self.list_get(ledger_id)
+
+    def ledger_add(
+        self,
+        ledger_id: str,
+        entry_type: str,
+        symbol: Optional[str] = None,
+        quantity: Optional[int] = None,
+        price: Optional[float] = None,
+        amount: Optional[float] = None,
+        actor: Optional[str] = None,
+        **kwargs: Any
+    ) -> Dict[str, Any]:
+        """Add a transaction entry to the ledger.
+
+        Args:
+            ledger_id: The ledger list identifier.
+            entry_type: Transaction type (DEPOSIT, WITHDRAW, BUY, SELL, DIVIDEND).
+            symbol: Stock symbol (for BUY, SELL, DIVIDEND).
+            quantity: Number of shares (for BUY, SELL).
+            price: Price per share (for BUY, SELL).
+            amount: Total amount (for DEPOSIT, WITHDRAW, DIVIDEND).
+            actor: Name of the player/agent who made the transaction.
+            **kwargs: Additional parameters (ignored).
+
+        Returns:
+            Dict with 'success' bool and 'entry' data.
+        """
+        from datetime import datetime, timezone
+
+        # Build entry as pipe-delimited string: TYPE|TIMESTAMP|ACTOR|SYMBOL|QUANTITY|PRICE|AMOUNT|TOTAL
+        timestamp = datetime.now(timezone.utc).isoformat()
+        actor_str = actor or ""
+
+        if entry_type == "DEPOSIT":
+            total = amount
+            item_text = f"DEPOSIT|{timestamp}|{actor_str}|||{amount}|{total}"
+        elif entry_type == "WITHDRAW":
+            total = amount
+            item_text = f"WITHDRAW|{timestamp}|{actor_str}|||{amount}|{total}"
+        elif entry_type == "BUY":
+            total = quantity * price
+            item_text = f"BUY|{timestamp}|{actor_str}|{symbol}|{quantity}|{price}||{total}"
+        elif entry_type == "SELL":
+            total = quantity * price
+            item_text = f"SELL|{timestamp}|{actor_str}|{symbol}|{quantity}|{price}||{total}"
+        elif entry_type == "DIVIDEND":
+            total = amount
+            item_text = f"DIVIDEND|{timestamp}|{actor_str}|{symbol}||{amount}|{total}"
+        else:
+            return {"success": False, "error": f"Unknown entry_type: {entry_type}"}
+
+        # Add to ledger using list_modify
+        result = self.list_modify(
+            list_id=ledger_id,
+            action="add",
+            item_text=item_text,
+            status="DONE"
+        )
+
+        return result
+
+    def portfolio_calculate(self, ledger_id: str, **kwargs: Any) -> Dict[str, Any]:
+        """Calculate portfolio state from ledger entries.
+
+        Aggregates all FILLED transactions to derive:
+        - Current cash balance
+        - Positions with quantity and average cost basis
+
+        Args:
+            ledger_id: The ledger list identifier.
+            **kwargs: Additional parameters (ignored).
+
+        Returns:
+            Dict with 'cash' float and 'positions' dict
+            {symbol: {shares, cost_basis, total_cost}}.
+        """
+        ledger = self.ledger_get(ledger_id)
+        entries = ledger.get("items", [])
+
+        cash = 0.0
+        positions: Dict[str, Dict[str, float]] = {}
+
+        for entry in entries:
+            if entry.get("status") != "DONE":
+                continue
+
+            # Parse pipe-delimited format: TYPE|TIMESTAMP|ACTOR|SYMBOL|QUANTITY|PRICE|AMOUNT|TOTAL
+            text = entry.get("text", "")
+            parts = text.split("|")
+            if len(parts) < 7:
+                continue
+
+            entry_type = parts[0]
+            # parts[1] = timestamp, parts[2] = actor (not needed for calculation)
+            symbol = parts[3] if len(parts) > 3 else ""
+            quantity = float(parts[4]) if parts[4] else 0
+            price = float(parts[5]) if parts[5] else 0
+            amount = float(parts[6]) if parts[6] else 0
+            total = float(parts[7]) if len(parts) > 7 and parts[7] else 0
+
+            if entry_type == "DEPOSIT":
+                cash += amount
+            elif entry_type == "WITHDRAW":
+                cash -= amount
+            elif entry_type == "BUY":
+                cash -= total
+                if symbol and symbol not in positions:
+                    positions[symbol] = {"shares": 0, "total_cost": 0}
+                if symbol:
+                    positions[symbol]["shares"] += quantity
+                    positions[symbol]["total_cost"] += total
+            elif entry_type == "SELL":
+                cash += total
+                if symbol in positions:
+                    current = positions[symbol]
+                    if current["shares"] > 0:
+                        cost_per_share = current["total_cost"] / current["shares"]
+                        current["shares"] -= quantity
+                        current["total_cost"] = current["shares"] * cost_per_share
+            elif entry_type == "DIVIDEND":
+                cash += amount
+
+        # Build result with cost_basis per share for each position
+        result_positions: Dict[str, Dict[str, float]] = {}
+        for symbol, data in positions.items():
+            if data["shares"] > 0:
+                result_positions[symbol] = {
+                    "shares": data["shares"],
+                    "cost_basis": data["total_cost"] / data["shares"],
+                    "total_cost": data["total_cost"]
+                }
+
+        return {
+            "cash": cash,
+            "positions": result_positions
+        }
 
     # =========================================================================
     # Execute Dispatcher
@@ -347,7 +511,7 @@ class ContainerMCPTool(ToolImplementation):
                 raise ValueError("Symbol parameter is required")
             return self.market_query(
                 symbol=parameters["symbol"],
-                period=parameters.get("period", "1d")
+                period=parameters.get("period")
             )
 
         elif function_name == "rss_fetch":
@@ -398,7 +562,7 @@ class ContainerMCPTool(ToolImplementation):
             return self.list_modify(
                 list_id=parameters["list_id"],
                 action=parameters.get("action", "add"),
-                text=parameters["text"]
+                item_text=parameters["text"]
             )
 
         elif function_name == "check_item":
@@ -408,8 +572,9 @@ class ContainerMCPTool(ToolImplementation):
                 raise ValueError("item_id parameter is required")
             return self.list_modify(
                 list_id=parameters["list_id"],
-                action=parameters.get("action", "complete"),
-                item_id=parameters["item_id"]
+                action=parameters.get("action", "update"),
+                item_index=int(parameters["item_id"]),
+                status="DONE"
             )
 
         # Market terminal tools
@@ -418,8 +583,34 @@ class ContainerMCPTool(ToolImplementation):
                 raise ValueError("Symbol parameter is required")
             return self.market_query(
                 symbol=parameters["symbol"],
-                period=parameters.get("period", "1d")
+                period=parameters.get("period")
             )
+
+        # Ledger/Portfolio tools
+        elif function_name == "ledger_get":
+            if "ledger_id" not in parameters:
+                raise ValueError("ledger_id parameter is required")
+            return self.ledger_get(ledger_id=parameters["ledger_id"])
+
+        elif function_name == "ledger_add":
+            if "ledger_id" not in parameters:
+                raise ValueError("ledger_id parameter is required")
+            if "entry_type" not in parameters:
+                raise ValueError("entry_type parameter is required")
+            return self.ledger_add(
+                ledger_id=parameters["ledger_id"],
+                entry_type=parameters["entry_type"],
+                symbol=parameters.get("symbol"),
+                quantity=parameters.get("quantity"),
+                price=parameters.get("price"),
+                amount=parameters.get("amount"),
+                actor=parameters.get("actor")
+            )
+
+        elif function_name == "portfolio_calculate":
+            if "ledger_id" not in parameters:
+                raise ValueError("ledger_id parameter is required")
+            return self.portfolio_calculate(ledger_id=parameters["ledger_id"])
 
         else:
             return {

@@ -72,7 +72,9 @@ from .constants import (
     AURA_WEB_ACCESS,
     AURA_CODE_ACCESS,
     AURA_MARKET_ACCESS,
+    AURA_STOCK_TRADING,
     AURA_NEWS_ACCESS,
+    AURA_NEWS_MANAGEMENT,
     AURA_RESEARCH_ACCESS,
     AURA_LIST_ACCESS,
     # Paper system auras
@@ -84,6 +86,8 @@ from .constants import (
     AURA_PAPER_WRITE,
     AURA_CODE_ROOM,
     AURA_SLEEPABLE,
+    # List item statuses
+    ListItemStatus,
 )
 
 # Redis Keys
@@ -161,7 +165,9 @@ __all__ = [
     "AURA_WEB_ACCESS",
     "AURA_CODE_ACCESS",
     "AURA_MARKET_ACCESS",
+    "AURA_STOCK_TRADING",
     "AURA_NEWS_ACCESS",
+    "AURA_NEWS_MANAGEMENT",
     "AURA_RESEARCH_ACCESS",
     "AURA_LIST_ACCESS",
     "AURA_PRINT_ACCESS",

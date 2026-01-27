@@ -368,3 +368,187 @@ class TestFallbackModel:
             assert chat_provider is not fallback_provider
             assert chat_provider == mock_chat_provider
             assert fallback_provider == mock_fallback_provider
+
+
+class TestModelPools:
+    """Test model pools for random selection."""
+
+    def test_single_string_model_works_unchanged(self, mock_config, mock_persona):
+        """Test that single string models work as before."""
+        mock_persona.models = {"chat": "claude-3.5-sonnet"}
+
+        model_set = ModelSet.from_config(mock_config, mock_persona)
+
+        # Should return the same model every time
+        assert model_set.get_model_name("chat") == "claude-3.5-sonnet"
+        assert model_set.get_model_name("chat") == "claude-3.5-sonnet"
+        # Should not have a pool
+        assert not model_set.has_model_pool("chat")
+
+    def test_list_creates_model_pool(self, mock_config, mock_persona):
+        """Test that list of models creates a pool."""
+        mock_persona.models = {
+            "chat": ["claude-3.5-sonnet", "gpt-4o", "gemini-pro"]
+        }
+
+        model_set = ModelSet.from_config(mock_config, mock_persona)
+
+        # Should have a pool
+        assert model_set.has_model_pool("chat")
+        assert model_set.get_model_pool("chat") == ["claude-3.5-sonnet", "gpt-4o", "gemini-pro"]
+
+    def test_static_field_stores_first_model(self, mock_config, mock_persona):
+        """Test that static field stores first model from list."""
+        mock_persona.models = {
+            "chat": ["claude-3.5-sonnet", "gpt-4o", "gemini-pro"]
+        }
+
+        model_set = ModelSet.from_config(mock_config, mock_persona)
+
+        # Static field should have first model
+        assert model_set.chat_model == "claude-3.5-sonnet"
+
+    def test_random_selection_returns_pool_models(self, mock_config, mock_persona):
+        """Test that get_model_name returns models from the pool."""
+        mock_persona.models = {
+            "chat": ["model-a", "model-b", "model-c"]
+        }
+
+        model_set = ModelSet.from_config(mock_config, mock_persona)
+
+        # Collect many selections
+        selections = {model_set.get_model_name("chat") for _ in range(100)}
+
+        # Should have selected from all models in pool
+        assert selections == {"model-a", "model-b", "model-c"}
+
+    def test_random_selection_with_mock(self, mock_config, mock_persona):
+        """Test random selection can be controlled with mock."""
+        mock_persona.models = {
+            "chat": ["model-a", "model-b", "model-c"]
+        }
+
+        model_set = ModelSet.from_config(mock_config, mock_persona)
+
+        with patch("aim.llm.model_set.random.choice", return_value="model-b"):
+            assert model_set.get_model_name("chat") == "model-b"
+
+    def test_default_pool_propagates_to_other_roles(self, mock_config, mock_persona):
+        """Test that default pool propagates when other roles aren't overridden."""
+        mock_persona.models = {
+            "default": ["claude-3.5-sonnet", "gpt-4o"]
+        }
+
+        model_set = ModelSet.from_config(mock_config, mock_persona)
+
+        # Default should have pool
+        assert model_set.has_model_pool("default")
+        # Chat (not overridden) should also have the default pool
+        assert model_set.has_model_pool("chat")
+        assert model_set.get_model_pool("chat") == ["claude-3.5-sonnet", "gpt-4o"]
+
+    def test_role_override_replaces_default_pool(self, mock_config, mock_persona):
+        """Test that role-specific override replaces default pool."""
+        mock_persona.models = {
+            "default": ["claude-3.5-sonnet", "gpt-4o"],
+            "chat": "specific-model"
+        }
+
+        model_set = ModelSet.from_config(mock_config, mock_persona)
+
+        # Default should have pool
+        assert model_set.has_model_pool("default")
+        # Chat has specific override, no pool
+        assert not model_set.has_model_pool("chat")
+        assert model_set.get_model_name("chat") == "specific-model"
+
+    def test_mixed_string_and_list_config(self, mock_config, mock_persona):
+        """Test config with mix of string and list models."""
+        mock_persona.models = {
+            "default": "base-model",
+            "chat": ["chat-a", "chat-b"],
+            "tool": "tool-model",
+            "code": ["code-a", "code-b", "code-c"]
+        }
+
+        model_set = ModelSet.from_config(mock_config, mock_persona)
+
+        # String models
+        assert not model_set.has_model_pool("default")
+        assert not model_set.has_model_pool("tool")
+        assert model_set.get_model_name("default") == "base-model"
+        assert model_set.get_model_name("tool") == "tool-model"
+
+        # List models
+        assert model_set.has_model_pool("chat")
+        assert model_set.has_model_pool("code")
+        assert model_set.get_model_pool("chat") == ["chat-a", "chat-b"]
+        assert model_set.get_model_pool("code") == ["code-a", "code-b", "code-c"]
+
+    def test_get_model_pool_returns_single_item_for_static(self, mock_config):
+        """Test get_model_pool returns single-item list for static models."""
+        model_set = ModelSet.from_config(mock_config)
+
+        # No persona override, should return single-item list
+        pool = model_set.get_model_pool("chat")
+        assert pool == ["gpt-4o"]
+
+    def test_has_model_pool_false_for_single_item_list(self, mock_config, mock_persona):
+        """Test has_model_pool returns False for single-item lists."""
+        mock_persona.models = {
+            "chat": ["only-model"]
+        }
+
+        model_set = ModelSet.from_config(mock_config, mock_persona)
+
+        # Single-item list is stored as pool but has_model_pool returns False
+        assert "chat" in model_set._model_pools
+        assert not model_set.has_model_pool("chat")
+
+    def test_provider_caching_with_pools(self, mock_config, mock_persona):
+        """Test that provider caching works correctly with model pools."""
+        mock_persona.models = {
+            "chat": ["model-a", "model-b"]
+        }
+
+        model_set = ModelSet.from_config(mock_config, mock_persona)
+
+        mock_provider_a = MagicMock()
+        mock_provider_b = MagicMock()
+
+        def create_provider_side_effect(model_name):
+            if model_name == "model-a":
+                return mock_provider_a
+            elif model_name == "model-b":
+                return mock_provider_b
+            raise ValueError(f"Unexpected model: {model_name}")
+
+        with patch.object(model_set, '_create_provider', side_effect=create_provider_side_effect):
+            # Force selection of specific models
+            with patch("aim.llm.model_set.random.choice", return_value="model-a"):
+                provider1 = model_set.get_provider("chat")
+                assert provider1 == mock_provider_a
+
+            with patch("aim.llm.model_set.random.choice", return_value="model-b"):
+                provider2 = model_set.get_provider("chat")
+                assert provider2 == mock_provider_b
+
+            # Now model-a should be cached
+            with patch("aim.llm.model_set.random.choice", return_value="model-a"):
+                provider3 = model_set.get_provider("chat")
+                assert provider3 is mock_provider_a  # Same instance from cache
+
+    def test_env_variable_overrides_default_pool(self, mock_config, mock_persona):
+        """Test that env variable takes precedence over default pool."""
+        mock_persona.models = {
+            "default": ["claude-a", "claude-b"]
+        }
+        mock_config.thought_model = "o1-mini"  # Env variable for thought
+
+        model_set = ModelSet.from_config(mock_config, mock_persona)
+
+        # Default has pool
+        assert model_set.has_model_pool("default")
+        # Thought uses env variable, no pool
+        assert not model_set.has_model_pool("thought")
+        assert model_set.get_model_name("thought") == "o1-mini"

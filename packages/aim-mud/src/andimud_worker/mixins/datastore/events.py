@@ -376,3 +376,30 @@ class EventsMixin:
         logger.debug("Pushed re-drained events to conversation history")
 
         return new_events
+
+    async def _cleanup_drained_events(self: "MUDAgentWorker") -> bool:
+        """Delete the event stream if all events have been drained to conversation.
+
+        Atomically checks if the stream's last-generated-id matches the
+        conversation's last entry's last_event_id. If they match, deletes
+        the stream key. This cleans up processed events and prevents stale
+        data on restarts.
+
+        Should be called after a turn completes successfully.
+
+        Returns:
+            True if the stream was deleted (fully drained).
+            False if stream has newer events or doesn't exist.
+        """
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
+
+        deleted = await client.delete_agent_events_if_drained(
+            self.config.agent_id,
+            stream_key=self.config.agent_stream,
+        )
+
+        if deleted:
+            logger.info("Cleaned up event stream - all events drained to conversation")
+
+        return deleted

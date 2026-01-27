@@ -60,10 +60,13 @@ class SleepCommand(Command):
         Returns:
             CommandResult with complete=True
         """
-        turn_id = kwargs.get("turn_id", "unknown")
+        # Get turn_request directly from kwargs
+        turn_request = kwargs.get("turn_request")
+        if not turn_request:
+            # Fallback for backward compatibility
+            turn_request = MUDTurnRequest.model_validate(kwargs)
 
-        # Parse turn_request
-        turn_request = MUDTurnRequest.model_validate(kwargs)
+        turn_id = turn_request.turn_id or "unknown"
         events = kwargs.get("events", [])
 
         # Check agent flag from metadata

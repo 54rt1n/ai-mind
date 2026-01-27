@@ -330,29 +330,8 @@ class TestStartupRecoveryBranch2:
         assert completed_at.isdigit()
         datetime.fromtimestamp(int(completed_at), tz=timezone.utc)
 
-    @pytest.mark.asyncio
-    async def test_assigned_converts_to_retry(self, worker_with_no_ttl, mock_redis_with_expire):
-        """When status='assigned', convert to 'retry' with backoff (below max attempts)."""
-        turn_id = str(uuid.uuid4())
-        mock_redis_with_expire.hgetall.return_value = {
-            b"turn_id": turn_id.encode(),
-            b"status": b"assigned",
-            b"attempt_count": b"0",
-            b"sequence_id": b"1",
-        }
-        worker_with_no_ttl.session = None
-
-        await worker_with_no_ttl._announce_presence()
-
-        # Verify conversion to retry (not fail)
-        lua_call = mock_redis_with_expire.eval.call_args
-        args = lua_call[0][3:]
-        assert "status" in args
-        status_idx = args.index("status")
-        assert args[status_idx + 1] == "retry"
-
-        # Verify completed_at was set
-        assert "completed_at" in args
+    # Note: ASSIGNED is NOT a problem state - it's work waiting to be picked up.
+    # The test for ASSIGNED is in TestStartupRecoveryBranch3 below.
 
     @pytest.mark.asyncio
     async def test_abort_requested_converts_to_retry(self, worker_with_no_ttl, mock_redis_with_expire):
@@ -565,6 +544,37 @@ class TestStartupRecoveryBranch3:
 
         # Verify eval was called (for atomic heartbeat update)
         assert mock_redis_with_expire.eval.called
+
+    @pytest.mark.asyncio
+    async def test_assigned_state_updates_heartbeat(self, worker_with_no_ttl, mock_redis_with_expire):
+        """When status='assigned', only update heartbeat - work will be picked up by main loop.
+
+        ASSIGNED is NOT a problem state - it's work that was assigned but the worker
+        hasn't started processing yet. On restart, the worker should just pick it up.
+        """
+        turn_id = str(uuid.uuid4())
+        mock_redis_with_expire.hgetall.return_value = {
+            b"turn_id": turn_id.encode(),
+            b"status": b"assigned",
+            b"sequence_id": b"1",
+        }
+        mock_redis_with_expire.eval = AsyncMock(return_value=1)  # Success
+        worker_with_no_ttl.session = None
+
+        await worker_with_no_ttl._announce_presence()
+
+        # Verify eval was called (for atomic heartbeat update)
+        assert mock_redis_with_expire.eval.called
+        call_args = mock_redis_with_expire.eval.call_args[0]
+
+        # Verify it's the atomic heartbeat update Lua script (NOT status change)
+        lua_script = call_args[0]
+        assert "HSET" in lua_script
+        assert "heartbeat_at" in lua_script
+
+        # Verify status is NOT being changed (ASSIGNED work should be picked up)
+        args = call_args[3:]
+        assert "status" not in args
 
     @pytest.mark.asyncio
     async def test_normal_state_logs_info(self, worker_with_no_ttl, mock_redis_with_expire, caplog):

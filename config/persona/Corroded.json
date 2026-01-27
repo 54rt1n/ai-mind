@@ -8,12 +8,15 @@
   "nsfw": false,
   "birthday": "1995-03-13",
   "models": {
-    "default": "deepseek-ai/DeepSeek-V3-0324",
+    "defaulta": "deepseek-ai/DeepSeek-V3-0324",
+    "default": "deepseek-ai/DeepSeek-V3.2",
     "code": "MiniMaxAI/MiniMax-M2.1",
     "codex": "XiaomiMiMo/MiMo-V2-Flash",
     "analysis": "zai-org/GLM-4.6",
     "research": "moonshotai/Kimi-K2-Thinking",
     "planning": "deepseek-ai/DeepSeek-R1-0528",
+    "chatb": "deepseek-ai/DeepSeek-V3.2-Speciale",
+    "chata": "deepseek-ai/DeepSeek-V3.2",
     "chat": "MiniMaxAI/MiniMax-M2.1",
     "decision": "deepseek-ai/DeepSeek-V3-0324",
     "writing": "zai-org/GLM-4.6",
@@ -261,5 +264,6 @@
       "primary_intent": "INTEGRATE"
     }
   },
-  "include_date": true
+  "include_date": true,
+  "can_move": false
 }

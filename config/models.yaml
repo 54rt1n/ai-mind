@@ -134,6 +134,20 @@ models:
     category:
       - instruct
       - thinking
+  - name: deepseek-ai/DeepSeek-V3.2
+    architecture: deepseekv3
+    provider: featherless
+    size: 671B
+    category:
+      - instruct
+      - thinking
+  - name: deepseek-ai/DeepSeek-V3.2-Speciale
+    architecture: deepseekv3
+    provider: featherless
+    size: 671B
+    category:
+      - instruct
+      - thinking
   - name: deepseek-ai/DeepSeek-R1-0528
     architecture: deepseekv3
     provider: featherless

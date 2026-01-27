@@ -115,7 +115,20 @@ class Persona:
     mud_wakeup: Optional[str] = None
 
     # Persona-level model overrides (optional)
-    models: Optional[dict[str, str]] = None
+    # Each model can be a single string or a list of strings (for random selection)
+    models: Optional[dict[str, str | list[str]]] = None
+
+    # Whether this persona can speak unprompted (default True)
+    # Set to False for passive agents that only respond when addressed
+    can_speak: bool = True
+
+    # Whether this persona can move between rooms (default True)
+    # Set to False for stationary agents that stay in one location
+    can_move: bool = True
+
+    # List of aura names this persona cannot use (default empty)
+    # Auras in this list will be filtered out before loading tools
+    aura_blacklist: list[str] = field(default_factory=list)
 
     def _xml_description(self, *base_path, xml: XmlFormatter, conversation_length: int = 0, show_time: bool = True, mood: Optional[str] = None,
                          disable_pif: bool = False, disable_guidance: bool = False) -> str:
@@ -323,6 +336,18 @@ class Persona:
         if self.models:
             result["models"] = self.models
 
+        # Include can_speak (only if False, since True is default)
+        if not self.can_speak:
+            result["can_speak"] = self.can_speak
+
+        # Include can_move (only if False, since True is default)
+        if not self.can_move:
+            result["can_move"] = self.can_move
+
+        # Include aura_blacklist (only if non-empty)
+        if self.aura_blacklist:
+            result["aura_blacklist"] = self.aura_blacklist
+
         return result
 
     @classmethod
@@ -348,8 +373,17 @@ class Persona:
 
         # Handle models dict (optional)
         models = data.get("models")
-        if models and not isinstance(models, dict):
-            raise ValueError(f"Persona models must be a dict, got {type(models)}")
+        if models:
+            if not isinstance(models, dict):
+                raise ValueError(f"Persona models must be a dict, got {type(models)}")
+            for key, value in models.items():
+                if not isinstance(value, (str, list)):
+                    raise ValueError(f"Persona model '{key}' must be str or list, got {type(value)}")
+                if isinstance(value, list):
+                    if not value:
+                        raise ValueError(f"Persona model list '{key}' cannot be empty")
+                    if not all(isinstance(m, str) for m in value):
+                        raise ValueError(f"Persona model list '{key}' must contain only strings")
 
         return cls(
             persona_id=data.get("persona_id", "Unknown"),
@@ -373,7 +407,10 @@ class Persona:
             wardrobe_tools=wardrobe_tools,
             user_timezone=user_timezone,
             mud_wakeup=mud_wakeup,
-            models=models
+            models=models,
+            can_speak=data.get("can_speak", True),
+            can_move=data.get("can_move", True),
+            aura_blacklist=data.get("aura_blacklist", []),
         )
 
     @classmethod

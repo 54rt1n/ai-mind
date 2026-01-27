@@ -253,7 +253,7 @@ class EventsMixin:
                 EventType.NARRATIVE,
                 EventType.NON_REACTIVE,
                 EventType.SLEEP_AWARE,
-                # Note: TERMINAL excluded - it's terminal output, not the agent's action
+                EventType.TERMINAL,  # Agent needs to see output of commands they execute
                 # Note: NON_PUBLISHED excluded - not routed by definition
             ):
                 self_action_agent_id = actor_agent_id

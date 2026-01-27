@@ -37,8 +37,11 @@ class NewConversationCommand(Command):
         Returns:
             CommandResult with complete=True (no fall-through)
         """
-        # Use Pydantic to parse metadata JSON
-        turn_request = MUDTurnRequest.model_validate(kwargs)
+        # Get turn_request directly from kwargs
+        turn_request = kwargs.get("turn_request")
+        if not turn_request:
+            # Fallback for backward compatibility
+            turn_request = MUDTurnRequest.model_validate(kwargs)
         metadata = turn_request.metadata or {}
         conversation_id = metadata.get("conversation_id", "") if metadata else ""
 

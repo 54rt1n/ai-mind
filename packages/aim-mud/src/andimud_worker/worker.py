@@ -270,6 +270,12 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                 tool_file=self.config.decision_tool_file,
                 tools_path=self.chat_config.tools_path,
             )
+            # Apply persona's can_speak setting to filter speak tool
+            self._decision_strategy.set_can_speak(self.persona.can_speak)
+            # Apply persona's can_move setting to filter move tool
+            self._decision_strategy.set_can_move(self.persona.can_move)
+            # Apply persona's aura blacklist
+            self._decision_strategy.set_aura_blacklist(self.persona.aura_blacklist)
 
             # Initialize code response strategy
             self._response_strategy = CodeResponseStrategy(self._chat_manager)
@@ -285,6 +291,12 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                 tool_file=self.config.decision_tool_file,
                 tools_path=self.chat_config.tools_path,
             )
+            # Apply persona's can_speak setting to filter speak tool
+            self._decision_strategy.set_can_speak(self.persona.can_speak)
+            # Apply persona's can_move setting to filter move tool
+            self._decision_strategy.set_can_move(self.persona.can_move)
+            # Apply persona's aura blacklist
+            self._decision_strategy.set_aura_blacklist(self.persona.aura_blacklist)
 
             # Initialize response strategy
             self._response_strategy = MUDResponseStrategy(self._chat_manager)
@@ -390,7 +402,11 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                     )
 
                     try:
-                        result = await self.command_registry.execute(self, **turn_request.model_dump(mode="python"))
+                        result = await self.command_registry.execute(
+                            self,
+                            reason=turn_request.reason,
+                            turn_request=turn_request,
+                        )
 
                         # Handle result status
                         if result.complete:
@@ -630,8 +646,9 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                     logger.info(f"Executing command: {turn_request.model_dump()}")
                     result = await self.command_registry.execute(
                         self,
+                        reason=turn_request.reason,
+                        turn_request=turn_request,
                         events=drained_events,
-                        **turn_request.model_dump(mode="python")
                     )
                     if result.turn_id:
                         turn_id = result.turn_id
@@ -931,7 +948,8 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                 return
 
         # Branch 2: Problem states → convert to FAIL with recovery logic
-        elif turn_request.status in (TurnRequestStatus.IN_PROGRESS, TurnRequestStatus.CRASHED, TurnRequestStatus.ASSIGNED, TurnRequestStatus.ABORT_REQUESTED, TurnRequestStatus.EXECUTING):
+        # Note: ASSIGNED is NOT a problem state - it's work waiting to be picked up
+        elif turn_request.status in (TurnRequestStatus.IN_PROGRESS, TurnRequestStatus.CRASHED, TurnRequestStatus.ABORT_REQUESTED, TurnRequestStatus.EXECUTING):
             status = turn_request.status
             turn_id = turn_request.turn_id
 

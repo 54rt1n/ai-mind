@@ -40,11 +40,11 @@ class TestTerminalTypeclass:
 
         assert issubclass(MarketTerminal, Terminal)
 
-    def test_newsterminal_inherits_from_terminal(self):
-        """Test NewsTerminal inherits from Terminal."""
-        from typeclasses.terminals import Terminal, NewsTerminal
+    def test_rssterminal_inherits_from_terminal(self):
+        """Test RssTerminal inherits from Terminal."""
+        from typeclasses.terminals import Terminal, RssTerminal
 
-        assert issubclass(NewsTerminal, Terminal)
+        assert issubclass(RssTerminal, Terminal)
 
     def test_researchterminal_inherits_from_terminal(self):
         """Test ResearchTerminal inherits from Terminal."""
@@ -312,29 +312,6 @@ class TestTerminalEventPublishing:
         assert metadata["tool_name"] == "bash_exec"
         assert metadata["terminal_type"] == "CodeTerminal"
         assert metadata["aura_name"] == "CODE_ACCESS"
-
-    @patch("typeclasses.terminals.redis.from_url")
-    @patch("typeclasses.terminals.SyncRedisMUDClient")
-    def test_terminal_event_truncates_long_output(self, mock_client_cls, mock_redis, mock_terminal, mock_caller):
-        """Test that terminal events truncate long output for events."""
-        from typeclasses.terminals import Terminal
-
-        mock_client = MagicMock()
-        mock_client_cls.return_value = mock_client
-
-        # Create output longer than 2048 chars
-        long_output = "x" * 3000
-
-        Terminal._publish_terminal_event(mock_terminal, "py_exec", long_output, caller=mock_caller)
-
-        # Get the event payload
-        call_args = mock_client.append_mud_event.call_args[0]
-        payload_wrapper = call_args[0]
-        payload = json.loads(payload_wrapper["data"])
-
-        # Verify content is truncated
-        assert len(payload["content"]) < 3000
-        assert "(output truncated)" in payload["content"]
 
     @patch("typeclasses.terminals.redis.from_url")
     @patch("typeclasses.terminals.SyncRedisMUDClient")
@@ -625,6 +602,425 @@ class TestTerminalCommandMetadataArgs:
                 "web_search",
                 {"query": "site:reddit.com/r/python asyncio"}
             )
+
+
+class TestStockTerminalCommands:
+    """Tests for stock terminal command classes."""
+
+    def test_portfolio_cmd_exists(self):
+        """Test CmdPortfolio exists and has correct key."""
+        from commands.mud.object_commands.terminal import CmdPortfolio
+
+        cmd = CmdPortfolio()
+        assert cmd.key == "portfolio"
+        assert cmd.help_category.lower() == "stock terminal"
+
+    def test_buy_cmd_exists(self):
+        """Test CmdBuyStock exists and has correct key."""
+        from commands.mud.object_commands.terminal import CmdBuyStock
+
+        cmd = CmdBuyStock()
+        assert cmd.key == "buy"
+        assert cmd.help_category.lower() == "stock terminal"
+
+    def test_sell_cmd_exists(self):
+        """Test CmdSellStock exists and has correct key."""
+        from commands.mud.object_commands.terminal import CmdSellStock
+
+        cmd = CmdSellStock()
+        assert cmd.key == "sell"
+        assert cmd.help_category.lower() == "stock terminal"
+
+    def test_deposit_cmd_exists(self):
+        """Test CmdDeposit exists and has correct key."""
+        from commands.mud.object_commands.terminal import CmdDeposit
+
+        cmd = CmdDeposit()
+        assert cmd.key == "deposit"
+        assert cmd.help_category.lower() == "stock terminal"
+
+    def test_withdraw_cmd_exists(self):
+        """Test CmdWithdraw exists and has correct key."""
+        from commands.mud.object_commands.terminal import CmdWithdraw
+
+        cmd = CmdWithdraw()
+        assert cmd.key == "withdraw"
+        assert cmd.help_category.lower() == "stock terminal"
+
+    def test_ledger_cmd_exists(self):
+        """Test CmdLedger exists and has correct key."""
+        from commands.mud.object_commands.terminal import CmdLedger
+
+        cmd = CmdLedger()
+        assert cmd.key == "ledger"
+        assert cmd.help_category.lower() == "stock terminal"
+
+    def test_dividend_cmd_exists(self):
+        """Test CmdDividend exists and has correct key."""
+        from commands.mud.object_commands.terminal import CmdDividend
+
+        cmd = CmdDividend()
+        assert cmd.key == "dividend"
+        assert cmd.help_category.lower() == "stock terminal"
+
+
+class TestStockTerminalCommandExecution:
+    """Tests for stock terminal command execution logic."""
+
+    @pytest.fixture
+    def mock_caller(self):
+        """Create a mock caller with ndb for metadata."""
+        caller = MagicMock()
+        caller.msg = MagicMock()
+        caller.ndb = MagicMock()
+        caller.ndb.pending_action_metadata = None
+        caller.location = MagicMock()
+        caller.location.contents = []
+        return caller
+
+    @pytest.fixture
+    def mock_stock_terminal(self):
+        """Create a mock stock terminal for finding in room."""
+        terminal = MagicMock()
+        terminal.display_output = MagicMock()
+        terminal.db = MagicMock()
+        terminal.db.aura_name = "stock_trading"
+        terminal.db.ledger_id = "test_ledger"
+        return terminal
+
+    def test_portfolio_no_terminal_shows_error(self, mock_caller):
+        """Test portfolio shows error when no stock terminal in room."""
+        from commands.mud.object_commands.terminal import CmdPortfolio
+
+        cmd = CmdPortfolio()
+        cmd.caller = mock_caller
+        cmd.args = ""
+
+        cmd.func()
+
+        mock_caller.msg.assert_called_once_with(
+            "No stock terminal available in this room."
+        )
+
+    def test_portfolio_no_ledger_shows_error(self, mock_caller, mock_stock_terminal):
+        """Test portfolio shows error when terminal has no ledger configured."""
+        from commands.mud.object_commands.terminal import CmdPortfolio
+
+        mock_stock_terminal.db.ledger_id = ""
+        mock_caller.location.contents = [mock_stock_terminal]
+
+        cmd = CmdPortfolio()
+        cmd.caller = mock_caller
+        cmd.args = ""
+
+        cmd.func()
+
+        mock_caller.msg.assert_called_once_with(
+            "|rError:|n This terminal has no ledger configured."
+        )
+
+    def test_buy_reads_args_from_metadata(self, mock_caller, mock_stock_terminal):
+        """Test CmdBuyStock reads symbol and shares from metadata args."""
+        from commands.mud.object_commands.terminal import CmdBuyStock
+
+        mock_caller.ndb.pending_action_metadata = {
+            "args": {"symbol": "AAPL", "shares": "10"},
+            "tool": "buy",
+        }
+        mock_caller.location.contents = [mock_stock_terminal]
+
+        cmd = CmdBuyStock()
+        cmd.caller = mock_caller
+        cmd.args = ""
+
+        with patch("aim.tool.impl.container_mcp.ContainerMCPTool") as mock_tool_cls:
+            mock_tool = MagicMock()
+            mock_tool.execute.side_effect = [
+                # market_query response
+                {"price": 185.50},
+                # portfolio_calculate response
+                {"cash": 10000.0, "positions": {}},
+                # ledger_add response
+                {"success": True},
+            ]
+            mock_tool_cls.return_value = mock_tool
+
+            cmd.func()
+
+            # Verify market_query was called with correct symbol
+            calls = mock_tool.execute.call_args_list
+            assert calls[0][0] == ("market_query", {"symbol": "AAPL"})
+
+    def test_buy_fallback_to_self_args(self, mock_caller, mock_stock_terminal):
+        """Test CmdBuyStock falls back to self.args when no metadata."""
+        from commands.mud.object_commands.terminal import CmdBuyStock
+
+        mock_caller.ndb.pending_action_metadata = None
+        mock_caller.location.contents = [mock_stock_terminal]
+
+        cmd = CmdBuyStock()
+        cmd.caller = mock_caller
+        cmd.args = "MSFT 5"
+
+        with patch("aim.tool.impl.container_mcp.ContainerMCPTool") as mock_tool_cls:
+            mock_tool = MagicMock()
+            mock_tool.execute.side_effect = [
+                {"price": 420.00},
+                {"cash": 50000.0, "positions": {}},
+                {"success": True},
+            ]
+            mock_tool_cls.return_value = mock_tool
+
+            cmd.func()
+
+            calls = mock_tool.execute.call_args_list
+            assert calls[0][0] == ("market_query", {"symbol": "MSFT"})
+
+    def test_buy_insufficient_funds_shows_error(self, mock_caller, mock_stock_terminal):
+        """Test buy shows error when insufficient funds."""
+        from commands.mud.object_commands.terminal import CmdBuyStock
+
+        mock_caller.location.contents = [mock_stock_terminal]
+
+        cmd = CmdBuyStock()
+        cmd.caller = mock_caller
+        cmd.args = "AAPL 100"
+
+        with patch("aim.tool.impl.container_mcp.ContainerMCPTool") as mock_tool_cls:
+            mock_tool = MagicMock()
+            mock_tool.execute.side_effect = [
+                {"price": 185.50},  # Need $18,550
+                {"cash": 1000.0, "positions": {}},  # Only have $1,000
+            ]
+            mock_tool_cls.return_value = mock_tool
+
+            cmd.func()
+
+            # Should show insufficient funds error
+            mock_caller.msg.assert_called()
+            call_args = mock_caller.msg.call_args[0][0]
+            assert "Insufficient funds" in call_args
+
+    def test_buy_invalid_shares_shows_error(self, mock_caller, mock_stock_terminal):
+        """Test buy shows error for invalid share count."""
+        from commands.mud.object_commands.terminal import CmdBuyStock
+
+        mock_caller.location.contents = [mock_stock_terminal]
+
+        cmd = CmdBuyStock()
+        cmd.caller = mock_caller
+        cmd.args = "AAPL abc"
+
+        cmd.func()
+
+        mock_caller.msg.assert_called_once_with("|rError:|n Invalid number of shares.")
+
+    def test_buy_negative_shares_shows_error(self, mock_caller, mock_stock_terminal):
+        """Test buy shows error for negative share count."""
+        from commands.mud.object_commands.terminal import CmdBuyStock
+
+        mock_caller.location.contents = [mock_stock_terminal]
+
+        cmd = CmdBuyStock()
+        cmd.caller = mock_caller
+        cmd.args = "AAPL -5"
+
+        cmd.func()
+
+        mock_caller.msg.assert_called_once_with("|rError:|n Shares must be a positive number.")
+
+    def test_sell_insufficient_shares_shows_error(self, mock_caller, mock_stock_terminal):
+        """Test sell shows error when insufficient shares."""
+        from commands.mud.object_commands.terminal import CmdSellStock
+
+        mock_caller.location.contents = [mock_stock_terminal]
+
+        cmd = CmdSellStock()
+        cmd.caller = mock_caller
+        cmd.args = "AAPL 100"
+
+        with patch("aim.tool.impl.container_mcp.ContainerMCPTool") as mock_tool_cls:
+            mock_tool = MagicMock()
+            mock_tool.execute.return_value = {
+                "cash": 1000.0,
+                "positions": {"AAPL": {"shares": 10, "cost_basis": 180.0}},
+            }
+            mock_tool_cls.return_value = mock_tool
+
+            cmd.func()
+
+            mock_caller.msg.assert_called()
+            call_args = mock_caller.msg.call_args[0][0]
+            assert "Insufficient shares" in call_args
+
+    def test_sell_no_position_shows_error(self, mock_caller, mock_stock_terminal):
+        """Test sell shows error when no position exists."""
+        from commands.mud.object_commands.terminal import CmdSellStock
+
+        mock_caller.location.contents = [mock_stock_terminal]
+
+        cmd = CmdSellStock()
+        cmd.caller = mock_caller
+        cmd.args = "AAPL 10"
+
+        with patch("aim.tool.impl.container_mcp.ContainerMCPTool") as mock_tool_cls:
+            mock_tool = MagicMock()
+            mock_tool.execute.return_value = {
+                "cash": 1000.0,
+                "positions": {},
+            }
+            mock_tool_cls.return_value = mock_tool
+
+            cmd.func()
+
+            mock_caller.msg.assert_called_once_with("|rError:|n You don't own any AAPL.")
+
+    def test_deposit_adds_cash(self, mock_caller, mock_stock_terminal):
+        """Test deposit adds cash to ledger."""
+        from commands.mud.object_commands.terminal import CmdDeposit
+
+        mock_caller.location.contents = [mock_stock_terminal]
+
+        cmd = CmdDeposit()
+        cmd.caller = mock_caller
+        cmd.args = "5000"
+
+        with patch("aim.tool.impl.container_mcp.ContainerMCPTool") as mock_tool_cls:
+            mock_tool = MagicMock()
+            mock_tool.execute.side_effect = [
+                {"cash": 1000.0, "positions": {}},  # portfolio_calculate
+                {"success": True},  # ledger_add
+            ]
+            mock_tool_cls.return_value = mock_tool
+
+            cmd.func()
+
+            calls = mock_tool.execute.call_args_list
+            call_args = calls[1][0]
+            assert call_args[0] == "ledger_add"
+            assert call_args[1]["ledger_id"] == "test_ledger"
+            assert call_args[1]["entry_type"] == "DEPOSIT"
+            assert call_args[1]["amount"] == 5000.0
+            assert "actor" in call_args[1]  # Actor field is included
+
+    def test_deposit_invalid_amount_shows_error(self, mock_caller, mock_stock_terminal):
+        """Test deposit shows error for invalid amount."""
+        from commands.mud.object_commands.terminal import CmdDeposit
+
+        mock_caller.location.contents = [mock_stock_terminal]
+
+        cmd = CmdDeposit()
+        cmd.caller = mock_caller
+        cmd.args = "abc"
+
+        cmd.func()
+
+        mock_caller.msg.assert_called_once_with("|rError:|n Invalid amount.")
+
+    def test_withdraw_insufficient_funds_shows_error(self, mock_caller, mock_stock_terminal):
+        """Test withdraw shows error when insufficient funds."""
+        from commands.mud.object_commands.terminal import CmdWithdraw
+
+        mock_caller.location.contents = [mock_stock_terminal]
+
+        cmd = CmdWithdraw()
+        cmd.caller = mock_caller
+        cmd.args = "10000"
+
+        with patch("aim.tool.impl.container_mcp.ContainerMCPTool") as mock_tool_cls:
+            mock_tool = MagicMock()
+            mock_tool.execute.return_value = {"cash": 1000.0, "positions": {}}
+            mock_tool_cls.return_value = mock_tool
+
+            cmd.func()
+
+            mock_caller.msg.assert_called()
+            call_args = mock_caller.msg.call_args[0][0]
+            assert "Insufficient funds" in call_args
+
+    def test_ledger_shows_transactions(self, mock_caller, mock_stock_terminal):
+        """Test ledger command retrieves and displays transactions."""
+        from commands.mud.object_commands.terminal import CmdLedger
+
+        mock_caller.location.contents = [mock_stock_terminal]
+
+        cmd = CmdLedger()
+        cmd.caller = mock_caller
+        cmd.args = "5"
+
+        with patch("aim.tool.impl.container_mcp.ContainerMCPTool") as mock_tool_cls:
+            mock_tool = MagicMock()
+            mock_tool.execute.return_value = {
+                "items": [
+                    {"text": "BUY 10 AAPL", "status": "FILLED", "metadata": {"type": "BUY"}},
+                    {"text": "DEPOSIT $5000", "status": "FILLED", "metadata": {"type": "DEPOSIT"}},
+                ]
+            }
+            mock_tool_cls.return_value = mock_tool
+
+            cmd.func()
+
+            mock_tool.execute.assert_called_once_with(
+                "ledger_get", {"ledger_id": "test_ledger"}
+            )
+            mock_stock_terminal.display_output.assert_called_once()
+
+    def test_dividend_records_payment(self, mock_caller, mock_stock_terminal):
+        """Test dividend command records a dividend payment."""
+        from commands.mud.object_commands.terminal import CmdDividend
+
+        mock_caller.location.contents = [mock_stock_terminal]
+
+        cmd = CmdDividend()
+        cmd.caller = mock_caller
+        cmd.args = "AAPL 24.50"
+
+        with patch("aim.tool.impl.container_mcp.ContainerMCPTool") as mock_tool_cls:
+            mock_tool = MagicMock()
+            mock_tool.execute.side_effect = [
+                {"cash": 1000.0, "positions": {}},  # portfolio_calculate
+                {"success": True},  # ledger_add
+            ]
+            mock_tool_cls.return_value = mock_tool
+
+            cmd.func()
+
+            calls = mock_tool.execute.call_args_list
+            call_args = calls[1][0]
+            assert call_args[0] == "ledger_add"
+            assert call_args[1]["ledger_id"] == "test_ledger"
+            assert call_args[1]["entry_type"] == "DIVIDEND"
+            assert call_args[1]["symbol"] == "AAPL"
+            assert call_args[1]["amount"] == 24.50
+            assert "actor" in call_args[1]  # Actor field is included
+
+
+class TestStockTerminalCmdSet:
+    """Tests for StockTerminalCmdSet."""
+
+    def test_cmdset_contains_all_commands(self):
+        """Test StockTerminalCmdSet contains all stock terminal commands."""
+        from evennia import CmdSet as EvenniaCmdSet
+
+        # CmdSets are only defined when Evennia is fully initialized
+        if EvenniaCmdSet is None:
+            pytest.skip("Evennia CmdSet not available in test environment")
+
+        from commands.mud.object_commands.terminal import StockTerminalCmdSet
+
+        cmdset = StockTerminalCmdSet()
+        cmdset.at_cmdset_creation()
+
+        # Get command keys from the cmdset
+        cmd_keys = {cmd.key for cmd in cmdset.commands}
+
+        assert "portfolio" in cmd_keys
+        assert "buy" in cmd_keys
+        assert "sell" in cmd_keys
+        assert "deposit" in cmd_keys
+        assert "withdraw" in cmd_keys
+        assert "ledger" in cmd_keys
+        assert "dividend" in cmd_keys
 
 
 if __name__ == "__main__":

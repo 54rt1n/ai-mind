@@ -49,8 +49,13 @@ class IdleCommand(Command):
             CommandResult - complete=True if dream handled turn,
             complete=False to fall through to process_turn
         """
-        turn_id = kwargs.get("turn_id", "unknown")
-        turn_request = MUDTurnRequest.model_validate(kwargs)
+        # Get turn_request directly from kwargs
+        turn_request = kwargs.get("turn_request")
+        if not turn_request:
+            # Fallback for backward compatibility
+            turn_request = MUDTurnRequest.model_validate(kwargs)
+
+        turn_id = turn_request.turn_id or "unknown"
         events = kwargs.get("events", [])
         is_sleeping = await worker._check_agent_is_sleeping()
 

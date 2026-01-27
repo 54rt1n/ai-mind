@@ -80,6 +80,9 @@ class CodeDecisionStrategy(XMLCodeTurnStrategy):
         self._plan_tool_impl = None
         self._emote_allowed = True
         self._workspace_active = False
+        self._can_speak = True
+        self._can_move = True
+        self._aura_blacklist: set[str] = set()
         self.thought_content: str = ""
 
     def set_conversation_manager(self, cm: MUDConversationManager) -> None:
@@ -117,6 +120,53 @@ class CodeDecisionStrategy(XMLCodeTurnStrategy):
             return
         self._workspace_active = active
         self._refresh_tool_user()
+
+    def set_can_speak(self, can_speak: bool) -> None:
+        """Enable or disable the speak tool based on persona capability.
+
+        When can_speak is False, the speak tool is filtered from available tools.
+        This is used for passive agents (like stock research bots) that only
+        respond when directly addressed rather than speaking proactively.
+
+        Args:
+            can_speak: True if persona can speak, False to disable speak tool.
+        """
+        can_speak = bool(can_speak)
+        if self._can_speak == can_speak:
+            return
+        self._can_speak = can_speak
+        self._refresh_tool_user()
+
+    def set_can_move(self, can_move: bool) -> None:
+        """Enable or disable the move tool based on persona capability.
+
+        When can_move is False, the move tool is filtered from available tools.
+        This is used for stationary agents that should not leave their location.
+
+        Args:
+            can_move: True if persona can move, False to disable move tool.
+        """
+        can_move = bool(can_move)
+        if self._can_move == can_move:
+            return
+        self._can_move = can_move
+        self._refresh_tool_user()
+
+    def set_aura_blacklist(self, blacklist: list[str]) -> None:
+        """Set the list of auras this persona cannot use.
+
+        Blacklisted auras will be filtered out before loading tools.
+
+        Args:
+            blacklist: List of aura names to block (case-insensitive).
+        """
+        normalized = {str(a).strip().lower() for a in (blacklist or []) if str(a).strip()}
+        if normalized == self._aura_blacklist:
+            return
+        self._aura_blacklist = normalized
+        # Re-apply current auras with new blacklist
+        if self._active_auras:
+            self._refresh_tool_user()
 
     def set_context(self, redis_client, agent_id: str) -> None:
         """Set Redis context for plan tool execution.
@@ -202,6 +252,9 @@ class CodeDecisionStrategy(XMLCodeTurnStrategy):
         normalized = sorted(
             {str(a).strip().lower() for a in (auras or []) if str(a).strip()}
         )
+        # Filter out blacklisted auras
+        if self._aura_blacklist:
+            normalized = [a for a in normalized if a not in self._aura_blacklist]
         if normalized == self._active_auras:
             return
         self._active_auras = normalized
@@ -250,6 +303,14 @@ class CodeDecisionStrategy(XMLCodeTurnStrategy):
         # Filter close_book if workspace not active
         if not self._workspace_active:
             tools = [t for t in tools if getattr(t.function, "name", None) != "close_book"]
+
+        # Filter speak tool if persona cannot speak
+        if not self._can_speak:
+            tools = [t for t in tools if getattr(t.function, "name", None) != "speak"]
+
+        # Filter move tool if persona cannot move
+        if not self._can_move:
+            tools = [t for t in tools if getattr(t.function, "name", None) != "move"]
 
         self.tool_user = ToolUser(tools)
         self._cached_system_message = None

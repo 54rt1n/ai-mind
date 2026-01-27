@@ -41,10 +41,13 @@ class AgentCommand(Command):
             CommandResult with complete=True, flush_drain=False
         """
 
-        turn_id = kwargs.get("turn_id", "unknown")
+        # Get turn_request directly from kwargs
+        turn_request = kwargs.get("turn_request")
+        if not turn_request:
+            # Fallback for backward compatibility
+            turn_request = MUDTurnRequest.model_validate(kwargs)
 
-        # Construct MUDTurnRequest from kwargs - Pydantic parses JSON metadata
-        turn_request = MUDTurnRequest.model_validate(kwargs)
+        turn_id = turn_request.turn_id or "unknown"
 
         # Extract guidance and tool from validated metadata (now a dict)
         guidance = ""

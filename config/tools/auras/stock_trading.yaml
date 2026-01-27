@@ -1,0 +1,58 @@
+type: container_mcp
+description: Stock trading tools via ledger-based portfolio system
+
+functions:
+  - name: portfolio
+    description: Show current portfolio holdings, cash balance, and P&L
+    parameters:
+      type: object
+      properties: {}
+      required: []
+      examples:
+        - {portfolio: {}}
+
+  - name: buy
+    description: Buy shares of a stock at market price
+    parameters:
+      type: object
+      properties:
+        symbol:
+          type: string
+          description: Stock symbol (e.g., AAPL, MSFT)
+        shares:
+          type: integer
+          description: Number of shares to buy
+      required: [symbol, shares]
+      examples:
+        - {buy: {symbol: "AAPL", shares: 10}}
+
+  - name: sell
+    description: Sell shares of a stock at market price
+    parameters:
+      type: object
+      properties:
+        symbol:
+          type: string
+          description: Stock symbol (e.g., AAPL, MSFT)
+        shares:
+          type: integer
+          description: Number of shares to sell
+      required: [symbol, shares]
+      examples:
+        - {sell: {symbol: "AAPL", shares: 5}}
+
+  - name: ledger
+    description: Show recent transactions
+    parameters:
+      type: object
+      properties:
+        count:
+          type: integer
+          description: Number of transactions to show (default 10)
+      required: []
+      examples:
+        - {ledger: {}}
+
+implementation:
+  module: aim.tool.impl.container_mcp
+  class: ContainerMCPTool
