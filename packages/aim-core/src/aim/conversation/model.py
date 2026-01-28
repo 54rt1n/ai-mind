@@ -121,10 +121,30 @@ def mmr_rerank(df: pd.DataFrame, score_col: str = 'score', embedding_col: str = 
 class ConversationModel:
     collection_name : str = 'memory'
 
-    def __init__(self, memory_path: str, embedding_model: str, user_timezone: Optional[str] = None, embedding_device: Optional[str] = None, **kwargs):
+    def __init__(self, memory_path: str, embedding_model: str, user_timezone: Optional[str] = None, embedding_device: Optional[str] = None, skip_vectorizer: bool = False, keep_vectorizer_warm: bool = True, **kwargs):
+        """Initialize the conversation model.
+
+        Args:
+            memory_path: Path to the memory storage directory.
+            embedding_model: Name of the HuggingFace embedding model.
+            user_timezone: Optional timezone string for date formatting.
+            embedding_device: Device for embedding computation ("cpu", "cuda:0", etc.).
+            skip_vectorizer: If True, do not load the embedding model. Useful when
+                embeddings are pre-computed externally (e.g., by a mediator).
+                When True, insert() requires pre-computed embeddings, and query()
+                will skip FAISS reranking unless query_embedding is provided.
+            keep_vectorizer_warm: If True, move vectorizer to CPU on release (faster reload).
+                If False, fully unload vectorizer (frees all memory).
+        """
         super().__init__(**kwargs)
 
-        self.index = SearchIndex(Path(memory_path) / 'indices', embedding_model=embedding_model, device=embedding_device)
+        self.index = SearchIndex(
+            Path(memory_path) / 'indices',
+            embedding_model=embedding_model,
+            device=embedding_device,
+            skip_vectorizer=skip_vectorizer,
+            keep_warm=keep_vectorizer_warm,
+        )
         self.memory_path = memory_path
         self.loader = ConversationLoader(conversations_dir=str(Path(memory_path) / 'conversations'))
         self.user_timezone = pytz.timezone(user_timezone) if user_timezone is not None else None
@@ -140,14 +160,26 @@ class ConversationModel:
             index_path.mkdir(parents=True)
 
     @classmethod
-    def from_config(cls, config: ChatConfig) -> 'ConversationModel':
+    def from_config(cls, config: ChatConfig, skip_vectorizer: bool = False) -> 'ConversationModel':
         """Creates a new conversation model from the given config.
 
         Memory path is derived from config.memory_path and persona_id.
+
+        Args:
+            config: ChatConfig with memory path, embedding model, and other settings.
+            skip_vectorizer: If True, do not load the embedding model. Useful when
+                embeddings are pre-computed externally (e.g., by a mediator).
         """
         memory_path = os.path.join(config.memory_path, config.persona_id)
         cls.maybe_init_folders(memory_path)
-        return cls(memory_path=memory_path, embedding_model=config.embedding_model, user_timezone=config.user_timezone, embedding_device=config.embedding_device)
+        return cls(
+            memory_path=memory_path,
+            embedding_model=config.embedding_model,
+            user_timezone=config.user_timezone,
+            embedding_device=config.embedding_device,
+            skip_vectorizer=skip_vectorizer,
+            keep_vectorizer_warm=config.keep_vectorizer_warm,
+        )
 
     @property
     def collection_path(self) -> Path:
@@ -155,12 +187,20 @@ class ConversationModel:
         Returns the path to the collection.
         """
         return Path(self.memory_path) / 'conversations'
-    
+
     def refresh(self) -> None:
         """
         Refreshes the collection.
         """
         self.index.index.reload()
+
+    def load_vectorizer(self) -> None:
+        """Load vectorizer for batch write operations."""
+        self.index.load_vectorizer()
+
+    def release_vectorizer(self) -> None:
+        """Release vectorizer after batch writes."""
+        self.index.release_vectorizer()
         
     def load_conversation(self, conversation_id: str) -> list[ConversationMessage]:
         """
@@ -211,9 +251,18 @@ class ConversationModel:
             with open(document_name, 'a') as f:
                 f.write(json.dumps(message.to_dict()) + '\n')
 
-    def insert(self, message: ConversationMessage) -> None:
+    def insert(
+        self,
+        message: ConversationMessage,
+        embedding: Optional[np.ndarray] = None,
+    ) -> None:
         """
         Inserts a conversation in to the collection.
+
+        Args:
+            message: The ConversationMessage to insert.
+            embedding: Optional pre-computed embedding vector. If provided,
+                skips vectorization for the full-level entry in the index.
         """
 
         logger.info(f"Inserting {message.doc_id} into {self.collection_name}/{message.conversation_id}")
@@ -223,10 +272,10 @@ class ConversationModel:
             # Create an empty document
             with open(document_name, 'w') as f:
                 f.write('')
-        
+
         # Append the message
         self._append_message(message)
-        self.index.add_document(message.to_dict())
+        self.index.add_document(message.to_dict(), embedding=embedding)
         
     def update_document(self, conversation_id: str, document_id: str, update_data: dict[str, Any]) -> None:
         """
@@ -307,7 +356,8 @@ class ConversationModel:
               query_document_type: Optional[str | list[str]] = None, query_conversation_id: Optional[str] = None,
               max_length: Optional[int] = None, turn_decay: float = 0.7, temporal_decay: float = 0.5, length_boost_factor: float = 0.0,
               filter_metadocs: bool = True, chunk_size: int = -1, sort_by: str = 'relevance', diversity: float = 0.3,
-              keyword_boost: float = 2.0, chunk_level: str = "full", **kwargs) -> pd.DataFrame:
+              keyword_boost: float = 2.0, chunk_level: str = "full", query_embedding: Optional[np.ndarray] = None,
+              **kwargs) -> pd.DataFrame:
         """
         Queries the conversation collection and returns a DataFrame containing the top `top_n` most relevant conversation entries based on the given query texts, filters, and decay factors.
 
@@ -335,6 +385,8 @@ class ConversationModel:
                           Tantivy query. Set to 1.0 to disable. Default 2.0.
             chunk_level: Filter to specific chunk level (chunk_256, chunk_768, full).
                         Defaults to "full" for backwards compatibility.
+            query_embedding: Optional pre-computed embedding for FAISS reranking.
+                If provided, uses this instead of computing from the last query_text.
 
         Returns:
             DataFrame with columns: VISIBLE_COLUMNS + ['date', 'speaker', 'score', 'index_a'] + CHUNK_COLUMNS
@@ -423,9 +475,23 @@ class ConversationModel:
         # IMPORTANT: Use the LAST of the ORIGINAL query texts for reranking, even if chunks were used for search
         rerank_query_text = original_query_texts[-1] if original_query_texts and isinstance(original_query_texts[-1], str) and original_query_texts[-1] else None
 
-        if rerank_query_text and not results.empty:
+        # Use pre-computed embedding if provided, otherwise compute from query text
+        if query_embedding is not None and not results.empty:
+            # Use pre-computed embedding directly
+            query_vectors = np.array([query_embedding])
+            faiss_index = faiss.IndexFlatL2(query_vectors[0].shape[0])
+            result_indices = np.stack(results['index_a'].to_numpy())
+            faiss_index.add(result_indices)
+            distance, index = faiss_index.search(query_vectors, results.shape[0])
+            distance_index = zip(distance[0], index[0])
+
+            distance_index = sorted(distance_index, key=lambda x: x[1])
+            # Normalize rerank to [0, 1] range using 1/(1+d) formula
+            # This prevents unbounded scores and gives d=0 (perfect match) a score of 1.0
+            results['rerank'] = [1 / (1 + d) for d, _ in distance_index]
+        elif rerank_query_text and not results.empty and self.index.vectorizer is not None:
             query_vectors = np.array(self.index.vectorizer.transform([rerank_query_text]))
-            
+
             # Check if query_vectors is empty or has zero dimension
             if query_vectors.size == 0 or query_vectors.shape[-1] == 0:
                 logger.warning(f"Could not generate valid query vector for reranking from: {rerank_query_text}. Skipping FAISS reranking.")
@@ -443,6 +509,10 @@ class ConversationModel:
                 results['rerank'] = [1 / (1 + d) for d, _ in distance_index]
         elif results.empty:
             results['rerank'] = 1.0 # Neutral rerank score, or handle as appropriate if results is empty
+        elif self.index.vectorizer is None and not results.empty:
+            # skip_vectorizer=True and no query_embedding provided - use BM25 scores only
+            logger.debug("Skipping FAISS reranking (skip_vectorizer=True, no query_embedding provided)")
+            results['rerank'] = 1.0 # Neutral rerank score
         else: # No rerank_query_text or results is empty
             logger.warning("Skipping FAISS reranking due to no valid rerank_query_text or empty results.")
             results['rerank'] = 1.0 # Neutral rerank score

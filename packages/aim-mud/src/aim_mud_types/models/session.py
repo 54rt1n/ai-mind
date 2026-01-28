@@ -95,6 +95,9 @@ class MUDSession(BaseModel):
     # Stream tracking
     last_event_id: str = "0"
 
+    # Conversation list tracking (replaces event stream position)
+    last_conversation_index: int = 0
+
     # Timing
     last_action_time: Optional[datetime] = None
     last_event_time: Optional[datetime] = None

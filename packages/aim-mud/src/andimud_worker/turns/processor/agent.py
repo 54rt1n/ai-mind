@@ -169,6 +169,9 @@ class AgentTurnProcessor(BaseTurnProcessor):
             include_format_guidance=False,  # @agent: JSON tool calls only, like Phase 1
         )
 
+        # Get pre-computed embedding for FAISS reranking
+        query_embedding = self.worker.get_current_turn_embedding()
+
         # Use response strategy for full context (consciousness + memory)
         chat_turns = await self.worker._response_strategy.build_turns(
             persona=self.worker.persona,
@@ -177,6 +180,7 @@ class AgentTurnProcessor(BaseTurnProcessor):
             coming_online=coming_online,
             max_context_tokens=self.worker.model.max_tokens,
             max_output_tokens=self.worker.chat_config.max_tokens,
+            query_embedding=query_embedding,
         )
 
         # Build system message with agent action tools (override Phase 2's clean message)

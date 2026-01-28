@@ -328,7 +328,7 @@ class StandardStrategy(FormatValidationMixin, BaseStepStrategy):
             step_name=step_def.id,
         )
 
-        executor.cvm.insert(message)
+        executor.insert_message(message)
         return doc_id
 
     def _create_step_result(

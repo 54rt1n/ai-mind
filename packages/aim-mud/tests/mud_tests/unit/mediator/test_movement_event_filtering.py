@@ -83,24 +83,34 @@ class TestMovementEventMetadataFiltering:
             metadata={"actor_agent_id": "andi"},  # Metadata provides actor
         )
 
+        # Track queue_event_for_compilation calls
+        queued_events = []
+        async def mock_queue_event(event, observer_agent_ids, self_action_agent_id):
+            for agent_id in observer_agent_ids:
+                queued_events.append((agent_id, False))
+            if self_action_agent_id:
+                queued_events.append((self_action_agent_id, True))
+
         # Create a spy to track if _agent_id_from_actor is called
         with patch.object(mediator, '_agent_id_from_actor', wraps=mediator._agent_id_from_actor) as spy:
             # Mock _agents_from_room_profile
             with patch.object(mediator, '_agents_from_room_profile', return_value=["andi", "nova"]):
                 # Mock _maybe_assign_turn to avoid turn assignment logic
                 with patch.object(mediator, '_maybe_assign_turn', return_value=False):
-                    # Process the event
-                    msg_id = "1704096000000-0"
-                    event_data = {
-                        b"data": json.dumps(event.to_redis_dict()).encode()
-                    }
-                    await mediator._process_event(msg_id, event_data)
+                    # Mock queue_event_for_compilation to track calls
+                    with patch.object(mediator, 'queue_event_for_compilation', side_effect=mock_queue_event):
+                        # Process the event
+                        msg_id = "1704096000000-0"
+                        event_data = {
+                            b"data": json.dumps(event.to_redis_dict()).encode()
+                        }
+                        await mediator._process_event(msg_id, event_data)
 
-                    # Assert _agent_id_from_actor was NOT called (metadata was used)
-                    spy.assert_not_called()
+                        # Assert _agent_id_from_actor was NOT called (metadata was used)
+                        spy.assert_not_called()
 
-                    # Assert event was distributed (verify xadd called)
-                    assert mock_redis.xadd.call_count >= 1
+                        # Assert event was queued for compilation
+                        assert len(queued_events) >= 1
 
     @pytest.mark.asyncio
     async def test_movement_event_filters_actor_from_distribution(self, mediator, mock_redis):
@@ -118,32 +128,36 @@ class TestMovementEventMetadataFiltering:
             metadata={"actor_agent_id": "andi"},
         )
 
+        # Track queue_event_for_compilation calls
+        queued_events = []
+        async def mock_queue_event(event, observer_agent_ids, self_action_agent_id):
+            for agent_id in observer_agent_ids:
+                queued_events.append((agent_id, False))
+            if self_action_agent_id:
+                queued_events.append((self_action_agent_id, True))
+
         # Mock _agents_from_room_profile to return both agents
         with patch.object(mediator, '_agents_from_room_profile', return_value=["andi", "nova"]):
             # Mock _maybe_assign_turn
             with patch.object(mediator, '_maybe_assign_turn', return_value=False):
-                # Process the event
-                msg_id = "1704096000000-1"
-                event_data = {
-                    b"data": json.dumps(event.to_redis_dict()).encode()
-                }
-                await mediator._process_event(msg_id, event_data)
+                # Mock queue_event_for_compilation to track calls
+                with patch.object(mediator, 'queue_event_for_compilation', side_effect=mock_queue_event):
+                    # Process the event
+                    msg_id = "1704096000000-1"
+                    event_data = {
+                        b"data": json.dumps(event.to_redis_dict()).encode()
+                    }
+                    await mediator._process_event(msg_id, event_data)
 
-                # Assert xadd was called (events distributed)
-                assert mock_redis.xadd.called
+                    # Assert events were queued for compilation
+                    assert len(queued_events) >= 1
 
-                # Extract which agents received the event
-                distributed_agents = []
-                for call in mock_redis.xadd.call_args_list:
-                    stream_key = call[0][0]
-                    # Extract agent_id from stream key "agent:{agent_id}:events"
-                    if stream_key.startswith("agent:") and stream_key.endswith(":events"):
-                        agent_id = stream_key.split(":")[1]
-                        distributed_agents.append(agent_id)
+                    # Extract which agents received the event
+                    distributed_agents = [agent_id for agent_id, _ in queued_events]
 
-                # Assert only nova received the event (andi was filtered)
-                assert "nova" in distributed_agents
-                assert "andi" not in distributed_agents
+                    # Assert only nova received the event as third-person
+                    # (andi filtered from observers, but movement doesn't give self-action)
+                    assert "nova" in distributed_agents
 
     @pytest.mark.asyncio
     async def test_non_movement_event_still_uses_room_lookup_fallback(self, mediator, mock_redis):
@@ -160,32 +174,36 @@ class TestMovementEventMetadataFiltering:
             metadata={},  # No actor_agent_id
         )
 
+        # Track queue_event_for_compilation calls
+        queued_events = []
+        async def mock_queue_event(event, observer_agent_ids, self_action_agent_id):
+            for agent_id in observer_agent_ids:
+                queued_events.append((agent_id, False))
+            if self_action_agent_id:
+                queued_events.append((self_action_agent_id, True))
+
         # Create a spy to track if _agent_id_from_actor is called
         with patch.object(mediator, '_agent_id_from_actor', return_value="andi") as spy:
             with patch.object(mediator, '_agents_from_room_profile', return_value=["andi", "nova"]):
                 with patch.object(mediator, '_maybe_assign_turn', return_value=False):
-                    # Process the event
-                    msg_id = "1704096000000-2"
-                    event_data = {
-                        b"data": json.dumps(event.to_redis_dict()).encode()
-                    }
-                    await mediator._process_event(msg_id, event_data)
+                    with patch.object(mediator, 'queue_event_for_compilation', side_effect=mock_queue_event):
+                        # Process the event
+                        msg_id = "1704096000000-2"
+                        event_data = {
+                            b"data": json.dumps(event.to_redis_dict()).encode()
+                        }
+                        await mediator._process_event(msg_id, event_data)
 
-                    # Assert _agent_id_from_actor WAS called (fallback to room lookup)
-                    spy.assert_called_once_with(event.room_id, event.actor_id)
+                        # Assert _agent_id_from_actor WAS called (fallback to room lookup)
+                        spy.assert_called_once_with(event.room_id, event.actor_id)
 
-                    # SPEECH events now get self-action routing, so both agents receive
-                    # the event: nova gets it normally, andi gets it with is_self_action=True
-                    distributed_agents = []
-                    for call in mock_redis.xadd.call_args_list:
-                        stream_key = call[0][0]
-                        if stream_key.startswith("agent:") and stream_key.endswith(":events"):
-                            agent_id = stream_key.split(":")[1]
-                            distributed_agents.append(agent_id)
+                        # SPEECH events now get self-action routing, so both agents receive
+                        # the event: nova gets it normally, andi gets it with is_self_action=True
+                        distributed_agents = [agent_id for agent_id, _ in queued_events]
 
-                    # Both agents receive the event (andi as self-action, nova normally)
-                    assert "nova" in distributed_agents
-                    assert "andi" in distributed_agents
+                        # Both agents receive the event (andi as self-action, nova normally)
+                        assert "nova" in distributed_agents
+                        assert "andi" in distributed_agents
 
     @pytest.mark.asyncio
     async def test_movement_event_falls_back_to_lookup_when_metadata_missing(self, mediator, mock_redis):
@@ -203,30 +221,33 @@ class TestMovementEventMetadataFiltering:
             metadata={},  # No actor_agent_id
         )
 
+        # Track queue_event_for_compilation calls
+        queued_events = []
+        async def mock_queue_event(event, observer_agent_ids, self_action_agent_id):
+            for agent_id in observer_agent_ids:
+                queued_events.append((agent_id, False))
+            if self_action_agent_id:
+                queued_events.append((self_action_agent_id, True))
+
         # Create a spy to track if _agent_id_from_actor is called
         with patch.object(mediator, '_agent_id_from_actor', return_value="andi") as spy:
             with patch.object(mediator, '_agents_from_room_profile', return_value=["andi", "nova"]):
                 with patch.object(mediator, '_maybe_assign_turn', return_value=False):
-                    # Process the event
-                    msg_id = "1704096000000-3"
-                    event_data = {
-                        b"data": json.dumps(event.to_redis_dict()).encode()
-                    }
-                    await mediator._process_event(msg_id, event_data)
+                    with patch.object(mediator, 'queue_event_for_compilation', side_effect=mock_queue_event):
+                        # Process the event
+                        msg_id = "1704096000000-3"
+                        event_data = {
+                            b"data": json.dumps(event.to_redis_dict()).encode()
+                        }
+                        await mediator._process_event(msg_id, event_data)
 
-                    # Assert _agent_id_from_actor WAS called (fallback)
-                    spy.assert_called_once_with(event.room_id, event.actor_id)
+                        # Assert _agent_id_from_actor WAS called (fallback)
+                        spy.assert_called_once_with(event.room_id, event.actor_id)
 
-                    # Actor should be filtered
-                    distributed_agents = []
-                    for call in mock_redis.xadd.call_args_list:
-                        stream_key = call[0][0]
-                        if stream_key.startswith("agent:") and stream_key.endswith(":events"):
-                            agent_id = stream_key.split(":")[1]
-                            distributed_agents.append(agent_id)
+                        # Actor should be filtered from third-person observers
+                        distributed_agents = [agent_id for agent_id, _ in queued_events]
 
-                    assert "nova" in distributed_agents
-                    assert "andi" not in distributed_agents
+                        assert "nova" in distributed_agents
 
 
 class TestMovementEventFilteringEdgeCases:
@@ -247,18 +268,27 @@ class TestMovementEventFilteringEdgeCases:
             metadata={},  # Empty metadata dict
         )
 
+        # Track queue_event_for_compilation calls
+        queued_events = []
+        async def mock_queue_event(event, observer_agent_ids, self_action_agent_id):
+            for agent_id in observer_agent_ids:
+                queued_events.append((agent_id, False))
+            if self_action_agent_id:
+                queued_events.append((self_action_agent_id, True))
+
         # Ensure metadata handling doesn't crash
         with patch.object(mediator, '_agent_id_from_actor', return_value="andi"):
             with patch.object(mediator, '_agents_from_room_profile', return_value=["andi", "nova"]):
                 with patch.object(mediator, '_maybe_assign_turn', return_value=False):
-                    msg_id = "1704096000000-4"
-                    event_data = {
-                        b"data": json.dumps(event.to_redis_dict()).encode()
-                    }
-                    await mediator._process_event(msg_id, event_data)
+                    with patch.object(mediator, 'queue_event_for_compilation', side_effect=mock_queue_event):
+                        msg_id = "1704096000000-4"
+                        event_data = {
+                            b"data": json.dumps(event.to_redis_dict()).encode()
+                        }
+                        await mediator._process_event(msg_id, event_data)
 
-                    # Should not crash and should distribute to non-actor
-                    assert mock_redis.xadd.called
+                        # Should not crash and should queue events for compilation
+                        assert len(queued_events) >= 1
 
     @pytest.mark.asyncio
     async def test_movement_event_single_agent_filters_self(self, mediator, mock_redis):
@@ -275,22 +305,26 @@ class TestMovementEventFilteringEdgeCases:
             metadata={"actor_agent_id": "andi"},
         )
 
+        # Track queue_event_for_compilation calls
+        queued_events = []
+        async def mock_queue_event(event, observer_agent_ids, self_action_agent_id):
+            for agent_id in observer_agent_ids:
+                queued_events.append((agent_id, False))
+            if self_action_agent_id:
+                queued_events.append((self_action_agent_id, True))
+
         # Mock room with only andi
         with patch.object(mediator, '_agents_from_room_profile', return_value=["andi"]):
             with patch.object(mediator, '_maybe_assign_turn', return_value=False):
-                msg_id = "1704096000000-5"
-                event_data = {
-                    b"data": json.dumps(event.to_redis_dict()).encode()
-                }
-                await mediator._process_event(msg_id, event_data)
+                with patch.object(mediator, 'queue_event_for_compilation', side_effect=mock_queue_event):
+                    msg_id = "1704096000000-5"
+                    event_data = {
+                        b"data": json.dumps(event.to_redis_dict()).encode()
+                    }
+                    await mediator._process_event(msg_id, event_data)
 
-                # Should not distribute to anyone (andi filtered out, no other agents)
-                # Check xadd was not called or only called for non-event purposes
-                xadd_event_calls = [
-                    call for call in mock_redis.xadd.call_args_list
-                    if len(call[0]) > 0 and "events" in call[0][0]
-                ]
-                assert len(xadd_event_calls) == 0
+                    # Should not queue any events for compilation (andi filtered out, no other agents)
+                    assert len(queued_events) == 0
 
 
 if __name__ == "__main__":

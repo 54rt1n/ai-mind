@@ -216,27 +216,35 @@ class TestMediatorAbortEventProcessing:
         })
         mock_redis.hget = AsyncMock(return_value=None)  # is_sleeping check returns None (not sleeping)
         mock_redis.hexists = AsyncMock(return_value=False)  # Event not already processed
-        mock_redis.xadd = AsyncMock(return_value=b"1704096000001-0")  # Event delivery
         mock_redis.hset = AsyncMock(return_value=1)  # Mark event as processed
         mock_redis.incr = AsyncMock(return_value=1)  # Sequence ID
 
+        # Mock queue_event_for_compilation to track calls
+        queue_calls = []
+        async def mock_queue_event(event, observer_agent_ids, self_action_agent_id):
+            for agent_id in observer_agent_ids:
+                queue_calls.append((event, agent_id, False))
+            if self_action_agent_id:
+                queue_calls.append((event, self_action_agent_id, True))
+
         # Patch _agents_from_room_profile to return our test agent
         with patch.object(mediator, "_agents_from_room_profile", return_value=["test_agent"]):
-            sample_event = {
-                "type": "speech",
-                "actor": "Prax",
-                "actor_type": "player",
-                "room_id": "#123",
-                "room_name": "Test Room",
-                "content": "Hello!",
-                "timestamp": "2026-01-01T12:00:00+00:00",
-            }
+            with patch.object(mediator, "queue_event_for_compilation", side_effect=mock_queue_event):
+                sample_event = {
+                    "type": "speech",
+                    "actor": "Prax",
+                    "actor_type": "player",
+                    "room_id": "#123",
+                    "room_name": "Test Room",
+                    "content": "Hello!",
+                    "timestamp": "2026-01-01T12:00:00+00:00",
+                }
 
-            data = {b"data": json.dumps(sample_event).encode()}
-            await mediator._process_event("1704096000000-0", data)
+                data = {b"data": json.dumps(sample_event).encode()}
+                await mediator._process_event("1704096000000-0", data)
 
-        # Should still deliver event to agent stream
-        assert mock_redis.xadd.call_count >= 1
+        # Should queue event for compilation
+        assert len(queue_calls) >= 1
 
         # Check if turn_request was assigned - eval should NOT be called (abort_requested blocks assignment)
         assert mock_redis.eval.call_count == 0
@@ -261,25 +269,36 @@ class TestMediatorAbortEventProcessing:
         })
         mock_redis.hget = AsyncMock(return_value=None)  # is_sleeping check returns None (not sleeping)
         mock_redis.hexists = AsyncMock(return_value=False)  # Event not already processed
-        mock_redis.xadd = AsyncMock(return_value=b"1704096000001-0")  # Event delivery
         mock_redis.hset = AsyncMock(return_value=1)  # Mark event as processed
         mock_redis.incr = AsyncMock(return_value=1)  # Sequence ID
         mock_redis.eval = AsyncMock(return_value=1)  # CAS turn assignment succeeds
 
+        # Mock queue_event_for_compilation to track calls
+        queue_calls = []
+        async def mock_queue_event(event, observer_agent_ids, self_action_agent_id):
+            for agent_id in observer_agent_ids:
+                queue_calls.append((event, agent_id, False))
+            if self_action_agent_id:
+                queue_calls.append((event, self_action_agent_id, True))
+
         # Patch _agents_from_room_profile to return our test agent
         with patch.object(mediator, "_agents_from_room_profile", return_value=["test_agent"]):
-            sample_event = {
-                "type": "speech",
-                "actor": "Prax",
-                "actor_type": "player",
-                "room_id": "#123",
-                "room_name": "Test Room",
-                "content": "Are you listening?",
-                "timestamp": "2026-01-01T12:01:00+00:00",
-            }
+            with patch.object(mediator, "queue_event_for_compilation", side_effect=mock_queue_event):
+                sample_event = {
+                    "type": "speech",
+                    "actor": "Prax",
+                    "actor_type": "player",
+                    "room_id": "#123",
+                    "room_name": "Test Room",
+                    "content": "Are you listening?",
+                    "timestamp": "2026-01-01T12:01:00+00:00",
+                }
 
-            data = {b"data": json.dumps(sample_event).encode()}
-            await mediator._process_event("1704096000001-0", data)
+                data = {b"data": json.dumps(sample_event).encode()}
+                await mediator._process_event("1704096000001-0", data)
+
+        # Should queue event for compilation
+        assert len(queue_calls) >= 1
 
         # Should assign new turn since status is ready (using Lua script/eval)
         eval_calls = mock_redis.eval.call_args_list

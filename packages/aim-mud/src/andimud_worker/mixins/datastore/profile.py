@@ -229,8 +229,8 @@ class ProfileMixin:
             self._response_strategy.thought_content = thought.content
 
         logger.info(
-            "Loaded thought content (%d chars, %.0fs old, %d actions since)",
-            len(thought.content), age_seconds, thought.actions_since_generation
+            "Loaded thought content (%d chars, %.0fs old, conversation_index=%d)",
+            len(thought.content), age_seconds, thought.last_conversation_index
         )
 
     async def _clear_thought_content(self: "MUDAgentWorker") -> None:
@@ -245,18 +245,41 @@ class ProfileMixin:
             self._response_strategy.thought_content = ""
 
     async def _should_generate_new_thought(self: "MUDAgentWorker") -> bool:
-        """Check if a new thought should be generated based on throttle.
+        """Check if a new thought should be generated.
 
         Returns True if:
-        - No thought exists
-        - Time elapsed >= 5 minutes (THOUGHT_THROTTLE_SECONDS)
-        - Actions since generation >= 5 (THOUGHT_THROTTLE_ACTIONS)
+        - No thought exists, OR
+        - Index gap >= 5 (5+ new entries since last thought), OR
+        - Time elapsed >= 5 minutes AND index gap > 0
 
-        Returns:
-            True if new thought should be generated
+        Returns False if:
+        - Index gap == 0 (nothing new happened, even if time elapsed)
         """
+        from datetime import datetime
+
         client = RedisMUDClient(self.redis)
-        return await client.should_generate_thought(self.config.agent_id)
+
+        # Get existing thought state
+        thought = await client.get_thought_state(self.config.agent_id)
+
+        if not thought:
+            return True  # No thought exists
+
+        # Calculate index gap (NEW)
+        current_length = await client.get_conversation_length(self.config.agent_id)
+        index_gap = current_length - thought.last_conversation_index
+
+        # CRITICAL: Don't regenerate if nothing new happened
+        if index_gap == 0:
+            return False
+
+        # Check if enough new entries (5+ entries)
+        if index_gap >= 5:
+            return True
+
+        # Fall back to time-based throttle (only when index_gap > 0)
+        time_elapsed = (datetime.utcnow() - thought.created_at).total_seconds()
+        return time_elapsed >= 300  # 5 minutes
 
     async def _increment_thought_action_counter(self: "MUDAgentWorker") -> int:
         """Increment the thought action counter after autonomous action.

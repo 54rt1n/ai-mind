@@ -69,6 +69,13 @@ class AgentCommand(Command):
         # Setup turn context
         await worker._setup_turn_context(events)
 
+        # Capture new conversation entries for embedding-based reranking
+        new_entries = await worker.get_new_conversation_entries()
+        new_entries = worker.collapse_consecutive_entries(new_entries)
+        worker._current_turn_entries = new_entries
+        if new_entries:
+            logger.info(f"[{turn_id}] Captured {len(new_entries)} entries for @agent turn")
+
         # Run AgentTurnProcessor directly
         processor = AgentTurnProcessor.from_config(worker, worker.chat_config, worker.config)
         processor.user_guidance = guidance

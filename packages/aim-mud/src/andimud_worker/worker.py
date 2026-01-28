@@ -203,7 +203,9 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
         # LLM settings (model, temperature, max_tokens) come from ChatConfig/.env
         self.chat_config.persona_id = self.config.persona_id
 
-        self.cvm = ConversationModel.from_config(self.chat_config)
+        # Worker uses pre-computed embeddings from mediator, so skip loading the vectorizer
+        # This saves ~1.5GB GPU memory that would otherwise be used by the embedding model
+        self.cvm = ConversationModel.from_config(self.chat_config, skip_vectorizer=True)
         self.roster = Roster.from_config(self.chat_config)
         self._chat_manager = ChatManager(self.cvm, self.chat_config, self.roster)
         self.persona = self.roster.get_persona(self.config.persona_id)
@@ -631,16 +633,13 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                     except Exception as e:
                         logger.error(f"Failed to refresh active plan state: {e}", exc_info=True)
 
-                    # Get turn's sequence_id for filtering
-                    if not turn_request.sequence_id:
-                        logger.warning(f"Turn {turn_id} missing sequence_id, cannot filter drain")
-                        max_seq = None
-                    else:
-                        max_seq = turn_request.sequence_id
-                        logger.debug(f"Draining events with sequence_id < {max_seq}")
+                    # Get new conversation entries (compiled by mediator)
+                    entries = await self.get_new_conversation_entries()
+                    entries = self.collapse_consecutive_entries(entries)
 
-                    # Drain events filtered by sequence_id
-                    drained_events = await self._drain_with_settle(max_sequence_id=max_seq)
+                    # Convert entries to events for backward compatibility with command handlers
+                    # Commands still receive events list, but entries are already in conversation
+                    drained_events = []  # Entries are already in conversation list from mediator
 
                     # Execute command via registry, passing events directly
                     logger.info(f"Executing command: {turn_request.model_dump()}")

@@ -138,6 +138,6 @@ class RenderingStrategy(BaseStepStrategy):
         )
 
         # Insert into CVM
-        executor.cvm.insert(message)
+        executor.insert_message(message)
 
         return doc_id

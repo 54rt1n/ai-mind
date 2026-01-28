@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
+    import numpy as np
     from aim_mud_types.models.plan import AgentPlan
 
 from ...adapter import build_current_context, entries_to_chat_turns
@@ -304,7 +305,8 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
         content_len: int = 0,
         thought_stream: list[str] = [],
         max_context_tokens: int = 128000,
-        max_output_tokens: int = 4096
+        max_output_tokens: int = 4096,
+        query_embedding: Optional["np.ndarray"] = None,
     ) -> tuple[str, int]:
         """Build lightweight consciousness for Phase 1 (fast path).
 
@@ -325,6 +327,7 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
             thought_stream: Ignored.
             max_context_tokens: Ignored.
             max_output_tokens: Ignored.
+            query_embedding: Ignored (Phase 1 doesn't use memory queries).
 
         Returns:
             Tuple of (consciousness_content, memory_count).

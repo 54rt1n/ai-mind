@@ -142,6 +142,9 @@ class ThinkingTurnProcessor(BaseTurnProcessor):
         if self.user_guidance:
             user_input = f"[Link Guidance: {self.user_guidance}]\n\n{user_input}"
 
+        # Get pre-computed embedding for FAISS reranking
+        query_embedding = self.worker.get_current_turn_embedding()
+
         chat_turns = await self.worker._response_strategy.build_turns(
             persona=self.worker.persona,
             user_input=user_input,
@@ -150,6 +153,7 @@ class ThinkingTurnProcessor(BaseTurnProcessor):
             max_context_tokens=self.worker.model.max_tokens,
             max_output_tokens=self.worker.chat_config.max_tokens,
             memory_query="",  # No specific memory query for thinking
+            query_embedding=query_embedding,
         )
 
         # Step 3: Retry loop with fallback model support
@@ -258,7 +262,7 @@ class ThinkingTurnProcessor(BaseTurnProcessor):
         - content: The reasoning XML
         - source: "reasoning"
         - created_at: Current time
-        - actions_since_generation: 0 (reset on new thought)
+        - last_conversation_index: Current conversation list length
 
         Redis failures are caught and logged - reasoning is still returned
         but won't be available for future turns.
@@ -269,19 +273,22 @@ class ThinkingTurnProcessor(BaseTurnProcessor):
         from aim_mud_types import ThoughtState
         from aim_mud_types.client import RedisMUDClient
 
+        # Get current conversation list length
+        client = RedisMUDClient(self.worker.redis)
+        current_index = await client.get_conversation_length(self.worker.config.agent_id)
+
         thought = ThoughtState(
             agent_id=self.worker.config.agent_id,
             content=reasoning_xml,
             source="reasoning",
-            actions_since_generation=0,  # Reset counter on new thought
+            last_conversation_index=current_index,
         )
 
         try:
-            client = RedisMUDClient(self.worker.redis)
             await client.save_thought_state(thought, ttl_seconds=THOUGHT_TTL_SECONDS)
             logger.info(
-                "Stored reasoning to agent:%s:thought with %ds TTL",
-                self.worker.config.agent_id, THOUGHT_TTL_SECONDS
+                "Stored reasoning to agent:%s:thought with %ds TTL (conversation_index=%d)",
+                self.worker.config.agent_id, THOUGHT_TTL_SECONDS, current_index
             )
         except Exception as e:
             logger.warning("Failed to store reasoning to Redis: %s", e)

@@ -238,20 +238,29 @@ class TestMediatorEventRouting:
     async def test_process_event_distributes_to_agents_in_room(
         self, mock_redis, mediator_config, sample_speech_event
     ):
-        """Test events are distributed to agents in the same room."""
+        """Test events are queued for compilation to agents in the same room."""
         mediator = MediatorService(mock_redis, mediator_config)
         mediator.register_agent("andi")
         mediator.register_agent("other")
 
+        # Track queue_event_for_compilation calls
+        queued_events = []
+        async def mock_queue_event(event, observer_agent_ids, self_action_agent_id):
+            for agent_id in observer_agent_ids:
+                queued_events.append((agent_id, False))
+            if self_action_agent_id:
+                queued_events.append((self_action_agent_id, True))
+
         # Patch _agents_from_room_profile to return only andi (in room)
         with patch.object(mediator, "_agents_from_room_profile", return_value=["andi"]):
-            data = {b"data": json.dumps(sample_speech_event).encode()}
-            await mediator._process_event("1704096000000-0", data)
+            with patch.object(mediator, "queue_event_for_compilation", side_effect=mock_queue_event):
+                data = {b"data": json.dumps(sample_speech_event).encode()}
+                await mediator._process_event("1704096000000-0", data)
 
-        # Should have called xadd once for andi, not for other
-        assert mock_redis.xadd.call_count == 1
-        call_args = mock_redis.xadd.call_args
-        assert call_args[0][0] == RedisKeys.agent_events("andi")
+        # Should have queued event for andi, not for other
+        agent_ids = [agent_id for agent_id, _ in queued_events]
+        assert "andi" in agent_ids
+        assert "other" not in agent_ids
 
     @pytest.mark.asyncio
     async def test_process_event_no_agents_to_notify(
@@ -326,10 +335,20 @@ class TestMediatorEventRouting:
             }
         )
 
+
+        # Track queue_event_for_compilation calls
+        queued_events = []
+        async def mock_queue_event(event, observer_agent_ids, self_action_agent_id):
+            for agent_id in observer_agent_ids:
+                queued_events.append((agent_id, False))
+            if self_action_agent_id:
+                queued_events.append((self_action_agent_id, True))
+
         # Patch _agents_from_room_profile to return andi
         with patch.object(mediator, "_agents_from_room_profile", return_value=["andi"]):
-            data = {b"data": json.dumps(sample_speech_event).encode()}
-            await mediator._process_event("1704096000000-0", data)
+            with patch.object(mediator, "queue_event_for_compilation", side_effect=mock_queue_event):
+                data = {b"data": json.dumps(sample_speech_event).encode()}
+                await mediator._process_event("1704096000000-0", data)
 
         # Turn assignment now uses eval (Lua script for CAS pattern)
         # Only hset call should be for events_processed
@@ -369,10 +388,19 @@ class TestMediatorEventRouting:
             }
         )
 
+        # Track queue_event_for_compilation calls
+        queued_events = []
+        async def mock_queue_event(event, observer_agent_ids, self_action_agent_id):
+            for agent_id in observer_agent_ids:
+                queued_events.append((agent_id, False))
+            if self_action_agent_id:
+                queued_events.append((self_action_agent_id, True))
+
         # Patch _agents_from_room_profile to return andi
         with patch.object(mediator, "_agents_from_room_profile", return_value=["andi"]):
-            data = {b"data": json.dumps(sample_speech_event).encode()}
-            await mediator._process_event("1704096000000-0", data)
+            with patch.object(mediator, "queue_event_for_compilation", side_effect=mock_queue_event):
+                data = {b"data": json.dumps(sample_speech_event).encode()}
+                await mediator._process_event("1704096000000-0", data)
 
         # Should be called once for events_processed (turn_request skipped)
         assert mock_redis.hset.call_count == 1
@@ -380,7 +408,8 @@ class TestMediatorEventRouting:
         assert call_args[0][0] == RedisKeys.EVENTS_PROCESSED
         assert call_args[0][1] == "1704096000000-0"
 
-        assert mock_redis.xadd.call_count == 1
+        # Event should have been queued for compilation
+        assert len(queued_events) >= 1
 
 
 class TestMediatorEventRouter:
@@ -402,6 +431,14 @@ class TestMediatorEventRouter:
             return ["andi"]
 
         mediator._agents_from_room_profile = mock_agents_from_room
+
+        # Track queue_event_for_compilation calls
+        queued_events = []
+        async def mock_queue_event(event, observer_agent_ids, self_action_agent_id):
+            for agent_id in observer_agent_ids:
+                queued_events.append((agent_id, False))
+            if self_action_agent_id:
+                queued_events.append((self_action_agent_id, True))
 
         # Track processed events for trim operation
         processed_events = []
@@ -442,10 +479,12 @@ class TestMediatorEventRouter:
 
         mock_redis.xread = AsyncMock(side_effect=xread_side_effect)
 
-        await mediator.run_event_router()
+        # Patch queue_event_for_compilation to track calls
+        with patch.object(mediator, "queue_event_for_compilation", side_effect=mock_queue_event):
+            await mediator.run_event_router()
 
-        # Should have processed the event
-        assert mock_redis.xadd.call_count >= 1
+        # Should have processed the event (queued for compilation)
+        assert len(queued_events) >= 1
         assert mediator.last_event_id == "1704096000000-0"
 
     @pytest.mark.asyncio
@@ -954,6 +993,49 @@ class TestMediatorPauseCheck:
 
         # Should NOT assign retry turn
         mock_redis.eval.assert_not_called()
+
+
+class TestMediatorEventActionId:
+    """Test mediator handles events with and without action_id."""
+
+    @pytest.mark.asyncio
+    async def test_mediator_handles_events_without_action_id(
+        self, mock_redis, mediator_config
+    ):
+        """Test mediator processes events without action_id normally."""
+        from aim_mud_types import EventType
+
+        mediator = MediatorService(mock_redis, mediator_config)
+        mediator.register_agent("andi")
+
+        # Event without action_id (most events don't have this field)
+        event_data = {
+            "type": "movement",
+            "actor": "OtherPlayer",
+            "actor_type": "player",
+            "actor_id": "player_123",
+            "room_id": "test_room",
+            "content": "OtherPlayer arrives from the north.",
+            "timestamp": "2026-01-01T12:00:00+00:00",
+        }
+
+        # Track queue_event_for_compilation calls
+        queued_events = []
+        async def mock_queue_event(event, observer_agent_ids, self_action_agent_id):
+            for agent_id in observer_agent_ids:
+                queued_events.append((agent_id, False))
+            if self_action_agent_id:
+                queued_events.append((self_action_agent_id, True))
+
+        # Patch _agents_from_room_profile to return andi
+        with patch.object(mediator, "_agents_from_room_profile", return_value=["andi"]):
+            with patch.object(mediator, "queue_event_for_compilation", side_effect=mock_queue_event):
+                # Should not raise
+                data = {b"data": json.dumps(event_data).encode()}
+                await mediator._process_event("12345-0", data)
+
+        # Event should have been processed normally
+        assert mock_redis.hset.call_count >= 1
 
 
 if __name__ == "__main__":

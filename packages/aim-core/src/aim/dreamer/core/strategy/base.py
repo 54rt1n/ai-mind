@@ -112,6 +112,20 @@ class ScenarioExecutor:
         self.state.current_step = result.next_step
         return result
 
+    def insert_message(self, message: "ConversationMessage") -> None:
+        """Insert message to CVM with vectorizer lifecycle management.
+
+        Automatically loads/releases vectorizer for chunking when skip_vectorizer=True.
+
+        Args:
+            message: ConversationMessage to insert.
+        """
+        self.cvm.load_vectorizer()
+        try:
+            self.cvm.insert(message)
+        finally:
+            self.cvm.release_vectorizer()
+
 
 class BaseStepStrategy(ABC):
     """Abstract base class for step execution strategies.

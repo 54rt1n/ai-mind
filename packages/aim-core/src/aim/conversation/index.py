@@ -110,13 +110,33 @@ def boost_query_terms(text: str, base_boost: float = 1.0, keyword_boost: float =
 class SearchIndex:
     """Tantivy-based search index for conversations"""
 
-    def __init__(self, index_path: Path, embedding_model: str = "arkohut/jina-embeddings-v3", device: str = "cpu"):
+    def __init__(self, index_path: Path, embedding_model: str = "arkohut/jina-embeddings-v3", device: str = "cpu", skip_vectorizer: bool = False, keep_warm: bool = True):
+        """Initialize the search index.
+
+        Args:
+            index_path: Path to the Tantivy index directory.
+            embedding_model: Name of the HuggingFace embedding model.
+            device: Device for embedding computation ("cpu", "cuda:0", etc.).
+            skip_vectorizer: If True, do not load the embedding model. Useful when
+                embeddings are pre-computed externally (e.g., by a mediator).
+                When True, add_document() requires pre-computed embeddings, and
+                query() will skip FAISS reranking unless query_embedding is provided.
+            keep_warm: If True, move vectorizer to CPU on release (faster reload).
+                If False, fully unload vectorizer (frees all memory).
+        """
         self.index_path = index_path
         self.embedding_model = embedding_model
         self.device = device
-        if embedding_model == "arkohut/jina-embeddings-v3":
-            raise ValueError("You must specify an embedding model")
-        self.vectorizer = HuggingFaceEmbedding(model_name=embedding_model, device=device)
+        self.skip_vectorizer = skip_vectorizer
+        self.keep_warm = keep_warm
+
+        if skip_vectorizer:
+            self.vectorizer = None
+            logger.info("SearchIndex initialized with skip_vectorizer=True (no embedding model loaded)")
+        else:
+            if embedding_model == "arkohut/jina-embeddings-v3":
+                raise ValueError("You must specify an embedding model")
+            self.vectorizer = HuggingFaceEmbedding(model_name=embedding_model, device=device)
 
         # Build schema
         builder = SchemaBuilder()
@@ -159,6 +179,44 @@ class SearchIndex:
 
         # Tokenizer for chunk-level indexing
         self._tokenizer = tiktoken.get_encoding("cl100k_base")
+
+    def load_vectorizer(self) -> None:
+        """Load vectorizer explicitly for batch write operations.
+
+        Call before add_document() calls, then release_vectorizer() after.
+        Only works when skip_vectorizer=True (otherwise vectorizer already loaded).
+        """
+        if self.vectorizer is None and self.skip_vectorizer:
+            logger.info(f"Loading vectorizer for write batch: {self.embedding_model} on {self.device}")
+            from aim.conversation.embedding import HuggingFaceEmbedding
+            self.vectorizer = HuggingFaceEmbedding(
+                model_name=self.embedding_model,
+                device=self.device,
+            )
+        elif self.vectorizer is not None and self.keep_warm:
+            # Move from CPU to GPU if warming
+            logger.debug("Moving vectorizer to GPU")
+            self.vectorizer.to(self.device)
+
+    def release_vectorizer(self) -> None:
+        """Release explicitly loaded vectorizer to free GPU memory.
+
+        If keep_warm=True: moves to CPU (faster reload)
+        If keep_warm=False: fully unloads (frees all memory)
+
+        Safe to call even if vectorizer wasn't explicitly loaded.
+        Only operates when skip_vectorizer=True.
+        """
+        if self.skip_vectorizer and self.vectorizer is not None:
+            if self.keep_warm:
+                logger.info("Moving vectorizer to CPU (keep_warm=True)")
+                self.vectorizer.to("cpu")
+            else:
+                logger.info("Releasing vectorizer (keep_warm=False)")
+                del self.vectorizer
+                self.vectorizer = None
+                import gc
+                gc.collect()
 
     def _vector_to_bytes(self, vector: np.ndarray) -> bytes:
         """Convert numpy vector to bytes, preserving shape and dtype."""
@@ -289,19 +347,52 @@ class SearchIndex:
             chunk_count=doc.get("chunk_count", 1),
         )
 
-    def add_document(self, doc: dict) -> None:
-        """Add a single document to the index at all chunk levels."""
+    def add_document(self, doc: dict, embedding: Optional[np.ndarray] = None) -> None:
+        """Add a single document to the index at all chunk levels.
+
+        Args:
+            doc: Document dictionary with required fields.
+            embedding: DEPRECATED - ignored, all embeddings computed internally.
+
+        Raises:
+            RuntimeError: If vectorizer is not loaded when skip_vectorizer=True.
+        """
+        if embedding is not None:
+            logger.debug("Ignoring pre-computed embedding - computing all embeddings internally")
+
         entries = self._expand_document_to_entries(doc)
+
+        if self.vectorizer is None:
+            raise RuntimeError(
+                "Cannot add document without vectorizer. "
+                "Call load_vectorizer() before batch writes when skip_vectorizer=True."
+            )
+
         writer = self.index.writer()
         for entry in entries:
+            # Compute embedding for this entry (full or chunk)
             index_a = self.vectorizer(entry["content"])
+
             tantivy_doc = self.to_doc(entry, index_a)
             writer.add_document(tantivy_doc)
+
         writer.commit()
         self.index.reload()
 
     def add_documents(self, documents: list[dict], use_tqdm: bool = False, batch_size: int = 64) -> None:
-        """Add multiple documents to the index efficiently at all chunk levels."""
+        """Add multiple documents to the index efficiently at all chunk levels.
+
+        Raises:
+            RuntimeError: If skip_vectorizer=True. Batch document addition requires
+                the vectorizer to compute embeddings for all entries. Use add_document()
+                with pre-computed embeddings when skip_vectorizer=True.
+        """
+        if self.vectorizer is None:
+            raise RuntimeError(
+                "add_documents() requires vectorizer. Cannot batch-add documents when "
+                "skip_vectorizer=True. Use add_document() with pre-computed embeddings instead."
+            )
+
         # First expand all documents to entries (full + chunks)
         all_entries = []
         for doc in documents:
@@ -492,17 +583,22 @@ class SearchIndex:
         return results
 
     def rebuild(self, documents: list[dict], use_tqdm: bool = True) -> None:
-        """Clear and rebuild the entire index"""
+        """Clear and rebuild the entire index.
+
+        Raises:
+            RuntimeError: If skip_vectorizer=True. Rebuild requires the vectorizer
+                to compute embeddings for all documents.
+        """
         # Clear existing index
         if self.index_path.exists():
             import shutil
 
             shutil.rmtree(self.index_path)
 
-        # Reinitialize with stored config
-        self.__init__(self.index_path, embedding_model=self.embedding_model, device=self.device)
+        # Reinitialize with stored config (preserves skip_vectorizer setting)
+        self.__init__(self.index_path, embedding_model=self.embedding_model, device=self.device, skip_vectorizer=self.skip_vectorizer)
 
-        # Add all documents
+        # Add all documents (will raise if skip_vectorizer=True)
         self.add_documents(documents, use_tqdm=use_tqdm)
         logger.info(f"Rebuilt index with {len(documents)} documents")
 

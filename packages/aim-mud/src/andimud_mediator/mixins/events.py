@@ -8,6 +8,8 @@ import logging
 from typing import Any, Optional
 
 from aim_mud_types import ActorType, EventType, MUDEvent, RedisKeys, TurnReason, TurnRequestStatus
+from aim_mud_types.models.coordination import MUDTurnRequest
+from aim_mud_types.helper import transition_turn_request
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +161,13 @@ class EventsMixin:
             f"from {event.actor} in {event.room_id}"
         )
 
+        # Clear PENDING turn states FIRST (before any early returns)
+        # Check all registered agents since we don't have room context yet
+        if event.action_id:
+            agents_to_check = list(self.registered_agents) if self.registered_agents else []
+            if agents_to_check:
+                await self._clear_pending_for_echo(event, agents_to_check)
+
         # Track player activity for idle detection (skip AI self-actions)
         if event.actor_type != ActorType.AI:
             from aim_mud_types.helper import _utc_now
@@ -211,17 +220,14 @@ class EventsMixin:
                 await self._mark_event_processed(msg_id, [])
                 return
 
-            stream_key = RedisKeys.agent_events(target_agent_id)
-            payload = dict(enriched)
-            await client.append_agent_event(
-                target_agent_id,
-                {"data": json.dumps(payload)},
-                maxlen=self.config.agent_events_maxlen,
-                approximate=True,
-                stream_key=stream_key,
+            # Queue targeted event for compilation (always as observer for targeted delivery)
+            await self.queue_event_for_compilation(
+                event=event,
+                observer_agent_ids=[target_agent_id],
+                self_action_agent_id=None,
             )
             logger.debug(
-                f"Delivered targeted event {msg_id} (seq={sequence_id}) to {target_agent_id}"
+                f"Queued targeted event {msg_id} (seq={sequence_id}) for compilation to {target_agent_id}"
             )
             await self._mark_event_processed(msg_id, [target_agent_id])
             return
@@ -295,20 +301,17 @@ class EventsMixin:
             await self._mark_event_processed(msg_id, [])
             return
 
-        # Phase 1: Distribute event to agents (broadcast + optional self-action)
-        for agent_id in agents_for_delivery:
-            stream_key = RedisKeys.agent_events(agent_id)
-            payload = dict(enriched)
-            if self_action_agent_id and agent_id == self_action_agent_id:
-                payload["is_self_action"] = True
-            await client.append_agent_event(
-                agent_id,
-                {"data": json.dumps(payload)},
-                maxlen=self.config.agent_events_maxlen,
-                approximate=True,
-                stream_key=stream_key,
-            )
-            logger.debug(f"Distributed event {msg_id} (seq={sequence_id}) to {agent_id}")
+        # Phase 1: Queue event for compilation (embedding computed once, shared to observers)
+        # Filter self-action agent from observer list (they get first-person separately)
+        observer_ids = [a for a in agents_to_notify if a != self_action_agent_id]
+
+        await self.queue_event_for_compilation(
+            event=event,
+            observer_agent_ids=observer_ids,
+            self_action_agent_id=self_action_agent_id,
+        )
+
+        logger.debug(f"Queued event {msg_id} (seq={sequence_id}) for compilation")
 
         # Phase 2: Assign turn ONLY if no agents are currently processing
         assigned_agent: Optional[str] = None
@@ -349,7 +352,9 @@ class EventsMixin:
                     assigned = await self._maybe_assign_turn(
                         candidate,
                         reason=TurnReason.EVENTS,
-                        metadata={"room_auras": event.metadata.get("room_auras")},
+                        metadata={
+                            "room_auras": event.metadata.get("room_auras"),
+                        },
                     )
                     if assigned:
                         assigned_agent = candidate
@@ -433,3 +438,66 @@ class EventsMixin:
                 )
         except Exception as e:
             logger.error(f"Failed to cleanup processed hash: {e}")
+
+    async def _clear_pending_for_echo(
+        self,
+        event: MUDEvent,
+        agents_for_delivery: list[str]
+    ) -> None:
+        """Clear PENDING turn state when echo event arrives.
+
+        Args:
+            event: The event that might be an echo (has action_id)
+            agents_for_delivery: List of agent IDs receiving this event
+        """
+        for agent_id in agents_for_delivery:
+            try:
+                turn_request = await self._get_turn_request(agent_id)
+                if not turn_request or turn_request.status != TurnRequestStatus.PENDING:
+                    continue
+
+                pending_action_ids = set((turn_request.metadata or {}).get("pending_action_ids", []))
+                if not pending_action_ids or event.action_id not in pending_action_ids:
+                    continue
+
+                # Echo matched! Remove from pending set
+                pending_action_ids.remove(event.action_id)
+                logger.info(f"Mediator matched echo for {agent_id}: {event.action_id}")
+
+                if not pending_action_ids:
+                    # All echoes received - clear PENDING
+                    turn_request.metadata = {}
+                    transition_turn_request(
+                        turn_request,
+                        status=TurnRequestStatus.READY,
+                        status_reason="Action echo received (cleared by mediator)",
+                        new_turn_id=True,
+                        update_heartbeat=True,
+                    )
+                    await self._update_turn_request(agent_id, turn_request, expected_turn_id=turn_request.turn_id)
+                    logger.info(f"Mediator cleared PENDING for {agent_id} (all echoes received)")
+                else:
+                    # Partial match - update metadata
+                    turn_request.metadata["pending_action_ids"] = list(pending_action_ids)
+                    await self._update_turn_request(agent_id, turn_request, expected_turn_id=turn_request.turn_id)
+                    logger.debug(f"Mediator partial match: {len(pending_action_ids)} remaining for {agent_id}")
+
+            except Exception as e:
+                logger.error(f"Error clearing PENDING for {agent_id}: {e}", exc_info=True)
+                # Don't raise - worker timeout will recover
+
+    async def _update_turn_request(self, agent_id: str, turn_request: MUDTurnRequest, expected_turn_id: str) -> None:
+        """Update turn request with CAS.
+
+        Args:
+            agent_id: Agent identifier
+            turn_request: MUDTurnRequest to update
+            expected_turn_id: Expected turn_id for CAS check
+        """
+        from aim_mud_types.client import RedisMUDClient
+        client = RedisMUDClient(self.redis)
+        await client.update_turn_request(
+            agent_id,
+            turn_request,
+            expected_turn_id=expected_turn_id
+        )

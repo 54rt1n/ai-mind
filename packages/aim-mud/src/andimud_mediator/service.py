@@ -35,6 +35,7 @@ from aim_mud_types.helper import _utc_now
 
 from .config import MediatorConfig
 from .mixins.agents import AgentsMixin
+from .mixins.compiler import CompilerMixin
 from .mixins.events import EventsMixin
 from .mixins.dreamer import DreamerMixin
 from .mixins.planner import PlannerMixin
@@ -42,7 +43,7 @@ from .mixins.planner import PlannerMixin
 logger = logging.getLogger(__name__)
 
 
-class MediatorService(AgentsMixin, EventsMixin, DreamerMixin, PlannerMixin):
+class MediatorService(AgentsMixin, EventsMixin, CompilerMixin, DreamerMixin, PlannerMixin):
     """Central coordination service between Evennia and AIM agents.
 
     The mediator runs the Event Router task:
@@ -93,6 +94,9 @@ class MediatorService(AgentsMixin, EventsMixin, DreamerMixin, PlannerMixin):
 
         # System idle tracking - timestamp when all agents became ready
         self._system_ready_since: Optional[datetime] = None
+
+        # Initialize compiler mixin
+        self._init_compiler()
 
     async def _next_sequence_id(self) -> int:
         """Get next global sequence ID for event/turn ordering.

@@ -16,7 +16,9 @@ with Phase 2 extending XMLMemoryTurnStrategy for memory-augmented responses.
 """
 
 import logging
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
+
+import numpy as np
 
 from ...adapter import build_current_context, entries_to_chat_turns
 from ..manager import MUDConversationManager
@@ -83,6 +85,7 @@ class MUDResponseStrategy(XMLMemoryTurnStrategy):
         max_context_tokens: int = DEFAULT_MAX_CONTEXT,  # 32768
         max_output_tokens: int = DEFAULT_MAX_OUTPUT,     # 4096
         memory_query: str = "",
+        query_embedding: Optional[np.ndarray] = None,
     ) -> list[dict[str, str]]:
         """Build turns for Phase 2 full response.
 
@@ -115,6 +118,8 @@ class MUDResponseStrategy(XMLMemoryTurnStrategy):
             max_context_tokens: Maximum context window size.
             max_output_tokens: Reserved tokens for response.
             memory_query: Optional query to enhance CVM memory search.
+            query_embedding: Optional pre-computed embedding for FAISS reranking.
+                If provided, uses this instead of computing from query text.
 
         Returns:
             List of chat turns ready for LLM inference.
@@ -155,6 +160,7 @@ class MUDResponseStrategy(XMLMemoryTurnStrategy):
             max_context_tokens=max_context_tokens,
             max_output_tokens=max_output_tokens,
             query=memory_query,
+            query_embedding=query_embedding,
         )
 
     async def _get_conversation_history(

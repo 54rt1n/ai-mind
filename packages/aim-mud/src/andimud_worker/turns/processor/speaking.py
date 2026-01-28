@@ -90,6 +90,9 @@ class SpeakingProcessor(BaseTurnProcessor):
                 include_events=False,
             )
 
+            # Get pre-computed embedding for FAISS reranking
+            query_embedding = self.worker.get_current_turn_embedding()
+
             # Use response strategy for full context (consciousness + memory)
             chat_turns = await self.worker._response_strategy.build_turns(
                 persona=self.worker.persona,
@@ -99,6 +102,7 @@ class SpeakingProcessor(BaseTurnProcessor):
                 max_context_tokens=self.worker.model.max_tokens,
                 max_output_tokens=self.worker.chat_config.max_tokens,
                 memory_query=self.memory_query,
+                query_embedding=query_embedding,
             )
 
             # Create heartbeat callback for phase 2 response generation

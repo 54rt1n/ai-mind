@@ -5,6 +5,7 @@ from collections import defaultdict
 import copy
 from datetime import datetime, timedelta
 import logging
+import numpy as np
 import pandas as pd
 import random
 from typing import Optional, List, Dict, Any, Tuple
@@ -83,7 +84,8 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                           source_tag: str,
                           seen_docs: set,
                           top_n: int,
-                          length_boost: float = 0.0) -> Tuple[List[TaggedResult], List[TaggedResult], List[TaggedResult]]:
+                          length_boost: float = 0.0,
+                          query_embedding: Optional[np.ndarray] = None) -> Tuple[List[TaggedResult], List[TaggedResult], List[TaggedResult]]:
         """
         Execute triple queries for optimal document distribution:
         - Conversations at chunk_768 (dialog context)
@@ -96,6 +98,8 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
             seen_docs: Doc IDs to filter out
             top_n: Max results per bucket
             length_boost: Length boost factor
+            query_embedding: Optional pre-computed embedding for FAISS reranking.
+                If provided, uses this instead of computing from query text.
 
         Returns:
             (conversation_results, insight_results, broad_results) as lists of (source_tag, row)
@@ -113,6 +117,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
             query_document_type=LONG_CONTEXT_DOC_TYPES,
             chunk_level=CHUNK_LEVEL_768,
             length_boost_factor=length_boost,
+            query_embedding=query_embedding,
         )
         if not conv_df.empty:
             for _, row in conv_df.iterrows():
@@ -127,6 +132,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
             query_document_type=INSIGHT_DOC_TYPES,
             chunk_level=CHUNK_LEVEL_768,
             length_boost_factor=length_boost,
+            query_embedding=query_embedding,
         )
         if not insight_df.empty:
             for _, row in insight_df.iterrows():
@@ -141,6 +147,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
             filter_metadocs=True,
             chunk_level=CHUNK_LEVEL_256,
             length_boost_factor=length_boost,
+            query_embedding=query_embedding,
         )
         if not broad_df.empty:
             for _, row in broad_df.iterrows():
@@ -176,7 +183,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         """
         return formatter
 
-    def get_conscious_memory(self, persona: Persona, query: Optional[str] = None, user_queries: list[str] = [], assistant_queries: list[str] = [], content_len: int = 0, thought_stream: list[str] = [], max_context_tokens: int = DEFAULT_MAX_CONTEXT, max_output_tokens: int = DEFAULT_MAX_OUTPUT) -> tuple[str, int]:
+    def get_conscious_memory(self, persona: Persona, query: Optional[str] = None, user_queries: list[str] = [], assistant_queries: list[str] = [], content_len: int = 0, thought_stream: list[str] = [], max_context_tokens: int = DEFAULT_MAX_CONTEXT, max_output_tokens: int = DEFAULT_MAX_OUTPUT, query_embedding: Optional[np.ndarray] = None) -> tuple[str, int]:
         """
         Retrieves the conscious memory content to be included in the chat response.
 
@@ -187,6 +194,9 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
             user_queries (List[str]): The history of user queries, used to retrieve relevant memories.
             assistant_queries (List[str]): The history of assistant queries, used to retrieve relevant memories.
             thought_stream (List[str]): Prior reasoning from assistant turns to include in header.
+            query_embedding (Optional[np.ndarray]): Pre-computed embedding for FAISS reranking.
+                If provided, uses this instead of computing from query text. Typically
+                from the current conversation entry's embedding.
 
         Returns:
             str: The conscious memory content, formatted as a string to be included in the chat response.
@@ -416,7 +426,8 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                         source_tag=source_data["memory_type_tag"],
                         seen_docs=seen_docs,
                         top_n=top_n_per_source,
-                        length_boost=source_data["length_boost"]
+                        length_boost=source_data["length_boost"],
+                        query_embedding=query_embedding,
                     )
                     all_conversation_results.extend(conv_results)
                     all_insight_results.extend(insight_results)
@@ -534,7 +545,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         memory_count = len(seen_docs)
         return final_output, memory_count
         
-    def chat_turns_for(self, persona: Persona, user_input: str, history: list[dict[str, str]] = [], content_len: Optional[int] = None, max_context_tokens: int = DEFAULT_MAX_CONTEXT, max_output_tokens: int = DEFAULT_MAX_OUTPUT, query: str = "") -> list[dict[str, str]]:
+    def chat_turns_for(self, persona: Persona, user_input: str, history: list[dict[str, str]] = [], content_len: Optional[int] = None, max_context_tokens: int = DEFAULT_MAX_CONTEXT, max_output_tokens: int = DEFAULT_MAX_OUTPUT, query: str = "", query_embedding: Optional[np.ndarray] = None) -> list[dict[str, str]]:
         """
         Generate a chat session, augmenting the response with information from the database.
 
@@ -545,6 +556,9 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
             history (List[Dict[str, str]]): The chat history (may include 'think' field).
             query (str): Optional explicit query for memory search. If provided, used
                 instead of user_input for CVM retrieval.
+            query_embedding (Optional[np.ndarray]): Pre-computed embedding for FAISS reranking.
+                If provided, uses this instead of computing from query text. Typically
+                from the current conversation entry's embedding.
 
         Returns:
             List[Dict[str, str]]: The chat turns, in the alternating format [{"role": "user", "content": user_input}, {"role": "assistant", "content": assistant_turn}].
@@ -621,7 +635,8 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                 content_len=external_tokens,
                 thought_stream=thought_stream,
                 max_context_tokens=max_context_tokens,
-                max_output_tokens=max_output_tokens
+                max_output_tokens=max_output_tokens,
+                query_embedding=query_embedding,
                 )
 
         consciousness_tokens = self.count_tokens(consciousness)

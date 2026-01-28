@@ -126,6 +126,14 @@ from .helper import (
     create_pending_dream_stub,
 )
 
+# Event formatting functions
+from .formatters import (
+    format_event,
+    format_self_event,
+    format_self_action_guidance,
+    format_you_see_guidance,
+)
+
 
 __all__ = [
     # Pydantic Models
@@ -201,6 +209,11 @@ __all__ = [
     "touch_turn_request_completed",
     "COMMAND_TO_SCENARIO",
     "create_pending_dream_stub",
+    # Event formatters
+    "format_event",
+    "format_self_event",
+    "format_self_action_guidance",
+    "format_you_see_guidance",
 ]
 
 __version__ = "0.1.0"

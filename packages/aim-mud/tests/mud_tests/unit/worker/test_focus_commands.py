@@ -3,7 +3,7 @@
 """Unit tests for FocusCommand and ClearFocusCommand."""
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, AsyncMock
 
 from aim_mud_types import TurnRequestStatus, TurnReason
 from andimud_worker.commands.focus import FocusCommand, ClearFocusCommand
@@ -15,6 +15,12 @@ def mock_worker():
     worker = MagicMock()
     worker.config = MagicMock()
     worker.config.agent_id = "test_agent"
+
+    # Mock Redis client with async methods for profile persistence
+    worker.redis = MagicMock()
+    worker.redis.hset = AsyncMock(return_value=1)
+    worker.redis.eval = AsyncMock(return_value=1)
+    worker.redis.hdel = AsyncMock(return_value=1)
 
     # Mock decision strategy with focus methods
     worker._decision_strategy = MagicMock()
@@ -35,6 +41,12 @@ def mock_worker_no_focus_methods():
     worker = MagicMock()
     worker.config = MagicMock()
     worker.config.agent_id = "test_agent"
+
+    # Mock Redis client with async methods for profile persistence
+    worker.redis = MagicMock()
+    worker.redis.hset = AsyncMock(return_value=1)
+    worker.redis.eval = AsyncMock(return_value=1)
+    worker.redis.hdel = AsyncMock(return_value=1)
 
     # Strategies exist but don't have focus methods
     worker._decision_strategy = MagicMock(spec=[])  # Empty spec means no attributes

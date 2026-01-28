@@ -87,24 +87,36 @@ class IdleCommand(Command):
         dual_turn = False
 
         if should_think:
-            turn_id = await worker.claim_idle_turn(turn_request)
-            dual_turn = True
+            # Get new conversation entries BEFORE claiming turn
+            new_entries = await worker.get_new_conversation_entries()
+            new_entries = worker.collapse_consecutive_entries(new_entries)
 
-            new_events = await worker._drain_with_settle()
-            if new_events:
-                logger.info(f"[{turn_id}] Captured {len(new_events)} new events for THINK phase")
+            # Only proceed if entries actually exist
+            if not new_entries:
+                logger.info(
+                    f"[{turn_id}] Throttle passed but no new entries - "
+                    "skipping thought generation"
+                )
+                # Reload existing thought for action phase
+                await worker._load_thought_content()
+            else:
+                # NOW claim the turn (only if we'll actually use it)
+                turn_id = await worker.claim_idle_turn(turn_request)
+                dual_turn = True
 
-            thinking_processor = ThinkingTurnProcessor(worker)
-            if plan_guidance:
-                thinking_processor.user_guidance = plan_guidance
+                worker._current_turn_entries = new_entries
+                logger.info(f"[{turn_id}] Captured {len(new_entries)} new entries for THINK phase")
 
-            # Generate thought (stores with actions_since_generation=0)
-            await thinking_processor.execute(turn_request, events)
-            logger.info(f"[{turn_id}] New thought generated (throttle met)")
+                thinking_processor = ThinkingTurnProcessor(worker)
+                if plan_guidance:
+                    thinking_processor.user_guidance = plan_guidance
 
-            # DUAL TURN: Continue to action phase instead of returning
-            # Reload the thought content we just generated
-            await worker._load_thought_content()
+                # Generate thought
+                await thinking_processor.execute(turn_request, events)
+                logger.info(f"[{turn_id}] New thought generated (new entries detected)")
+
+                # Reload the thought we just generated
+                await worker._load_thought_content()
 
         # Phase 2: Check plan status for logging
         plan = worker.get_active_plan()
@@ -138,11 +150,6 @@ class IdleCommand(Command):
                 message=f"Idle Turn failed: {error_detail}",
                 turn_id=turn_id,
             )
-
-        # Phase 5: Increment action counter (for throttle tracking)
-        # Only increment for actual actions, not WAIT/CONFUSED
-        if decision.decision_type not in (DecisionType.WAIT, DecisionType.CONFUSED):
-            await worker._increment_thought_action_counter()
 
         # Clear thought from strategies (but NOT from Redis - throttle needs it)
         await worker._clear_thought_content()

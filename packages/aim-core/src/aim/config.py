@@ -181,6 +181,9 @@ class ChatConfig:
 
     show_llm_messages: bool = False
 
+    # Vectorizer configuration
+    skip_vectorizer: bool = False  # Skip loading embedding model (useful when embeddings are pre-computed)
+    keep_vectorizer_warm: bool = True  # Move to CPU instead of full unload when releasing vectorizer
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

@@ -1,12 +1,16 @@
 # aim-mud-types/conversation.py
 # AI-Mind (C) 2025 by Martin Bukowski is licensed under CC BY-NC-SA 4.0
 
+import base64
 from datetime import datetime
-from typing import Literal, Optional
+from typing import TYPE_CHECKING, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, field_serializer
 
 from ..helper import _utc_now, _datetime_to_unix, _unix_to_datetime
+
+if TYPE_CHECKING:
+    import numpy as np
 
 class MUDConversationEntry(BaseModel):
     """Single entry in the Redis conversation list.
@@ -56,6 +60,10 @@ class MUDConversationEntry(BaseModel):
     speaker_id: Optional[str] = None
     last_event_id: Optional[str] = None
 
+    # Pre-computed embedding (base64-encoded float32 array)
+    # Set by mediator during event compilation
+    embedding: Optional[str] = None
+
     # Validators to parse Unix timestamps from Redis
     @field_validator("timestamp", mode="before")
     @classmethod
@@ -66,3 +74,27 @@ class MUDConversationEntry(BaseModel):
     @field_serializer("timestamp")
     def serialize_required_datetime(self, dt: datetime) -> int:
         return _datetime_to_unix(dt)
+
+    def get_embedding_vector(self) -> Optional["np.ndarray"]:
+        """Decode embedding from base64 to numpy array.
+
+        Returns:
+            numpy array of float32 values, or None if no embedding.
+        """
+        if not self.embedding:
+            return None
+        import numpy as np
+        return np.frombuffer(base64.b64decode(self.embedding), dtype=np.float32)
+
+    @staticmethod
+    def encode_embedding(vector: "np.ndarray") -> str:
+        """Encode numpy array to base64 string.
+
+        Args:
+            vector: numpy array to encode (will be cast to float32)
+
+        Returns:
+            Base64-encoded string representation.
+        """
+        import numpy as np
+        return base64.b64encode(vector.astype(np.float32).tobytes()).decode('ascii')

@@ -11,6 +11,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
+import numpy as np
 import yaml
 
 from aim_mud_types import MUDAction, MUDTurnRequest
@@ -863,6 +864,34 @@ Current focus will be cleared. Please refocus with a smaller scope."""
         total = await self.conversation_manager.get_total_tokens()
         return total == 0
 
+    def get_current_turn_embedding(self: "MUDAgentWorker") -> Optional[np.ndarray]:
+        """Get the embedding from the last user entry in current turn.
+
+        Used by Phase 2 processors to pass pre-computed embeddings to CVM
+        queries, enabling same-embedding reranking for document retrieval
+        and FAISS similarity scoring.
+
+        The embedding comes from the mediator, which computes it during
+        event compilation. Using the same embedding for both indexing
+        and querying ensures consistent similarity scores.
+
+        Returns:
+            numpy array of the last user entry's embedding, or None if:
+            - No entries in current turn
+            - No user entries found
+            - Entry has no embedding
+        """
+        entries = getattr(self, "_current_turn_entries", None)
+        if not entries:
+            return None
+
+        # Find the last user entry (matches query text selection logic)
+        for entry in reversed(entries):
+            if entry.role == "user":
+                return entry.get_embedding_vector()
+
+        return None
+
     async def _setup_turn_context(
         self: "MUDAgentWorker",
         events: list[MUDEvent]
@@ -933,6 +962,7 @@ Current focus will be cleared. Please refocus with a smaller scope."""
         """Take a turn."""
         self._last_turn_error = None
         self._last_turn_error_type = None
+        self._current_turn_entries = []  # Reset entries for this turn
         try:
             # Setup turn context ONCE
             await self._setup_turn_context(events)
@@ -950,19 +980,28 @@ Current focus will be cleared. Please refocus with a smaller scope."""
             decision = self._last_decision
 
             if decision.decision_type == DecisionType.SPEAK:
-                # Re-drain for new events that arrived during Phase 1, to turn (flush drain)
-                new_events = await self._drain_to_turn()
-                if new_events:
-                    logger.info(f"[{turn_id}] Captured {len(new_events)} new events for Phase 2 (SPEAK)")
+                # Get new conversation entries that arrived during Phase 1
+                # (entries are already in conversation list from mediator)
+                # settle=True waits for cascading events to stop arriving
+                new_entries = await self.get_new_conversation_entries(settle=True)
+                new_entries = self.collapse_consecutive_entries(new_entries)
+                # Store entries on worker for processors to access embeddings
+                self._current_turn_entries = new_entries
+                if new_entries:
+                    logger.info(f"[{turn_id}] Captured {len(new_entries)} new entries (settled) for Phase 2 (SPEAK)")
 
                 speaking_processor = SpeakingProcessor(self)
                 speaking_processor.user_guidance = user_guidance
                 await speaking_processor.execute(turn_request, events)
             elif decision.decision_type == DecisionType.THINK:
-                # Re-drain for new events that arrived during Phase 1, with settling (no flush drain)
-                new_events = await self._drain_with_settle()
-                if new_events:
-                    logger.info(f"[{turn_id}] Captured {len(new_events)} new events for Phase 2 (THINK)")
+                # Get new conversation entries that arrived during Phase 1
+                # settle=True waits for cascading events to stop arriving
+                new_entries = await self.get_new_conversation_entries(settle=True)
+                new_entries = self.collapse_consecutive_entries(new_entries)
+                # Store entries on worker for processors to access embeddings
+                self._current_turn_entries = new_entries
+                if new_entries:
+                    logger.info(f"[{turn_id}] Captured {len(new_entries)} new entries (settled) for Phase 2 (THINK)")
 
                 thinking_processor = ThinkingTurnProcessor(self)
                 thinking_processor.user_guidance = user_guidance

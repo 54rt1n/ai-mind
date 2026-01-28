@@ -182,6 +182,12 @@ class MUDConversationManager:
     ) -> MUDConversationEntry:
         """Compile events into a user turn and push to list.
 
+        DEPRECATED: Event compilation is now handled by the mediator.
+        The mediator compiles events into MUDConversationEntry objects with
+        pre-computed embeddings and pushes them directly to the conversation list.
+        This method is retained for backward compatibility with PENDING status
+        handling and legacy code paths.
+
         Creates a DOC_MUD_WORLD or DOC_MUD_ACTION entry per consecutive
         actor group with rich metadata about the room and actors involved.
 
@@ -540,6 +546,8 @@ class MUDConversationManager:
     async def flush_to_cvm(self, cvm) -> int:
         """Flush unsaved entries to CVM and mark as saved.
 
+        Temporarily loads vectorizer for embedding computation.
+
         Creates ConversationMessage objects for each unsaved entry
         and inserts them into the CVM. Updates the entries in Redis
         with saved=True and the assigned doc_id. Entries marked
@@ -558,75 +566,83 @@ class MUDConversationManager:
         if not raw_entries:
             return 0
 
-        flushed = 0
+        # Load vectorizer for batch write
+        cvm.load_vectorizer()
 
-        for i, raw in enumerate(raw_entries):
-            if isinstance(raw, bytes):
-                raw = raw.decode("utf-8")
+        try:
+            flushed = 0
 
-            try:
-                entry = MUDConversationEntry.model_validate_json(raw)
-            except Exception as e:
-                logger.warning(f"Failed to parse entry for flush: {e}")
-                continue
+            for i, raw in enumerate(raw_entries):
+                if isinstance(raw, bytes):
+                    raw = raw.decode("utf-8")
 
-            if entry.saved:
-                continue
+                try:
+                    entry = MUDConversationEntry.model_validate_json(raw)
+                except Exception as e:
+                    logger.warning(f"Failed to parse entry for flush: {e}")
+                    continue
 
-            if entry.skip_save:
+                if entry.saved:
+                    continue
+
+                if entry.skip_save:
+                    entry.saved = True
+                    await client.set_conversation_entry(
+                        self.agent_id,
+                        i,
+                        entry.model_dump_json(),
+                    )
+                    continue
+
+                persist_content = entry.content
+                if entry.document_type in (DOC_CODE_ACTION, DOC_CODE_FILE):
+                    persist_content = _truncate_head_tail(
+                        persist_content,
+                        CODE_EVENT_SAVE_HEAD,
+                        CODE_EVENT_SAVE_TAIL,
+                    )
+
+                # Create CVM message
+                msg = ConversationMessage.create(
+                    conversation_id=entry.conversation_id,
+                    sequence_no=entry.sequence_no,
+                    role=entry.role,
+                    content=persist_content,
+                    document_type=entry.document_type,
+                    speaker_id=entry.speaker_id or ("world" if entry.role == "user" else self.persona_id),
+                    listener_id=LISTENER_ALL,
+                    user_id=self._resolve_user_id(entry),
+                    persona_id=self.persona_id,
+                    think=entry.think,
+                    metadata=json.dumps(entry.metadata) if entry.metadata else "",
+                    timestamp=int(entry.timestamp.timestamp()),
+                )
+
+                # Insert WITHOUT embedding parameter - let add_document compute all
+                cvm.insert(msg)
+
+                # Update entry as saved (doc_id is on the message, not returned by insert)
                 entry.saved = True
+                entry.doc_id = msg.doc_id
+
+                # Update in Redis
                 await client.set_conversation_entry(
                     self.agent_id,
                     i,
                     entry.model_dump_json(),
                 )
-                continue
+                flushed += 1
 
-            persist_content = entry.content
-            if entry.document_type in (DOC_CODE_ACTION, DOC_CODE_FILE):
-                persist_content = _truncate_head_tail(
-                    persist_content,
-                    CODE_EVENT_SAVE_HEAD,
-                    CODE_EVENT_SAVE_TAIL,
-                )
+                logger.debug(f"Flushed entry {msg.doc_id} to CVM")
 
-            # Create CVM message
-            msg = ConversationMessage.create(
-                conversation_id=entry.conversation_id,
-                sequence_no=entry.sequence_no,
-                role=entry.role,
-                content=persist_content,
-                document_type=entry.document_type,
-                speaker_id=entry.speaker_id or ("world" if entry.role == "user" else self.persona_id),
-                listener_id=LISTENER_ALL,
-                user_id=self._resolve_user_id(entry),
-                persona_id=self.persona_id,
-                think=entry.think,
-                metadata=json.dumps(entry.metadata) if entry.metadata else "",
-                timestamp=int(entry.timestamp.timestamp()),
-            )
+            if flushed > 0:
+                logger.info(f"Flushed {flushed} entries to CVM")
 
-            # Insert into CVM
-            doc_id = cvm.insert(msg)
+            return flushed
 
-            # Update entry as saved
-            entry.saved = True
-            entry.doc_id = doc_id
-
-            # Update in Redis
-            await client.set_conversation_entry(
-                self.agent_id,
-                i,
-                entry.model_dump_json(),
-            )
-            flushed += 1
-
-            logger.debug(f"Flushed entry {doc_id} to CVM")
-
-        if flushed > 0:
-            logger.info(f"Flushed {flushed} entries to CVM")
-
-        return flushed
+        finally:
+            # Always release vectorizer, even on error
+            cvm.release_vectorizer()
 
     @staticmethod
     def _resolve_user_id(entry: MUDConversationEntry) -> str:

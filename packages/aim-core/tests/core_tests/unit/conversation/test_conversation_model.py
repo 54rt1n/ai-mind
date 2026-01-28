@@ -26,6 +26,7 @@ def mock_chat_config():
     config.embedding_model = "mock_embedding_model"
     config.user_timezone = "UTC"
     config.embedding_device = None
+    config.keep_vectorizer_warm = True
     return config
 
 @pytest.fixture
@@ -43,7 +44,7 @@ def conversation_model(mock_maybe_init_folders, MockLoader, MockIndex, mock_chat
 
     # Ensure mocks were called as expected during init
     mock_maybe_init_folders.assert_called_once_with(TEST_MEMORY_PATH)
-    MockIndex.assert_called_once_with(Path('.', TEST_MEMORY_PATH, 'indices'), embedding_model="mock_embedding_model", device=None)
+    MockIndex.assert_called_once_with(Path('.', TEST_MEMORY_PATH, 'indices'), embedding_model="mock_embedding_model", device=None, skip_vectorizer=False, keep_warm=True)
     MockLoader.assert_called_once_with(conversations_dir=os.path.join(TEST_MEMORY_PATH, 'conversations'))
 
     # Attach mocks for later use if needed in tests

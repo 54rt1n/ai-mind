@@ -11,7 +11,7 @@ import json
 import logging
 from typing import TYPE_CHECKING, Optional
 
-from aim_mud_types import MUDEvent, EventType
+from aim_mud_types import MUDEvent, MUDConversationEntry, EventType
 from ...adapter import format_self_action_guidance
 
 if TYPE_CHECKING:
@@ -31,6 +31,10 @@ class EventsMixin:
         self: "MUDAgentWorker", timeout: float, accumulate_self_actions: bool = True, max_sequence_id: Optional[int] = None
     ) -> list[MUDEvent]:
         """Block until events arrive on agent's stream.
+
+        DEPRECATED: This method is replaced by get_new_conversation_entries().
+        The mediator now compiles events into conversation entries with embeddings.
+        Only retained for PENDING status handling (matching action_id echoes).
 
         Originally from worker.py lines 646-735
 
@@ -198,6 +202,10 @@ class EventsMixin:
     async def _drain_with_settle(self: "MUDAgentWorker", max_sequence_id: Optional[int] = None) -> list[MUDEvent]:
         """Drain events with settling delay for cascading events.
 
+        DEPRECATED: This method is replaced by get_new_conversation_entries().
+        The mediator now compiles events into conversation entries with embeddings.
+        Use get_new_conversation_entries() + collapse_consecutive_entries() instead.
+
         Originally from worker.py lines 736-777
 
         Drains events, waits settle_seconds, drains again.
@@ -266,6 +274,13 @@ class EventsMixin:
     ) -> None:
         """Push events to conversation history.
 
+        DEPRECATED: This method is replaced by mediator event compilation.
+        The mediator now compiles events into MUDConversationEntry objects
+        with pre-computed embeddings and pushes them directly to the
+        conversation list. Use get_new_conversation_entries() to read them.
+
+        Only retained for PENDING status handling (pushing action echo events).
+
         Simplified method that:
         1. Updates session.last_event_time
         2. Pushes events as user turn to conversation_manager
@@ -330,6 +345,10 @@ class EventsMixin:
     async def _drain_to_turn(self: "MUDAgentWorker") -> list[MUDEvent]:
         """Re-drain events that arrived during Phase 1 processing.
 
+        DEPRECATED: This method is replaced by get_new_conversation_entries().
+        The mediator now compiles events into conversation entries with embeddings.
+        Use get_new_conversation_entries() + collapse_consecutive_entries() instead.
+
         This method should be called after DecisionProcessor completes and before
         SpeakingProcessor or ThinkingTurnProcessor runs. It captures events that
         arrived while Phase 1 was executing, ensuring Phase 2 has the most current
@@ -376,6 +395,241 @@ class EventsMixin:
         logger.debug("Pushed re-drained events to conversation history")
 
         return new_events
+
+    # =========================================================================
+    # MUDLOGIC V2: Conversation Entry Reading (replaces event draining)
+    # =========================================================================
+
+    async def get_new_conversation_entries(
+        self: "MUDAgentWorker",
+        settle: bool = False,
+    ) -> list["MUDConversationEntry"]:
+        """Read new conversation entries with optional settling.
+
+        Reads entries from conversation list that were compiled by mediator.
+        Entries already have embeddings computed.
+
+        Args:
+            settle: If True, wait for entries to stop arriving before returning.
+                   Uses event_settle_seconds for timing between reads.
+
+        Returns:
+            List of new MUDConversationEntry objects.
+        """
+        if not settle:
+            # Fast path - read once and return
+            return await self._read_entries_once()
+
+        # Settling path - wait for entries to stop arriving
+        settle_time = self.config.event_settle_seconds
+        final_settle_time = settle_time / 3
+        all_entries: list[MUDConversationEntry] = []
+        drain_count = 0
+        empty_after_entries = 0
+
+        while True:
+            entries = await self._read_entries_once()
+            drain_count += 1
+
+            if not entries:
+                if not all_entries:
+                    # No new entries - cascade has settled
+                    if drain_count == 1:
+                        logger.warning(
+                            "First read returned 0 entries - turn assigned but list empty?"
+                        )
+                    break
+
+                empty_after_entries += 1
+                if empty_after_entries >= 2:
+                    logger.info(
+                        "Entry cascade settled after %.1fs with %d total entries",
+                        settle_time,
+                        len(all_entries),
+                    )
+                    break
+
+                logger.info(
+                    "Read 0 entries after %d total, waiting %.1fs for stragglers",
+                    len(all_entries),
+                    final_settle_time,
+                )
+                await asyncio.sleep(final_settle_time)
+                continue
+
+            all_entries.extend(entries)
+            empty_after_entries = 0
+            logger.info(
+                "Read %d entries (total %d), waiting %.1fs for more",
+                len(entries),
+                len(all_entries),
+                settle_time,
+            )
+            await asyncio.sleep(settle_time)
+
+        return all_entries
+
+    async def _read_entries_once(
+        self: "MUDAgentWorker",
+    ) -> list["MUDConversationEntry"]:
+        """Read entries once without settling.
+
+        Internal helper for get_new_conversation_entries().
+
+        Returns:
+            List of new MUDConversationEntry objects.
+        """
+        from aim_mud_types.client import RedisMUDClient
+        from aim_mud_types import MUDConversationEntry
+
+        client = RedisMUDClient(self.redis)
+
+        # Get current position
+        last_read = self.session.last_conversation_index
+
+        # Fetch new entries starting from last_read (read all available)
+        raw_entries = await client.get_conversation_entries(
+            self.config.agent_id,
+            start=last_read,
+            end=-1,
+        )
+
+        entries: list[MUDConversationEntry] = []
+        for raw in raw_entries:
+            if isinstance(raw, bytes):
+                raw = raw.decode("utf-8")
+            try:
+                entry = MUDConversationEntry.model_validate_json(raw)
+                entries.append(entry)
+            except Exception as e:
+                logger.warning(f"Failed to parse conversation entry: {e}")
+
+        # Update tracking position
+        if entries:
+            new_position = last_read + len(entries)
+            self.session.last_conversation_index = new_position
+            logger.debug(f"Read {len(entries)} entries, position now {new_position}")
+
+        return entries
+
+    def collapse_consecutive_entries(
+        self: "MUDAgentWorker",
+        entries: list["MUDConversationEntry"],
+    ) -> list["MUDConversationEntry"]:
+        """Collapse consecutive mud-world entries by same speaker_id.
+
+        Groups consecutive DOC_MUD_WORLD entries with same speaker_id
+        into single entries for cleaner LLM context display.
+
+        Args:
+            entries: List of conversation entries from mediator.
+
+        Returns:
+            Collapsed list (may be shorter than input).
+        """
+        from aim.constants import DOC_MUD_WORLD
+        from aim_mud_types import MUDConversationEntry
+
+        if not entries:
+            return []
+
+        collapsed: list[MUDConversationEntry] = []
+        current_group: list[MUDConversationEntry] = []
+
+        for entry in entries:
+            # Only collapse DOC_MUD_WORLD entries
+            if entry.document_type != DOC_MUD_WORLD:
+                # Flush current group
+                if current_group:
+                    collapsed.append(self._merge_entries(current_group))
+                    current_group = []
+                collapsed.append(entry)
+                continue
+
+            # Check if we can add to current group
+            if current_group:
+                last = current_group[-1]
+                # Same speaker_id and same document type?
+                if last.speaker_id == entry.speaker_id:
+                    current_group.append(entry)
+                    continue
+                else:
+                    # Different speaker - flush and start new
+                    collapsed.append(self._merge_entries(current_group))
+                    current_group = []
+
+            current_group.append(entry)
+
+        # Flush final group
+        if current_group:
+            collapsed.append(self._merge_entries(current_group))
+
+        return collapsed
+
+    def _merge_entries(
+        self: "MUDAgentWorker",
+        entries: list["MUDConversationEntry"],
+    ) -> "MUDConversationEntry":
+        """Merge multiple entries into one.
+
+        Args:
+            entries: List of entries to merge (must be non-empty).
+
+        Returns:
+            Single merged MUDConversationEntry.
+        """
+        from aim_mud_types import MUDConversationEntry
+
+        if len(entries) == 1:
+            return entries[0]
+
+        first = entries[0]
+        last = entries[-1]
+
+        # Join content
+        content = "\n\n".join(e.content for e in entries)
+
+        # Sum tokens
+        total_tokens = sum(e.tokens for e in entries)
+
+        # Merge metadata
+        merged_metadata = dict(first.metadata)
+        merged_metadata["event_count"] = sum(
+            e.metadata.get("event_count", 1) for e in entries
+        )
+        merged_metadata["merged_entry_count"] = len(entries)
+
+        # Collect all event IDs
+        all_event_ids: list[str] = []
+        for e in entries:
+            ids = e.metadata.get("event_ids", [])
+            if isinstance(ids, list):
+                all_event_ids.extend(ids)
+        merged_metadata["event_ids"] = all_event_ids
+
+        # Use first entry's embedding (representative)
+        # Could average embeddings, but first is simpler and sufficient
+        embedding = first.embedding
+
+        return MUDConversationEntry(
+            role=first.role,
+            content=content,
+            tokens=total_tokens,
+            document_type=first.document_type,
+            conversation_id=first.conversation_id,
+            sequence_no=first.sequence_no,
+            metadata=merged_metadata,
+            speaker_id=first.speaker_id,
+            timestamp=first.timestamp,
+            last_event_id=last.last_event_id,
+            embedding=embedding,
+            saved=False,
+            skip_save=first.skip_save,
+        )
+
+    # =========================================================================
+    # Legacy event draining (kept for PENDING status handling)
+    # =========================================================================
 
     async def _cleanup_drained_events(self: "MUDAgentWorker") -> bool:
         """Delete the event stream if all events have been drained to conversation.

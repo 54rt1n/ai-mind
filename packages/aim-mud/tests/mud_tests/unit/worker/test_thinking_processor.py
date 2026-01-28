@@ -275,7 +275,7 @@ class TestThinkingTurnProcessorHelpers:
         assert fields_dict.get("content") == "<reasoning>Test</reasoning>"
         assert fields_dict.get("source") == "reasoning"
         assert "created_at" in fields_dict  # Timestamp is stored as created_at
-        assert fields_dict.get("actions_since_generation") == "0"
+        assert "last_conversation_index" in fields_dict  # Conversation length at generation time
 
         # Verify expire was called with correct key and TTL
         expire_call = mock_worker.redis.expire.call_args

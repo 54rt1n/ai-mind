@@ -326,30 +326,30 @@ class ThoughtState(BaseModel):
 
     The throttle logic regenerates thoughts when EITHER condition is met:
     - Time-based: (now - created_at) >= THOUGHT_THROTTLE_SECONDS (300s = 5 min)
-    - Action-based: actions_since_generation >= THOUGHT_THROTTLE_ACTIONS (5)
+    - Conversation growth: current conversation length - last_conversation_index >= THOUGHT_THROTTLE_ACTIONS (5)
 
     Attributes:
         agent_id: Owner agent identifier
         content: The reasoning XML block (e.g., <reasoning>...</reasoning>)
         source: Origin of thought ("reasoning", "manual", "dreamer")
         created_at: When thought was generated (Unix timestamp in Redis)
-        actions_since_generation: Counter incremented on each idle/autonomous action
+        last_conversation_index: Conversation list length when thought was generated
     """
 
     agent_id: str
     content: str = ""
     source: str = "reasoning"  # "reasoning" | "manual" | "dreamer"
     created_at: datetime = Field(default_factory=_utc_now)
-    actions_since_generation: int = 0
+    last_conversation_index: int = 0
 
     @field_validator("created_at", mode="before")
     @classmethod
     def parse_datetime(cls, v):
         return _unix_to_datetime(v) or _utc_now()
 
-    @field_validator("actions_since_generation", mode="before")
+    @field_validator("last_conversation_index", mode="before")
     @classmethod
-    def parse_actions(cls, v):
+    def parse_conversation_index(cls, v):
         """Handle missing/empty field for backward compatibility."""
         if v is None or v == "":
             return 0
@@ -359,14 +359,15 @@ class ThoughtState(BaseModel):
     def serialize_datetime(self, dt: datetime) -> int:
         return _datetime_to_unix(dt)
 
-    def should_regenerate(self, now: datetime | None = None) -> bool:
-        """Check if thought should be regenerated based on throttle conditions.
+    def should_regenerate(self, current_conversation_length: int, now: datetime | None = None) -> bool:
+        """Check if thought should be regenerate based on throttle conditions.
 
         Returns True if EITHER condition is met:
         - Time elapsed >= 5 minutes (300 seconds)
-        - Actions since generation >= 5
+        - Conversation growth >= 5 messages since last thought
 
         Args:
+            current_conversation_length: Current length of conversation list
             now: Current time (defaults to UTC now)
 
         Returns:
@@ -374,7 +375,8 @@ class ThoughtState(BaseModel):
         """
         current = now or _utc_now()
         age_seconds = (current - self.created_at).total_seconds()
+        conversation_growth = current_conversation_length - self.last_conversation_index
         return (
             age_seconds >= THOUGHT_THROTTLE_SECONDS or
-            self.actions_since_generation >= THOUGHT_THROTTLE_ACTIONS
+            conversation_growth >= THOUGHT_THROTTLE_ACTIONS
         )

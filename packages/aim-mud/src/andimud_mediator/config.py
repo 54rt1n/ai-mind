@@ -32,3 +32,6 @@ class MediatorConfig:
     auto_analysis_enabled: bool = True
     system_idle_seconds: int = 15  # System idle threshold for triggering idle turns
     auto_analysis_cooldown_seconds: int = 60  # Prevent rapid re-triggering
+    # Event compilation settings
+    embedding_model: str = "mixedbread-ai/mxbai-embed-large-v1"
+    embedding_device: str = "cpu"

@@ -130,7 +130,7 @@ class TestThoughtMixin:
             b"content": b"Remember to check on the garden",
             b"source": b"dreamer",
             b"created_at": b"1704067200",
-            b"actions_since_generation": b"3",
+            b"last_conversation_index": b"42",
         }
 
         result = await client.get_thought_state("andi")
@@ -138,7 +138,7 @@ class TestThoughtMixin:
         assert result is not None
         assert result.content == "Remember to check on the garden"
         assert result.source == "dreamer"
-        assert result.actions_since_generation == 3
+        assert result.last_conversation_index == 42
 
     @pytest.mark.asyncio
     async def test_get_thought_state_not_found(self, client):
@@ -186,15 +186,17 @@ class TestThoughtMixin:
 
     @pytest.mark.asyncio
     async def test_should_generate_thought_action_threshold(self, client):
-        """Should return True when action threshold met."""
+        """Should return True when index gap >= 5."""
         import time
         client.redis.hgetall.return_value = {
             b"agent_id": b"andi",
             b"content": b"Test thought",
             b"source": b"reasoning",
             b"created_at": str(int(time.time())).encode(),  # Fresh
-            b"actions_since_generation": b"5",  # Threshold met
+            b"last_conversation_index": b"42",
         }
+        # Mock get_conversation_length to return 47 (gap of 5)
+        client.redis.llen = AsyncMock(return_value=47)
 
         result = await client.should_generate_thought("andi")
 
@@ -202,7 +204,7 @@ class TestThoughtMixin:
 
     @pytest.mark.asyncio
     async def test_should_generate_thought_time_threshold(self, client):
-        """Should return True when time threshold met."""
+        """Should return True when time elapsed >= 5 min AND gap > 0."""
         import time
         old_time = int(time.time()) - 400  # 6+ minutes ago
         client.redis.hgetall.return_value = {
@@ -210,8 +212,10 @@ class TestThoughtMixin:
             b"content": b"Test thought",
             b"source": b"reasoning",
             b"created_at": str(old_time).encode(),
-            b"actions_since_generation": b"0",
+            b"last_conversation_index": b"42",
         }
+        # Mock get_conversation_length to return 43 (gap of 1)
+        client.redis.llen = AsyncMock(return_value=43)
 
         result = await client.should_generate_thought("andi")
 
@@ -219,15 +223,17 @@ class TestThoughtMixin:
 
     @pytest.mark.asyncio
     async def test_should_generate_thought_throttle_active(self, client):
-        """Should return False when neither threshold met."""
+        """Should return False when gap is 0 (nothing new)."""
         import time
         client.redis.hgetall.return_value = {
             b"agent_id": b"andi",
             b"content": b"Test thought",
             b"source": b"reasoning",
             b"created_at": str(int(time.time())).encode(),  # Fresh
-            b"actions_since_generation": b"2",  # Below threshold
+            b"last_conversation_index": b"42",
         }
+        # Mock get_conversation_length to return 42 (gap of 0)
+        client.redis.llen = AsyncMock(return_value=42)
 
         result = await client.should_generate_thought("andi")
 
@@ -258,7 +264,7 @@ class TestSyncThoughtMixin:
             b"content": b"Remember to check on the garden",
             b"source": b"dreamer",
             b"created_at": b"1704067200",
-            b"actions_since_generation": b"3",
+            b"last_conversation_index": b"42",
         }
 
         result = sync_client.get_thought_state("andi")
@@ -266,7 +272,7 @@ class TestSyncThoughtMixin:
         assert result is not None
         assert result.content == "Remember to check on the garden"
         assert result.source == "dreamer"
-        assert result.actions_since_generation == 3
+        assert result.last_conversation_index == 42
 
     def test_get_thought_state_not_found(self, sync_client):
         """Should return None when no thought exists."""
@@ -284,7 +290,7 @@ class TestSyncThoughtMixin:
             agent_id="andi",
             content="Focus on emotional connections",
             source="manual",
-            actions_since_generation=0,
+            last_conversation_index=0,
         )
 
         result = sync_client.save_thought_state(thought, ttl_seconds=7200)

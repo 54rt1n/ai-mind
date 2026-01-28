@@ -104,7 +104,7 @@ class ThoughtMixin:
 
         Returns True if:
         - No thought exists, OR
-        - Existing thought meets throttle conditions (5min OR 5 actions)
+        - Existing thought meets throttle conditions (5min OR 5 messages)
 
         Args:
             agent_id: Agent identifier
@@ -115,7 +115,10 @@ class ThoughtMixin:
         thought = await self.get_thought_state(agent_id)
         if thought is None:
             return True
-        return thought.should_regenerate()
+
+        # Get current conversation length for gap calculation
+        current_length = await self.get_conversation_length(agent_id)
+        return thought.should_regenerate(current_length)
 
     # Legacy compatibility methods
 
