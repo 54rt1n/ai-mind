@@ -81,10 +81,27 @@ class HuggingFaceEmbedding:
 
         if self.work_device != "cpu":
             self.model.to(self.work_device)
-        
+
         results = [self._get_embedding(text) for text in texts]
 
         if self.work_device != "cpu":
             self.model.to('cpu')
-        
+
         return results
+
+    def to_device(self) -> None:
+        """Move model to work device (GPU) for batch processing."""
+        if self.work_device != "cpu":
+            self.model.to(self.work_device)
+
+    def to_cpu(self) -> None:
+        """Move model back to CPU after batch processing."""
+        if self.work_device != "cpu":
+            self.model.to('cpu')
+
+    def transform_batch(self, texts: list[str]) -> list[np.ndarray]:
+        """
+        Transform texts without moving model (assumes model already on device).
+        Use with to_device()/to_cpu() for efficient batch processing.
+        """
+        return [self._get_embedding(text) for text in texts]

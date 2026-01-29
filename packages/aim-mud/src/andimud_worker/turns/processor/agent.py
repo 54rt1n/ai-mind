@@ -311,7 +311,11 @@ class AgentTurnProcessor(BaseTurnProcessor):
                         actions_taken.append(action_obj)
                         emote_text = "took a moment to reimagine the room."
                         actions_taken.append(
-                            MUDAction(tool="emote", args={"action": emote_text})
+                            MUDAction(
+                                tool="emote",
+                                args={"action": emote_text},
+                                metadata={MUDAction.META_NON_PUBLISHED: True},
+                            )
                         )
                         await self.worker._emit_actions(actions_taken)
                     else:
@@ -336,7 +340,11 @@ class AgentTurnProcessor(BaseTurnProcessor):
                         object_name = resolve_target_name(self.worker.session, target)
                         emote_text = f"adjusted the {object_name}."
                         actions_taken.append(
-                            MUDAction(tool="emote", args={"action": emote_text})
+                            MUDAction(
+                                tool="emote",
+                                args={"action": emote_text},
+                                metadata={MUDAction.META_NON_PUBLISHED: True},
+                            )
                         )
                         await self.worker._emit_actions(actions_taken)
                     else:
@@ -371,7 +379,11 @@ class AgentTurnProcessor(BaseTurnProcessor):
             logger.error(f"Error during @agent turn processing: {e}", exc_info=True)
             thinking_parts.append(f"[ERROR] @agent turn processing failed: {e}")
             # Emit a graceful emote when LLM fails
-            action_obj = MUDAction(tool="emote", args={"action": "was at a loss for words."})
+            action_obj = MUDAction(
+                tool="emote",
+                args={"action": "was at a loss for words."},
+                metadata={MUDAction.META_NON_PUBLISHED: True},
+            )
             actions_taken.append(action_obj)
             await self.worker._emit_actions(actions_taken)
 

@@ -18,7 +18,8 @@
     "chatb": "deepseek-ai/DeepSeek-V3.2-Speciale",
     "chata": "deepseek-ai/DeepSeek-V3.2",
     "chat": "MiniMaxAI/MiniMax-M2.1",
-    "decision": "deepseek-ai/DeepSeek-V3-0324",
+    "decisiona": "deepseek-ai/DeepSeek-V3-0324",
+    "decision": "zai-org/GLM-4.6",
     "writing": "zai-org/GLM-4.6",
     "fallback": "deepseek-ai/DeepSeek-V3-0324",
     "tool": "MiniMaxAI/MiniMax-M2.1"

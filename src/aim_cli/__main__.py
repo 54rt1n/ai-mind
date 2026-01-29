@@ -349,7 +349,7 @@ def rebuild_index(co: ContextObject, agent_id: Optional[str], all_agents: bool, 
         index_exists = index_path.exists() and any(index_path.iterdir()) if index_path.exists() else False
 
         if full or not index_exists:
-            click.echo(f"[{label}] Performing full index rebuild...")
+            click.echo(f"[{label}] Performing full index rebuild (on {device})...")
             index = SearchIndex(index_path=index_path, embedding_model=co.config.embedding_model, device=device)
 
             # Load all conversations
@@ -387,7 +387,7 @@ def rebuild_index(co: ContextObject, agent_id: Optional[str], all_agents: bool, 
             click.echo(f"[{label}] Full index rebuild complete!")
 
         else:
-            click.echo(f"[{label}] Performing incremental index update...")
+            click.echo(f"[{label}] Performing incremental index update (on {device})...")
             index = SearchIndex(index_path=index_path, embedding_model=co.config.embedding_model, device=device)
 
             # Load all conversations
@@ -434,7 +434,7 @@ def rebuild_index(co: ContextObject, agent_id: Optional[str], all_agents: bool, 
                 raise click.Abort()
             click.echo(f"Discovered {len(agents)} agents: {', '.join(agents)}")
             for agent in agents:
-                click.echo(f"\nRebuilding index for {agent}...")
+                click.echo(f"\nRebuilding index for {agent} (on {device})...")
                 result = rebuild_agent_index(
                     agent_id=agent,
                     embedding_model=co.config.embedding_model,
@@ -449,7 +449,7 @@ def rebuild_index(co: ContextObject, agent_id: Optional[str], all_agents: bool, 
 
         # Handle --agent-id: use new utils-based rebuild
         if agent_id and conversations_dir is None and index_dir is None:
-            click.echo(f"Rebuilding index for {agent_id}...")
+            click.echo(f"Rebuilding index for {agent_id} (on {device})...")
             result = rebuild_agent_index(
                 agent_id=agent_id,
                 embedding_model=co.config.embedding_model,

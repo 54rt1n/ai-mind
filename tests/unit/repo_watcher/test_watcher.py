@@ -209,11 +209,12 @@ class TestPass1IndexSymbols:
         return watcher
 
     def test_pass1_unreadable_file(self, watcher_with_mock_cvm, tmp_path):
-        """Should return 0 for unreadable files."""
-        count = watcher_with_mock_cvm._pass1_index_symbols(
+        """Should return (0, 0) for unreadable files."""
+        indexed, total = watcher_with_mock_cvm._pass1_index_symbols(
             str(tmp_path / "nonexistent.py"), "python", str(tmp_path)
         )
-        assert count == 0
+        assert indexed == 0
+        assert total == 0
         watcher_with_mock_cvm.cvm.insert.assert_not_called()
 
     def test_pass1_registers_module(self, watcher_with_mock_cvm, tmp_path):

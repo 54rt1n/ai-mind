@@ -134,7 +134,7 @@ class DialogueStrategy:
             config_data = step_data.get('config', {})
             config = StepConfig(
                 max_tokens=config_data.get('max_tokens', 1024),
-                use_guidance=config_data.get('use_guidance', False),
+                link_guidance=config_data.get('link_guidance', config_data.get('use_guidance', False)),
                 is_thought=config_data.get('is_thought', False),
                 is_codex=config_data.get('is_codex', False),
                 temperature=config_data.get('temperature'),

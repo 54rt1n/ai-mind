@@ -16,7 +16,7 @@ from unittest.mock import MagicMock
 class TestParadigmLoading:
     """Tests for loading Paradigm objects from YAML config."""
 
-    def test_load_brainstorm(self):
+    def test_load_brainstorm(self, repo_root_cwd):
         """Should load brainstorm paradigm from config."""
         from aim_legacy.refiner.paradigm import Paradigm
 
@@ -24,7 +24,7 @@ class TestParadigmLoading:
         assert paradigm.name == "brainstorm"
         assert paradigm.aspect == "librarian"
 
-    def test_load_daydream(self):
+    def test_load_daydream(self, repo_root_cwd):
         """Should load daydream paradigm from config."""
         from aim_legacy.refiner.paradigm import Paradigm
 
@@ -32,7 +32,7 @@ class TestParadigmLoading:
         assert paradigm.name == "daydream"
         assert paradigm.aspect == "dreamer"
 
-    def test_load_knowledge(self):
+    def test_load_knowledge(self, repo_root_cwd):
         """Should load knowledge paradigm from config."""
         from aim_legacy.refiner.paradigm import Paradigm
 
@@ -40,7 +40,7 @@ class TestParadigmLoading:
         assert paradigm.name == "knowledge"
         assert paradigm.aspect == "philosopher"
 
-    def test_load_critique(self):
+    def test_load_critique(self, repo_root_cwd):
         """Should load critique paradigm from config."""
         from aim_legacy.refiner.paradigm import Paradigm
 
@@ -48,7 +48,7 @@ class TestParadigmLoading:
         assert paradigm.name == "critique"
         assert paradigm.aspect == "psychologist"
 
-    def test_load_journaler(self):
+    def test_load_journaler(self, repo_root_cwd):
         """Should load journaler paradigm from config."""
         from aim_legacy.refiner.paradigm import Paradigm
 
@@ -67,7 +67,7 @@ class TestParadigmLoading:
 class TestParadigmAvailable:
     """Tests for discovering available paradigms."""
 
-    def test_available_returns_list(self):
+    def test_available_returns_list(self, repo_root_cwd):
         """available() should return list of paradigm names."""
         from aim_legacy.refiner.paradigm import Paradigm
 
@@ -75,7 +75,7 @@ class TestParadigmAvailable:
         assert isinstance(available, list)
         assert len(available) >= 4  # At least brainstorm, daydream, knowledge, critique
 
-    def test_available_contains_expected(self):
+    def test_available_contains_expected(self, repo_root_cwd):
         """available() should include known paradigms."""
         from aim_legacy.refiner.paradigm import Paradigm
 
@@ -85,7 +85,7 @@ class TestParadigmAvailable:
         assert "knowledge" in available
         assert "critique" in available
 
-    def test_available_with_exclude(self):
+    def test_available_with_exclude(self, repo_root_cwd):
         """available(exclude=...) should filter out specified paradigms."""
         from aim_legacy.refiner.paradigm import Paradigm
 
@@ -97,7 +97,7 @@ class TestParadigmAvailable:
 class TestParadigmScenarioRouting:
     """Tests for scenario routing logic."""
 
-    def test_brainstorm_routes_by_approach(self):
+    def test_brainstorm_routes_by_approach(self, repo_root_cwd):
         """Brainstorm should route based on approach."""
         from aim_legacy.refiner.paradigm import Paradigm
 
@@ -105,7 +105,7 @@ class TestParadigmScenarioRouting:
         assert paradigm.get_scenario("philosopher") == "philosopher_dialogue"
         assert paradigm.get_scenario("journaler") == "journaler_dialogue"
 
-    def test_daydream_always_routes_to_daydream(self):
+    def test_daydream_always_routes_to_daydream(self, repo_root_cwd):
         """Daydream should always route to daydream_dialogue scenario."""
         from aim_legacy.refiner.paradigm import Paradigm
 
@@ -113,7 +113,7 @@ class TestParadigmScenarioRouting:
         assert paradigm.get_scenario("daydream") == "daydream_dialogue"
         assert paradigm.get_scenario(None) == "daydream_dialogue"
 
-    def test_knowledge_routes_to_researcher_or_approach(self):
+    def test_knowledge_routes_to_researcher_or_approach(self, repo_root_cwd):
         """Knowledge should route based on approach to dialogue scenarios."""
         from aim_legacy.refiner.paradigm import Paradigm
 
@@ -123,7 +123,7 @@ class TestParadigmScenarioRouting:
         assert paradigm.get_scenario("journaler") == "journaler_dialogue"
         assert paradigm.get_scenario("researcher") == "researcher_dialogue"
 
-    def test_critique_routes_to_critique(self):
+    def test_critique_routes_to_critique(self, repo_root_cwd):
         """Critique should route to critique_dialogue scenario."""
         from aim_legacy.refiner.paradigm import Paradigm
 
@@ -134,7 +134,7 @@ class TestParadigmScenarioRouting:
 class TestParadigmDocTypes:
     """Tests for document type configuration."""
 
-    def test_brainstorm_doc_types(self):
+    def test_brainstorm_doc_types(self, repo_root_cwd):
         """Brainstorm should have expected doc_types."""
         from aim_legacy.refiner.paradigm import Paradigm
 
@@ -142,7 +142,7 @@ class TestParadigmDocTypes:
         assert len(paradigm.doc_types) > 0
         assert "brainstorm" in paradigm.doc_types
 
-    def test_approach_doc_types(self):
+    def test_approach_doc_types(self, repo_root_cwd):
         """Should return approach-specific doc types."""
         from aim_legacy.refiner.paradigm import Paradigm
 
@@ -154,7 +154,7 @@ class TestParadigmDocTypes:
 class TestParadigmTools:
     """Tests for tool definitions."""
 
-    def test_get_select_tool(self):
+    def test_get_select_tool(self, repo_root_cwd):
         """Should return select_topic tool."""
         from aim_legacy.refiner.paradigm import Paradigm
 
@@ -162,7 +162,7 @@ class TestParadigmTools:
         tool = paradigm.get_select_tool()
         assert tool.function.name == "select_topic"
 
-    def test_get_validate_tool(self):
+    def test_get_validate_tool(self, repo_root_cwd):
         """Should return validate_exploration tool."""
         from aim_legacy.refiner.paradigm import Paradigm
 

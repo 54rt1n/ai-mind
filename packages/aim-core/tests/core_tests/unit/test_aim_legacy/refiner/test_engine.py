@@ -167,9 +167,9 @@ This territory has been well-explored...
         """Create an ExplorationEngine with mocked dependencies."""
         from aim_legacy.refiner.engine import ExplorationEngine
 
-        with patch('aim.refiner.engine.Persona') as MockPersona:
+        with patch('aim_legacy.refiner.engine.Persona') as MockPersona:
             MockPersona.from_config.return_value = mock_persona
-            with patch('aim.refiner.engine.ContextGatherer'):
+            with patch('aim_legacy.refiner.engine.ContextGatherer'):
                 return ExplorationEngine(
                     config=mock_config,
                     cvm=mock_cvm,
@@ -182,9 +182,9 @@ This territory has been well-explored...
         """Engine should initialize with provided config."""
         from aim_legacy.refiner.engine import ExplorationEngine
 
-        with patch('aim.refiner.engine.Persona') as MockPersona:
+        with patch('aim_legacy.refiner.engine.Persona') as MockPersona:
             MockPersona.from_config.return_value = mock_persona
-            with patch('aim.refiner.engine.ContextGatherer'):
+            with patch('aim_legacy.refiner.engine.ContextGatherer'):
                 engine = ExplorationEngine(
                     config=mock_config,
                     cvm=mock_cvm,
@@ -199,9 +199,9 @@ This territory has been well-explored...
         """Engine should use provided model_name parameter."""
         from aim_legacy.refiner.engine import ExplorationEngine
 
-        with patch('aim.refiner.engine.Persona') as MockPersona:
+        with patch('aim_legacy.refiner.engine.Persona') as MockPersona:
             MockPersona.from_config.return_value = mock_persona
-            with patch('aim.refiner.engine.ContextGatherer'):
+            with patch('aim_legacy.refiner.engine.ContextGatherer'):
                 engine = ExplorationEngine(
                     config=mock_config,
                     cvm=mock_cvm,
@@ -251,7 +251,7 @@ This territory has been well-explored...
     # Test 3-step flow - full acceptance
     @pytest.mark.asyncio
     async def test_run_exploration_full_flow_accept(
-        self, engine, mock_redis_cache_idle, mock_context_gatherer
+        self, engine, mock_redis_cache_idle, mock_context_gatherer, repo_root_cwd
     ):
         """Test complete 3-step flow with acceptance."""
         # Step 1: Topic selection response
@@ -275,7 +275,7 @@ This territory has been well-explored...
         with patch.object(engine, '_get_redis_cache', return_value=mock_redis_cache_idle):
             with patch.object(engine, '_get_llm_provider', return_value=mock_provider):
                 # Mock Paradigm.available() to always return brainstorm (which uses approach, not emotional_tone)
-                with patch('aim.refiner.engine.Paradigm.available', return_value=['brainstorm']):
+                with patch('aim_legacy.refiner.engine.Paradigm.available', return_value=['brainstorm']):
                     engine.context_gatherer = mock_context_gatherer
                     pipeline_id, suggested = await engine.run_exploration()
 
@@ -365,7 +365,7 @@ This territory has been well-explored...
 
     @pytest.mark.asyncio
     async def test_run_exploration_passes_context_documents_to_pipeline(
-        self, engine, mock_redis_cache_idle, mock_context_gatherer, mock_dreamer_client
+        self, engine, mock_redis_cache_idle, mock_context_gatherer, mock_dreamer_client, repo_root_cwd
     ):
         """run_exploration should pass context_documents to the pipeline."""
         step1_response = '''<think>...</think>
@@ -387,7 +387,7 @@ This territory has been well-explored...
         with patch.object(engine, '_get_redis_cache', return_value=mock_redis_cache_idle):
             with patch.object(engine, '_get_llm_provider', return_value=mock_provider):
                 # Mock Paradigm.available() to always return brainstorm (which uses approach, not emotional_tone)
-                with patch('aim.refiner.engine.Paradigm.available', return_value=['brainstorm']):
+                with patch('aim_legacy.refiner.engine.Paradigm.available', return_value=['brainstorm']):
                     engine.context_gatherer = mock_context_gatherer
                     await engine.run_exploration()
 
@@ -467,14 +467,14 @@ class TestExplorationEngineToolValidation:
 
     @pytest.mark.asyncio
     async def test_select_topic_uses_tool_user_for_validation(
-        self, mock_config, mock_cvm, mock_dreamer_client, mock_persona, sample_documents
+        self, mock_config, mock_cvm, mock_dreamer_client, mock_persona, sample_documents, repo_root_cwd
     ):
         """Engine should use ToolUser.process_response() for validation."""
         from aim_legacy.refiner.engine import ExplorationEngine
 
-        with patch('aim.refiner.engine.Persona') as MockPersona:
+        with patch('aim_legacy.refiner.engine.Persona') as MockPersona:
             MockPersona.from_config.return_value = mock_persona
-            with patch('aim.refiner.engine.ContextGatherer'):
+            with patch('aim_legacy.refiner.engine.ContextGatherer'):
                 engine = ExplorationEngine(
                     config=mock_config,
                     cvm=mock_cvm,
@@ -501,14 +501,14 @@ class TestExplorationEngineToolValidation:
 
     @pytest.mark.asyncio
     async def test_select_topic_handles_invalid_tool_call(
-        self, mock_config, mock_cvm, mock_dreamer_client, mock_persona, sample_documents
+        self, mock_config, mock_cvm, mock_dreamer_client, mock_persona, sample_documents, repo_root_cwd
     ):
         """Engine should handle invalid tool calls gracefully."""
         from aim_legacy.refiner.engine import ExplorationEngine
 
-        with patch('aim.refiner.engine.Persona') as MockPersona:
+        with patch('aim_legacy.refiner.engine.Persona') as MockPersona:
             MockPersona.from_config.return_value = mock_persona
-            with patch('aim.refiner.engine.ContextGatherer'):
+            with patch('aim_legacy.refiner.engine.ContextGatherer'):
                 engine = ExplorationEngine(
                     config=mock_config,
                     cvm=mock_cvm,
@@ -532,14 +532,14 @@ class TestExplorationEngineToolValidation:
 
     @pytest.mark.asyncio
     async def test_validate_exploration_accepts_valid_response(
-        self, mock_config, mock_cvm, mock_dreamer_client, mock_persona, sample_documents
+        self, mock_config, mock_cvm, mock_dreamer_client, mock_persona, sample_documents, repo_root_cwd
     ):
         """Engine should accept valid validation responses."""
         from aim_legacy.refiner.engine import ExplorationEngine
 
-        with patch('aim.refiner.engine.Persona') as MockPersona:
+        with patch('aim_legacy.refiner.engine.Persona') as MockPersona:
             MockPersona.from_config.return_value = mock_persona
-            with patch('aim.refiner.engine.ContextGatherer'):
+            with patch('aim_legacy.refiner.engine.ContextGatherer'):
                 engine = ExplorationEngine(
                     config=mock_config,
                     cvm=mock_cvm,
@@ -569,14 +569,14 @@ class TestExplorationEngineToolValidation:
 
     @pytest.mark.asyncio
     async def test_validate_exploration_handles_rejection(
-        self, mock_config, mock_cvm, mock_dreamer_client, mock_persona, sample_documents
+        self, mock_config, mock_cvm, mock_dreamer_client, mock_persona, sample_documents, repo_root_cwd
     ):
         """Engine should handle rejection responses."""
         from aim_legacy.refiner.engine import ExplorationEngine
 
-        with patch('aim.refiner.engine.Persona') as MockPersona:
+        with patch('aim_legacy.refiner.engine.Persona') as MockPersona:
             MockPersona.from_config.return_value = mock_persona
-            with patch('aim.refiner.engine.ContextGatherer'):
+            with patch('aim_legacy.refiner.engine.ContextGatherer'):
                 engine = ExplorationEngine(
                     config=mock_config,
                     cvm=mock_cvm,

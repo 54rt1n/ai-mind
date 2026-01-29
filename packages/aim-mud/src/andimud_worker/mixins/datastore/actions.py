@@ -119,4 +119,21 @@ class ActionsMixin:
         self._last_emitted_action_ids = emitted_action_ids
         self._last_emitted_expects_echo = expects_echo
 
+        # If no actions expect echo (all non-published), transition turn to READY immediately
+        if emitted_action_ids and not expects_echo:
+            from aim_mud_types import TurnRequestStatus
+            from aim_mud_types.helper import transition_turn_request
+
+            current = await self._get_turn_request()
+            if current and current.status not in (TurnRequestStatus.DONE, TurnRequestStatus.ABORTED):
+                transition_turn_request(
+                    current,
+                    status=TurnRequestStatus.READY,
+                    status_reason="Non-published actions emitted (no echo expected)",
+                    new_turn_id=True,
+                    update_heartbeat=True,
+                )
+                await self.update_turn_request(current, expected_turn_id=current.turn_id)
+                logger.info("Turn set to READY (non-published actions only)")
+
         return emitted_action_ids, expects_echo

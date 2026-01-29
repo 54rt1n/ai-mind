@@ -133,9 +133,10 @@ class DecisionProcessor(BaseTurnProcessor):
         self.worker._last_decision = result
 
         logger.info(
-            "Decision made: %s (tool=%s)",
+            "Decision made: %s (tool=%s, args=%s)",
             decision_type.name,
-            decision_tool
+            decision_tool,
+            decision_args
         )
 
         # Return empty actions - routing happens in commands based on DecisionType

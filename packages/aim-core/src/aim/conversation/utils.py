@@ -53,7 +53,7 @@ def rebuild_agent_index(
 
     # Load conversations
     loader = ConversationLoader(str(conversations_dir))
-    messages = loader.load_all()
+    messages = loader.load_all(use_tqdm=True)
 
     if len(messages) == 0:
         raise ValueError(f"No messages found in {conversations_dir}")
@@ -68,7 +68,7 @@ def rebuild_agent_index(
     if full or not index_exists:
         # Full rebuild
         index = SearchIndex(index_path=index_dir, embedding_model=embedding_model, device=device)
-        index.rebuild(documents, use_tqdm=False)
+        index.rebuild(documents, use_tqdm=True)
 
         # Get chunk stats
         chunk_stats = _get_chunk_stats(index)
@@ -83,7 +83,7 @@ def rebuild_agent_index(
         # Incremental update
         index = SearchIndex(index_path=index_dir, embedding_model=embedding_model, device=device)
         added_count, updated_count, deleted_count = index.incremental_update(
-            documents, use_tqdm=False, batch_size=batch_size
+            documents, use_tqdm=True, batch_size=batch_size
         )
 
         # Get chunk stats

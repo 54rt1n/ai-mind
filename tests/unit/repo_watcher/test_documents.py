@@ -11,7 +11,7 @@ import json
 
 import pytest
 
-from repo_watcher.documents import SourceDoc, SourceDocMetadata, SpecDoc
+from repo_watcher import SourceDoc, SourceDocMetadata, SpecDoc
 from aim.constants import DOC_SOURCE_CODE, DOC_SPEC
 
 
@@ -25,11 +25,13 @@ class TestSourceDocMetadata:
             symbol_type="function",
             line_start=10,
             line_end=25,
+            content_hash="abc123def456",
         )
         assert meta.symbol_name == "my_function"
         assert meta.symbol_type == "function"
         assert meta.line_start == 10
         assert meta.line_end == 25
+        assert meta.content_hash == "abc123def456"
         assert meta.parent_symbol is None
         assert meta.signature is None
         assert meta.imports == []
@@ -41,12 +43,14 @@ class TestSourceDocMetadata:
             symbol_type="method",
             line_start=192,
             line_end=196,
+            content_hash="def456abc789",
             parent_symbol="ChatConfig",
             signature="def from_env(cls) -> ChatConfig",
             imports=["os", "typing.Optional"],
         )
         assert meta.parent_symbol == "ChatConfig"
         assert meta.signature is not None
+        assert meta.content_hash == "def456abc789"
         assert len(meta.imports) == 2
 
     def test_metadata_to_json(self):
@@ -56,6 +60,7 @@ class TestSourceDocMetadata:
             symbol_type="function",
             line_start=1,
             line_end=5,
+            content_hash="test123hash",
         )
         json_str = meta.model_dump_json()
         parsed = json.loads(json_str)
@@ -64,6 +69,7 @@ class TestSourceDocMetadata:
         assert parsed["symbol_type"] == "function"
         assert parsed["line_start"] == 1
         assert parsed["line_end"] == 5
+        assert parsed["content_hash"] == "test123hash"
 
     def test_symbol_types(self):
         """Metadata accepts various symbol types."""
@@ -73,6 +79,7 @@ class TestSourceDocMetadata:
                 symbol_type=sym_type,
                 line_start=1,
                 line_end=10,
+                content_hash="hash123",
             )
             assert meta.symbol_type == sym_type
 
@@ -88,6 +95,7 @@ class TestSourceDoc:
             symbol_type="function",
             line_start=15,
             line_end=30,
+            content_hash="sample123hash",
             signature="def process_data(data: dict) -> str",
             imports=["json"],
         )
@@ -119,7 +127,7 @@ class TestSourceDoc:
         assert doc.branch == 0
 
     def test_create_with_symbol_path(self, sample_metadata):
-        """SourceDoc.create should build doc_id from file_path::symbol_path."""
+        """SourceDoc.create should build doc_id from file_path::symbol_path:line_start."""
         doc = SourceDoc.create(
             file_path="packages/aim-core/src/aim/config.py",
             symbol_path="ChatConfig.from_env",
@@ -129,7 +137,8 @@ class TestSourceDoc:
             timestamp=1234567890,
         )
 
-        assert doc.doc_id == "packages/aim-core/src/aim/config.py::ChatConfig.from_env"
+        # doc_id now includes line_start for uniqueness
+        assert doc.doc_id == "packages/aim-core/src/aim/config.py::ChatConfig.from_env:15"
         assert doc.content == "def from_env(cls): ..."
         assert doc.persona_id == "blip"
         assert doc.timestamp == 1234567890
@@ -178,6 +187,7 @@ class TestSourceDoc:
                     symbol_type="class",
                     line_start=10,
                     line_end=50,
+                    content_hash="hash1",
                 ),
                 persona_id="blip",
                 timestamp=1234567890,
@@ -191,6 +201,7 @@ class TestSourceDoc:
                     symbol_type="method",
                     line_start=20,
                     line_end=30,
+                    content_hash="hash2",
                 ),
                 persona_id="blip",
                 timestamp=1234567890,
@@ -305,7 +316,16 @@ class TestModuleExports:
 
     def test_can_import_from_package(self):
         """All document models should be importable from package."""
+        # Import from repo_watcher package (re-exported from aim_code.documents)
         from repo_watcher import SourceDoc, SourceDocMetadata, SpecDoc
+
+        assert SourceDoc is not None
+        assert SourceDocMetadata is not None
+        assert SpecDoc is not None
+
+    def test_can_import_from_aim_code(self):
+        """Document models should also be importable from aim_code.documents."""
+        from aim_code.documents import SourceDoc, SourceDocMetadata, SpecDoc
 
         assert SourceDoc is not None
         assert SourceDocMetadata is not None

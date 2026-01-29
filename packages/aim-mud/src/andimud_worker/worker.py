@@ -483,12 +483,16 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                     if turn_request.status == TurnRequestStatus.PENDING:
                         pending_action_ids = set((turn_request.metadata or {}).get("pending_action_ids", []))
                         if pending_action_ids:
-                            # Check for PENDING timeout (60 seconds)
+                            # Mediator is responsible for clearing PENDING when echo arrives
+                            # Worker just maintains heartbeat while waiting
+
+                            # Safety fallback: timeout after 60 seconds if mediator fails
                             if turn_request.assigned_at:
                                 pending_duration = (datetime.now(timezone.utc) - turn_request.assigned_at).total_seconds()
                                 if pending_duration > 60:
                                     logger.warning(
-                                        f"PENDING timeout after {pending_duration:.0f}s, transitioning to READY"
+                                        f"PENDING timeout after {pending_duration:.0f}s (mediator failed to clear), "
+                                        f"transitioning to READY"
                                     )
                                     current = await self._get_turn_request()
                                     if current:
@@ -496,7 +500,7 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                                         transition_turn_request(
                                             current,
                                             status=TurnRequestStatus.READY,
-                                            status_reason="PENDING timeout (echo not received)",
+                                            status_reason="PENDING timeout - mediator did not clear in time",
                                             new_turn_id=True,
                                             update_heartbeat=True,
                                         )
@@ -504,51 +508,10 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                                     await asyncio.sleep(self.config.turn_request_poll_interval)
                                     continue
 
-                            # Drain events looking for matching action_ids
-                            events = await self.drain_events(timeout=0)
-                            matched_action_ids: set[str] = set()
-                            for event in events:
-                                event_action_id = event.action_id
-                                if event_action_id and event_action_id in pending_action_ids:
-                                    matched_action_ids.add(event_action_id)
-                                    logger.debug(f"Matched echo for action_id={event_action_id}")
-
-                            if events:
-                                # Push all drained events to conversation
-                                await self._push_events_to_conversation(events)
-                                # Persist last_event_id to Redis (fixes SLEEP_AWARE tracking)
-                                last_event = events[-1]
-                                if last_event.event_id:
-                                    await self._update_agent_profile(last_event_id=last_event.event_id)
-
-                            # Check if ALL echoes received
-                            if matched_action_ids == pending_action_ids:
-                                # Transition to READY
-                                logger.info(f"All {len(pending_action_ids)} action echoes received")
-                                current = await self._get_turn_request()
-                                if current:
-                                    current.metadata = {}  # Clear pending_action_ids
-                                    transition_turn_request(
-                                        current,
-                                        status=TurnRequestStatus.READY,
-                                        status_reason="Action echo received",
-                                        new_turn_id=True,
-                                        update_heartbeat=True,
-                                    )
-                                    await self.update_turn_request(current, expected_turn_id=turn_request.turn_id)
-                                    logger.info(f"Turn transitioned to READY after action echo")
-                            elif matched_action_ids:
-                                # Partial match - update metadata and continue waiting
-                                logger.debug(
-                                    f"Partial echo: {len(matched_action_ids)}/{len(pending_action_ids)} received"
-                                )
-                                # Update heartbeat while waiting
-                                await self.atomic_heartbeat_update()
-                            else:
-                                # No matches yet - update heartbeat while waiting
-                                await self.atomic_heartbeat_update()
+                            # Update heartbeat while waiting for mediator
+                            await self.atomic_heartbeat_update()
                         else:
-                            # No pending_action_ids but status is PENDING - recover
+                            # No pending_action_ids but status is PENDING - invalid state, recover
                             logger.warning("PENDING status but no pending_action_ids, transitioning to READY")
                             current = await self._get_turn_request()
                             if current:
@@ -556,7 +519,7 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                                 transition_turn_request(
                                     current,
                                     status=TurnRequestStatus.READY,
-                                    status_reason="Recovered from PENDING with no action_ids",
+                                    status_reason="Recovered from invalid PENDING state (no action_ids)",
                                     new_turn_id=True,
                                     update_heartbeat=True,
                                 )

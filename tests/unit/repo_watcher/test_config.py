@@ -60,29 +60,19 @@ class TestRepoConfig:
         config = RepoConfig(
             repo_id="test-repo",
             agent_id="blip",
-            memory_path=Path("memory/blip"),
-            embedding_model="mixedbread-ai/mxbai-embed-large-v1",
             sources=[
                 SourcePath(path="src", language="python"),
             ],
         )
         assert config.repo_id == "test-repo"
         assert config.agent_id == "blip"
-        assert config.memory_path == Path("memory/blip")
-        assert config.embedding_model == "mixedbread-ai/mxbai-embed-large-v1"
-        assert config.device == "cpu"  # Default
-        assert config.user_timezone is None  # Default
         assert len(config.sources) == 1
 
     def test_full_config(self):
-        """Can create RepoConfig with all fields."""
+        """Can create RepoConfig with multiple sources."""
         config = RepoConfig(
             repo_id="ai-mind",
             agent_id="blip",
-            memory_path=Path("memory/blip"),
-            embedding_model="mixedbread-ai/mxbai-embed-large-v1",
-            device="cuda:0",
-            user_timezone="America/Los_Angeles",
             sources=[
                 SourcePath(
                     path="packages/aim-core/src",
@@ -96,8 +86,8 @@ class TestRepoConfig:
                 ),
             ],
         )
-        assert config.device == "cuda:0"
-        assert config.user_timezone == "America/Los_Angeles"
+        assert config.repo_id == "ai-mind"
+        assert config.agent_id == "blip"
         assert len(config.sources) == 2
 
     def test_config_from_dict(self):
@@ -105,9 +95,6 @@ class TestRepoConfig:
         config_dict = {
             "repo_id": "ai-mind",
             "agent_id": "blip",
-            "memory_path": "memory/blip",
-            "embedding_model": "mixedbread-ai/mxbai-embed-large-v1",
-            "device": "cuda:0",
             "sources": [
                 {
                     "path": "packages/aim-core/src",
@@ -118,7 +105,7 @@ class TestRepoConfig:
         }
         config = RepoConfig(**config_dict)
         assert config.repo_id == "ai-mind"
-        assert isinstance(config.memory_path, Path)
+        assert config.agent_id == "blip"
         assert len(config.sources) == 1
         assert isinstance(config.sources[0], SourcePath)
 
@@ -127,10 +114,6 @@ class TestRepoConfig:
         yaml_content = """
 repo_id: ai-mind
 agent_id: blip
-memory_path: memory/blip
-embedding_model: mixedbread-ai/mxbai-embed-large-v1
-device: cuda:0
-user_timezone: America/Los_Angeles
 
 sources:
   - path: packages/aim-core/src
@@ -145,7 +128,6 @@ sources:
 
         assert config.repo_id == "ai-mind"
         assert config.agent_id == "blip"
-        assert config.device == "cuda:0"
         assert len(config.sources) == 2
         assert config.sources[0].language == "python"
         assert config.sources[1].language == "typescript"
@@ -155,8 +137,6 @@ sources:
         config = RepoConfig(
             repo_id="empty",
             agent_id="test",
-            memory_path="memory/test",
-            embedding_model="model",
             sources=[],
         )
         assert config.sources == []
@@ -166,8 +146,6 @@ sources:
         config = RepoConfig(
             repo_id="multi",
             agent_id="test",
-            memory_path="memory/test",
-            embedding_model="model",
             sources=[
                 SourcePath(path="src", language="python"),
                 SourcePath(path="packages/aim-core/src", language="python"),

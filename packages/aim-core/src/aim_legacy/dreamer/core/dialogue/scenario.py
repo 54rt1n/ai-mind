@@ -518,7 +518,7 @@ class DialogueScenario:
                 combined_guidance = guidance or ""
 
                 # Append user-provided guidance if use_guidance is enabled
-                if step.config.use_guidance and self.state.guidance:
+                if step.config.link_guidance and self.state.guidance:
                     if combined_guidance:
                         combined_guidance = f"{combined_guidance}\n\n[Guidance: {self.state.guidance}]"
                     else:
@@ -546,7 +546,7 @@ class DialogueScenario:
 
             # Build combined guidance (step guidance first, then user guidance)
             combined_guidance = guidance or ""
-            if step.config.use_guidance and self.state.guidance:
+            if step.config.link_guidance and self.state.guidance:
                 if combined_guidance:
                     combined_guidance = f"{combined_guidance}\n\n[Guidance: {self.state.guidance}]"
                 else:
@@ -566,7 +566,7 @@ class DialogueScenario:
                 # Last dialogue turn was assistant, need to add guidance as user
                 # Build combined guidance (step guidance first, then user guidance)
                 combined_guidance = guidance or ""
-                if step.config.use_guidance and self.state.guidance:
+                if step.config.link_guidance and self.state.guidance:
                     if combined_guidance:
                         combined_guidance = f"{combined_guidance}\n\n[Guidance: {self.state.guidance}]"
                     else:
@@ -578,7 +578,7 @@ class DialogueScenario:
         if turns and turns[-1]['role'] != 'user':
             # Build combined guidance (step guidance first, then user guidance)
             combined_guidance = guidance or ""
-            if step.config.use_guidance and self.state.guidance:
+            if step.config.link_guidance and self.state.guidance:
                 if combined_guidance:
                     combined_guidance = f"{combined_guidance}\n\n[Guidance: {self.state.guidance}]"
                 else:

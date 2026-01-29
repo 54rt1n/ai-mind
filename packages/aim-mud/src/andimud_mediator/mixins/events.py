@@ -162,9 +162,10 @@ class EventsMixin:
         )
 
         # Clear PENDING turn states FIRST (before any early returns)
-        # Check all registered agents since we don't have room context yet
+        # Only check agents in the room where the action occurred
         if event.action_id:
-            agents_to_check = list(self.registered_agents) if self.registered_agents else []
+            agents_in_room = await self._agents_from_room_profile(event.room_id)
+            agents_to_check = [a for a in agents_in_room if a in self.registered_agents]
             if agents_to_check:
                 await self._clear_pending_for_echo(event, agents_to_check)
 

@@ -232,7 +232,11 @@ class TestThinkingProcessorEmbeddingPassthrough:
         worker.model.max_tokens = 8192
         worker.chat_config = MagicMock()
         worker.chat_config.max_tokens = 1024
-        worker.redis = MagicMock()
+        # Mock redis with async methods
+        worker.redis = AsyncMock()
+        worker.redis.llen = AsyncMock(return_value=10)
+        worker.redis.hset = AsyncMock()
+        worker.redis.expire = AsyncMock()
         worker._is_fresh_session = AsyncMock(return_value=False)
         worker._check_abort_requested = AsyncMock(return_value=False)
         worker._load_thought_content = AsyncMock()

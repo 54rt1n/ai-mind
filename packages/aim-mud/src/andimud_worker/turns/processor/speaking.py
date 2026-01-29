@@ -160,6 +160,7 @@ class SpeakingProcessor(BaseTurnProcessor):
                     break
 
                 logger.warning(f"Response missing Emotional State header (attempt {attempt_label})")
+                logger.info(f"Response preview (first 1000 chars): {cleaned_response[:1000]}")
 
                 # Add format guidance (stronger for fallback)
                 if format_attempt < max_chat_retries:
@@ -188,7 +189,11 @@ class SpeakingProcessor(BaseTurnProcessor):
             # After loop - check if valid
             if not has_emotional_state_header(cleaned_response):
                 logger.error(f"Failed after {max_chat_retries} chat attempts" + (" and fallback" if used_fallback else ""))
-                action = MUDAction(tool="emote", args={"action": "struggles with expressing themselves."})
+                action = MUDAction(
+                    tool="emote",
+                    args={"action": "struggles with expressing themselves."},
+                    metadata={MUDAction.META_NON_PUBLISHED: True},
+                )
                 actions_taken.append(action)
                 thinking_parts.append("[ERROR] Failed to generate valid response format after all retry attempts")
                 await self.worker._emit_actions(actions_taken)
@@ -210,7 +215,11 @@ class SpeakingProcessor(BaseTurnProcessor):
             logger.error(f"Error during speaking turn processing: {e}", exc_info=True)
             thinking_parts.append(f"[ERROR] Speaking turn processing failed: {e}")
             # Emit a graceful emote when LLM fails
-            action = MUDAction(tool="emote", args={"action": "looks sick and unable to speak."})
+            action = MUDAction(
+                tool="emote",
+                args={"action": "looks sick and unable to speak."},
+                metadata={MUDAction.META_NON_PUBLISHED: True},
+            )
             actions_taken.append(action)
             await self.worker._emit_actions(actions_taken)
 

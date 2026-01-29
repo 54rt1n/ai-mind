@@ -194,9 +194,8 @@ class SearchIndex:
                 device=self.device,
             )
         elif self.vectorizer is not None and self.keep_warm:
-            # Move from CPU to GPU if warming
-            logger.debug("Moving vectorizer to GPU")
-            self.vectorizer.to(self.device)
+            # Vectorizer already exists (warm) - model moves to GPU on next call
+            logger.debug("Vectorizer warm (will move to GPU on next embedding call)")
 
     def release_vectorizer(self) -> None:
         """Release explicitly loaded vectorizer to free GPU memory.
@@ -209,8 +208,8 @@ class SearchIndex:
         """
         if self.skip_vectorizer and self.vectorizer is not None:
             if self.keep_warm:
-                logger.info("Moving vectorizer to CPU (keep_warm=True)")
-                self.vectorizer.to("cpu")
+                # Model already on CPU (HuggingFaceEmbedding moves to CPU after each call)
+                logger.info("Keeping vectorizer warm on CPU (keep_warm=True)")
             else:
                 logger.info("Releasing vectorizer (keep_warm=False)")
                 del self.vectorizer
@@ -260,7 +259,7 @@ class SearchIndex:
             start += slide
         return chunks
 
-    def _expand_document_to_entries(self, doc: dict) -> list[dict]:
+    def _expand_document_to_entries(self, doc: dict, use_tqdm: bool = False) -> list[dict]:
         """
         Expand a document into entries at all chunk levels.
 
@@ -395,40 +394,68 @@ class SearchIndex:
 
         # First expand all documents to entries (full + chunks)
         all_entries = []
-        for doc in documents:
-            all_entries.extend(self._expand_document_to_entries(doc))
+        if use_tqdm:
+            from tqdm import tqdm
+            doc_iterator = tqdm(
+                documents,
+                desc="Expanding documents to chunks",
+                unit="doc",
+                position=0,
+                leave=True
+            )
+            for doc in doc_iterator:
+                entries = self._expand_document_to_entries(doc, use_tqdm=False)
+                all_entries.extend(entries)
+                doc_iterator.set_postfix({"total_entries": len(all_entries)})
+        else:
+            for doc in documents:
+                all_entries.extend(self._expand_document_to_entries(doc, use_tqdm=False))
 
         writer = self.index.writer()
         num_entries = len(all_entries)
 
-        if use_tqdm:
-            from tqdm import tqdm
-            num_batches = (num_entries + batch_size - 1) // batch_size
+        # Move model to GPU once for all batches
+        self.vectorizer.to_device()
 
-            for i in tqdm(range(num_batches), total=num_batches, desc="Adding Entries in Batches"):
-                start_idx = i * batch_size
-                end_idx = min((i + 1) * batch_size, num_entries)
-                batch_entries = all_entries[start_idx:end_idx]
+        try:
+            if use_tqdm:
+                from tqdm import tqdm
+                num_batches = (num_entries + batch_size - 1) // batch_size
 
-                if not batch_entries:
-                    continue
+                for i in tqdm(
+                    range(num_batches),
+                    total=num_batches,
+                    desc="Vectorizing and writing batches",
+                    unit="batch",
+                    position=0,
+                    leave=True
+                ):
+                    start_idx = i * batch_size
+                    end_idx = min((i + 1) * batch_size, num_entries)
+                    batch_entries = all_entries[start_idx:end_idx]
 
-                # Vectorize the content of the current batch
-                contents = [entry["content"] for entry in batch_entries]
-                indices = self.vectorizer.transform(contents)
+                    if not batch_entries:
+                        continue
 
-                # Add entries from the batch to the writer
-                for j, entry in enumerate(batch_entries):
-                    index_a = indices[j]
+                    # Vectorize the content of the current batch (model already on GPU)
+                    contents = [entry["content"] for entry in batch_entries]
+                    indices = self.vectorizer.transform_batch(contents)
+
+                    # Add entries from the batch to the writer
+                    for j, entry in enumerate(batch_entries):
+                        index_a = indices[j]
+                        tantivy_doc = self.to_doc(entry, index_a=index_a)
+                        writer.add_document(tantivy_doc)
+            else:
+                # Vectorize all entries first (model already on GPU)
+                indices = self.vectorizer.transform_batch([entry["content"] for entry in all_entries])
+                for i, entry in enumerate(all_entries):
+                    index_a = indices[i]
                     tantivy_doc = self.to_doc(entry, index_a=index_a)
                     writer.add_document(tantivy_doc)
-        else:
-            # Vectorize all entries first
-            indices = self.vectorizer.transform([entry["content"] for entry in all_entries])
-            for i, entry in enumerate(all_entries):
-                index_a = indices[i]
-                tantivy_doc = self.to_doc(entry, index_a=index_a)
-                writer.add_document(tantivy_doc)
+        finally:
+            # Always move model back to CPU, even if there's an error
+            self.vectorizer.to_cpu()
 
         writer.commit()
         self.index.reload()
@@ -595,8 +622,9 @@ class SearchIndex:
 
             shutil.rmtree(self.index_path)
 
-        # Reinitialize with stored config (preserves skip_vectorizer setting)
-        self.__init__(self.index_path, embedding_model=self.embedding_model, device=self.device, skip_vectorizer=self.skip_vectorizer)
+        # Recreate directory and Index object (don't call __init__ - that creates a second instance)
+        self.index_path.mkdir(parents=True, exist_ok=True)
+        self.index = Index(self.schema, str(self.index_path))
 
         # Add all documents (will raise if skip_vectorizer=True)
         self.add_documents(documents, use_tqdm=use_tqdm)

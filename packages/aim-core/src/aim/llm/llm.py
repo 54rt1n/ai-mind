@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Generator
 
 import tiktoken
+from tqdm import tqdm
 
 from ..config import ChatConfig
 
@@ -181,8 +182,7 @@ class OpenAIProvider(LLMProvider):
 
             progress = 0
             raw_chunks: list[str] = []
-            lastpct = 0
-            tenpct = int(config.max_tokens * 0.1)
+            in_reasoning_block = False
 
             try:
                 # Write all messages to trace file (after system message has been prepended)
@@ -192,6 +192,7 @@ class OpenAIProvider(LLMProvider):
                     # Write the final messages array that will be sent to the API
                     trace_path.write_text(json.dumps(messages, indent=2, default=str))
 
+                pbar = None
                 for t in self.openai.chat.completions.create(
                     model=model,
                     messages=messages,
@@ -206,15 +207,56 @@ class OpenAIProvider(LLMProvider):
                     **rargs
                 ):
                     c: Optional[ChatCompletionChunk] = t
+
+                    # Create progress bar on first chunk
+                    if pbar is None:
+                        pbar = tqdm(total=config.max_tokens, desc="Streaming", unit="tok", leave=False)
+
                     progress += 1
-                    pct = progress / config.max_tokens
-                    if pct > (lastpct + tenpct):
-                        lastpct = pct
-                        logger.info(f"{pct*100}% done")
+                    pbar.update(1)
+
                     if c.choices:
-                        yield c.choices[0].delta.content
-                        if c.choices[0].delta.content is not None:
-                            raw_chunks.append(c.choices[0].delta.content)
+                        choice = c.choices[0]
+                        content = None
+                        is_reasoning = False
+
+                        # Try delta.content first (standard streaming format)
+                        if choice.delta and choice.delta.content is not None:
+                            content = choice.delta.content
+                        # Fall back to text field (some models/providers use this)
+                        elif hasattr(choice, 'text') and choice.text:
+                            content = choice.text
+                        # Fall back to reasoning field (reasoning models)
+                        elif hasattr(choice, 'reasoning') and choice.reasoning:
+                            content = choice.reasoning
+                            is_reasoning = True
+
+                        if content:
+                            # Handle transitions into/out of reasoning blocks
+                            if is_reasoning and not in_reasoning_block:
+                                # Start reasoning block
+                                yield "<think>"
+                                raw_chunks.append("<think>")
+                                in_reasoning_block = True
+                            elif not is_reasoning and in_reasoning_block:
+                                # End reasoning block
+                                yield "</think>"
+                                raw_chunks.append("</think>")
+                                in_reasoning_block = False
+
+                            yield content
+                            raw_chunks.append(content)
+                        else:
+                            logger.debug(f"Skipping empty chunk")
+
+                # Close any open reasoning block
+                if in_reasoning_block:
+                    yield "</think>"
+                    raw_chunks.append("</think>")
+
+                # Close progress bar
+                if pbar is not None:
+                    pbar.close()
 
                 # Write raw model response to trace_out.txt
                 try:

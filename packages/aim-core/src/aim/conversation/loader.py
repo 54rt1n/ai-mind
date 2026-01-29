@@ -4,6 +4,7 @@
 import json
 import logging
 from pathlib import Path
+from tqdm import tqdm
 
 from .message import ConversationMessage
 
@@ -18,29 +19,64 @@ class ConversationLoader:
         if not self.conversations_dir.exists():
             self.conversations_dir.mkdir(parents=True)
 
-    def load_all(self) -> list[ConversationMessage]:
+    def load_all(self, use_tqdm: bool = True) -> list[ConversationMessage]:
         """Load all conversations from JSONL files"""
         messages = []
-        
-        for jsonl_file in self.conversations_dir.glob("*.jsonl"):
+
+        # Get list of files first to show total in progress bar
+        jsonl_files = list(self.conversations_dir.glob("*.jsonl"))
+
+        # Wrap with tqdm if requested
+        file_iterator = tqdm(
+            jsonl_files,
+            desc="Loading conversation files",
+            unit="file",
+            position=0,
+            leave=True
+        ) if use_tqdm else jsonl_files
+
+        for jsonl_file in file_iterator:
             try:
-                messages.extend(self.load_file(jsonl_file))
+                file_messages = self.load_file(jsonl_file, use_tqdm=use_tqdm)
+                messages.extend(file_messages)
+
+                # Update description to show running total
+                if use_tqdm:
+                    file_iterator.set_postfix({"total_messages": len(messages)})
             except Exception as e:
                 logger.error(f"Error loading {jsonl_file}: {e}")
                 raise
-                
+
         logger.info(f"Loaded {len(messages)} messages from {self.conversations_dir}")
         return messages
 
-    def load_file(self, conversation_path: Path) -> list[ConversationMessage]:
+    def load_file(self, conversation_path: Path, use_tqdm: bool = False) -> list[ConversationMessage]:
         """Load a single conversation file"""
 
         if not conversation_path.exists():
             raise FileNotFoundError(f"Conversation {conversation_path.name} not found")
 
         messages = []
+
+        # For progress bar, we need to count lines first (only if using tqdm for large files)
+        if use_tqdm:
+            with open(conversation_path, 'r') as f:
+                total_lines = sum(1 for _ in f)
+
         with open(conversation_path, 'r') as f:
-            for line_num, line in enumerate(f, 1):
+            # Wrap line iterator with tqdm if requested
+            line_iterator = enumerate(f, 1)
+            if use_tqdm and total_lines > 100:  # Only show progress for files with 100+ messages
+                line_iterator = tqdm(
+                    line_iterator,
+                    total=total_lines,
+                    desc=f"  {conversation_path.name}",
+                    unit="msg",
+                    position=1,
+                    leave=False
+                )
+
+            for line_num, line in line_iterator:
                 try:
                     entry = json.loads(line)
                     message = ConversationMessage.from_dict(entry)
@@ -51,7 +87,7 @@ class ConversationLoader:
                 except KeyError as e:
                     logger.error(f"Missing required field in {conversation_path}:{line_num}: {e}")
                     raise
-                
+
         return messages
 
     def load_conversation(self, conversation_id: str) -> list[ConversationMessage]:

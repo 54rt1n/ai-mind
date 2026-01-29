@@ -46,7 +46,7 @@ class TestStepConfig:
         """Test default values for StepConfig."""
         config = StepConfig()
         assert config.max_tokens == 1024
-        assert config.use_guidance is False
+        assert config.link_guidance is False
         assert config.is_thought is False
         assert config.is_codex is False
         assert config.temperature is None
@@ -56,13 +56,13 @@ class TestStepConfig:
         """Test StepConfig with custom values."""
         config = StepConfig(
             max_tokens=2048,
-            use_guidance=True,
+            link_guidance=True,
             is_thought=True,
             temperature=0.7,
             model_override="custom-model"
         )
         assert config.max_tokens == 2048
-        assert config.use_guidance is True
+        assert config.link_guidance is True
         assert config.is_thought is True
         assert config.temperature == 0.7
         assert config.model_override == "custom-model"

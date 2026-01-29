@@ -171,6 +171,7 @@ class TestSearchIndexSkipVectorizer:
                 embedding_model="test-model",
                 device="cpu",
                 skip_vectorizer=True,
+                keep_warm=False,  # Ensure vectorizer is fully released
             )
 
             # Load vectorizer before adding documents (Phase 2 requirement)
@@ -179,7 +180,7 @@ class TestSearchIndexSkipVectorizer:
             # Add a document first
             index.add_document(sample_document, embedding=sample_embedding)
 
-            # Release vectorizer after adding
+            # Release vectorizer after adding (sets vectorizer to None when keep_warm=False)
             index.release_vectorizer()
 
             # rebuild() should raise because it calls add_documents internally

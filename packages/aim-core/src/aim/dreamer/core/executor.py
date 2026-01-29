@@ -356,7 +356,7 @@ async def execute_step(
     Full execution flow:
     1. Build template context from persona
     2. Render prompt with Jinja2
-    3. Append guidance if use_guidance is set
+    3. Append guidance if link_guidance is set
     4. Load context (from DSL or accumulated)
     5. Handle memory operations (query)
     6. Build turns for LLM

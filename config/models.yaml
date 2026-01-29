@@ -127,10 +127,31 @@ models:
       - instruct
       - thinking
       - code
+  - name: Alibaba-Apsara/DASD-4B-Thinking
+    architecture: qwen3
+    provider: featherless
+    size: 4B
+    category:
+      - instruct
+      - thinking
+  - name: a-m-team/AM-Thinking-v1
+    architecture: qwen2.5
+    provider: featherless
+    size: 32B
+    category:
+      - instruct
+      - thinking
   - name: deepseek-ai/DeepSeek-V3-0324
     architecture: deepseekv3
     provider: featherless
     size: 671B
+    category:
+      - instruct
+      - thinking
+  - name: moonshotai/Kimi-K2.5
+    architecture: deepseekv3
+    provider: featherless
+    size: 1T
     category:
       - instruct
       - thinking

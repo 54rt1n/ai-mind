@@ -17,68 +17,36 @@ def mcp_tool():
 
 @pytest.fixture
 def sample_ledger_entries():
-    """Sample ledger entries for testing portfolio calculation."""
+    """Sample ledger entries for testing portfolio calculation.
+
+    Uses pipe-delimited format: TYPE|TIMESTAMP|ACTOR|SYMBOL|QUANTITY|PRICE|AMOUNT|TOTAL
+    """
     return {
         "items": [
             {
                 "id": "1",
-                "text": "DEPOSIT $10000.00",
-                "status": "FILLED",
-                "metadata": {
-                    "type": "DEPOSIT",
-                    "amount": 10000.0,
-                    "timestamp": "2025-01-01T00:00:00+00:00"
-                }
+                "text": "DEPOSIT|2025-01-01T00:00:00+00:00||||10000.0|10000.0",
+                "status": "DONE"
             },
             {
                 "id": "2",
-                "text": "BUY 10 AAPL @ $185.50",
-                "status": "FILLED",
-                "metadata": {
-                    "type": "BUY",
-                    "symbol": "AAPL",
-                    "quantity": 10,
-                    "price": 185.50,
-                    "total": 1855.0,
-                    "timestamp": "2025-01-02T00:00:00+00:00"
-                }
+                "text": "BUY|2025-01-02T00:00:00+00:00||AAPL|10|185.5||1855.0",
+                "status": "DONE"
             },
             {
                 "id": "3",
-                "text": "BUY 5 AAPL @ $190.00",
-                "status": "FILLED",
-                "metadata": {
-                    "type": "BUY",
-                    "symbol": "AAPL",
-                    "quantity": 5,
-                    "price": 190.0,
-                    "total": 950.0,
-                    "timestamp": "2025-01-03T00:00:00+00:00"
-                }
+                "text": "BUY|2025-01-03T00:00:00+00:00||AAPL|5|190.0||950.0",
+                "status": "DONE"
             },
             {
                 "id": "4",
-                "text": "SELL 5 AAPL @ $200.00",
-                "status": "FILLED",
-                "metadata": {
-                    "type": "SELL",
-                    "symbol": "AAPL",
-                    "quantity": 5,
-                    "price": 200.0,
-                    "total": 1000.0,
-                    "timestamp": "2025-01-04T00:00:00+00:00"
-                }
+                "text": "SELL|2025-01-04T00:00:00+00:00||AAPL|5|200.0||1000.0",
+                "status": "DONE"
             },
             {
                 "id": "5",
-                "text": "DIVIDEND AAPL $25.00",
-                "status": "FILLED",
-                "metadata": {
-                    "type": "DIVIDEND",
-                    "symbol": "AAPL",
-                    "amount": 25.0,
-                    "timestamp": "2025-01-05T00:00:00+00:00"
-                }
+                "text": "DIVIDEND|2025-01-05T00:00:00+00:00||AAPL||25.0|25.0",
+                "status": "DONE"
             }
         ]
     }
@@ -127,12 +95,11 @@ class TestLedgerAdd:
 
             assert call_kwargs["list_id"] == "test-ledger"
             assert call_kwargs["action"] == "add"
-            assert call_kwargs["text"] == "DEPOSIT $5000.00"
-            assert call_kwargs["status"] == "FILLED"
-            assert call_kwargs["metadata"]["type"] == "DEPOSIT"
-            assert call_kwargs["metadata"]["amount"] == 5000.0
-            assert call_kwargs["metadata"]["total"] == 5000.0
-            assert "timestamp" in call_kwargs["metadata"]
+            # Check pipe-delimited format: TYPE|TIMESTAMP|ACTOR|SYMBOL|QUANTITY|PRICE|AMOUNT|TOTAL
+            item_text = call_kwargs["item_text"]
+            assert item_text.startswith("DEPOSIT|")
+            assert "|5000.0|5000.0" in item_text  # amount and total
+            assert call_kwargs["status"] == "DONE"
 
     def test_ledger_add_withdraw(self, mcp_tool):
         """ledger_add should create WITHDRAW entry correctly."""
@@ -147,9 +114,9 @@ class TestLedgerAdd:
 
             call_kwargs = mock_list_modify.call_args[1]
 
-            assert call_kwargs["text"] == "WITHDRAW $1000.00"
-            assert call_kwargs["metadata"]["type"] == "WITHDRAW"
-            assert call_kwargs["metadata"]["amount"] == 1000.0
+            item_text = call_kwargs["item_text"]
+            assert item_text.startswith("WITHDRAW|")
+            assert "|1000.0|1000.0" in item_text
 
     def test_ledger_add_buy(self, mcp_tool):
         """ledger_add should create BUY entry correctly."""
@@ -166,12 +133,9 @@ class TestLedgerAdd:
 
             call_kwargs = mock_list_modify.call_args[1]
 
-            assert call_kwargs["text"] == "BUY 10 AAPL @ $185.50"
-            assert call_kwargs["metadata"]["type"] == "BUY"
-            assert call_kwargs["metadata"]["symbol"] == "AAPL"
-            assert call_kwargs["metadata"]["quantity"] == 10
-            assert call_kwargs["metadata"]["price"] == 185.50
-            assert call_kwargs["metadata"]["total"] == 1855.0
+            item_text = call_kwargs["item_text"]
+            assert item_text.startswith("BUY|")
+            assert "|AAPL|10|185.5||1855.0" in item_text
 
     def test_ledger_add_sell(self, mcp_tool):
         """ledger_add should create SELL entry correctly."""
@@ -188,12 +152,9 @@ class TestLedgerAdd:
 
             call_kwargs = mock_list_modify.call_args[1]
 
-            assert call_kwargs["text"] == "SELL 5 AAPL @ $200.00"
-            assert call_kwargs["metadata"]["type"] == "SELL"
-            assert call_kwargs["metadata"]["symbol"] == "AAPL"
-            assert call_kwargs["metadata"]["quantity"] == 5
-            assert call_kwargs["metadata"]["price"] == 200.0
-            assert call_kwargs["metadata"]["total"] == 1000.0
+            item_text = call_kwargs["item_text"]
+            assert item_text.startswith("SELL|")
+            assert "|AAPL|5|200.0||1000.0" in item_text
 
     def test_ledger_add_dividend(self, mcp_tool):
         """ledger_add should create DIVIDEND entry correctly."""
@@ -209,10 +170,9 @@ class TestLedgerAdd:
 
             call_kwargs = mock_list_modify.call_args[1]
 
-            assert call_kwargs["text"] == "DIVIDEND AAPL $25.00"
-            assert call_kwargs["metadata"]["type"] == "DIVIDEND"
-            assert call_kwargs["metadata"]["symbol"] == "AAPL"
-            assert call_kwargs["metadata"]["amount"] == 25.0
+            item_text = call_kwargs["item_text"]
+            assert item_text.startswith("DIVIDEND|")
+            assert "|AAPL||25.0|25.0" in item_text
 
     def test_ledger_add_unknown_type(self, mcp_tool):
         """ledger_add should return error for unknown entry_type."""
@@ -264,25 +224,18 @@ class TestPortfolioCalculate:
             assert result["positions"] == {}
 
     def test_portfolio_calculate_skips_non_filled(self, mcp_tool):
-        """portfolio_calculate should skip entries that are not FILLED."""
+        """portfolio_calculate should skip entries that are not DONE."""
         entries = {
             "items": [
                 {
                     "id": "1",
-                    "text": "DEPOSIT $10000.00",
-                    "status": "FILLED",
-                    "metadata": {"type": "DEPOSIT", "amount": 10000.0}
+                    "text": "DEPOSIT|2025-01-01T00:00:00+00:00||||10000.0|10000.0",
+                    "status": "DONE"
                 },
                 {
                     "id": "2",
-                    "text": "BUY 100 AAPL @ $100.00",
-                    "status": "PENDING",  # Should be skipped
-                    "metadata": {
-                        "type": "BUY",
-                        "symbol": "AAPL",
-                        "quantity": 100,
-                        "total": 10000.0
-                    }
+                    "text": "BUY|2025-01-02T00:00:00+00:00||AAPL|100|100.0||10000.0",
+                    "status": "PENDING"  # Should be skipped
                 }
             ]
         }
@@ -302,18 +255,18 @@ class TestPortfolioCalculate:
             "items": [
                 {
                     "id": "1",
-                    "status": "FILLED",
-                    "metadata": {"type": "DEPOSIT", "amount": 10000.0}
+                    "text": "DEPOSIT|2025-01-01T00:00:00+00:00||||10000.0|10000.0",
+                    "status": "DONE"
                 },
                 {
                     "id": "2",
-                    "status": "FILLED",
-                    "metadata": {"type": "WITHDRAW", "amount": 3000.0}
+                    "text": "WITHDRAW|2025-01-02T00:00:00+00:00||||3000.0|3000.0",
+                    "status": "DONE"
                 },
                 {
                     "id": "3",
-                    "status": "FILLED",
-                    "metadata": {"type": "DEPOSIT", "amount": 500.0}
+                    "text": "DEPOSIT|2025-01-03T00:00:00+00:00||||500.0|500.0",
+                    "status": "DONE"
                 }
             ]
         }
@@ -332,28 +285,18 @@ class TestPortfolioCalculate:
             "items": [
                 {
                     "id": "1",
-                    "status": "FILLED",
-                    "metadata": {"type": "DEPOSIT", "amount": 5000.0}
+                    "text": "DEPOSIT|2025-01-01T00:00:00+00:00||||5000.0|5000.0",
+                    "status": "DONE"
                 },
                 {
                     "id": "2",
-                    "status": "FILLED",
-                    "metadata": {
-                        "type": "BUY",
-                        "symbol": "AAPL",
-                        "quantity": 10,
-                        "total": 1000.0
-                    }
+                    "text": "BUY|2025-01-02T00:00:00+00:00||AAPL|10|100.0||1000.0",
+                    "status": "DONE"
                 },
                 {
                     "id": "3",
-                    "status": "FILLED",
-                    "metadata": {
-                        "type": "SELL",
-                        "symbol": "AAPL",
-                        "quantity": 10,
-                        "total": 1200.0
-                    }
+                    "text": "SELL|2025-01-03T00:00:00+00:00||AAPL|10|120.0||1200.0",
+                    "status": "DONE"
                 }
             ]
         }
@@ -374,38 +317,23 @@ class TestPortfolioCalculate:
             "items": [
                 {
                     "id": "1",
-                    "status": "FILLED",
-                    "metadata": {"type": "DEPOSIT", "amount": 50000.0}
+                    "text": "DEPOSIT|2025-01-01T00:00:00+00:00||||50000.0|50000.0",
+                    "status": "DONE"
                 },
                 {
                     "id": "2",
-                    "status": "FILLED",
-                    "metadata": {
-                        "type": "BUY",
-                        "symbol": "AAPL",
-                        "quantity": 10,
-                        "total": 2000.0
-                    }
+                    "text": "BUY|2025-01-02T00:00:00+00:00||AAPL|10|200.0||2000.0",
+                    "status": "DONE"
                 },
                 {
                     "id": "3",
-                    "status": "FILLED",
-                    "metadata": {
-                        "type": "BUY",
-                        "symbol": "GOOGL",
-                        "quantity": 5,
-                        "total": 5000.0
-                    }
+                    "text": "BUY|2025-01-03T00:00:00+00:00||GOOGL|5|1000.0||5000.0",
+                    "status": "DONE"
                 },
                 {
                     "id": "4",
-                    "status": "FILLED",
-                    "metadata": {
-                        "type": "BUY",
-                        "symbol": "MSFT",
-                        "quantity": 20,
-                        "total": 8000.0
-                    }
+                    "text": "BUY|2025-01-04T00:00:00+00:00||MSFT|20|400.0||8000.0",
+                    "status": "DONE"
                 }
             ]
         }
@@ -463,7 +391,8 @@ class TestExecuteDispatcher:
                 symbol="AAPL",
                 quantity=10,
                 price=185.50,
-                amount=None
+                amount=None,
+                actor=None
             )
 
     def test_execute_ledger_add_requires_ledger_id(self, mcp_tool):
@@ -494,25 +423,25 @@ class TestExecuteDispatcher:
 class TestListModifyWithMetadata:
     """Tests for extended list_modify with status and metadata."""
 
-    def test_list_modify_passes_status_and_metadata(self, mcp_tool):
-        """list_modify should pass status and metadata to MCP."""
+    def test_list_modify_passes_status_and_tags(self, mcp_tool):
+        """list_modify should pass status and tags to MCP."""
         with patch.object(mcp_tool, "_call_mcp") as mock_call:
             mock_call.return_value = {"success": True}
 
             result = mcp_tool.list_modify(
                 list_id="test-list",
                 action="add",
-                text="Test entry",
-                status="FILLED",
-                metadata={"type": "TEST", "value": 123}
+                item_text="Test entry",
+                status="DONE",
+                tags=["test", "example"]
             )
 
             mock_call.assert_called_once_with("list_modify", {
-                "list_id": "test-list",
+                "list_name": "test-list",
                 "action": "add",
-                "text": "Test entry",
-                "status": "FILLED",
-                "metadata": {"type": "TEST", "value": 123}
+                "item_text": "Test entry",
+                "status": "DONE",
+                "tags": ["test", "example"]
             })
 
     def test_list_modify_omits_none_values(self, mcp_tool):
@@ -523,11 +452,11 @@ class TestListModifyWithMetadata:
             result = mcp_tool.list_modify(
                 list_id="test-list",
                 action="add",
-                text="Test entry"
+                item_text="Test entry"
             )
 
             mock_call.assert_called_once_with("list_modify", {
-                "list_id": "test-list",
+                "list_name": "test-list",
                 "action": "add",
-                "text": "Test entry"
+                "item_text": "Test entry"
             })
