@@ -13,9 +13,9 @@ functions:
           description: File encoding
           default: utf-8
       required: [path]
-      examples:
-        - {file_read: {path: "/path/to/file.txt"}}
-        - {file_read: {path: "data.json", encoding: "utf-8"}}
+    examples:
+      - {file_read: {path: "/path/to/file.txt"}}
+      - {file_read: {path: "data.json", encoding: "utf-8"}}
 
   - name: file_write
     description: Write content to a file
@@ -33,9 +33,9 @@ functions:
           description: File encoding
           default: utf-8
       required: [path, content]
-      examples:
-        - {file_write: {path: "output.txt", content: "Hello, World!"}}
-        - {file_write: {path: "data.json", content: "{\"key\": \"value\"}", encoding: "utf-8"}}
+    examples:
+      - {file_write: {path: "output.txt", content: "Hello, World!"}}
+      - {file_write: {path: "data.json", content: "{\"key\": \"value\"}", encoding: "utf-8"}}
 
   - name: file_list
     description: List contents of a directory
@@ -49,9 +49,9 @@ functions:
           type: string
           description: Optional glob pattern to filter files
       required: [path]
-      examples:
-        - {file_list: {path: "/path/to/dir"}}
-        - {file_list: {path: ".", pattern: "*.py"}}
+    examples:
+      - {file_list: {path: "/path/to/dir"}}
+      - {file_list: {path: ".", pattern: "*.py"}}
 
   - name: file_delete
     description: Delete a file
@@ -62,8 +62,8 @@ functions:
           type: string
           description: Path of the file to delete
       required: [path]
-      examples:
-        - {file_delete: {path: "temp.txt"}}
+    examples:
+      - {file_delete: {path: "temp.txt"}}
 
   - name: file_move
     description: Move or rename a file
@@ -77,10 +77,10 @@ functions:
           type: string
           description: Destination file path
       required: [source, destination]
-      examples:
-        - {file_move: {source: "old.txt", destination: "new.txt"}}
-        - {file_move: {source: "file.txt", destination: "backup/file.txt"}}
+    examples:
+      - {file_move: {source: "old.txt", destination: "new.txt"}}
+      - {file_move: {source: "file.txt", destination: "backup/file.txt"}}
 
 implementation:
   module: aim.tool.impl.file_ops
-  class: FileTool 
+  class: FileTool

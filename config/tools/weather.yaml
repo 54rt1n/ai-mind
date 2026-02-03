@@ -12,9 +12,9 @@ functions:
           type: string
           enum: [fahrenheit, celsius]
       required: [location, format]
-      examples:
-        - {weather_current: {location: "Overland Park, KS", format: "fahrenheit"}}
-        - {weather_current: {location: "London, UK", format: "celsius"}}
+    examples:
+      - {weather_current: {location: "Overland Park, KS", format: "fahrenheit"}}
+      - {weather_current: {location: "London, UK", format: "celsius"}}
 
   - name: weather_forecast
     description: Get weather forecast for upcoming days
@@ -34,9 +34,9 @@ functions:
           minimum: 1
           maximum: 10
       required: [location, format]
-      examples:
-        - {weather_forecast: {location: "San Francisco, CA", format: "fahrenheit"}}
-        - {weather_forecast: {location: "Tokyo, Japan", format: "celsius", days: 7}}
+    examples:
+      - {weather_forecast: {location: "San Francisco, CA", format: "fahrenheit"}}
+      - {weather_forecast: {location: "Tokyo, Japan", format: "celsius", days: 7}}
 
 implementation:
   module: aim.tool.impl.weather

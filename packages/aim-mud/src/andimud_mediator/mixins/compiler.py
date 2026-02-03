@@ -430,11 +430,17 @@ class CompilerMixin:
         Returns:
             MUDConversationEntry with computed embedding.
         """
-        # Format content as first-person with visual banner
-        content = format_self_action_guidance(events, world_state=None)
+        # Format content based on event type
+        first_event = events[0]
+        # Only wrap action confirmations (movement, object, emote)
+        if first_event.event_type in (EventType.MOVEMENT, EventType.OBJECT, EventType.EMOTE):
+            # Action confirmations - format with visual banner
+            content = format_self_action_guidance(events, world_state=None)
+        else:
+            # Everything else (speech, narrative, terminal, code, etc.) - store as-is
+            content = "\n\n".join(e.content or "" for e in events)
 
         # Determine document type
-        first_event = events[0]
         if first_event.event_type == EventType.CODE_ACTION:
             doc_type = DOC_CODE_ACTION
         elif first_event.event_type == EventType.CODE_FILE:

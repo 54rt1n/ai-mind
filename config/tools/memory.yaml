@@ -12,9 +12,9 @@ functions:
           type: string
           description: The content to pin to memory
       required: [key, content]
-      examples:
-        - {memory_pin: {key: "user_preference", content: "User prefers dark mode"}}
-        - {memory_pin: {key: "important_date", content: "Meeting on Friday at 3PM"}}
+    examples:
+      - {memory_pin: {key: "user_preference", content: "User prefers dark mode"}}
+      - {memory_pin: {key: "important_date", content: "Meeting on Friday at 3PM"}}
 
   - name: memory_unpin
     description: Remove a piece of information from pinned memory
@@ -25,9 +25,9 @@ functions:
           type: string
           description: The key of the memory to unpin
       required: [key]
-      examples:
-        - {memory_unpin: {key: "user_preference"}}
-        - {memory_unpin: {key: "important_date"}}
+    examples:
+      - {memory_unpin: {key: "user_preference"}}
+      - {memory_unpin: {key: "important_date"}}
 
   - name: memory_search
     description: Search through memories
@@ -47,9 +47,9 @@ functions:
           description: Maximum number of results to return
           default: 5
       required: [query]
-      examples:
-        - {memory_search: {query: "birthday"}}
-        - {memory_search: {query: "recent travel plans", memory_type: "daydream", max_results: 3}}
+    examples:
+      - {memory_search: {query: "birthday"}}
+      - {memory_search: {query: "recent travel plans", memory_type: "daydream", max_results: 3}}
 
   - name: memory_retrieve
     description: Directly retrieve a specific memory by ID
@@ -60,8 +60,8 @@ functions:
           type: string
           description: ID of the memory to retrieve
       required: [memory_id]
-      examples:
-        - {memory_retrieve: {memory_id: "mem_12345"}}
+    examples:
+      - {memory_retrieve: {memory_id: "mem_12345"}}
 
   - name: memory_save
     description: Save a new memory
@@ -82,9 +82,9 @@ functions:
           items:
             type: string
       required: [content, memory_type]
-      examples:
-        - {memory_save: {content: "User mentioned they have a dog named Max", memory_type: "codex"}}
-        - {memory_save: {content: "I should learn more about quantum physics", memory_type: "daydream", tags: ["learning", "science"]}}
+    examples:
+      - {memory_save: {content: "User mentioned they have a dog named Max", memory_type: "codex"}}
+      - {memory_save: {content: "I should learn more about quantum physics", memory_type: "daydream", tags: ["learning", "science"]}}
 
 implementation:
   module: aim.tool.impl.memory

@@ -91,10 +91,13 @@ class RetryCommand(Command):
             )
 
         # Get emitted action_ids from worker (set by _emit_actions during take_turn)
-        action_ids = worker._last_emitted_action_ids if decision_type not in (DecisionType.WAIT, DecisionType.CONFUSED) else []
+        # All decision types emit actions (including WAIT and CONFUSED with non-published emotes)
+        action_ids = worker._last_emitted_action_ids
+        expects_echo = worker._last_emitted_expects_echo
         return CommandResult(
             complete=True,
             status=TurnRequestStatus.DONE,
             message=f"Retry successful (attempt {attempt_count}): {decision_type.name}",
             emitted_action_ids=action_ids,
+            expects_echo=expects_echo,
         )

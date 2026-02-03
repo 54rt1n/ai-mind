@@ -1,9 +1,37 @@
 type: mud
-description: Code room tools for inspecting and editing repository files
+description: Code room tools for navigating and inspecting filesystem directories
 
 functions:
+  - name: cd
+    description: Change current directory within the code room (shared by all occupants)
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: Target path (relative, absolute from base, ".." to go up, or empty for root)
+      required: []
+    examples:
+      - {cd: {}}
+      - {cd: {path: "src"}}
+      - {cd: {path: ".."}}
+      - {cd: {path: "/tests"}}
+
+  - name: ls
+    description: List files and directories in the current path
+    parameters:
+      type: object
+      properties:
+        pattern:
+          type: string
+          description: Optional filter pattern
+      required: []
+    examples:
+      - {ls: {}}
+      - {ls: {pattern: ".py"}}
+
   - name: scan
-    description: List CodeFile objects in the room
+    description: List files in the current directory
     parameters:
       type: object
       properties:
@@ -11,21 +39,25 @@ functions:
           type: string
           description: Optional substring filter
       required: []
-      examples:
-        - {scan: {}}
-        - {scan: {pattern: "py"}}
+    examples:
+      - {scan: {}}
+      - {scan: {pattern: "py"}}
 
   - name: grep
-    description: Search the code room repo with grep
+    description: Search files with grep from the base path
     parameters:
       type: object
       properties:
         pattern:
           type: string
           description: Search pattern
+        path:
+          type: string
+          description: Optional subdirectory to search in
       required: [pattern]
-      examples:
-        - {grep: {pattern: "def refresh"}}
+    examples:
+      - {grep: {pattern: "def refresh"}}
+      - {grep: {pattern: "import", path: "src"}}
 
   - name: cat
     description: Show full file contents
@@ -34,13 +66,14 @@ functions:
       properties:
         file:
           type: string
-          description: File name or path
+          description: File name or path (relative to current directory or base)
       required: [file]
-      examples:
-        - {cat: {file: "README.md"}}
+    examples:
+      - {cat: {file: "README.md"}}
+      - {cat: {file: "src/main.py"}}
 
   - name: sed
-    description: Show a range of lines
+    description: Show a range of lines from a file
     parameters:
       type: object
       properties:
@@ -51,11 +84,11 @@ functions:
           type: string
           description: Sed range like 30,50p
       required: [file, range]
-      examples:
-        - {sed: {file: "README.md", range: "1,40p"}}
+    examples:
+      - {sed: {file: "README.md", range: "1,40p"}}
 
   - name: head
-    description: Show first N lines
+    description: Show first N lines of a file
     parameters:
       type: object
       properties:
@@ -64,13 +97,13 @@ functions:
           description: File name or path
         lines:
           type: integer
-          description: Line count
+          description: Number of lines to show
       required: [file, lines]
-      examples:
-        - {head: {file: "README.md", lines: 50}}
+    examples:
+      - {head: {file: "README.md", lines: 50}}
 
   - name: tail
-    description: Show last N lines
+    description: Show last N lines of a file
     parameters:
       type: object
       properties:
@@ -79,13 +112,13 @@ functions:
           description: File name or path
         lines:
           type: integer
-          description: Line count
+          description: Number of lines to show
       required: [file, lines]
-      examples:
-        - {tail: {file: "README.md", lines: 50}}
+    examples:
+      - {tail: {file: "README.md", lines: 50}}
 
   - name: meta
-    description: Show file metadata
+    description: Show file metadata (size, lines, mtime)
     parameters:
       type: object
       properties:
@@ -93,66 +126,38 @@ functions:
           type: string
           description: File name or path
       required: [file]
-      examples:
-        - {meta: {file: "README.md"}}
-
-  - name: refresh
-    description: Refresh a code object (CodeFile or CodeTree)
-    parameters:
-      type: object
-      properties:
-        target:
-          type: string
-          description: Object name
-      required: [target]
-      examples:
-        - {refresh: {target: "README.md"}}
+    examples:
+      - {meta: {file: "README.md"}}
 
   - name: diff
-    description: Unified diff between files
+    description: Show unified diff between two files
     parameters:
       type: object
       properties:
         file:
           type: string
-          description: Primary file
+          description: First file path
         other:
           type: string
-          description: Other file or path
+          description: Second file path
       required: [file, other]
-      examples:
-        - {diff: {file: "README.md", other: "LICENSE"}}
-
-  - name: gitdiff
-    description: Git diff for a file
-    parameters:
-      type: object
-      properties:
-        file:
-          type: string
-          description: File name or path
-        ref:
-          type: string
-          description: Git ref (defaults to HEAD)
-      required: [file]
-      examples:
-        - {gitdiff: {file: "README.md"}}
-        - {gitdiff: {file: "README.md", ref: "HEAD~1"}}
+    examples:
+      - {diff: {file: "README.md", other: "README.old.md"}}
 
   - name: clone
-    description: Clone a file to a new path
+    description: Copy a file to a new path
     parameters:
       type: object
       properties:
         file:
           type: string
-          description: Source file
+          description: Source file path
         new_file:
           type: string
-          description: Destination path (relative to repo root)
+          description: Destination path (relative to current directory or base)
       required: [file, new_file]
-      examples:
-        - {clone: {file: "README.md", new_file: "README.copy.md"}}
+    examples:
+      - {clone: {file: "README.md", new_file: "README.copy.md"}}
 
   - name: patch
     description: Apply a unified diff patch to a file
@@ -161,28 +166,29 @@ functions:
       properties:
         file:
           type: string
-          description: Target file
+          description: Target file path
         patch:
           type: string
-          description: Unified diff
+          description: Unified diff content
       required: [file, patch]
-      examples:
-        - {patch: {file: "README.md", patch: "--- a/README.md\n+++ b/README.md\n@@ ..."}}
+    examples:
+      - {patch: {file: "README.md", patch: "--- a/README.md\n+++ b/README.md\n@@ ..."}}
 
   - name: touch
-    description: Create a new file
+    description: Create a new empty file in the current directory
     parameters:
       type: object
       properties:
-        path:
+        file:
           type: string
-          description: Relative path under repo root
-      required: [path]
-      examples:
-        - {touch: {path: "notes.md"}}
+          description: File name or relative path
+      required: [file]
+    examples:
+      - {touch: {file: "notes.md"}}
+      - {touch: {file: "src/new_module.py"}}
 
   - name: uv
-    description: Run uv command in code root room
+    description: Run uv command in the code room base path
     parameters:
       type: object
       properties:
@@ -190,6 +196,18 @@ functions:
           type: string
           description: uv arguments (e.g., "sync" or "run pytest")
       required: [args]
-      examples:
-        - {uv: {args: "sync"}}
-        - {uv: {args: "run pytest"}}
+    examples:
+      - {uv: {args: "sync"}}
+      - {uv: {args: "run pytest"}}
+
+  - name: refresh
+    description: Refresh a CodeTree object to update its tree view
+    parameters:
+      type: object
+      properties:
+        target:
+          type: string
+          description: Name of the CodeTree object to refresh
+      required: [target]
+    examples:
+      - {refresh: {target: "Code Tree"}}

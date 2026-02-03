@@ -8,8 +8,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Type alias: (source_tag, row_data)
-TaggedResult = Tuple[str, pd.Series]
+# Type alias: (source_tag, row_data, optional turn_index)
+TaggedResult = Tuple[str, pd.Series, Optional[int]]
 
 
 class MemoryReranker:
@@ -116,7 +116,14 @@ class MemoryReranker:
     def _prepare_candidates(self, results: List[TaggedResult]) -> List[Dict]:
         """Convert TaggedResults to candidate dicts with precomputed data."""
         candidates = []
-        for source_tag, row in results:
+        for item in results:
+            # Handle both 2-tuple (legacy) and 3-tuple (with turn_index)
+            if len(item) == 3:
+                source_tag, row, turn_index = item
+            else:
+                source_tag, row = item
+                turn_index = None
+
             embedding = row.get('index_a')
             # Allow candidates without embeddings (skip MMR diversity for them)
             token_cost = self._estimate_tokens(row)
@@ -128,6 +135,7 @@ class MemoryReranker:
                 'token_cost': token_cost,
                 'parent_id': parent_id,
                 'norm_score': row.get('norm_score', 0.0),
+                'turn_index': turn_index,
             })
         return candidates
 
@@ -170,6 +178,37 @@ class MemoryReranker:
                 # Calculate MMR score
                 relevance = cand['norm_score']
 
+                # Apply turn recency boost if available
+                if cand.get('turn_index') is not None:
+                    turn_index = cand['turn_index']
+                    if turn_index == 0:
+                        recency_multiplier = 2.0   # Current turn
+                    elif turn_index == 1:
+                        recency_multiplier = 1.5   # One turn ago
+                    elif turn_index == 2:
+                        recency_multiplier = 1.2   # Two turns ago
+                    else:
+                        recency_multiplier = 1.0   # Three+ turns ago (no boost)
+
+                    relevance = relevance * recency_multiplier
+                    logger.debug(f"Applied turn recency boost: turn_index={turn_index}, multiplier={recency_multiplier}, boosted_relevance={relevance:.4f}")
+
+                # Apply source tag boost (explicit query gets highest priority)
+                source_tag = cand.get('source_tag', '')
+                if source_tag:
+                    if source_tag == 'memory_query':
+                        source_multiplier = 3.0  # ExplicitQuery - agent's explicit intent
+                    elif source_tag in ('memory_user', 'memory_asst'):
+                        source_multiplier = 1.5  # Recent conversation turns
+                    elif source_tag in ('memory_thought', 'memory_ws', 'memory_loc'):
+                        source_multiplier = 1.2  # Context-based queries
+                    else:
+                        source_multiplier = 1.0  # Other sources
+
+                    if source_multiplier > 1.0:
+                        relevance = relevance * source_multiplier
+                        logger.debug(f"Applied source boost: source_tag={source_tag}, multiplier={source_multiplier}, boosted_relevance={relevance:.4f}")
+
                 if selected_embeddings and cand['embedding'] is not None:
                     max_sim = self._max_similarity(cand['embedding'], selected_embeddings)
                 else:
@@ -186,7 +225,11 @@ class MemoryReranker:
                 break
 
             cand = candidates[best_idx]
-            selected.append((cand['source_tag'], cand['row']))
+            # Preserve turn_index if present
+            if cand['turn_index'] is not None:
+                selected.append((cand['source_tag'], cand['row'], cand['turn_index']))
+            else:
+                selected.append((cand['source_tag'], cand['row']))
             if cand['embedding'] is not None:
                 selected_embeddings.append(cand['embedding'])
                 new_embeddings.append(cand['embedding'])
@@ -215,26 +258,40 @@ class MemoryReranker:
 
         best_by_parent: Dict[str, TaggedResult] = {}
 
-        for source_tag, row in results:
+        for item in results:
+            # Handle both 2-tuple (legacy) and 3-tuple (with turn_index)
+            if len(item) == 3:
+                source_tag, row, turn_index = item
+            else:
+                source_tag, row = item
+                turn_index = None
+
             parent_id = row.get('parent_doc_id', row.get('doc_id', ''))
             score = self._safe_score(row.get('score', 0.0))
 
             if parent_id not in best_by_parent:
-                best_by_parent[parent_id] = (source_tag, row)
+                best_by_parent[parent_id] = (source_tag, row, turn_index) if turn_index is not None else (source_tag, row)
             else:
                 existing_score = self._safe_score(best_by_parent[parent_id][1].get('score', 0.0))
                 if score > existing_score:
-                    best_by_parent[parent_id] = (source_tag, row)
+                    best_by_parent[parent_id] = (source_tag, row, turn_index) if turn_index is not None else (source_tag, row)
 
         return list(best_by_parent.values())
 
     def _filter_seen(self, results: List[TaggedResult], seen_parent_ids: Set[str]) -> List[TaggedResult]:
         """Filter out results whose parent_doc_id is in seen_parent_ids."""
         filtered = []
-        for source_tag, row in results:
+        for item in results:
+            # Handle both 2-tuple (legacy) and 3-tuple (with turn_index)
+            if len(item) == 3:
+                source_tag, row, turn_index = item
+            else:
+                source_tag, row = item
+                turn_index = None
+
             parent_id = row.get('parent_doc_id', row.get('doc_id', ''))
             if parent_id not in seen_parent_ids:
-                filtered.append((source_tag, row))
+                filtered.append((source_tag, row, turn_index) if turn_index is not None else (source_tag, row))
         return filtered
 
     def _normalize_scores(self, results: List[TaggedResult]) -> List[TaggedResult]:
@@ -242,16 +299,31 @@ class MemoryReranker:
         if not results:
             return []
 
-        scores = [self._safe_score(row.get('score', 0.0)) for _, row in results]
+        # Extract scores - handle both 2-tuple and 3-tuple formats
+        scores = []
+        for item in results:
+            if len(item) == 3:
+                _, row, _ = item
+            else:
+                _, row = item
+            scores.append(self._safe_score(row.get('score', 0.0)))
 
         min_score = min(scores) if scores else 0.0
         max_score = max(scores) if scores else 0.0
 
         if max_score > min_score:
-            for i, (source_tag, row) in enumerate(results):
+            for i, item in enumerate(results):
+                if len(item) == 3:
+                    _, row, _ = item
+                else:
+                    _, row = item
                 row['norm_score'] = (scores[i] - min_score) / (max_score - min_score)
         else:
-            for _, row in results:
+            for item in results:
+                if len(item) == 3:
+                    _, row, _ = item
+                else:
+                    _, row = item
                 row['norm_score'] = 1.0
 
         return results

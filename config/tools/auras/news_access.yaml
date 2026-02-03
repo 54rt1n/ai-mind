@@ -8,8 +8,8 @@ functions:
       type: object
       properties: {}
       required: []
-      examples:
-        - {get_feed: {}}
+    examples:
+      - {get_feed: {}}
 
 implementation:
   module: aim.tool.impl.container_mcp

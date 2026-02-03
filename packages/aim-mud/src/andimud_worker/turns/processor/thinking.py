@@ -151,7 +151,7 @@ class ThinkingTurnProcessor(BaseTurnProcessor):
             session=self.worker.session,
             coming_online=coming_online,
             max_context_tokens=self.worker.model.max_tokens,
-            max_output_tokens=self.worker.chat_config.max_tokens,
+            max_output_tokens=self.worker.model.max_output_tokens,
             memory_query="",  # No specific memory query for thinking
             query_embedding=query_embedding,
         )

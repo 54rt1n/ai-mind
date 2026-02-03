@@ -100,7 +100,7 @@ class LanguageModelV2:
     category: set[ModelCategory]
     sampler: Optional[SamplerConfig] = None
     max_tokens: int = 32768
-    max_output_tokens: int = 4096
+    max_output_tokens: int = 2048
 
     def can_provide(self, config: ChatConfig) -> bool:
         try:

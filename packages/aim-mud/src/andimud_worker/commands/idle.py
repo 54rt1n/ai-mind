@@ -155,13 +155,16 @@ class IdleCommand(Command):
         await worker._clear_thought_content()
 
         # Get emitted action_ids from worker (set by _emit_actions during take_turn)
-        action_ids = worker._last_emitted_action_ids if decision.decision_type not in (DecisionType.WAIT, DecisionType.CONFUSED) else []
+        # All decision types emit actions (including WAIT and CONFUSED with non-published emotes)
+        action_ids = worker._last_emitted_action_ids
+        expects_echo = worker._last_emitted_expects_echo
         return CommandResult(
             complete=True,
             status=TurnRequestStatus.DONE,
             message=f"Idle Turn processed: {decision.decision_type.name}" + (" (dual)" if dual_turn else ""),
             turn_id=turn_id,
             emitted_action_ids=action_ids,
+            expects_echo=expects_echo,
         )
 
     async def _sleep_turn(self, worker: "MUDAgentWorker", turn_id: str, events: list[MUDEvent], turn_request: MUDTurnRequest) -> CommandResult:

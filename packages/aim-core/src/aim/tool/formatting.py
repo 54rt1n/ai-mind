@@ -96,9 +96,9 @@ class ToolUser:
         for tool in self.tools:
             # Create example arguments
             example = None
-            if tool.function.parameters.examples and len(tool.function.parameters.examples) > 0:
+            if tool.function.examples and len(tool.function.examples) > 0:
                 # Use the first example if available
-                first_example = tool.function.parameters.examples[0]
+                first_example = tool.function.examples[0]
                 # Check if example already has tool name as key (don't double-wrap)
                 if isinstance(first_example, dict) and tool.function.name in first_example:
                     example = first_example

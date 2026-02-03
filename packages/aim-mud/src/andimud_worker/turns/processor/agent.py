@@ -179,7 +179,7 @@ class AgentTurnProcessor(BaseTurnProcessor):
             session=self.worker.session,
             coming_online=coming_online,
             max_context_tokens=self.worker.model.max_tokens,
-            max_output_tokens=self.worker.chat_config.max_tokens,
+            max_output_tokens=self.worker.model.max_output_tokens,
             query_embedding=query_embedding,
         )
 
@@ -307,6 +307,7 @@ class AgentTurnProcessor(BaseTurnProcessor):
                         action_obj = MUDAction(
                             tool="desc_room",
                             args={"description": description},
+                            metadata={MUDAction.META_NON_PUBLISHED: True},
                         )
                         actions_taken.append(action_obj)
                         emote_text = "took a moment to reimagine the room."
@@ -335,6 +336,7 @@ class AgentTurnProcessor(BaseTurnProcessor):
                         action_obj = MUDAction(
                             tool="desc_object",
                             args={"target": target, "description": description},
+                            metadata={MUDAction.META_NON_PUBLISHED: True},
                         )
                         actions_taken.append(action_obj)
                         object_name = resolve_target_name(self.worker.session, target)

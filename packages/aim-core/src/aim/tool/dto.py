@@ -9,13 +9,13 @@ class ToolFunctionParameters(BaseModel):
     type: str = Field("object", description="Type of the parameters object")
     properties: dict[str, dict[str, Any]] = Field(..., description="Properties of the function parameters")
     required: list[str] = Field(..., description="List of required parameters")
-    examples: Optional[list[dict[str, Any]]] = Field(None, description="List of examples for the function")
 
 
 class ToolFunction(BaseModel):
     name: str = Field(..., description="Name of the function")
     description: str = Field(..., description="Description of what the function does")
     parameters: ToolFunctionParameters = Field(..., description="Parameters schema for the function")
+    examples: Optional[list[dict[str, Any]]] = Field(None, description="List of examples for the function")
 
 
 class Tool(BaseModel):

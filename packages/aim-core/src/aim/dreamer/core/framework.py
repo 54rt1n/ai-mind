@@ -91,7 +91,8 @@ class ScenarioFramework(BaseModel):
                         type="object",
                         properties=tool_def.parameters,
                         required=tool_def.required,
-                    )
+                    ),
+                    examples=getattr(tool_def, 'examples', None),
                 )
             )
             tools.append(tool)

@@ -18,6 +18,6 @@ functions:
           description: Whether to overwrite existing document
           default: false
       required: [terminal_type, filename]
-      examples:
-        - {scan: {terminal_type: "Research Terminal", filename: "my_notes"}}
-        - {scan: {terminal_type: "Code Terminal", filename: "notes.txt", overwrite: true}}
+    examples:
+      - {scan: {terminal_type: "Research Terminal", filename: "my_notes"}}
+      - {scan: {terminal_type: "Code Terminal", filename: "notes.txt", overwrite: true}}

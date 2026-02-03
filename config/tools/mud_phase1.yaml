@@ -10,12 +10,18 @@ functions:
         query:
           type: string
           description: Ideas I want to talk about
+        query_keywords:
+          type: string
+          description: Important keywords to search for in my memory (use *asterisks* to wrap each keyword)
       required: []
-      examples:
-        - {speak: {}}
-        - {speak: {query: "memories about the beach"}}
-        - {speak: {query: "I have an idea"}}
-        - {speak: {query: "lets talk about the future"}}
+    examples:
+      - {speak: {query: "<Ideas I want to talk about>", query_keywords: "*<NER Item 1>* *<NER Item 2>* *<NER Item 3>*"}}
+      - {speak: {}}
+      - {speak: {query: "memories about the beach"}}
+      - {speak: {query: "I have an idea"}}
+      - {speak: {query: "lets talk about the future"}}
+      - {speak: {query: "the lighthouse discussion", query_keywords: "*lighthouse* *beacon* *signal*"}}
+      - {speak: {query_keywords: "*Papa* *training*"}}
 
   - name: move
     description: Move to a different location via an available exit
@@ -30,9 +36,9 @@ functions:
           description: Optional mood or manner of moving (e.g., "thoughtfully", "with purpose", "hesitantly")
       required:
         - location
-      examples:
-        - {move: {location: "north"}}
-        - {move: {location: "garden", mood: "with quiet purpose"}}
+    examples:
+      - {move: {location: "<valid exit>"}}
+      - {move: {location: "<valid exit>", mood: "with quiet purpose"}}
 
   - name: take
     description: Pick up an item from the current room
@@ -47,9 +53,9 @@ functions:
           description: Optional mood or manner of taking (e.g., "carefully", "eagerly", "with reverence")
       required:
         - object
-      examples:
-        - {take: {object: "lantern"}}
-        - {take: {object: "silver key", mood: "carefully"}}
+    examples:
+      - {take: {object: "<available object>"}}
+      - {take: {object: "<available object>", mood: "carefully"}}
 
   - name: drop
     description: Drop an item from your inventory into the room
@@ -64,9 +70,9 @@ functions:
           description: Optional mood or manner of dropping (e.g., "gently", "reluctantly", "with finality")
       required:
         - object
-      examples:
-        - {drop: {object: "lantern"}}
-        - {drop: {object: "sword", mood: "reluctantly"}}
+    examples:
+      - {drop: {object: "<inventory item>"}}
+      - {drop: {object: "<inventory item>", mood: "reluctantly"}}
 
   - name: give
     description: Give an item from your inventory to someone or put it in/on something
@@ -85,9 +91,9 @@ functions:
       required:
         - object
         - target
-      examples:
-        - {give: {object: "flower", target: "Prax"}}
-        - {give: {object: "cup", target: "shelf", mood: "gently"}}
+    examples:
+      - {give: {object: "<inventory item>", target: "<target>"}}
+      - {give: {object: "<inventory item>", target: "<target>", mood: "gently"}}
 
   - name: wait
     description: Do nothing this turn (wait and observe)
@@ -98,10 +104,10 @@ functions:
           type: string
           description: Optional mood or manner of waiting (e.g., "thoughtfully", "with curiosity", "in quiet reflection")
       required: []
-      examples:
-        - {wait: {}}
-        - {wait: {mood: "thoughtfully"}}
-        - {wait: {mood: "with gentle attention"}}
+    examples:
+      - {wait: {}}
+      - {wait: {mood: "thoughtfully"}}
+      - {wait: {mood: "with gentle attention"}}
 
   - name: emote
     description: Perform an in-character emote or action. Should be used very rarely, this is for something simple like a gesture with no speech.
@@ -113,9 +119,9 @@ functions:
           description: The emote text to perform (e.g., "smiles softly" or "nods once")
       required:
         - action
-      examples:
-        - {emote: {action: "smiles softly."}}
-        - {emote: {action: "nods once, thoughtful."}}
+    examples:
+      - {emote: {action: "smiles softly."}}
+      - {emote: {action: "nods once, thoughtful."}}
 
   - name: close_book
     description: Close the book you're currently reading and clear your workspace
@@ -123,5 +129,5 @@ functions:
       type: object
       properties: {}
       required: []
-      examples:
-        - {close_book: {}}
+    examples:
+      - {close_book: {}}

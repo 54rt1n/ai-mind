@@ -141,6 +141,13 @@ models:
     category:
       - instruct
       - thinking
+  - name: LiquidAI/LFM2.5-1.2B-Thinking
+    architecture: qwen2.5
+    provider: local
+    size: 1.2B
+    category:
+      - instruct
+      - thinking
   - name: deepseek-ai/DeepSeek-V3-0324
     architecture: deepseekv3
     provider: featherless
@@ -152,6 +159,7 @@ models:
     architecture: deepseekv3
     provider: featherless
     size: 1T
+    max_output_tokens: 3072
     category:
       - instruct
       - thinking

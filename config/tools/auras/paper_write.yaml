@@ -14,6 +14,6 @@ functions:
           type: string
           description: The content to write on the paper
       required: [paper, content]
-      examples:
-        - {write: {paper: "note", content: "Remember to check the logs"}}
-        - {write: {paper: "letter", content: "Dear friend,\n\nI hope this finds you well."}}
+    examples:
+      - {write: {paper: "note", content: "Remember to check the logs"}}
+      - {write: {paper: "letter", content: "Dear friend,\n\nI hope this finds you well."}}

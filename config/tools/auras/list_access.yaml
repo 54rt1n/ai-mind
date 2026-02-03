@@ -8,8 +8,8 @@ functions:
       type: object
       properties: {}
       required: []
-      examples:
-        - {show_list: {}}
+    examples:
+      - {show_list: {}}
 
   - name: add_item
     description: Add a new item to the terminal's configured list
@@ -20,9 +20,9 @@ functions:
           type: string
           description: Text description of the item to add
       required: [text]
-      examples:
-        - {add_item: {text: "Buy groceries"}}
-        - {add_item: {text: "Review PR #123"}}
+    examples:
+      - {add_item: {text: "Buy groceries"}}
+      - {add_item: {text: "Review PR #123"}}
 
   - name: check_item
     description: Mark an item as complete in the terminal's configured list
@@ -33,9 +33,9 @@ functions:
           type: string
           description: ID of the item to mark complete
       required: [item_id]
-      examples:
-        - {check_item: {item_id: "1"}}
-        - {check_item: {item_id: "task_abc"}}
+    examples:
+      - {check_item: {item_id: "1"}}
+      - {check_item: {item_id: "task_abc"}}
 
 implementation:
   module: aim.tool.impl.container_mcp

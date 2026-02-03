@@ -9,9 +9,9 @@ functions:
           type: string
           description: The query to search the web for
       required: [query]
-      examples:
-        - {web_search: {query: "latest developments in quantum computing"}}
-        - {web_search: {query: "who won the presidential election in the United States"}}
+    examples:
+      - {web_search: {query: "latest developments in quantum computing"}}
+      - {web_search: {query: "who won the presidential election in the United States"}}
 
   - name: web_scrape
     description: Scrape a specific URL and return the content
@@ -25,9 +25,9 @@ functions:
           type: string
           description: Optional CSS selector to target specific content
       required: [url]
-      examples:
-        - {web_scrape: {url: "https://www.example.com"}}
-        - {web_scrape: {url: "https://news.ycombinator.com", selector: ".storylink"}}
+    examples:
+      - {web_scrape: {url: "https://www.example.com"}}
+      - {web_scrape: {url: "https://news.ycombinator.com", selector: ".storylink"}}
 
   - name: web_browse
     description: Interactively browse a website with navigation capabilities
@@ -43,10 +43,10 @@ functions:
           items:
             type: object
       required: [url]
-      examples:
-        - {web_browse: {url: "https://www.example.com"}}
-        - {web_browse: {url: "https://www.github.com", actions: [{click: ".login"}, {input: {selector: "#username", value: "user"}}]}}
+    examples:
+      - {web_browse: {url: "https://www.example.com"}}
+      - {web_browse: {url: "https://www.github.com", actions: [{click: ".login"}, {input: {selector: "#username", value: "user"}}]}}
 
 implementation:
   module: aim.tool.impl.web
-  class: WebTool 
+  class: WebTool

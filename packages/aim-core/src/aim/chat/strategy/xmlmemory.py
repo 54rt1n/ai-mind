@@ -85,7 +85,8 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                           seen_docs: set,
                           top_n: int,
                           length_boost: float = 0.0,
-                          query_embedding: Optional[np.ndarray] = None) -> Tuple[List[TaggedResult], List[TaggedResult], List[TaggedResult]]:
+                          query_embedding: Optional[np.ndarray] = None,
+                          turn_index: Optional[int] = None) -> Tuple[List[TaggedResult], List[TaggedResult], List[TaggedResult]]:
         """
         Execute triple queries for optimal document distribution:
         - Conversations at chunk_768 (dialog context)
@@ -102,7 +103,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                 If provided, uses this instead of computing from query text.
 
         Returns:
-            (conversation_results, insight_results, broad_results) as lists of (source_tag, row)
+            (conversation_results, insight_results, broad_results) as lists of (source_tag, row, turn_index)
         """
         conversation_results: List[TaggedResult] = []
         insight_results: List[TaggedResult] = []
@@ -121,7 +122,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         )
         if not conv_df.empty:
             for _, row in conv_df.iterrows():
-                conversation_results.append((source_tag, row))
+                conversation_results.append((source_tag, row, turn_index))
 
         # Query 2: Insights at chunk_768 (rich content deserves longer context)
         insight_df = self.chat.cvm.query(
@@ -136,7 +137,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         )
         if not insight_df.empty:
             for _, row in insight_df.iterrows():
-                insight_results.append((source_tag + "_insight", row))
+                insight_results.append((source_tag + "_insight", row, turn_index))
 
         # Query 3: Broad distribution at chunk_256 (all doc types for memory breadth)
         # Only NER, step, and MOTD excluded via filter_metadocs=True
@@ -151,7 +152,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         )
         if not broad_df.empty:
             for _, row in broad_df.iterrows():
-                broad_results.append((source_tag + "_broad", row))
+                broad_results.append((source_tag + "_broad", row, turn_index))
 
         return conversation_results, insight_results, broad_results
 
@@ -390,7 +391,10 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
             if user_queries:
                 query_sources_data.append({
                     "name": "UserHistory",
-                    "queries": user_queries,
+                    "queries": [
+                        {"text": q, "turn_index": len(user_queries) - 1 - i}
+                        for i, q in enumerate(user_queries)
+                    ],
                     "length_boost": 0.05,
                     "memory_type_tag": "memory_user"
                 })
@@ -399,7 +403,10 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
             if assistant_queries:
                 query_sources_data.append({
                     "name": "AssistantHistory",
-                    "queries": assistant_queries,
+                    "queries": [
+                        {"text": q, "turn_index": len(assistant_queries) - 1 - i}
+                        for i, q in enumerate(assistant_queries)
+                    ],
                     "length_boost": 0.0,
                     "memory_type_tag": "memory_asst"
                 })
@@ -417,22 +424,38 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                     top_n_per_source = 0
 
                 for source_data in query_sources_data:
-                    if not source_data["queries"] or top_n_per_source == 0:
+                    queries = source_data["queries"]
+                    if not queries or top_n_per_source == 0:
                         logger.debug(f"Skipping query for {source_data['name']}")
                         continue
 
-                    conv_results, insight_results, broad_results = self._query_by_buckets(
-                        queries=source_data["queries"],
-                        source_tag=source_data["memory_type_tag"],
-                        seen_docs=seen_docs,
-                        top_n=top_n_per_source,
-                        length_boost=source_data["length_boost"],
-                        query_embedding=query_embedding,
-                    )
-                    all_conversation_results.extend(conv_results)
-                    all_insight_results.extend(insight_results)
-                    all_broad_results.extend(broad_results)
-                    logger.debug(f"Queried {source_data['name']}: {len(conv_results)} conv, {len(insight_results)} insight, {len(broad_results)} broad")
+                    # Execute each query individually to track turn_index
+                    for q_item in queries:
+                        # Handle dict (with turn_index) or str (legacy)
+                        if isinstance(q_item, dict):
+                            q_text = q_item.get("text", "")
+                            turn_index = q_item.get("turn_index")
+                        else:
+                            q_text = q_item
+                            turn_index = None
+
+                        if not q_text or not q_text.strip():
+                            continue
+
+                        conv_results, insight_results, broad_results = self._query_by_buckets(
+                            queries=[q_text],
+                            source_tag=source_data["memory_type_tag"],
+                            seen_docs=seen_docs,
+                            top_n=top_n_per_source,
+                            length_boost=source_data["length_boost"],
+                            query_embedding=query_embedding,
+                            turn_index=turn_index,
+                        )
+                        all_conversation_results.extend(conv_results)
+                        all_insight_results.extend(insight_results)
+                        all_broad_results.extend(broad_results)
+
+                    logger.debug(f"Queried {source_data['name']}: {len(all_conversation_results)} conv total")
 
             # Pass to reranker - conversations + insights get 60% of budget (both chunk_768), broad gets 40%
             # Combine conversations and insights as primary content (both benefit from longer context)
@@ -455,7 +478,13 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                 # Deduplicate by parent_doc_id/doc_id to avoid repeats across buckets
                 deduped_results = []
                 seen_ids = set(seen_docs)
-                for source_tag, row in reranked_results:
+                for item in reranked_results:
+                    # Handle both 2-tuple and 3-tuple formats
+                    if len(item) == 3:
+                        source_tag, row, _ = item  # Discard turn_index (already used for boosting)
+                    else:
+                        source_tag, row = item
+
                     doc_id = row.get('parent_doc_id', row.get('doc_id', ''))
                     if doc_id in seen_ids:
                         continue

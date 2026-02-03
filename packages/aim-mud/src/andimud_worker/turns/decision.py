@@ -55,7 +55,7 @@ def validate_move(session: Optional[MUDSession], args: dict) -> DecisionResult:
         valid_exits = []
         if session and session.current_room and session.current_room.exits:
             valid_exits = list(session.current_room.exits.keys())
-        exits_str = ", ".join(valid_exits) if valid_exits else "none available"
+        exits_str = ", ".join(f'"{exit}"' for exit in valid_exits) if valid_exits else "none available"
         guidance = (
             f"Invalid move location '{location}'. "
             f"Valid exits are: {exits_str}. "
@@ -83,7 +83,7 @@ def validate_take(session: Optional[MUDSession], args: dict) -> DecisionResult:
         return DecisionResult(is_valid=True, args=args)
 
     # Invalid - give guidance
-    objects_str = ", ".join(room_objects) if room_objects else "nothing here to take"
+    objects_str = ", ".join(f'"{obj}"' for obj in room_objects) if room_objects else "nothing here to take"
     guidance = (
         f"Cannot take '{obj}'. "
         f"Available items: {objects_str}. "
@@ -109,7 +109,7 @@ def validate_drop(session: Optional[MUDSession], args: dict) -> DecisionResult:
         return DecisionResult(is_valid=True, args=args)
 
     # Invalid - give guidance
-    inventory_str = ", ".join(inventory) if inventory else "nothing in inventory"
+    inventory_str = ", ".join(f'"{item}"' for item in inventory) if inventory else "nothing in inventory"
     guidance = (
         f"Cannot drop '{obj}'. "
         f"Your inventory: {inventory_str}. "
@@ -144,10 +144,10 @@ def validate_give(session: Optional[MUDSession], args: dict) -> DecisionResult:
     # Build specific guidance
     errors = []
     if not obj_valid:
-        inventory_str = ", ".join(inventory) if inventory else "nothing"
+        inventory_str = ", ".join(f'"{item}"' for item in inventory) if inventory else "nothing"
         errors.append(f"Cannot give '{obj}'. Your inventory: {inventory_str}.")
     if not target_valid:
-        targets_str = ", ".join(valid_targets) if valid_targets else "no one here"
+        targets_str = ", ".join(f'"{t}"' for t in valid_targets) if valid_targets else "no one here"
         errors.append(f"Cannot give to '{target}'. People present: {targets_str}.")
 
     guidance = (
@@ -200,7 +200,7 @@ def validate_ring(session: Optional[MUDSession], args: dict) -> DecisionResult:
     if not obj:
         if len(ringables) == 1:
             return DecisionResult(is_valid=True, args={"object": ringables[0]})
-        ringable_str = ", ".join(ringables)
+        ringable_str = ", ".join(f'"{r}"' for r in ringables)
         guidance = (
             "Ring which object? "
             f"Ringable objects: {ringable_str}. "
@@ -211,7 +211,7 @@ def validate_ring(session: Optional[MUDSession], args: dict) -> DecisionResult:
     if obj.lower() in [r.lower() for r in ringables]:
         return DecisionResult(is_valid=True, args={"object": obj})
 
-    ringable_str = ", ".join(ringables)
+    ringable_str = ", ".join(f'"{r}"' for r in ringables)
     guidance = (
         f"Cannot ring '{obj}'. "
         f"Ringable objects: {ringable_str}. "

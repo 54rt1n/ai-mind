@@ -16,8 +16,8 @@ functions:
           description: Exit or destination name (must match an available exit).
       required:
         - location
-      examples:
-        - {action: "move", location: "north"}
+    examples:
+      - {action: "move", location: "north"}
 
   - name: take
     description: Pick up an object from the current room.
@@ -29,8 +29,8 @@ functions:
           description: The name of the object to take.
       required:
         - object
-      examples:
-        - {action: "take", object: "lantern"}
+    examples:
+      - {action: "take", object: "lantern"}
 
   - name: drop
     description: Drop an object from your inventory into the room.
@@ -42,8 +42,8 @@ functions:
           description: The name of the object to drop.
       required:
         - object
-      examples:
-        - {action: "drop", object: "lantern"}
+    examples:
+      - {action: "drop", object: "lantern"}
 
   - name: give
     description: Give an object from your inventory to someone or put it in/on something.
@@ -59,9 +59,9 @@ functions:
       required:
         - object
         - target
-      examples:
-        - {action: "give", object: "flower", target: "Prax"}
-        - {action: "give", object: "cup", target: "shelf"}
+    examples:
+      - {action: "give", object: "flower", target: "Prax"}
+      - {action: "give", object: "cup", target: "shelf"}
 
   - name: desc_room
     description: Describe the room you are currently in. Use this to set or update the room's description with your personality.
@@ -73,8 +73,8 @@ functions:
           description: Paragraph-length description of the room, infused with your personality.
       required:
         - description
-      examples:
-        - {action: "desc_room", description: "A warm, lived-in space with soft light filtering through gauzy curtains..."}
+    examples:
+      - {action: "desc_room", description: "A warm, lived-in space with soft light filtering through gauzy curtains..."}
 
   - name: desc_object
     description: Describe an object in the room. Use this to set or update an object's description.
@@ -90,5 +90,5 @@ functions:
       required:
         - target
         - description
-      examples:
-        - {action: "desc_object", target: "#45", description: "A well-worn armchair that seems to embrace anyone who sits in it..."}
+    examples:
+      - {action: "desc_object", target: "#45", description: "A well-worn armchair that seems to embrace anyone who sits in it..."}

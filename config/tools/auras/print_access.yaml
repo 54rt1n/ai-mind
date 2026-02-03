@@ -17,7 +17,7 @@ functions:
           type: string
           description: Name for the printed output pages
       required: [terminal_type, identifier, name]
-      examples:
-        - {print: {terminal_type: "Market Terminal", identifier: "AAPL", name: "Apple"}}
-        - {print: {terminal_type: "Web Terminal", identifier: "https://example.com", name: "Article"}}
-        - {print: {terminal_type: "Research Terminal", identifier: "quantum_paper", name: "Research"}}
+    examples:
+      - {print: {terminal_type: "Market Terminal", identifier: "AAPL", name: "Apple"}}
+      - {print: {terminal_type: "Web Terminal", identifier: "https://example.com", name: "Article"}}
+      - {print: {terminal_type: "Research Terminal", identifier: "quantum_paper", name: "Research"}}

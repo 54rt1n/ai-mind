@@ -62,9 +62,9 @@ class ToolLoader:
                                 parameters=ToolFunctionParameters(
                                     type=function["parameters"].get("type", "object"),
                                     properties=function["parameters"].get("properties", {}),
-                                    required=function["parameters"].get("required", []),
-                                    examples=function["parameters"].get("examples", [])
-                                )
+                                    required=function["parameters"].get("required", [])
+                                ),
+                                examples=function.get("examples", [])
                             )
                         )
                         self._tools[f"{tool_type}/{tool.function.name}"] = tool
@@ -348,9 +348,9 @@ class ToolLoader:
                         parameters=ToolFunctionParameters(
                             type=function["parameters"].get("type", "object"),
                             properties=function["parameters"].get("properties", {}),
-                            required=function["parameters"].get("required", []),
-                            examples=function["parameters"].get("examples", [])
-                        )
+                            required=function["parameters"].get("required", [])
+                        ),
+                        examples=function.get("examples", [])
                     )
                 )
                 tools.append(tool)

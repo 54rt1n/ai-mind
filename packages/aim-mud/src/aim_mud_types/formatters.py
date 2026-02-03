@@ -314,6 +314,11 @@ def format_self_action_guidance(self_actions: list[MUDEvent], world_state=None) 
         event = self_actions[0]
         formatted = format_self_event(event)
 
+        # Only MOVEMENT, OBJECT, EMOTE should be wrapped in "Your Turn" blocks
+        # Everything else (speech, narrative, terminal, code, etc.) returns as-is
+        if event.event_type not in (EventType.MOVEMENT, EventType.OBJECT, EventType.EMOTE):
+            return event.content or formatted
+
         lines = [
             separator,
             f"[== Your Turn ==]",
@@ -393,6 +398,14 @@ def format_self_action_guidance(self_actions: list[MUDEvent], world_state=None) 
 
     # Multiple actions
     else:
+        # Only wrap action confirmations (movement, object, emote)
+        action_types = (EventType.MOVEMENT, EventType.OBJECT, EventType.EMOTE)
+        action_events = [e for e in self_actions if e.event_type in action_types]
+
+        # If no action events, just return the content as-is
+        if not action_events:
+            return "\n\n".join(e.content or format_self_event(e) for e in self_actions)
+
         lines = [
             separator,
             "!! CONGRATULATIONS: YOU WERE SUCCESSFUL !!",
@@ -405,7 +418,7 @@ def format_self_action_guidance(self_actions: list[MUDEvent], world_state=None) 
         object_interaction = False
         final_location = None
 
-        for idx, event in enumerate(self_actions, 1):
+        for idx, event in enumerate(action_events, 1):
             formatted = format_self_event(event)
 
             if event.event_type == EventType.MOVEMENT:

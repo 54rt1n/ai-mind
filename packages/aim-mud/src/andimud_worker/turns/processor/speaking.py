@@ -100,7 +100,7 @@ class SpeakingProcessor(BaseTurnProcessor):
                 session=self.worker.session,
                 coming_online=coming_online,
                 max_context_tokens=self.worker.model.max_tokens,
-                max_output_tokens=self.worker.chat_config.max_tokens,
+                max_output_tokens=self.worker.model.max_output_tokens,
                 memory_query=self.memory_query,
                 query_embedding=query_embedding,
             )

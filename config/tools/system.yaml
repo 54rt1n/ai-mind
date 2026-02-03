@@ -13,9 +13,9 @@ functions:
           description: Working directory for command execution
           default: .
       required: [command]
-      examples:
-        - {system_run_command: {command: "ls -la"}}
-        - {system_run_command: {command: "ps aux", working_dir: "/tmp"}}
+    examples:
+      - {system_run_command: {command: "ls -la"}}
+      - {system_run_command: {command: "ps aux", working_dir: "/tmp"}}
 
   - name: system_run_python
     description: Execute a Python script
@@ -30,9 +30,9 @@ functions:
           description: Working directory for execution
           default: .
       required: [code]
-      examples:
-        - {system_run_python: {code: "print('Hello, world!')"}}
-        - {system_run_python: {code: "import os\nprint(os.listdir('.'))"}}
+    examples:
+      - {system_run_python: {code: "print('Hello, world!')"}}
+      - {system_run_python: {code: "import os\nprint(os.listdir('.'))"}}
 
   - name: system_env_var
     description: Get environment variable values
@@ -42,10 +42,10 @@ functions:
         var_name:
           type: string
           description: Specific environment variable to get (optional)
-      examples:
-        - {system_env_var: {var_name: "PATH"}}
-        - {system_env_var: {}}
+    examples:
+      - {system_env_var: {var_name: "PATH"}}
+      - {system_env_var: {}}
 
 implementation:
   module: aim.tool.impl.system
-  class: SystemTool 
+  class: SystemTool

@@ -84,6 +84,7 @@ class AgentCommand(Command):
 
         # Get emitted action_ids from worker (set by _emit_actions during processor execution)
         action_ids = worker._last_emitted_action_ids
+        expects_echo = worker._last_emitted_expects_echo
 
         # Agent turns are memory palace actions, outside MUD world
         # Events are environmental context only, don't flush drain
@@ -92,4 +93,5 @@ class AgentCommand(Command):
             status=TurnRequestStatus.DONE,
             message=f"Agent turn processed: {required_tool or 'any tool'}",
             emitted_action_ids=action_ids,
+            expects_echo=expects_echo,
         )

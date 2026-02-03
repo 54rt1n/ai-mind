@@ -11,9 +11,9 @@ functions:
           type: string
           description: Search query string
       required: [query]
-      examples:
-        - {research: {query: "python asyncio"}}
-        - {research: {query: "memory systems architecture"}}
+    examples:
+      - {research: {query: "python asyncio"}}
+      - {research: {query: "memory systems architecture"}}
 
   - name: read_doc
     description: Read a document from the knowledge base by its ID
@@ -24,9 +24,9 @@ functions:
           type: string
           description: Document identifier
       required: [doc_id]
-      examples:
-        - {read_doc: {doc_id: "doc_12345"}}
-        - {read_doc: {doc_id: "memory_systems_overview"}}
+    examples:
+      - {read_doc: {doc_id: "doc_12345"}}
+      - {read_doc: {doc_id: "memory_systems_overview"}}
 
 implementation:
   module: aim.tool.impl.container_mcp

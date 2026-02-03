@@ -398,13 +398,11 @@ Current focus will be cleared. Please refocus with a smaller scope."""
             if mood:
                 emote_text = f"waits {mood}."
                 logger.info(f"Wait emote with mood: {emote_text}")
-                # Custom mood: non_reactive (published but doesn't trigger reactions)
-                metadata = {MUDAction.META_NON_REACTIVE: True}
             else:
                 emote_text = "waits quietly."
                 logger.info("Wait emote with default mood")
-                # Default: non_published (not routed to event streams at all)
-                metadata = {MUDAction.META_NON_PUBLISHED: True}
+            # Always non_published (not routed to event streams at all)
+            metadata = {MUDAction.META_NON_PUBLISHED: True}
             action = MUDAction(
                 tool="emote",
                 args={"action": emote_text},
@@ -576,7 +574,7 @@ Current focus will be cleared. Please refocus with a smaller scope."""
                 action_guidance=action_guidance,
                 user_guidance=user_guidance,
                 max_context_tokens=self.model.max_tokens,       # Model context window
-                max_output_tokens=self.chat_config.max_tokens,  # Max output tokens
+                max_output_tokens=self.model.max_output_tokens,  # Max output tokens
             )
 
             # If there was an overflow error from previous iteration, inject it
@@ -588,7 +586,7 @@ Current focus will be cleared. Please refocus with a smaller scope."""
                 system_message = self._decision_strategy.get_system_message(self.persona)
                 total_tokens = self._measure_total_tokens(turns, system_message)
                 model_limit = self._get_model_context_limit()
-                output_reservation = self.chat_config.max_tokens or 4096
+                output_reservation = self.model.max_output_tokens
 
                 if total_tokens + output_reservation > model_limit:
                     # Overflow detected
@@ -634,6 +632,17 @@ Current focus will be cleared. Please refocus with a smaller scope."""
                 tool_name = result.function_name
                 args = result.arguments or {}
 
+                # Unwrap if agent used {"action": "...", "parameters": {...}} format
+                if "parameters" in args and len(args) == 1:
+                    args = args["parameters"]
+                elif "parameters" in args and "action" in args:
+                    # Agent used {"action": "Move", "parameters": {...}}
+                    # Extract the action name if it's different from function_name
+                    action_name = args.get("action", "").lower()
+                    if action_name and action_name != tool_name:
+                        tool_name = action_name
+                    args = args["parameters"]
+
                 if tool_name == "move":
                     result = validate_move(self.session, args)
                     if result.is_valid:
@@ -641,8 +650,9 @@ Current focus will be cleared. Please refocus with a smaller scope."""
                     turns.append({"role": "assistant", "content": response})
                     turns.append({"role": "user", "content": result.guidance})
                     logger.warning(
-                        "Invalid move; retrying with guidance (attempt %d/%d)",
+                        "Invalid move (attempt %d/%d) - args=%s - %s",
                         attempt + 1, self.config.decision_max_retries,
+                        args, result.guidance
                     )
                     continue
 
@@ -661,8 +671,9 @@ Current focus will be cleared. Please refocus with a smaller scope."""
                     turns.append({"role": "assistant", "content": response})
                     turns.append({"role": "user", "content": result.guidance})
                     logger.warning(
-                        "Invalid take; retrying with guidance (attempt %d/%d)",
+                        "Invalid take (attempt %d/%d) - args=%s - %s",
                         attempt + 1, self.config.decision_max_retries,
+                        args, result.guidance
                     )
                     continue
 
@@ -673,8 +684,9 @@ Current focus will be cleared. Please refocus with a smaller scope."""
                     turns.append({"role": "assistant", "content": response})
                     turns.append({"role": "user", "content": result.guidance})
                     logger.warning(
-                        "Invalid drop; retrying with guidance (attempt %d/%d)",
+                        "Invalid drop (attempt %d/%d) - args=%s - %s",
                         attempt + 1, self.config.decision_max_retries,
+                        args, result.guidance
                     )
                     continue
 
@@ -685,8 +697,9 @@ Current focus will be cleared. Please refocus with a smaller scope."""
                     turns.append({"role": "assistant", "content": response})
                     turns.append({"role": "user", "content": result.guidance})
                     logger.warning(
-                        "Invalid give; retrying with guidance (attempt %d/%d)",
+                        "Invalid give (attempt %d/%d) - args=%s - %s",
                         attempt + 1, self.config.decision_max_retries,
+                        args, result.guidance
                     )
                     continue
 
@@ -697,8 +710,9 @@ Current focus will be cleared. Please refocus with a smaller scope."""
                     turns.append({"role": "assistant", "content": response})
                     turns.append({"role": "user", "content": result.guidance})
                     logger.warning(
-                        "Invalid emote; retrying with guidance (attempt %d/%d)",
+                        "Invalid emote (attempt %d/%d) - args=%s - %s",
                         attempt + 1, self.config.decision_max_retries,
+                        args, result.guidance
                     )
                     continue
 
@@ -798,8 +812,9 @@ Current focus will be cleared. Please refocus with a smaller scope."""
                             turns.append({"role": "assistant", "content": response})
                             turns.append({"role": "user", "content": result.guidance})
                             logger.warning(
-                                "Invalid ring; retrying with guidance (attempt %d/%d)",
+                                "Invalid ring (attempt %d/%d) - args=%s - %s",
                                 attempt + 1, self.config.decision_max_retries,
+                                args, result.guidance
                             )
                             continue
                         args = result.args
@@ -992,6 +1007,15 @@ Current focus will be cleared. Please refocus with a smaller scope."""
 
                 speaking_processor = SpeakingProcessor(self)
                 speaking_processor.user_guidance = user_guidance
+
+                # Extract memory query from decision args
+                query_parts = []
+                if "query" in decision.args and decision.args["query"]:
+                    query_parts.append(decision.args["query"])
+                if "query_keywords" in decision.args and decision.args["query_keywords"]:
+                    query_parts.append(decision.args["query_keywords"])
+                speaking_processor.memory_query = " ".join(query_parts) if query_parts else ""
+
                 await speaking_processor.execute(turn_request, events)
             elif decision.decision_type == DecisionType.THINK:
                 # Get new conversation entries that arrived during Phase 1

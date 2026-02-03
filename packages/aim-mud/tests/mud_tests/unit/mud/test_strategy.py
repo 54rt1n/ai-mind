@@ -396,16 +396,20 @@ class TestMUDDecisionStrategyBuildDecisionGuidance:
         assert "Andi" not in guidance
 
     def test_build_decision_guidance_includes_examples(self, strategy):
-        """Test that guidance includes action examples."""
+        """Test that guidance includes contextual examples section.
+
+        Note: Specific tool examples (Move, Take, Drop, Give) only appear when
+        tools with examples are loaded via init_tools(). Without tools,
+        only the section header appears.
+        """
         session = _sample_session()
 
         guidance = strategy._build_decision_guidance(session)
 
         assert "Contextual Examples:" in guidance
-        assert "Move:" in guidance
-        assert "Take:" in guidance
-        assert "Drop:" in guidance
-        assert "Give:" in guidance
+        # World state context is always shown (even without tools)
+        assert "Available exits:" in guidance
+        assert "Objects present:" in guidance
 
     def test_build_decision_guidance_empty_session(self, strategy):
         """Test guidance with minimal session."""
@@ -420,8 +424,13 @@ class TestMUDDecisionStrategyBuildDecisionGuidance:
 
         # Should still have basic instructions
         assert "Tool Use Turn" in guidance
-        # But no contextual examples for specific actions
-        assert "Contextual Examples:" not in guidance
+        # Contextual Examples section header always appears
+        assert "Contextual Examples:" in guidance
+        # But no world state context (no exits, objects, inventory, targets)
+        assert "Available exits:" not in guidance
+        assert "Objects present:" not in guidance
+        assert "Your inventory:" not in guidance
+        assert "People present:" not in guidance
 
     def test_build_decision_guidance_falls_back_to_session_entities(self, strategy):
         """Test that guidance falls back to session.entities_present when no world_state."""

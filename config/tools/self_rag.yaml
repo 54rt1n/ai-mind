@@ -18,10 +18,10 @@ functions:
           enum: [informative, concise, detailed]
           default: informative
       required: [query]
-      examples:
-        - {query_self_rag: {query: "What is the capital of France?"}}
-        - {query_self_rag: {query: "How does photosynthesis work?", style: "detailed", max_tokens: 800}}
+    examples:
+      - {query_self_rag: {query: "What is the capital of France?"}}
+      - {query_self_rag: {query: "How does photosynthesis work?", style: "detailed", max_tokens: 800}}
 
 implementation:
   module: aim.tool.impl.self_rag
-  class: SelfRagTool 
+  class: SelfRagTool

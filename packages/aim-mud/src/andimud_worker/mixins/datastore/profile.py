@@ -255,7 +255,7 @@ class ProfileMixin:
         Returns False if:
         - Index gap == 0 (nothing new happened, even if time elapsed)
         """
-        from datetime import datetime
+        from datetime import datetime, timezone
 
         client = RedisMUDClient(self.redis)
 
@@ -278,7 +278,7 @@ class ProfileMixin:
             return True
 
         # Fall back to time-based throttle (only when index_gap > 0)
-        time_elapsed = (datetime.utcnow() - thought.created_at).total_seconds()
+        time_elapsed = (datetime.now(timezone.utc) - thought.created_at).total_seconds()
         return time_elapsed >= 300  # 5 minutes
 
     async def _increment_thought_action_counter(self: "MUDAgentWorker") -> int:

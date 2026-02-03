@@ -14,6 +14,6 @@ functions:
           type: string
           description: Optional title for the book (defaults to folder name)
       required: [folder]
-      examples:
-        - {bind: {folder: "notes"}}
-        - {bind: {folder: "research", title: "My Research Notes"}}
+    examples:
+      - {bind: {folder: "notes"}}
+      - {bind: {folder: "research", title: "My Research Notes"}}

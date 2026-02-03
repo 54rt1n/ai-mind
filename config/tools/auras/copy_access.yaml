@@ -7,5 +7,5 @@ functions:
     parameters:
       type: object
       properties: {}
-      examples:
-        - {copy: {}}
+    examples:
+      - {copy: {}}

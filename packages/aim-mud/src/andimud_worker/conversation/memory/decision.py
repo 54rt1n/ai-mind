@@ -15,6 +15,7 @@ The strategy pattern allows different turn construction depending on the phase,
 with Phase 2 extending XMLMemoryTurnStrategy for memory-augmented responses.
 """
 
+import json
 import logging
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
@@ -571,15 +572,8 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
         parts.append("[~~ Tool Guidance: Tool Use Turn ~~]")
         parts.append("")
         parts.append("You are in a tool use turn. Your response is going to be used to determine your next action.")
-        parts.append("Tool use involves you generating a JSON block like the following:")
+        parts.append("Tool use involves you generating a JSON block for one of the available functions.")
         parts.append("")
-
-        # Get tool signatures from ToolUser
-        if self.tool_user:
-            tool_guidance = self.tool_user.get_tool_guidance()
-            if tool_guidance:
-                parts.append(tool_guidance)
-                parts.append("")
 
         # Extract current world state context
         exits: list[str] = []
@@ -638,40 +632,59 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
                         if entity.name:
                             room_objects.append(entity.name)
 
-        # Add current context
-        parts.append("Current Context:")
-        if exits:
-            parts.append(f"  Available exits: {', '.join(exits)}")
-        if room_objects:
-            parts.append(f"  Objects present: {', '.join(room_objects)}")
-        if inventory_items:
-            parts.append(f"  Your inventory: {', '.join(inventory_items)}")
-        if present_targets:
-            parts.append(f"  People present: {', '.join(present_targets)}")
-        if aura_descriptions:
-            parts.append(f"  Auras: {', '.join(aura_descriptions)}")
-        if not any([exits, room_objects, inventory_items, present_targets, aura_descriptions]):
-            parts.append("  (No special options available)")
+        # Build contextual examples - one cohesive guidance section
+        parts.append("Contextual Examples:")
+
+        if self.tool_user and self.tool_user.tools:
+            for tool in self.tool_user.tools:
+                tool_name = tool.function.name
+
+                # Get examples from tool definition
+                examples = getattr(tool.function, 'examples', None) or []
+                if not examples:
+                    continue
+
+                # Use first example from config
+                example = examples[0]
+                parts.append(f'  [{tool_name}] {json.dumps(example)}')
+
+                # For context-dependent tools, add valid targets line below
+                if tool_name == "move" and exits:
+                    exits_str = ", ".join(f'"{e}"' for e in exits)
+                    parts.append(f'    Valid exits: {exits_str}')
+                elif tool_name == "take" and room_objects:
+                    objects_str = ", ".join(f'"{obj}"' for obj in room_objects)
+                    parts.append(f'    Available objects: {objects_str}')
+                elif tool_name == "drop" and inventory_items:
+                    inventory_str = ", ".join(f'"{item}"' for item in inventory_items)
+                    parts.append(f'    Your inventory: {inventory_str}')
+                elif tool_name == "give":
+                    if inventory_items:
+                        inventory_str = ", ".join(f'"{item}"' for item in inventory_items)
+                        parts.append(f'    Valid objects: {inventory_str}')
+                    if present_targets:
+                        targets_str = ", ".join(f'"{t}"' for t in present_targets)
+                        parts.append(f'    Valid targets: {targets_str}')
+                elif tool_name == "ring" and ringable_sources:
+                    ringable_str = ", ".join(f'"{r}"' for r in ringable_sources)
+                    parts.append(f'    Ringable objects: {ringable_str}')
+
         parts.append("")
 
-        # Add contextual examples
-        if exits or room_objects or inventory_items or present_targets or aura_descriptions:
-            parts.append("Contextual Examples:")
+        # Add world state summary section (independent of tools)
+        has_context = exits or room_objects or inventory_items or present_targets
+        if has_context:
             if exits:
-                parts.append(f'  Move: {{"move": {{"location": "{exits[0]}"}}}}')
+                parts.append(f"Available exits: {', '.join(exits)}")
             if room_objects:
-                parts.append(f'  Take: {{"take": {{"object": "{room_objects[0]}"}}}}')
+                parts.append(f"Objects present: {', '.join(room_objects)}")
             if inventory_items:
-                parts.append(f'  Drop: {{"drop": {{"object": "{inventory_items[0]}"}}}}')
-            if inventory_items and present_targets:
-                parts.append(f'  Give: {{"give": {{"object": "{inventory_items[0]}", "target": "{present_targets[0]}"}}}}')
-            if ringable_sources and "ring" in self.get_available_tool_names():
-                parts.append(f'  Ring: {{"ring": {{"object": "{ringable_sources[0]}"}}}}')
-            if "emote" in self.get_available_tool_names():
-                parts.append('  Emote: {"emote": {"action": "pauses, then smiles reassuringly."}}')
+                parts.append(f"Your inventory: {', '.join(inventory_items)}")
+            if present_targets:
+                parts.append(f"People present: {', '.join(present_targets)}")
             parts.append("")
 
-        parts.append("Just follow the instructions. Thanks!")
+        parts.append("Pick what you want to do - you have a lot of choices here.")
         parts.append("")
         parts.append("[/~~Tool Guidance~~/]")
 

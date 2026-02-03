@@ -14,10 +14,10 @@ functions:
           type: integer
           description: Specific page number to read (optional - omit to read entire book)
       required: [book]
-      examples:
-        - {read: {book: "My Notes"}}
-        - {read: {book: "Research", page: 3}}
-        - {read: {book: "letter"}}
+    examples:
+      - {read: {book: "My Notes"}}
+      - {read: {book: "Research", page: 3}}
+      - {read: {book: "letter"}}
 
   - name: unbind
     description: Unbind a book back into a folder
@@ -28,5 +28,5 @@ functions:
           type: string
           description: Name of the book to unbind
       required: [book]
-      examples:
-        - {unbind: {book: "My Notes"}}
+    examples:
+      - {unbind: {book: "My Notes"}}

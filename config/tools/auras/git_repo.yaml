@@ -1,0 +1,41 @@
+type: mud
+description: Git repository tools available when in a git repository
+
+functions:
+  - name: gitdiff
+    description: Show git diff for a file against a reference (default HEAD)
+    parameters:
+      type: object
+      properties:
+        file:
+          type: string
+          description: File path relative to current directory or repo root
+        ref:
+          type: string
+          description: Git reference to diff against (default HEAD)
+      required: [file]
+    examples:
+      - {gitdiff: {file: "README.md"}}
+      - {gitdiff: {file: "src/main.py", ref: "HEAD~1"}}
+
+  - name: gitstatus
+    description: Show git status of the repository
+    parameters:
+      type: object
+      properties: {}
+      required: []
+    examples:
+      - {gitstatus: {}}
+
+  - name: gitlog
+    description: Show recent git commit history
+    parameters:
+      type: object
+      properties:
+        count:
+          type: integer
+          description: Number of commits to show (default 10)
+      required: []
+    examples:
+      - {gitlog: {}}
+      - {gitlog: {count: 5}}

@@ -384,7 +384,7 @@ class Paradigm:
                     type="object",
                     properties=properties,
                     required=tool_data.get("required", []),
-                    examples=examples,
                 ),
+                examples=examples,
             ),
         )

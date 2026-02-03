@@ -16,9 +16,9 @@ functions:
           description: What you want to say
       required:
         - message
-      examples:
-        - {say: {message: "Hello, everyone!"}}
-        - {say: {message: "Happy New Year, Papa."}}
+    examples:
+      - {say: {message: "Hello, everyone!"}}
+      - {say: {message: "Happy New Year, Papa."}}
 
   - name: emote
     description: Perform an action or express emotion visibly to everyone in the room
@@ -30,10 +30,10 @@ functions:
           description: The action to perform (e.g., "smiles warmly", "looks thoughtful")
       required:
         - action
-      examples:
-        - {emote: {action: "smiles warmly"}}
-        - {emote: {action: "looks up, her silver band glowing gold"}}
-        - {emote: {action: "tilts her head thoughtfully"}}
+    examples:
+      - {emote: {action: "smiles warmly"}}
+      - {emote: {action: "looks up, her silver band glowing gold"}}
+      - {emote: {action: "tilts her head thoughtfully"}}
 
   - name: whisper
     description: Send a private message to a specific person in the room
@@ -49,9 +49,9 @@ functions:
       required:
         - target
         - message
-      examples:
-        - {whisper: {target: "Prax", message: "Can I talk to you privately?"}}
-        - {whisper: {target: "Nova", message: "Did you notice that?"}}
+    examples:
+      - {whisper: {target: "Prax", message: "Can I talk to you privately?"}}
+      - {whisper: {target: "Nova", message: "Did you notice that?"}}
 
   - name: pose
     description: Perform a pose in the current room
@@ -63,9 +63,9 @@ functions:
           description: The pose to perform (e.g., "smiles warmly")
       required:
         - action
-      examples:
-        - {pose: {action: "smiles softly"}}
-        - {pose: {action: "folds her hands behind her back"}}
+    examples:
+      - {pose: {action: "smiles softly"}}
+      - {pose: {action: "folds her hands behind her back"}}
 
   - name: move
     description: Move to an adjacent room through an exit
@@ -77,10 +77,10 @@ functions:
           description: The direction or exit name to move through (e.g., "north", "out", "garden")
       required:
         - location
-      examples:
-        - {move: {location: "north"}}
-        - {move: {location: "garden"}}
-        - {move: {location: "out"}}
+    examples:
+      - {move: {location: "north"}}
+      - {move: {location: "garden"}}
+      - {move: {location: "out"}}
 
   - name: get
     description: Pick up an object from the room or from a container
@@ -92,9 +92,9 @@ functions:
           description: The name of the object to pick up
       required:
         - object
-      examples:
-        - {get: {object: "book"}}
-        - {get: {object: "silver key"}}
+    examples:
+      - {get: {object: "book"}}
+      - {get: {object: "silver key"}}
 
   - name: drop
     description: Drop an object from your inventory into the room
@@ -106,9 +106,9 @@ functions:
           description: The name of the object to drop
       required:
         - object
-      examples:
-        - {drop: {object: "book"}}
-        - {drop: {object: "lantern"}}
+    examples:
+      - {drop: {object: "book"}}
+      - {drop: {object: "lantern"}}
 
   - name: give
     description: Give an object from your inventory to someone in the room
@@ -124,9 +124,9 @@ functions:
       required:
         - object
         - target
-      examples:
-        - {give: {object: "book", target: "Prax"}}
-        - {give: {object: "flower", target: "Nova"}}
+    examples:
+      - {give: {object: "book", target: "Prax"}}
+      - {give: {object: "flower", target: "Nova"}}
 
   - name: use
     description: Use or interact with an object
@@ -138,9 +138,9 @@ functions:
           description: The name of the object to use
       required:
         - object
-      examples:
-        - {use: {object: "lever"}}
-        - {use: {object: "fountain"}}
+    examples:
+      - {use: {object: "lever"}}
+      - {use: {object: "fountain"}}
 
   - name: home
     description: Return to your home location
@@ -148,8 +148,8 @@ functions:
       type: object
       properties: {}
       required: []
-      examples:
-        - {home: {}}
+    examples:
+      - {home: {}}
 
   - name: setdesc
     description: Set your description (setdesc)
@@ -161,8 +161,8 @@ functions:
           description: The description text to set
       required:
         - description
-      examples:
-        - {setdesc: {description: "A calm presence with a silver band."}}
+    examples:
+      - {setdesc: {description: "A calm presence with a silver band."}}
 
 implementation:
   module: aim.tool.impl.mud

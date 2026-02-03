@@ -591,9 +591,10 @@ class TestPhase1DecisionGuidance:
         last_user = user_turns[-1]
 
         assert "Contextual Examples:" in last_user["content"]
-        assert "Move:" in last_user["content"]
-        assert "Take:" in last_user["content"]
-        assert "Give:" in last_user["content"] or "Drop:" in last_user["content"]
+        # Tool examples use [tool_name] format, e.g. "[move]", "[take]"
+        assert "[move]" in last_user["content"]
+        assert "[take]" in last_user["content"]
+        assert "[give]" in last_user["content"] or "[drop]" in last_user["content"]
 
     @pytest.mark.asyncio
     async def test_guidance_examples_use_actual_data(

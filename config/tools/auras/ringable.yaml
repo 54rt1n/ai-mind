@@ -11,6 +11,6 @@ functions:
           type: string
           description: The ringable object to ring (use the object name)
       required: []
-      examples:
-        - {ring: {object: "Front Door Doorbell"}}
-        - {ring: {}}
+    examples:
+      - {ring: {object: "Front Door Doorbell"}}
+      - {ring: {}}

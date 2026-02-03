@@ -467,6 +467,8 @@ class EventsMixin:
 
                 if not pending_action_ids:
                     # All echoes received - clear PENDING
+                    original_turn_id = turn_request.turn_id  # Save before mutation
+
                     turn_request.metadata = {}
                     transition_turn_request(
                         turn_request,
@@ -475,29 +477,63 @@ class EventsMixin:
                         new_turn_id=True,
                         update_heartbeat=True,
                     )
-                    await self._update_turn_request(agent_id, turn_request, expected_turn_id=turn_request.turn_id)
-                    logger.info(f"Mediator cleared PENDING for {agent_id} (all echoes received)")
+
+                    success = await self._update_turn_request(
+                        agent_id,
+                        turn_request,
+                        expected_turn_id=original_turn_id  # Use original for CAS
+                    )
+
+                    if success:
+                        logger.info(f"Mediator cleared PENDING for {agent_id} (all echoes received)")
+                    else:
+                        logger.warning(
+                            f"Mediator CAS FAILED when clearing PENDING for {agent_id} - "
+                            f"turn_request may have been updated by worker. Worker timeout will recover."
+                        )
                 else:
                     # Partial match - update metadata
+                    original_turn_id = turn_request.turn_id  # Save before potential mutation
+
                     turn_request.metadata["pending_action_ids"] = list(pending_action_ids)
-                    await self._update_turn_request(agent_id, turn_request, expected_turn_id=turn_request.turn_id)
-                    logger.debug(f"Mediator partial match: {len(pending_action_ids)} remaining for {agent_id}")
+
+                    success = await self._update_turn_request(
+                        agent_id,
+                        turn_request,
+                        expected_turn_id=original_turn_id
+                    )
+
+                    if success:
+                        logger.debug(f"Mediator partial match: {len(pending_action_ids)} remaining for {agent_id}")
+                    else:
+                        logger.warning(
+                            f"Mediator CAS FAILED on partial match for {agent_id} - "
+                            f"turn_request may have been updated. Retry on next event."
+                        )
 
             except Exception as e:
                 logger.error(f"Error clearing PENDING for {agent_id}: {e}", exc_info=True)
                 # Don't raise - worker timeout will recover
 
-    async def _update_turn_request(self, agent_id: str, turn_request: MUDTurnRequest, expected_turn_id: str) -> None:
+    async def _update_turn_request(
+        self,
+        agent_id: str,
+        turn_request: MUDTurnRequest,
+        expected_turn_id: str
+    ) -> bool:  # Return bool instead of None
         """Update turn request with CAS.
 
         Args:
             agent_id: Agent identifier
             turn_request: MUDTurnRequest to update
             expected_turn_id: Expected turn_id for CAS check
+
+        Returns:
+            True if updated successfully, False if CAS check failed
         """
         from aim_mud_types.client import RedisMUDClient
         client = RedisMUDClient(self.redis)
-        await client.update_turn_request(
+        return await client.update_turn_request(  # Return the bool
             agent_id,
             turn_request,
             expected_turn_id=expected_turn_id

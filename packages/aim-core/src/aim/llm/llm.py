@@ -274,8 +274,16 @@ class OpenAIProvider(LLMProvider):
             except Exception as e:
                 last_error = e
                 logger.error(f"API error (attempt {attempt + 1}/{self.max_retries + 1}): {e}")
+                logger.error(f"Exception type: {type(e).__name__}")
+                if hasattr(e, 'doc'):
+                    logger.error(f"BAD JSON: {e.doc}")
+                logger.error(f"Exception args: {e.args}")
                 if hasattr(e, 'response'):
-                    logger.error(f"Response body: {e.response.text if hasattr(e.response, 'text') else e.response}")
+                    resp = e.response
+                    if hasattr(resp, 'text'):
+                        logger.error(f"Response text: {resp.text}")
+                    if hasattr(resp, 'content'):
+                        logger.error(f"Response content: {resp.content}")
 
                 # Check if error is retryable
                 if is_retryable_error(e) and attempt < self.max_retries:
