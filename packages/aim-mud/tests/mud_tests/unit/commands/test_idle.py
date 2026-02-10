@@ -98,13 +98,8 @@ class TestIdleThrottleIndexGap:
             last_conversation_index=42
         )
 
-        # Mock new entries (gap = 6)
-        mock_entries = [MagicMock() for _ in range(6)]
-
         # Mock throttle returns True (gap >= 5)
         mock_worker._should_generate_new_thought = AsyncMock(return_value=True)
-        mock_worker.get_new_conversation_entries = AsyncMock(return_value=mock_entries)
-        mock_worker.collapse_consecutive_entries = MagicMock(return_value=mock_entries)
         mock_worker.claim_idle_turn = AsyncMock(return_value="turn-123")
         mock_worker._load_thought_content = AsyncMock()
         mock_worker._is_idle_active = AsyncMock(return_value=False)
@@ -125,7 +120,6 @@ class TestIdleThrottleIndexGap:
 
         # Should generate thought (gap >= 5, regardless of time)
         mock_worker.claim_idle_turn.assert_awaited_once()
-        mock_worker.get_new_conversation_entries.assert_awaited_once()
 
         # Should execute thinking processor
         mock_thinking_processor.execute.assert_awaited_once()
@@ -138,27 +132,28 @@ class TestIdleThrottleIndexGap:
         assert "(thought generated)" in result.message
 
     @pytest.mark.asyncio
-    async def test_awake_turn_throttle_passed_but_no_entries(self, mock_worker, turn_request):
-        """Should skip thought generation when throttle passes but no new entries exist.
-
-        This is a secondary safety check - throttle might say "yes" based on index,
-        but actual entry fetch returns empty list (rare edge case).
-        """
+    async def test_awake_turn_throttle_passed_but_no_entries(self, mock_worker, turn_request, mocker):
+        """Should generate thought when throttle passes, even if no entries are read."""
         # Mock throttle returns True
         mock_worker._should_generate_new_thought = AsyncMock(return_value=True)
 
-        # But no entries actually exist
-        mock_worker.get_new_conversation_entries = AsyncMock(return_value=[])
         mock_worker._load_thought_content = AsyncMock()
         mock_worker._is_idle_active = AsyncMock(return_value=False)
+
+        # Mock ThinkingTurnProcessor to avoid executing real processor
+        mock_thinking_processor = MagicMock()
+        mock_thinking_processor.execute = AsyncMock()
+        mocker.patch(
+            'andimud_worker.commands.idle.ThinkingTurnProcessor',
+            return_value=mock_thinking_processor
+        )
 
         cmd = IdleCommand()
         result = await cmd.execute(mock_worker, turn_request=turn_request, events=[])
 
-        # Should NOT claim turn (no entries to process)
-        mock_worker.claim_idle_turn.assert_not_called()
-
-        # Should reload existing thought instead
+        # Should claim turn and generate thought
+        mock_worker.claim_idle_turn.assert_awaited_once()
+        mock_thinking_processor.execute.assert_awaited_once()
         mock_worker._load_thought_content.assert_awaited_once()
 
         assert result.complete is True
@@ -175,13 +170,8 @@ class TestIdleThrottleIndexGap:
             last_conversation_index=42
         )
 
-        # Mock new entries (gap = 2, but time elapsed)
-        mock_entries = [MagicMock(), MagicMock()]
-
         # Mock throttle returns True (time elapsed >= 5 min AND gap > 0)
         mock_worker._should_generate_new_thought = AsyncMock(return_value=True)
-        mock_worker.get_new_conversation_entries = AsyncMock(return_value=mock_entries)
-        mock_worker.collapse_consecutive_entries = MagicMock(return_value=mock_entries)
         mock_worker.claim_idle_turn = AsyncMock(return_value="turn-124")
         mock_worker._load_thought_content = AsyncMock()
         mock_worker._is_idle_active = AsyncMock(return_value=False)
@@ -200,7 +190,6 @@ class TestIdleThrottleIndexGap:
 
         # Should generate thought (time elapsed AND gap > 0)
         mock_worker.claim_idle_turn.assert_awaited_once()
-        mock_worker.get_new_conversation_entries.assert_awaited_once()
         mock_thinking_processor.execute.assert_awaited_once()
 
         assert result.complete is True

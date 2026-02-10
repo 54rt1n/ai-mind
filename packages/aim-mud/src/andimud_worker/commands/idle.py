@@ -87,36 +87,24 @@ class IdleCommand(Command):
         dual_turn = False
 
         if should_think:
-            # Get new conversation entries BEFORE claiming turn
-            new_entries = await worker.get_new_conversation_entries()
-            new_entries = worker.collapse_consecutive_entries(new_entries)
+            # Claim the turn for reasoning generation
+            turn_id = await worker.claim_idle_turn(turn_request)
+            dual_turn = True
 
-            # Only proceed if entries actually exist
-            if not new_entries:
-                logger.info(
-                    f"[{turn_id}] Throttle passed but no new entries - "
-                    "skipping thought generation"
-                )
-                # Reload existing thought for action phase
-                await worker._load_thought_content()
-            else:
-                # NOW claim the turn (only if we'll actually use it)
-                turn_id = await worker.claim_idle_turn(turn_request)
-                dual_turn = True
+            # Clear any stale entries; thinking doesn't depend on "new entries" gating
+            worker._current_turn_entries = []
+            logger.info(f"[{turn_id}] Throttle passed - generating new thought")
 
-                worker._current_turn_entries = new_entries
-                logger.info(f"[{turn_id}] Captured {len(new_entries)} new entries for THINK phase")
+            thinking_processor = ThinkingTurnProcessor(worker)
+            if plan_guidance:
+                thinking_processor.user_guidance = plan_guidance
 
-                thinking_processor = ThinkingTurnProcessor(worker)
-                if plan_guidance:
-                    thinking_processor.user_guidance = plan_guidance
+            # Generate thought
+            await thinking_processor.execute(turn_request, events)
+            logger.info(f"[{turn_id}] New thought generated")
 
-                # Generate thought
-                await thinking_processor.execute(turn_request, events)
-                logger.info(f"[{turn_id}] New thought generated (new entries detected)")
-
-                # Reload the thought we just generated
-                await worker._load_thought_content()
+            # Reload the thought we just generated
+            await worker._load_thought_content()
 
         # Phase 2: Check plan status for logging
         plan = worker.get_active_plan()

@@ -4,9 +4,11 @@
 
 from __future__ import annotations
 
-from typing import Optional, TYPE_CHECKING
+import json
+from typing import Any, Optional, TYPE_CHECKING
 
 from ...helper import _utc_now
+from ...models import ActorType, EventType, MUDEvent
 from ...redis_keys import RedisKeys
 
 if TYPE_CHECKING:
@@ -80,6 +82,61 @@ class SyncMudEventsStreamMixin:
                 approximate=approximate,
             )
         return self._decode_stream_id(msg_id)
+
+    def publish_mud_event(
+        self: "BaseSyncRedisMUDClient",
+        *,
+        event_type: EventType | str,
+        actor: str,
+        actor_id: str = "",
+        actor_type: ActorType | str = ActorType.PLAYER,
+        room_id: str = "",
+        room_name: str = "",
+        content: str = "",
+        target: Optional[str] = None,
+        target_id: str = "",
+        metadata: Optional[dict[str, Any]] = None,
+        timestamp: Optional[Any] = None,
+        sequence_id: Optional[int] = None,
+        action_id: Optional[str] = None,
+        maxlen: Optional[int] = None,
+        approximate: bool = True,
+        stream_key: Optional[str] = None,
+    ) -> str:
+        """Build a MUDEvent and append it to mud:events.
+
+        If metadata includes an "action_id", it is promoted to the top-level
+        event field for correlation. An explicit action_id parameter overrides
+        any metadata value.
+        """
+        meta = dict(metadata) if isinstance(metadata, dict) else {}
+        meta_action_id = meta.pop("action_id", None)
+        if action_id is None:
+            action_id = meta_action_id
+
+        event = MUDEvent(
+            event_type=event_type,
+            actor=actor,
+            actor_id=actor_id,
+            action_id=action_id,
+            actor_type=actor_type,
+            room_id=room_id or "",
+            room_name=room_name or "",
+            content=content or "",
+            target=target,
+            target_id=target_id or "",
+            timestamp=timestamp if timestamp is not None else _utc_now(),
+            metadata=meta,
+            sequence_id=sequence_id,
+        )
+
+        payload = event.to_redis_dict()
+        return self.append_mud_event(
+            {"data": json.dumps(payload)},
+            maxlen=maxlen,
+            approximate=approximate,
+            stream_key=stream_key,
+        )
 
     def trim_mud_events_minid(
         self: "BaseSyncRedisMUDClient",
