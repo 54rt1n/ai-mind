@@ -65,6 +65,15 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                 system_tokens = self.count_tokens(system_message)
         return max_context_tokens - max_output_tokens - system_tokens - 1024
 
+    def _estimate_wrapper_tokens(self, message_count: int) -> int:
+        """Estimate framing overhead tokens for a request."""
+        config = getattr(self.chat, "config", None)
+        if not config:
+            return 0
+        message_overhead = getattr(config, "message_overhead_tokens", 0) or 0
+        request_overhead = getattr(config, "request_overhead_tokens", 0) or 0
+        return request_overhead + (message_overhead * message_count)
+
     def user_turn_for(self, persona: Persona, user_input: str, history: list[dict[str, str]] = []) -> dict[str, str]:
         return {"role": "user", "content": user_input}
 
@@ -651,8 +660,18 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         wakeup_tokens = self.count_tokens(persona.get_wakeup())
         user_input_tokens = self.count_tokens(user_input)
 
-        # Total external tokens = history + thought + wakeup + user_input + content
-        external_tokens = content_tokens + history_tokens + thought_tokens + wakeup_tokens + user_input_tokens
+        # Estimate wrapper overhead based on total message count
+        will_add_user = bool(user_input and user_input.strip())
+        add_wakeup = (len(history) == 0) or (history[0].get('role') != 'assistant')
+        message_count = len(history) + 1 + (1 if add_wakeup else 0) + (1 if will_add_user else 0)
+        if hasattr(self.chat, "config") and self.chat.config and self.chat.config.system_message:
+            message_count += 1
+        wrapper_tokens = self._estimate_wrapper_tokens(message_count)
+
+        # Total external tokens = history + thought + wakeup + user_input + content + wrappers
+        external_tokens = (
+            content_tokens + history_tokens + thought_tokens + wakeup_tokens + user_input_tokens + wrapper_tokens
+        )
 
         # Use explicit query if provided, otherwise fall back to user_input
         memory_query = query if query else user_input

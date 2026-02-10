@@ -183,6 +183,8 @@ class SessionWorkflow:
             if not model:
                 logger.warning(f"Model not found: {model_name}")
                 continue
+
+            model.apply_chat_format(turn_config)
             
             # Create an LLM provider from the model
             provider = model.llm_factory(turn_config)

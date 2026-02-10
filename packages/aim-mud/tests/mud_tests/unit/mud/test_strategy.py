@@ -725,15 +725,15 @@ class TestMUDResponseStrategyBuildTurns:
         assert call_kwargs["persona"] == mock_response_persona
         assert call_kwargs["user_input"] == "test input"
         assert "history" in call_kwargs
-        assert "content_len" in call_kwargs
+        assert "content_len" not in call_kwargs
         assert call_kwargs["max_context_tokens"] == 100000
         assert call_kwargs["max_output_tokens"] == 4096
 
     @pytest.mark.asyncio
-    async def test_build_turns_includes_history_in_content_len(
+    async def test_build_turns_does_not_precompute_content_len(
         self, response_strategy, mock_response_persona, mock_session, mock_redis
     ):
-        """Test that build_turns includes history tokens in content_len."""
+        """Test that build_turns does not precompute content_len."""
         # Set up mock history
         entry1 = _sample_conversation_entry("user", "Hello there!", 0)
         entry2 = _sample_conversation_entry("assistant", "Hi!", 1)
@@ -750,9 +750,9 @@ class TestMUDResponseStrategyBuildTurns:
             session=mock_session,
         )
 
-        # content_len should include history tokens
+        # content_len should be omitted; base strategy will compute from history/user_input
         call_kwargs = response_strategy.chat_turns_for.call_args[1]
-        assert call_kwargs["content_len"] > 0
+        assert "content_len" not in call_kwargs
 
 
 class TestMUDResponseStrategyGetConversationHistory:
@@ -934,10 +934,10 @@ class TestMUDResponseStrategyDoubleUserTurnFix:
         assert received_args["user_input"] == "[~~ FORMAT: think then act ~~]"
 
     @pytest.mark.asyncio
-    async def test_build_turns_content_len_calculated_after_merge(
+    async def test_build_turns_no_content_len_after_merge(
         self, response_strategy, mock_response_persona, mock_session, mock_redis
     ):
-        """Test that content_len is calculated with merged content, not double-counted."""
+        """Test that merged guidance is preserved without precomputing content_len."""
         entry = _sample_conversation_entry("user", "Short.", 0)
         mock_redis.lrange.return_value = [entry.model_dump_json().encode()]
 
@@ -956,9 +956,8 @@ class TestMUDResponseStrategyDoubleUserTurnFix:
             session=mock_session,
         )
 
-        # After merge, effective_user_input is empty, so content_len should
-        # only include the merged history content, not double-count the guidance
-        content_len = received_args["content_len"]
+        # content_len should be omitted; base strategy handles budget counting
+        assert "content_len" not in received_args
 
         # The merged history content is "Short.\n\n[~~ FORMAT: think then act ~~]"
         # plus wakeup tokens. If double-counted, would have extra guidance tokens.

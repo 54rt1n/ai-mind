@@ -26,7 +26,6 @@ from aim_mud_types import MUDSession
 from aim.agents.persona import Persona
 from aim.chat.manager import ChatManager
 from aim.chat.strategy.xmlmemory import XMLMemoryTurnStrategy, DEFAULT_MAX_CONTEXT, DEFAULT_MAX_OUTPUT
-from aim.utils.tokens import count_tokens
 from aim.utils.xml import XmlFormatter
 
 logger = logging.getLogger(__name__)
@@ -92,13 +91,12 @@ class MUDResponseStrategy(XMLMemoryTurnStrategy):
         Assembles context for memory-augmented response generation:
         1. Get conversation history from Redis (within token budget)
         2. Merge format guidance into last user turn if needed (avoids double user turns)
-        3. Calculate content_len for token budgeting
-        4. Set location context for memory queries
-        5. Delegate to parent's chat_turns_for() for heavy lifting
+        3. Set location context for memory queries
+        4. Delegate to parent's chat_turns_for() for heavy lifting
 
         Token budget (matching XMLMemoryTurnStrategy pattern):
         - usable = max_context - max_output - system_prompt - 1024 (safety margin)
-        - content_len = history + user_input + wakeup (external tokens)
+        - external tokens (history + user_input + wakeup) are accounted for by the parent strategy
         - Memory queries get remaining after fixed elements
         - History compressed if > 50% of usable tokens
         - Memory reranker: 60% conversations+insights, 40% broad
@@ -139,11 +137,6 @@ class MUDResponseStrategy(XMLMemoryTurnStrategy):
             history[-1]["content"] += "\n\n" + user_input
             effective_user_input = ""  # Don't add separate user turn
 
-        # Calculate content_len (external tokens for budget calc)
-        content_len = sum(count_tokens(h["content"]) for h in history)
-        content_len += count_tokens(effective_user_input)
-        content_len += count_tokens(persona.get_wakeup() or "")
-
         # Set location for memory queries (room state affects search)
         if session.world_state and session.world_state.room_state:
             self.chat.current_location = session.world_state.to_xml(include_self=False)
@@ -156,7 +149,6 @@ class MUDResponseStrategy(XMLMemoryTurnStrategy):
             persona=persona,
             user_input=effective_user_input,
             history=history,
-            content_len=content_len,
             max_context_tokens=max_context_tokens,
             max_output_tokens=max_output_tokens,
             query=memory_query,

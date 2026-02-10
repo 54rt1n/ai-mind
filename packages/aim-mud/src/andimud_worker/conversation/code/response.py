@@ -241,10 +241,6 @@ class CodeResponseStrategy(XMLCodeTurnStrategy):
             history[-1]["content"] += "\n\n" + user_input
             effective_user_input = ""
 
-        # Calculate content_len for token budgeting
-        content_len = sum(count_tokens(h["content"]) for h in history)
-        content_len += count_tokens(effective_user_input)
-
         # Set location context for consciousness tail
         if session.world_state:
             self.chat.current_location = session.world_state.to_xml(include_self=False)
@@ -257,7 +253,6 @@ class CodeResponseStrategy(XMLCodeTurnStrategy):
             persona=persona,
             user_input=effective_user_input,
             history=history,
-            content_len=content_len,
             max_context_tokens=max_context_tokens,
             max_output_tokens=max_output_tokens,
         )

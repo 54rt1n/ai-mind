@@ -43,6 +43,8 @@ class LLMMixin:
         self.model_name = self.model_set.default_model
         models = LanguageModelV2.index_models(self.chat_config)
         self.model = models.get(self.model_name)
+        if self.model:
+            self.model.apply_chat_format(self.chat_config)
 
         logger.info(
             f"Initialized ModelSet for {self.persona.persona_id}: "

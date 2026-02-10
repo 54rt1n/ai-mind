@@ -205,6 +205,7 @@ class ChatModule:
         self.config.temperature = request.temperature
         self.config.max_tokens = request.max_tokens or self.config.max_tokens
         self.config.repetition = request.repetition_penalty
+        selected_model.apply_chat_format(self.config)
 
         persona = self.shared_roster.personas[metadata.persona_id]
 

@@ -32,7 +32,6 @@ from aim.chat.manager import ChatManager
 from aim.chat.strategy.xmlmemory import XMLMemoryTurnStrategy, DEFAULT_MAX_CONTEXT, DEFAULT_MAX_OUTPUT
 from aim.tool.loader import ToolLoader
 from aim.tool.formatting import ToolUser
-from aim.utils.tokens import count_tokens
 from aim.utils.xml import XmlFormatter
 
 logger = logging.getLogger(__name__)
@@ -527,25 +526,20 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
             action_guidance=action_guidance,
         )
 
-        # 3. Calculate content_len for token budgeting
-        content_len = sum(count_tokens(h["content"]) for h in history)
-        content_len += count_tokens(user_input)
-
-        # 4. Set location context for consciousness tail hook
+        # 3. Set location context for consciousness tail hook
         if session.world_state and session.world_state.room_state:
             self.chat.current_location = session.world_state.to_xml(include_self=False)
 
-        # 5. Set Phase 1 system message (with tools) from mixin
+        # 4. Set Phase 1 system message (with tools) from mixin
         self.chat.config.system_message = self.get_system_message(persona)
 
-        # 6. Delegate to parent XMLMemoryTurnStrategy
+        # 5. Delegate to parent XMLMemoryTurnStrategy
         # This will call our overridden get_conscious_memory() (lightweight)
         # and get_consciousness_tail() (world state XML)
         return self.chat_turns_for(
             persona=persona,
             user_input=user_input,
             history=history,
-            content_len=content_len,
             max_context_tokens=max_context_tokens,  # Use parameter from caller
             max_output_tokens=max_output_tokens,    # Use parameter from caller
             query="",  # No query - Phase 1 doesn't use memory search

@@ -119,6 +119,8 @@ class SpeakingProcessor(BaseTurnProcessor):
             max_chat_retries = 3
             cleaned_response = ""
             used_fallback = False
+            call_succeeded = False
+            last_call_error: Exception | None = None
 
             for format_attempt in range(max_chat_retries + 1):  # +1 for fallback
                 # Check abort
@@ -144,9 +146,28 @@ class SpeakingProcessor(BaseTurnProcessor):
                     logger.info(f"Attempting fallback model ({fallback_model_name}) after {max_chat_retries} failures")
 
                 # Call LLM
-                response = await self.worker._call_llm(chat_turns, role=model_role, heartbeat_callback=heartbeat_callback)
+                try:
+                    response = await self.worker._call_llm(
+                        chat_turns,
+                        role=model_role,
+                        heartbeat_callback=heartbeat_callback
+                    )
+                except Exception as e:
+                    last_call_error = e
+                    logger.error(
+                        "LLM call failed during speaking attempt %s (role=%s): %s",
+                        attempt_label,
+                        model_role,
+                        e,
+                    )
+                    # Allow fallback attempt if chat failed
+                    if model_role == "chat":
+                        continue
+                    # Fallback failed - propagate to outer handler
+                    raise
 
                 # Extract and validate
+                call_succeeded = True
                 cleaned_response, think_content = extract_think_tags(response)
                 cleaned_response = sanitize_response(cleaned_response)
                 cleaned_response = cleaned_response.strip()
@@ -188,6 +209,9 @@ class SpeakingProcessor(BaseTurnProcessor):
 
             # After loop - check if valid
             if not has_emotional_state_header(cleaned_response):
+                if not call_succeeded and last_call_error is not None:
+                    # No successful responses; preserve original failure behavior
+                    raise RuntimeError("LLM call failed during speaking turn") from last_call_error
                 logger.error(f"Failed after {max_chat_retries} chat attempts" + (" and fallback" if used_fallback else ""))
                 action = MUDAction(
                     tool="emote",

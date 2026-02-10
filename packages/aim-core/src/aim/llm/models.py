@@ -12,6 +12,11 @@ from .completion import CompletionProvider, OpenAICompletionProvider
 
 logger = logging.getLogger(__name__)
 
+CHAT_FORMAT_DEFAULTS = {
+    # Default ChatML-ish framing overheads (tokens per message / per request)
+    "chatml": {"message_overhead_tokens": 4, "request_overhead_tokens": 2},
+}
+
 def emptyornone(value: Any) -> bool:
     """Check if the value is empty or None."""
     return value is None or value == ""
@@ -101,6 +106,15 @@ class LanguageModelV2:
     sampler: Optional[SamplerConfig] = None
     max_tokens: int = 32768
     max_output_tokens: int = 2048
+    chat_format: str = "chatml"
+    message_overhead_tokens: int = 4
+    request_overhead_tokens: int = 2
+
+    def apply_chat_format(self, config: ChatConfig) -> None:
+        """Apply model-specific chat framing settings to a ChatConfig."""
+        config.chat_format = self.chat_format
+        config.message_overhead_tokens = self.message_overhead_tokens
+        config.request_overhead_tokens = self.request_overhead_tokens
 
     def can_provide(self, config: ChatConfig) -> bool:
         try:
@@ -216,6 +230,26 @@ class LanguageModelV2:
 
             provider = ModelProvider(model_config['provider'])
 
+            chat_format = str(model_config.get("chat_format", "chatml")).lower()
+            defaults = CHAT_FORMAT_DEFAULTS.get(chat_format)
+            if defaults is None:
+                logger.warning(
+                    "Unknown chat_format '%s' for model '%s'; defaulting to chatml",
+                    chat_format,
+                    model_config.get("name", "unknown"),
+                )
+                chat_format = "chatml"
+                defaults = CHAT_FORMAT_DEFAULTS["chatml"]
+
+            message_overhead_tokens = model_config.get(
+                "message_overhead_tokens",
+                defaults["message_overhead_tokens"],
+            )
+            request_overhead_tokens = model_config.get(
+                "request_overhead_tokens",
+                defaults["request_overhead_tokens"],
+            )
+
             model = cls(
                 name=model_config['name'],
                 provider=provider,
@@ -226,6 +260,9 @@ class LanguageModelV2:
                 sampler=sampler,
                 max_tokens=model_config.get('max_tokens', 32768),
                 max_output_tokens=model_config.get('max_output_tokens', 4096),
+                chat_format=chat_format,
+                message_overhead_tokens=message_overhead_tokens,
+                request_overhead_tokens=request_overhead_tokens,
             )
             models.append(model)
         

@@ -181,6 +181,11 @@ class ChatConfig:
 
     show_llm_messages: bool = False
 
+    # Chat message framing overhead (per model chat_format)
+    chat_format: str = "chatml"
+    message_overhead_tokens: int = 4
+    request_overhead_tokens: int = 2
+
     # Vectorizer configuration
     skip_vectorizer: bool = False  # Skip loading embedding model (useful when embeddings are pre-computed)
     keep_vectorizer_warm: bool = True  # Move to CPU instead of full unload when releasing vectorizer
