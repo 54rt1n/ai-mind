@@ -307,6 +307,9 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
         max_context_tokens: int = 128000,
         max_output_tokens: int = 4096,
         query_embedding: Optional["np.ndarray"] = None,
+        skip_faiss_rerank: bool = False,
+        use_pooled_faiss_rerank: bool = False,
+        **kwargs,
     ) -> tuple[str, int]:
         """Build lightweight consciousness for Phase 1 (fast path).
 
@@ -328,6 +331,9 @@ class MUDDecisionStrategy(XMLMemoryTurnStrategy):
             max_context_tokens: Ignored.
             max_output_tokens: Ignored.
             query_embedding: Ignored (Phase 1 doesn't use memory queries).
+            skip_faiss_rerank: Ignored (Phase 1 doesn't use memory queries).
+            use_pooled_faiss_rerank: Ignored (Phase 1 doesn't use memory queries).
+            **kwargs: Ignored.
 
         Returns:
             Tuple of (consciousness_content, memory_count).

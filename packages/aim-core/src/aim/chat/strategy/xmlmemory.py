@@ -4,6 +4,7 @@
 from collections import defaultdict
 import copy
 from datetime import datetime, timedelta
+import time
 import logging
 import numpy as np
 import pandas as pd
@@ -95,7 +96,8 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                           top_n: int,
                           length_boost: float = 0.0,
                           query_embedding: Optional[np.ndarray] = None,
-                          turn_index: Optional[int] = None) -> Tuple[List[TaggedResult], List[TaggedResult], List[TaggedResult]]:
+                          turn_index: Optional[int] = None,
+                          skip_faiss_rerank: bool = False) -> Tuple[List[TaggedResult], List[TaggedResult], List[TaggedResult]]:
         """
         Execute triple queries for optimal document distribution:
         - Conversations at chunk_768 (dialog context)
@@ -110,6 +112,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
             length_boost: Length boost factor
             query_embedding: Optional pre-computed embedding for FAISS reranking.
                 If provided, uses this instead of computing from query text.
+            skip_faiss_rerank: If True, skip FAISS reranking inside CVM queries.
 
         Returns:
             (conversation_results, insight_results, broad_results) as lists of (source_tag, row, turn_index)
@@ -128,6 +131,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
             chunk_level=CHUNK_LEVEL_768,
             length_boost_factor=length_boost,
             query_embedding=query_embedding,
+            skip_faiss_rerank=skip_faiss_rerank,
         )
         if not conv_df.empty:
             for _, row in conv_df.iterrows():
@@ -143,6 +147,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
             chunk_level=CHUNK_LEVEL_768,
             length_boost_factor=length_boost,
             query_embedding=query_embedding,
+            skip_faiss_rerank=skip_faiss_rerank,
         )
         if not insight_df.empty:
             for _, row in insight_df.iterrows():
@@ -158,12 +163,82 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
             chunk_level=CHUNK_LEVEL_256,
             length_boost_factor=length_boost,
             query_embedding=query_embedding,
+            skip_faiss_rerank=skip_faiss_rerank,
         )
         if not broad_df.empty:
             for _, row in broad_df.iterrows():
                 broad_results.append((source_tag + "_broad", row, turn_index))
 
         return conversation_results, insight_results, broad_results
+
+    def _apply_pooled_faiss_rerank(self, candidates: List[TaggedResult], query_embedding: np.ndarray) -> None:
+        """Apply a single FAISS rerank pass over pooled candidates."""
+        if query_embedding is None:
+            return
+
+        start_time = time.time()
+        total_candidates = len(candidates)
+
+        query_vec = np.asarray(query_embedding)
+        if query_vec.ndim != 1 or query_vec.size == 0:
+            logger.debug("Skipping pooled FAISS rerank: invalid query embedding")
+            return
+
+        valid_embeddings: List[np.ndarray] = []
+        valid_indices: List[int] = []
+
+        for idx, item in enumerate(candidates):
+            # Handle both 2-tuple and 3-tuple formats
+            if len(item) == 3:
+                _, row, _ = item
+            else:
+                _, row = item
+
+            embedding = row.get('index_a')
+            if isinstance(embedding, np.ndarray) and embedding.size == query_vec.size:
+                valid_embeddings.append(embedding)
+                valid_indices.append(idx)
+
+        if not valid_embeddings:
+            logger.info(
+                "Pooled FAISS rerank skipped: no valid embeddings (candidates=%d)",
+                total_candidates,
+            )
+            return
+
+        try:
+            import faiss
+        except Exception as exc:
+            logger.warning(f"Skipping pooled FAISS rerank: faiss unavailable ({exc})")
+            return
+
+        faiss_index = faiss.IndexFlatL2(query_vec.shape[0])
+        faiss_index.add(np.stack(valid_embeddings))
+        distance, index = faiss_index.search(np.array([query_vec]), len(valid_embeddings))
+
+        scores = np.empty(len(valid_embeddings))
+        for d, i in zip(distance[0], index[0]):
+            scores[i] = 1 / (1 + d)
+
+        for list_idx, cand_idx in enumerate(valid_indices):
+            item = candidates[cand_idx]
+            if len(item) == 3:
+                _, row, _ = item
+            else:
+                _, row = item
+
+            semantic_score = float(scores[list_idx])
+            base_score = row.get('score', 0.0) or 0.0
+            row['rerank'] = semantic_score
+            row['score'] = base_score * semantic_score
+
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        logger.info(
+            "Pooled FAISS rerank: candidates=%d embedded=%d took=%dms",
+            total_candidates,
+            len(valid_embeddings),
+            elapsed_ms,
+        )
 
     def get_consciousness_head(self, formatter: XmlFormatter) -> XmlFormatter:
         """Hook for subclasses to add content at the start of consciousness block.
@@ -193,7 +268,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         """
         return formatter
 
-    def get_conscious_memory(self, persona: Persona, query: Optional[str] = None, user_queries: list[str] = [], assistant_queries: list[str] = [], content_len: int = 0, thought_stream: list[str] = [], max_context_tokens: int = DEFAULT_MAX_CONTEXT, max_output_tokens: int = DEFAULT_MAX_OUTPUT, query_embedding: Optional[np.ndarray] = None) -> tuple[str, int]:
+    def get_conscious_memory(self, persona: Persona, query: Optional[str] = None, user_queries: list[str] = [], assistant_queries: list[str] = [], content_len: int = 0, thought_stream: list[str] = [], max_context_tokens: int = DEFAULT_MAX_CONTEXT, max_output_tokens: int = DEFAULT_MAX_OUTPUT, query_embedding: Optional[np.ndarray] = None, skip_faiss_rerank: bool = False, use_pooled_faiss_rerank: bool = False) -> tuple[str, int]:
         """
         Retrieves the conscious memory content to be included in the chat response.
 
@@ -207,6 +282,10 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
             query_embedding (Optional[np.ndarray]): Pre-computed embedding for FAISS reranking.
                 If provided, uses this instead of computing from query text. Typically
                 from the current conversation entry's embedding.
+            skip_faiss_rerank (bool): If True, skip FAISS reranking inside CVM queries.
+            use_pooled_faiss_rerank (bool): If True, apply a single pooled FAISS rerank
+                across all candidates before budgeted reranking. Only used when
+                skip_faiss_rerank is also True.
 
         Returns:
             str: The conscious memory content, formatted as a string to be included in the chat response.
@@ -459,6 +538,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                             length_boost=source_data["length_boost"],
                             query_embedding=query_embedding,
                             turn_index=turn_index,
+                            skip_faiss_rerank=skip_faiss_rerank,
                         )
                         all_conversation_results.extend(conv_results)
                         all_insight_results.extend(insight_results)
@@ -469,6 +549,10 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
             # Pass to reranker - conversations + insights get 60% of budget (both chunk_768), broad gets 40%
             # Combine conversations and insights as primary content (both benefit from longer context)
             all_long_context = all_conversation_results + all_insight_results
+
+            if use_pooled_faiss_rerank and skip_faiss_rerank and query_embedding is not None:
+                pooled_candidates = all_long_context + all_broad_results
+                self._apply_pooled_faiss_rerank(pooled_candidates, query_embedding)
 
             if all_long_context or all_broad_results:
                 reranker = MemoryReranker(
@@ -583,7 +667,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         memory_count = len(seen_docs)
         return final_output, memory_count
         
-    def chat_turns_for(self, persona: Persona, user_input: str, history: list[dict[str, str]] = [], content_len: Optional[int] = None, max_context_tokens: int = DEFAULT_MAX_CONTEXT, max_output_tokens: int = DEFAULT_MAX_OUTPUT, query: str = "", query_embedding: Optional[np.ndarray] = None) -> list[dict[str, str]]:
+    def chat_turns_for(self, persona: Persona, user_input: str, history: list[dict[str, str]] = [], content_len: Optional[int] = None, max_context_tokens: int = DEFAULT_MAX_CONTEXT, max_output_tokens: int = DEFAULT_MAX_OUTPUT, query: str = "", query_embedding: Optional[np.ndarray] = None, skip_faiss_rerank: bool = False, use_pooled_faiss_rerank: bool = False) -> list[dict[str, str]]:
         """
         Generate a chat session, augmenting the response with information from the database.
 
@@ -685,6 +769,8 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
                 max_context_tokens=max_context_tokens,
                 max_output_tokens=max_output_tokens,
                 query_embedding=query_embedding,
+                skip_faiss_rerank=skip_faiss_rerank,
+                use_pooled_faiss_rerank=use_pooled_faiss_rerank,
                 )
 
         consciousness_tokens = self.count_tokens(consciousness)

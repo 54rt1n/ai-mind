@@ -357,7 +357,7 @@ class ConversationModel:
               max_length: Optional[int] = None, turn_decay: float = 0.7, temporal_decay: float = 0.5, length_boost_factor: float = 0.0,
               filter_metadocs: bool = True, chunk_size: int = -1, sort_by: str = 'relevance', diversity: float = 0.3,
               keyword_boost: float = 2.0, chunk_level: str = "full", query_embedding: Optional[np.ndarray] = None,
-              **kwargs) -> pd.DataFrame:
+              skip_faiss_rerank: bool = False, **kwargs) -> pd.DataFrame:
         """
         Queries the conversation collection and returns a DataFrame containing the top `top_n` most relevant conversation entries based on the given query texts, filters, and decay factors.
 
@@ -387,6 +387,7 @@ class ConversationModel:
                         Defaults to "full" for backwards compatibility.
             query_embedding: Optional pre-computed embedding for FAISS reranking.
                 If provided, uses this instead of computing from the last query_text.
+            skip_faiss_rerank: If True, skip FAISS reranking and use neutral rerank score.
 
         Returns:
             DataFrame with columns: VISIBLE_COLUMNS + ['date', 'speaker', 'score', 'index_a'] + CHUNK_COLUMNS
@@ -476,7 +477,9 @@ class ConversationModel:
         rerank_query_text = original_query_texts[-1] if original_query_texts and isinstance(original_query_texts[-1], str) and original_query_texts[-1] else None
 
         # Use pre-computed embedding if provided, otherwise compute from query text
-        if query_embedding is not None and not results.empty:
+        if skip_faiss_rerank and not results.empty:
+            results['rerank'] = 1.0  # Neutral rerank score
+        elif query_embedding is not None and not results.empty:
             # Use pre-computed embedding directly
             query_vectors = np.array([query_embedding])
             faiss_index = faiss.IndexFlatL2(query_vectors[0].shape[0])

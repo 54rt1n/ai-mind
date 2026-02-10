@@ -153,6 +153,8 @@ class MUDResponseStrategy(XMLMemoryTurnStrategy):
             max_output_tokens=max_output_tokens,
             query=memory_query,
             query_embedding=query_embedding,
+            skip_faiss_rerank=True,
+            use_pooled_faiss_rerank=True,
         )
 
     async def _get_conversation_history(
