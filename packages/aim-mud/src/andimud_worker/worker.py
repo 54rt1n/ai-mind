@@ -330,15 +330,16 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
         if existing_turn and existing_turn.status == TurnRequestStatus.PENDING:
             logger.info("Recovering from PENDING status on startup")
             old_turn_id = existing_turn.turn_id  # Save before transition mutates it
-            existing_turn.metadata = {}  # Clear pending_action_ids
-            transition_turn_request(
+            from aim_mud_types.client import AsyncRedisMUDClient
+            client = AsyncRedisMUDClient(self.redis)
+            success = await client.transition_turn_request_to_ready(
+                self.config.agent_id,
                 existing_turn,
-                status=TurnRequestStatus.READY,
+                expected_turn_id=old_turn_id,
                 status_reason="Recovered from PENDING on worker startup",
                 new_turn_id=True,
                 update_heartbeat=True,
             )
-            success = await self.update_turn_request(existing_turn, expected_turn_id=old_turn_id)
             if success:
                 logger.info("Transitioned from PENDING to READY")
             else:
@@ -465,15 +466,16 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                         if final_turn_request:
                             final_status = final_turn_request.status
                             if final_status in (TurnRequestStatus.DONE, TurnRequestStatus.ABORTED):
-                                final_turn_request.metadata = {}
-                                transition_turn_request(
+                                from aim_mud_types.client import AsyncRedisMUDClient
+                                client = AsyncRedisMUDClient(self.redis)
+                                await client.transition_turn_request_to_ready(
+                                    self.config.agent_id,
                                     final_turn_request,
-                                    status=TurnRequestStatus.READY,
+                                    expected_turn_id=turn_request.turn_id,
                                     status_reason=f"Immediate command completed ({final_status.value})",
                                     new_turn_id=True,
                                     update_heartbeat=True,
                                 )
-                                await self.update_turn_request(final_turn_request, expected_turn_id=turn_request.turn_id)
 
                     continue
 
@@ -514,15 +516,16 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                                     )
                                     current = await self._get_turn_request()
                                     if current:
-                                        current.metadata = {}
-                                        transition_turn_request(
+                                        from aim_mud_types.client import AsyncRedisMUDClient
+                                        client = AsyncRedisMUDClient(self.redis)
+                                        await client.transition_turn_request_to_ready(
+                                            self.config.agent_id,
                                             current,
-                                            status=TurnRequestStatus.READY,
+                                            expected_turn_id=turn_request.turn_id,
                                             status_reason="PENDING timeout - mediator did not clear in time",
                                             new_turn_id=True,
                                             update_heartbeat=True,
                                         )
-                                        await self.update_turn_request(current, expected_turn_id=turn_request.turn_id)
                                     await asyncio.sleep(self.config.turn_request_poll_interval)
                                     continue
 
@@ -533,15 +536,16 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                             logger.warning("PENDING status but no pending_action_ids, transitioning to READY")
                             current = await self._get_turn_request()
                             if current:
-                                current.metadata = {}
-                                transition_turn_request(
+                                from aim_mud_types.client import AsyncRedisMUDClient
+                                client = AsyncRedisMUDClient(self.redis)
+                                await client.transition_turn_request_to_ready(
+                                    self.config.agent_id,
                                     current,
-                                    status=TurnRequestStatus.READY,
+                                    expected_turn_id=turn_request.turn_id,
                                     status_reason="Recovered from invalid PENDING state (no action_ids)",
                                     new_turn_id=True,
                                     update_heartbeat=True,
                                 )
-                                await self.update_turn_request(current, expected_turn_id=turn_request.turn_id)
 
                         await asyncio.sleep(self.config.turn_request_poll_interval)
                         continue
@@ -556,14 +560,16 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                             logger.warning("Idle heartbeat detected corrupted hash, recreating state")
                             current = await self._get_turn_request()
                             if current:
-                                transition_turn_request(
+                                from aim_mud_types.client import AsyncRedisMUDClient
+                                client = AsyncRedisMUDClient(self.redis)
+                                await client.transition_turn_request_to_ready(
+                                    self.config.agent_id,
                                     current,
-                                    status=TurnRequestStatus.READY,
+                                    expected_turn_id=turn_request.turn_id,
                                     status_reason="Recovered from corrupted hash during idle",
                                     new_turn_id=True,
                                     update_heartbeat=True,
                                 )
-                                await self.update_turn_request(current, expected_turn_id=turn_request.turn_id)
 
                     await asyncio.sleep(self.config.turn_request_poll_interval)
                     continue
@@ -661,13 +667,16 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                             # Go directly to READY without waiting
                             current = await self._get_turn_request()
                             if current:
-                                transition_turn_request(
+                                from aim_mud_types.client import AsyncRedisMUDClient
+                                client = AsyncRedisMUDClient(self.redis)
+                                await client.transition_turn_request_to_ready(
+                                    self.config.agent_id,
                                     current,
-                                    status=TurnRequestStatus.READY,
+                                    expected_turn_id=turn_id,
                                     status_reason="Actions emitted (no echo expected)",
+                                    new_turn_id=True,
                                     update_heartbeat=True,
                                 )
-                                await self.update_turn_request(current, expected_turn_id=turn_id)
                             logger.info(
                                 f"Turn {turn_id} set to READY (no echo expected for action_ids: {result.emitted_action_ids})"
                             )
@@ -770,25 +779,27 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                             status = turn_request.status
                             # Transition to ready if we completed or aborted (not if failed)
                             if status == TurnRequestStatus.DONE:
-                                turn_request.metadata = {}
-                                transition_turn_request(
+                                from aim_mud_types.client import AsyncRedisMUDClient
+                                client = AsyncRedisMUDClient(self.redis)
+                                await client.transition_turn_request_to_ready(
+                                    self.config.agent_id,
                                     turn_request,
-                                    status=TurnRequestStatus.READY,
+                                    expected_turn_id=turn_id,
                                     status_reason="Turn completed",
                                     new_turn_id=True,
                                     update_heartbeat=True,
                                 )
-                                await self.update_turn_request(turn_request, expected_turn_id=turn_id)
                             elif status == TurnRequestStatus.ABORTED:
-                                turn_request.metadata = {}
-                                transition_turn_request(
+                                from aim_mud_types.client import AsyncRedisMUDClient
+                                client = AsyncRedisMUDClient(self.redis)
+                                await client.transition_turn_request_to_ready(
+                                    self.config.agent_id,
                                     turn_request,
-                                    status=TurnRequestStatus.READY,
+                                    expected_turn_id=turn_id,
                                     status_reason="Turn aborted",
                                     new_turn_id=True,
                                     update_heartbeat=True,
                                 )
-                                await self.update_turn_request(turn_request, expected_turn_id=turn_id)
 
             except asyncio.CancelledError:
                 logger.info("Worker cancelled, shutting down...")
@@ -994,14 +1005,16 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                 logger.error(
                     "Startup: turn_request corrupted (status is None), recreating with fresh state"
                 )
-                transition_turn_request(
+                from aim_mud_types.client import AsyncRedisMUDClient
+                client = AsyncRedisMUDClient(self.redis)
+                await client.transition_turn_request_to_ready(
+                    self.config.agent_id,
                     turn_request,
-                    status=TurnRequestStatus.READY,
+                    expected_turn_id=turn_id,
                     status_reason="Recovered from corrupted state during startup",
                     new_turn_id=True,
                     update_heartbeat=True,
                 )
-                await self.update_turn_request(turn_request, expected_turn_id=turn_id)
             else:
                 logger.info(f"Startup: turn_request in normal state '{status}', updating heartbeat")
 
@@ -1011,14 +1024,16 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                 if result == -1:
                     # Corrupted hash detected during atomic update - recreate with fresh state
                     logger.warning("Startup: atomic update detected corrupted hash, recreating state")
-                    transition_turn_request(
+                    from aim_mud_types.client import AsyncRedisMUDClient
+                    client = AsyncRedisMUDClient(self.redis)
+                    await client.transition_turn_request_to_ready(
+                        self.config.agent_id,
                         turn_request,
-                        status=TurnRequestStatus.READY,
+                        expected_turn_id=turn_id,
                         status_reason="Recovered from corrupted hash during startup",
                         new_turn_id=True,
                         update_heartbeat=True,
                     )
-                    await self.update_turn_request(turn_request, expected_turn_id=turn_id)
 
         # Get wakeup message with room context
         if self.persona.mud_wakeup and self.session and self.session.world_state:

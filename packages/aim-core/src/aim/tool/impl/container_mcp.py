@@ -10,11 +10,37 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import sys
+import traceback
 from typing import Any, Dict, Optional
 
 from .base import ToolImplementation
 
 logger = logging.getLogger(__name__)
+_LOG_MCP_CALLS = os.getenv("MCP_LOG_CALLS", "").lower() in {"1", "true", "yes", "on"}
+
+
+def _log_error(message: str, *args: Any, exc_info: bool = False) -> None:
+    """Log errors reliably even if logging isn't configured."""
+    try:
+        if exc_info:
+            logger.exception(message, *args)
+        else:
+            logger.error(message, *args)
+    except Exception:
+        pass
+
+    if logger.hasHandlers():
+        return
+
+    try:
+        formatted = message % args if args else message
+        if exc_info:
+            formatted = f"{formatted}\n{traceback.format_exc()}"
+        print(formatted, file=sys.stderr)
+    except Exception:
+        pass
 
 
 class ContainerMCPTool(ToolImplementation):
@@ -52,6 +78,9 @@ class ContainerMCPTool(ToolImplementation):
             from mcp.client.sse import sse_client
             from mcp import ClientSession
 
+            if _LOG_MCP_CALLS:
+                logger.info("MCP call: tool=%s args=%s endpoint=%s", tool_name, args, self.endpoint)
+
             async with sse_client(self.endpoint) as (read, write):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
@@ -59,14 +88,25 @@ class ContainerMCPTool(ToolImplementation):
 
                     # Check for MCP error response
                     if hasattr(result, "isError") and result.isError:
-                        # Extract error message from content
+                        # Extract full error payload from MCP content
                         error_msg = "Tool execution failed"
                         if hasattr(result, "content") and result.content:
                             content = result.content
                             if isinstance(content, list) and len(content) > 0:
-                                first = content[0]
-                                if hasattr(first, "text"):
-                                    error_msg = first.text
+                                parts = []
+                                for item in content:
+                                    if hasattr(item, "text"):
+                                        parts.append(item.text)
+                                    else:
+                                        parts.append(str(item))
+                                if parts:
+                                    error_msg = "\n".join(parts)
+                        _log_error(
+                            "MCP tool error: %s args=%s error=%s",
+                            tool_name,
+                            args,
+                            error_msg,
+                        )
                         return {"success": False, "error": error_msg}
 
                     # Convert MCP result to dict
@@ -94,8 +134,30 @@ class ContainerMCPTool(ToolImplementation):
                 "error": "MCP client not available. Container-MCP integration requires the mcp package."
             }
         except Exception as e:
-            logger.error(f"MCP call failed: {e}")
-            return {"success": False, "error": str(e)}
+            # Always log full traceback for debugging.
+            _log_error("MCP call failed", exc_info=True)
+
+            # Unwrap ExceptionGroups for a clearer error message.
+            error_msg = str(e)
+            try:
+                if isinstance(e, BaseExceptionGroup):
+                    parts = []
+
+                    def _collect(ex):
+                        if isinstance(ex, BaseExceptionGroup):
+                            for sub in ex.exceptions:
+                                _collect(sub)
+                        else:
+                            parts.append(f"{type(ex).__name__}: {ex}")
+
+                    _collect(e)
+                    if parts:
+                        error_msg = "; ".join(parts)
+            except Exception:
+                # Fall back to the top-level message if anything goes wrong.
+                error_msg = str(e)
+
+            return {"success": False, "error": error_msg}
 
     def _call_mcp(self, tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
         """Call a container-mcp tool synchronously.
@@ -165,12 +227,19 @@ class ContainerMCPTool(ToolImplementation):
         """
         return self._call_mcp("web_search", {"query": query})
 
-    def web_scrape(self, url: str, selector: Optional[str] = None, **kwargs: Any) -> Dict[str, Any]:
+    def web_scrape(
+        self,
+        url: str,
+        selector: Optional[str] = None,
+        output_format: Optional[str] = "markdown",
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
         """Scrape content from a URL.
 
         Args:
             url: URL to scrape.
             selector: Optional CSS selector to target specific content.
+            output_format: Optional output format (e.g., "markdown").
             **kwargs: Additional parameters (ignored).
 
         Returns:
@@ -179,6 +248,8 @@ class ContainerMCPTool(ToolImplementation):
         args: Dict[str, Any] = {"url": url}
         if selector:
             args["selector"] = selector
+        if output_format:
+            args["output_format"] = output_format
         return self._call_mcp("web_scrape", args)
 
     def web_browse(self, url: str, **kwargs: Any) -> Dict[str, Any]:
@@ -490,20 +561,27 @@ class ContainerMCPTool(ToolImplementation):
         elif function_name == "web_search":
             if "query" not in parameters:
                 raise ValueError("Query parameter is required")
-            return self.web_search(query=parameters["query"])
+            result = self.web_search(query=parameters["query"])
+            self._log_result(function_name, parameters, result)
+            return result
 
         elif function_name == "web_scrape":
             if "url" not in parameters:
                 raise ValueError("URL parameter is required")
-            return self.web_scrape(
+            result = self.web_scrape(
                 url=parameters["url"],
-                selector=parameters.get("selector")
+                selector=parameters.get("selector"),
+                output_format=parameters.get("output_format"),
             )
+            self._log_result(function_name, parameters, result)
+            return result
 
         elif function_name == "web_browse":
             if "url" not in parameters:
                 raise ValueError("URL parameter is required")
-            return self.web_browse(url=parameters["url"])
+            result = self.web_browse(url=parameters["url"])
+            self._log_result(function_name, parameters, result)
+            return result
 
         # Market terminal tools
         elif function_name == "market_query":
@@ -517,87 +595,110 @@ class ContainerMCPTool(ToolImplementation):
         elif function_name == "rss_fetch":
             if "url" not in parameters:
                 raise ValueError("URL parameter is required")
-            return self.rss_fetch(
+            result = self.rss_fetch(
                 url=parameters["url"],
                 limit=parameters.get("limit", 10)
             )
+            self._log_result(function_name, parameters, result)
+            return result
 
         # Web terminal tools (additional)
         elif function_name == "visit_webpage":
             if "url" not in parameters:
                 raise ValueError("URL parameter is required")
-            return self.web_scrape(url=parameters["url"])
+            result = self.web_scrape(
+                url=parameters["url"],
+                output_format=parameters.get("output_format", "markdown"),
+            )
+            self._log_result(function_name, parameters, result)
+            return result
 
         # News terminal tools
         elif function_name == "get_feed":
             if "url" not in parameters:
                 raise ValueError("URL parameter is required")
-            return self.rss_fetch(
+            result = self.rss_fetch(
                 url=parameters["url"],
                 limit=parameters.get("limit", 10)
             )
+            self._log_result(function_name, parameters, result)
+            return result
 
         # Research terminal tools
         elif function_name == "research":
             if "query" not in parameters:
                 raise ValueError("Query parameter is required")
-            return self.kb_search(query=parameters["query"])
+            result = self.kb_search(query=parameters["query"])
+            self._log_result(function_name, parameters, result)
+            return result
 
         elif function_name == "read_doc":
             if "doc_id" not in parameters:
                 raise ValueError("doc_id parameter is required")
-            return self.kb_read(doc_id=parameters["doc_id"])
+            result = self.kb_read(doc_id=parameters["doc_id"])
+            self._log_result(function_name, parameters, result)
+            return result
 
         # List terminal tools
         elif function_name == "show_list":
             if "list_id" not in parameters:
                 raise ValueError("list_id parameter is required")
-            return self.list_get(list_id=parameters["list_id"])
+            result = self.list_get(list_id=parameters["list_id"])
+            self._log_result(function_name, parameters, result)
+            return result
 
         elif function_name == "add_item":
             if "list_id" not in parameters:
                 raise ValueError("list_id parameter is required")
             if "text" not in parameters:
                 raise ValueError("text parameter is required")
-            return self.list_modify(
+            result = self.list_modify(
                 list_id=parameters["list_id"],
                 action=parameters.get("action", "add"),
                 item_text=parameters["text"]
             )
+            self._log_result(function_name, parameters, result)
+            return result
 
         elif function_name == "check_item":
             if "list_id" not in parameters:
                 raise ValueError("list_id parameter is required")
             if "item_id" not in parameters:
                 raise ValueError("item_id parameter is required")
-            return self.list_modify(
+            result = self.list_modify(
                 list_id=parameters["list_id"],
                 action=parameters.get("action", "update"),
                 item_index=int(parameters["item_id"]),
                 status="DONE"
             )
+            self._log_result(function_name, parameters, result)
+            return result
 
         # Market terminal tools
         elif function_name == "stock_quote":
             if "symbol" not in parameters:
                 raise ValueError("Symbol parameter is required")
-            return self.market_query(
+            result = self.market_query(
                 symbol=parameters["symbol"],
                 period=parameters.get("period")
             )
+            self._log_result(function_name, parameters, result)
+            return result
 
         # Ledger/Portfolio tools
         elif function_name == "ledger_get":
             if "ledger_id" not in parameters:
                 raise ValueError("ledger_id parameter is required")
-            return self.ledger_get(ledger_id=parameters["ledger_id"])
+            result = self.ledger_get(ledger_id=parameters["ledger_id"])
+            self._log_result(function_name, parameters, result)
+            return result
 
         elif function_name == "ledger_add":
             if "ledger_id" not in parameters:
                 raise ValueError("ledger_id parameter is required")
             if "entry_type" not in parameters:
                 raise ValueError("entry_type parameter is required")
-            return self.ledger_add(
+            result = self.ledger_add(
                 ledger_id=parameters["ledger_id"],
                 entry_type=parameters["entry_type"],
                 symbol=parameters.get("symbol"),
@@ -606,14 +707,36 @@ class ContainerMCPTool(ToolImplementation):
                 amount=parameters.get("amount"),
                 actor=parameters.get("actor")
             )
+            self._log_result(function_name, parameters, result)
+            return result
 
         elif function_name == "portfolio_calculate":
             if "ledger_id" not in parameters:
                 raise ValueError("ledger_id parameter is required")
-            return self.portfolio_calculate(ledger_id=parameters["ledger_id"])
+            result = self.portfolio_calculate(ledger_id=parameters["ledger_id"])
+            self._log_result(function_name, parameters, result)
+            return result
 
         else:
-            return {
+            result = {
                 "success": False,
                 "error": f"Unknown container-mcp tool: {function_name}"
             }
+            self._log_result(function_name, parameters, result)
+            return result
+
+    def _log_result(self, function_name: str, parameters: Dict[str, Any], result: Dict[str, Any]) -> None:
+        """Log MCP tool errors for easier debugging."""
+        try:
+            if not isinstance(result, dict):
+                return
+            if result.get("success") is False or result.get("error"):
+                _log_error(
+                    "MCP tool result error: %s args=%s result=%s",
+                    function_name,
+                    parameters,
+                    result,
+                )
+        except Exception:
+            # Don't let logging errors affect tool execution
+            pass

@@ -24,6 +24,9 @@ functions:
         selector:
           type: string
           description: Optional CSS selector to target specific content
+        output_format:
+          type: string
+          description: Optional output format (e.g., "markdown")
       required: [url]
     examples:
       - {web_scrape: {url: "https://www.example.com"}}

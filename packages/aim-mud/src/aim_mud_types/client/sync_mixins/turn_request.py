@@ -591,6 +591,49 @@ class SyncTurnRequestMixin:
 
         return self.update_turn_request(agent_id, turn_request, expected_turn_id=expected_turn_id)
 
+    def transition_turn_request_to_ready(
+        self: "BaseSyncRedisMUDClient",
+        agent_id: str,
+        turn_request: MUDTurnRequest,
+        expected_turn_id: str,
+        *,
+        status_reason: Optional[str] = None,
+        new_turn_id: bool = True,
+        update_heartbeat: bool = True,
+    ) -> bool:
+        """Transition a turn_request to READY with cleanup and history snapshot.
+
+        Stores the previous turn_request (JSON-serializable) in last_turn,
+        then clears stale fields to provide a clean slate for the next turn.
+        """
+        snapshot = turn_request.model_dump(mode="json")
+        snapshot.pop("last_turn", None)
+        metadata = snapshot.get("metadata")
+        if isinstance(metadata, str) and metadata:
+            try:
+                import json
+                snapshot["metadata"] = json.loads(metadata)
+            except Exception:
+                pass
+        turn_request.last_turn = snapshot
+
+        # Clear stale fields
+        turn_request.metadata = {}
+        turn_request.message = None
+        turn_request.status_reason = status_reason
+        turn_request.next_attempt_at = None
+        turn_request.attempt_count = 0
+        turn_request.completed_at = None
+
+        # Apply READY status and timing
+        if new_turn_id:
+            turn_request.turn_id = str(uuid.uuid4())
+        turn_request.status = TurnRequestStatus.READY
+        if update_heartbeat:
+            turn_request.heartbeat_at = _utc_now()
+
+        return self.update_turn_request(agent_id, turn_request, expected_turn_id=expected_turn_id)
+
     def atomic_heartbeat_update(
         self: "BaseSyncRedisMUDClient",
         agent_id: str,

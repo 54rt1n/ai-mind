@@ -122,18 +122,19 @@ class ActionsMixin:
         # If no actions expect echo (all non-published), transition turn to READY immediately
         if emitted_action_ids and not expects_echo:
             from aim_mud_types import TurnRequestStatus
-            from aim_mud_types.helper import transition_turn_request
+            from aim_mud_types.client import AsyncRedisMUDClient
 
             current = await self._get_turn_request()
             if current and current.status not in (TurnRequestStatus.DONE, TurnRequestStatus.ABORTED):
-                transition_turn_request(
+                client = AsyncRedisMUDClient(self.redis)
+                await client.transition_turn_request_to_ready(
+                    self.config.agent_id,
                     current,
-                    status=TurnRequestStatus.READY,
+                    expected_turn_id=current.turn_id,
                     status_reason="Non-published actions emitted (no echo expected)",
                     new_turn_id=True,
                     update_heartbeat=True,
                 )
-                await self.update_turn_request(current, expected_turn_id=current.turn_id)
                 logger.info("Turn set to READY (non-published actions only)")
 
         return emitted_action_ids, expects_echo

@@ -103,6 +103,7 @@ class MUDTurnRequest(BaseModel):
 
     # Metadata for turn-specific context
     metadata: Optional[dict] = None
+    last_turn: Optional[dict] = None
 
     # Validators to parse Unix timestamps from Redis
     @field_validator("heartbeat_at", "assigned_at", mode="before")
@@ -137,9 +138,31 @@ class MUDTurnRequest(BaseModel):
                 raise ValueError(f"Invalid JSON in metadata field: {e}")
         return v
 
+    @field_validator("last_turn", mode="before")
+    @classmethod
+    def parse_last_turn(cls, v):
+        """Parse last_turn from JSON string (Redis) or dict (Python)."""
+        if v is None:
+            return None
+        if isinstance(v, str):
+            if not v:
+                return None
+            try:
+                return json.loads(v)
+            except json.JSONDecodeError:
+                return None
+        return v
+
     @field_serializer("metadata")
     def serialize_metadata(self, v: Optional[dict]) -> Optional[str]:
         """Serialize metadata dict to JSON string for Redis."""
+        if v is None:
+            return None
+        return json.dumps(v)
+
+    @field_serializer("last_turn")
+    def serialize_last_turn(self, v: Optional[dict]) -> Optional[str]:
+        """Serialize last_turn dict to JSON string for Redis."""
         if v is None:
             return None
         return json.dumps(v)

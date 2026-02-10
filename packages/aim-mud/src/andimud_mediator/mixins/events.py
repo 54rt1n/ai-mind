@@ -469,19 +469,15 @@ class EventsMixin:
                     # All echoes received - clear PENDING
                     original_turn_id = turn_request.turn_id  # Save before mutation
 
-                    turn_request.metadata = {}
-                    transition_turn_request(
+                    from aim_mud_types.client import RedisMUDClient
+                    client = RedisMUDClient(self.redis)
+                    success = await client.transition_turn_request_to_ready(
+                        agent_id,
                         turn_request,
-                        status=TurnRequestStatus.READY,
+                        expected_turn_id=original_turn_id,
                         status_reason="Action echo received (cleared by mediator)",
                         new_turn_id=True,
                         update_heartbeat=True,
-                    )
-
-                    success = await self._update_turn_request(
-                        agent_id,
-                        turn_request,
-                        expected_turn_id=original_turn_id  # Use original for CAS
                     )
 
                     if success:
