@@ -134,12 +134,16 @@ class AgentsMixin:
         return False
 
     async def _all_agents_ready(self) -> bool:
-        """Check if ALL registered agents are in READY status."""
+        """Check if all ONLINE registered agents are in READY status."""
+        online_agents = 0
         for agent_id in self.registered_agents:
             turn_request = await self._get_turn_request(agent_id)
-            if not turn_request or turn_request.status != TurnRequestStatus.READY:
+            if not turn_request:
+                continue  # Offline agents shouldn't block idle turns
+            online_agents += 1
+            if turn_request.status != TurnRequestStatus.READY:
                 return False
-        return True
+        return online_agents > 0
 
     async def _is_player_activity_idle(self, idle_seconds: int) -> bool:
         """Check if player activity has been idle for at least idle_seconds.

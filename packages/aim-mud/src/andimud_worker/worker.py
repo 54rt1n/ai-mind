@@ -487,8 +487,26 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                             # Worker just maintains heartbeat while waiting
 
                             # Safety fallback: timeout after 60 seconds if mediator fails
-                            if turn_request.assigned_at:
-                                pending_duration = (datetime.now(timezone.utc) - turn_request.assigned_at).total_seconds()
+                            pending_since = None
+                            pending_since_raw = (turn_request.metadata or {}).get("pending_since")
+                            if pending_since_raw:
+                                try:
+                                    pending_str = str(pending_since_raw).strip()
+                                    if pending_str.isdigit():
+                                        ts = int(pending_str)
+                                        # Heuristic: treat large values as ms
+                                        if ts > 10_000_000_000:
+                                            pending_since = datetime.fromtimestamp(ts / 1000.0, tz=timezone.utc)
+                                        else:
+                                            pending_since = datetime.fromtimestamp(ts, tz=timezone.utc)
+                                    else:
+                                        pending_since = datetime.fromisoformat(pending_str)
+                                except Exception:
+                                    pending_since = None
+
+                            base_time = pending_since or turn_request.assigned_at
+                            if base_time:
+                                pending_duration = (datetime.now(timezone.utc) - base_time).total_seconds()
                                 if pending_duration > 60:
                                     logger.warning(
                                         f"PENDING timeout after {pending_duration:.0f}s (mediator failed to clear), "
@@ -627,6 +645,7 @@ class MUDAgentWorker(PlannerMixin, ProfileMixin, EventsMixin, LLMMixin, ActionsM
                                 if current.metadata is None:
                                     current.metadata = {}
                                 current.metadata["pending_action_ids"] = result.emitted_action_ids
+                                current.metadata["pending_since"] = datetime.now(timezone.utc).isoformat()
                                 transition_turn_request(
                                     current,
                                     status=TurnRequestStatus.PENDING,
