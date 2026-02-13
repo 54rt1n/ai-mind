@@ -18,6 +18,7 @@ from aim.llm.models import LanguageModelV2, LLMProvider, ModelCategory
 from aim.chat import ChatManager, chat_strategy_for
 from aim.config import ChatConfig
 from aim.utils.redis_cache import RedisCache
+from aim.utils.tokens import count_tokens
 from aim.utils.turns import validate_turns
 from aim.utils.xml import XmlFormatter
 from aim.tool.formatting import ToolUser
@@ -232,7 +233,7 @@ class ChatModule:
 
         self.config.system_message = system_formatter.render().replace("{{user}}", metadata.user_id)
 
-        content_len = len(self.config.system_message)
+        content_len = count_tokens(self.config.system_message)
         user_turn = request.messages[-1].model_dump()['content']
         messages = [msg.model_dump() for msg in request.messages[:-1]]
 

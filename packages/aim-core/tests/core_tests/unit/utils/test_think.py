@@ -54,6 +54,22 @@ class TestExtractThinkTags:
         assert "Continuation from stream" in think
         assert "Rest" in cleaned
 
+    def test_malformed_close_tag_missing_angle(self):
+        """Test malformed close tag '/think>' behaves like orphan close."""
+        response = "Junk before /think> Visible response"
+        cleaned, think = extract_think_tags(response)
+
+        assert cleaned == "Visible response"
+        assert think == "Junk before"
+
+    def test_malformed_close_after_think_block(self):
+        """Test malformed close tag after a valid think block is ignored."""
+        response = "<think>Internal reasoning</think>/think>Visible response"
+        cleaned, think = extract_think_tags(response)
+
+        assert think == "Internal reasoning"
+        assert cleaned == "Visible response"
+
 
 class TestExtractReasoningBlock:
     """Tests for extract_reasoning_block function."""

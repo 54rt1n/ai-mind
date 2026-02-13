@@ -13,6 +13,7 @@ from .validation import (
     get_inventory_items,
     get_valid_give_targets,
     get_ringable_objects,
+    is_room_object_match,
 )
 
 
@@ -79,7 +80,7 @@ def validate_take(session: Optional[MUDSession], args: dict) -> DecisionResult:
     obj = args.get("object")
     room_objects = get_room_objects(session)
 
-    if obj and obj.lower() in [o.lower() for o in room_objects]:
+    if is_room_object_match(obj, room_objects):
         return DecisionResult(is_valid=True, args=args)
 
     # Invalid - give guidance

@@ -11,7 +11,7 @@ import logging
 from typing import TYPE_CHECKING, Optional
 import time
 
-from aim_mud_types import RoomState, EntityState, WorldState, InventoryItem
+from aim_mud_types import RoomState, EntityState, WorldState, InventoryItem, THOUGHT_THROTTLE_SECONDS
 from aim_mud_types.client import RedisMUDClient
 from aim_mud_types import RedisKeys
 from aim_mud_types.client import RedisMUDClient
@@ -250,7 +250,7 @@ class ProfileMixin:
         Returns True if:
         - No thought exists, OR
         - Index gap >= 5 (5+ new entries since last thought), OR
-        - Time elapsed >= 5 minutes AND index gap > 0
+        - Time elapsed >= 30 minutes AND index gap > 0
 
         Returns False if:
         - Index gap == 0 (nothing new happened, even if time elapsed)
@@ -279,7 +279,7 @@ class ProfileMixin:
 
         # Fall back to time-based throttle (only when index_gap > 0)
         time_elapsed = (datetime.now(timezone.utc) - thought.created_at).total_seconds()
-        return time_elapsed >= 300  # 5 minutes
+        return time_elapsed >= THOUGHT_THROTTLE_SECONDS
 
     async def _increment_thought_action_counter(self: "MUDAgentWorker") -> int:
         """Increment the thought action counter after autonomous action.

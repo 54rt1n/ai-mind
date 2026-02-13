@@ -17,6 +17,7 @@ def extract_think_tags(response: str) -> tuple[str, Optional[str]]:
     Handles edge cases:
     - Truncated <think> tag (no closing </think>): treat as content
     - Orphan </think> tag (started mid-stream): content before it is think
+    - Malformed close tag "/think>": normalized to </think>
 
     Args:
         response: Raw response from LLM
@@ -25,6 +26,16 @@ def extract_think_tags(response: str) -> tuple[str, Optional[str]]:
         Tuple of (cleaned_content, think_content or None)
     """
     think_content = None
+
+    # Normalize malformed close tags "/think>" (missing "<") to "</think>"
+    # so standard extraction logic can handle them.
+    normalized_response, normalized_count = re.subn(r'(?<!<)/think>', '</think>', response)
+    if normalized_count:
+        logger.info(
+            "Malformed think close tag '/think>' detected; normalizing %d occurrence(s)",
+            normalized_count,
+        )
+        response = normalized_response
 
     if re.search(r'<think>', response):
         logger.info("Response contains a think xml tag")
@@ -37,6 +48,8 @@ def extract_think_tags(response: str) -> tuple[str, Optional[str]]:
             think_content = "\n\n".join(match.strip() for match in think_matches)
             # Remove think tags from response
             cleaned_response = re.sub(think_pattern, '', response, flags=re.DOTALL).strip()
+            # Remove any stray closing tags left behind by malformed or nested tags.
+            cleaned_response = re.sub(r'</think>', '', cleaned_response).strip()
             logger.info(f"Extracted think content, length: {len(think_content)}")
             return cleaned_response, think_content
         else:
@@ -53,6 +66,8 @@ def extract_think_tags(response: str) -> tuple[str, Optional[str]]:
         if match:
             think_content = match.group(1).strip()
             cleaned_response = re.sub(r'(.*?)</think>', '', response, flags=re.DOTALL).strip()
+            # Remove any additional stray closing tags.
+            cleaned_response = re.sub(r'</think>', '', cleaned_response).strip()
             logger.info(f"Extracted think content from orphan tag, length: {len(think_content)}")
             return cleaned_response, think_content
 
@@ -75,4 +90,3 @@ def extract_reasoning_block(response: str) -> tuple[str, Optional[str]]:
         cleaned = re.sub(pattern, '', response, flags=re.DOTALL).strip()
         return cleaned, reasoning
     return response, None
-

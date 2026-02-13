@@ -11,6 +11,31 @@ from typing import Optional
 
 from aim.utils.think import extract_think_tags
 
+GUIDANCE_ARTIFACT_MARKERS = (
+    "[~~ You See ~~]",
+    "[Link Guidance:",
+)
+
+
+def _truncate_guidance_artifacts(text: str) -> str:
+    """Strip known guidance artifacts and everything after them."""
+    if not text:
+        return text
+
+    lowered = text.lower()
+    cut_at = -1
+
+    for marker in GUIDANCE_ARTIFACT_MARKERS:
+        idx = lowered.find(marker.lower())
+        if idx == -1:
+            continue
+        if cut_at == -1 or idx < cut_at:
+            cut_at = idx
+
+    if cut_at == -1:
+        return text
+    return text[:cut_at].rstrip()
+
 
 def sanitize_response(text: str) -> str:
     """Truncate at second </think> tag if present.
@@ -19,11 +44,11 @@ def sanitize_response(text: str) -> str:
     """
     first = text.find("</think>")
     if first == -1:
-        return text
+        return _truncate_guidance_artifacts(text)
     second = text.find("</think>", first + 8)
     if second == -1:
-        return text
-    return text[:second].strip()
+        return _truncate_guidance_artifacts(text)
+    return _truncate_guidance_artifacts(text[:second].strip())
 
 def normalize_response(response: str) -> str:
     """Normalize a free-text response for emission.

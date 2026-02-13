@@ -5,6 +5,7 @@
 Pure functions for validating actions and resolving game state references.
 """
 
+import re
 from typing import Optional
 from aim_mud_types import MUDSession, AURA_RINGABLE
 
@@ -100,6 +101,50 @@ def is_superuser_persona(persona) -> bool:
     return False
 
 
+_DBREF_SUFFIX_RE = re.compile(r"^(?P<name>.+?)\s*\((?P<dbref>#[0-9]+)\)\s*$")
+
+
+def _strip_dbref_suffix(label: str) -> str:
+    """Strip a trailing Evennia-style dbref suffix like "( #123 )".
+
+    Keeps other parenthetical content intact.
+    """
+    if not label:
+        return label
+    raw = str(label).strip()
+    match = _DBREF_SUFFIX_RE.match(raw)
+    if match:
+        return match.group("name").strip()
+    return raw
+
+
+def _object_match_keys(label: str) -> set[str]:
+    """Build match keys for object names (raw + dbref-stripped)."""
+    if not label:
+        return set()
+    raw = str(label).strip()
+    if not raw:
+        return set()
+    stripped = _strip_dbref_suffix(raw)
+    return {raw.lower(), stripped.lower()}
+
+
+def is_room_object_match(obj: Optional[str], room_objects: list[str]) -> bool:
+    """Check if a requested object matches available room objects.
+
+    Accepts either raw names or dbref-suffixed names like "Lamp (#123)".
+    """
+    if not obj:
+        return False
+    obj_keys = _object_match_keys(obj)
+    if not obj_keys:
+        return False
+    room_keys: set[str] = set()
+    for name in room_objects:
+        room_keys.update(_object_match_keys(name))
+    return not room_keys.isdisjoint(obj_keys)
+
+
 def get_room_objects(session: Optional[MUDSession]) -> list[str]:
     """Get names of objects available to take in the current room.
 
@@ -112,6 +157,19 @@ def get_room_objects(session: Optional[MUDSession]) -> list[str]:
         List of object names in the room
     """
     objects: list[str] = []
+    seen: set[str] = set()
+
+    def add_object(name: Optional[str]) -> None:
+        if not name:
+            return
+        cleaned = _strip_dbref_suffix(str(name).strip())
+        if not cleaned:
+            return
+        key = cleaned.lower()
+        if key in seen:
+            return
+        seen.add(key)
+        objects.append(cleaned)
     world_state = session.world_state if session else None
     if world_state:
         for entity in world_state.entities_present:
@@ -119,8 +177,14 @@ def get_room_objects(session: Optional[MUDSession]) -> list[str]:
                 continue
             # Objects are entities that aren't players/AIs/NPCs
             if entity.entity_type not in ("player", "ai", "npc"):
-                if entity.name:
-                    objects.append(entity.name)
+                add_object(entity.name)
+                contents = getattr(entity, "contents", None)
+                if contents:
+                    for item in contents:
+                        if isinstance(item, str):
+                            add_object(item)
+                        else:
+                            add_object(getattr(item, "name", None))
     else:
         # Fall back to session entities
         if session:
@@ -128,8 +192,14 @@ def get_room_objects(session: Optional[MUDSession]) -> list[str]:
                 if entity.is_self:
                     continue
                 if entity.entity_type not in ("player", "ai", "npc"):
-                    if entity.name:
-                        objects.append(entity.name)
+                    add_object(entity.name)
+                    contents = getattr(entity, "contents", None)
+                    if contents:
+                        for item in contents:
+                            if isinstance(item, str):
+                                add_object(item)
+                            else:
+                                add_object(getattr(item, "name", None))
     return objects
 
 
@@ -145,7 +215,14 @@ def get_inventory_items(session: Optional[MUDSession]) -> list[str]:
     items: list[str] = []
     world_state = session.world_state if session else None
     if world_state:
+        room_entity_ids = {
+            e.entity_id for e in world_state.entities_present
+            if getattr(e, "entity_id", None)
+        }
         for item in world_state.inventory:
+            # If an item id is present in the room snapshot, it is not in inventory.
+            if item.item_id and item.item_id in room_entity_ids:
+                continue
             if item.name:
                 items.append(item.name)
     return items

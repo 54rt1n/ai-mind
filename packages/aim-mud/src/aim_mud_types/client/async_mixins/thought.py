@@ -104,7 +104,7 @@ class ThoughtMixin:
 
         Returns True if:
         - No thought exists, OR
-        - Existing thought meets throttle conditions (5min OR 5 messages)
+        - Existing thought meets throttle conditions (30min OR 5 messages)
 
         Args:
             agent_id: Agent identifier

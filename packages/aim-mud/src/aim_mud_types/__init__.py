@@ -86,6 +86,7 @@ from .constants import (
     AURA_PAPER_WRITE,
     AURA_CODE_ROOM,
     AURA_SLEEPABLE,
+    AURA_WAKEABLE,
     AURA_GIT_REPO,
     # List item statuses
     ListItemStatus,
@@ -187,6 +188,7 @@ __all__ = [
     "AURA_PAPER_WRITE",
     "AURA_CODE_ROOM",
     "AURA_SLEEPABLE",
+    "AURA_WAKEABLE",
     "AURA_GIT_REPO",
     # Redis Keys
     "RedisKeys",

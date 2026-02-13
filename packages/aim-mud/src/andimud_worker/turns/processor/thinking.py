@@ -82,6 +82,18 @@ def _append_reasoning_guidance(chat_turns: list[dict], is_critical: bool) -> Non
         chat_turns.append({"role": "user", "content": guidance})
 
 
+def _format_llm_response_for_log(response: str | None, max_chars: int = 6000) -> str:
+    """Format LLM output for logs without dropping the response entirely."""
+    if not response:
+        return "(empty)"
+    if len(response) <= max_chars:
+        return response
+    head = max_chars // 2
+    tail = max_chars - head
+    truncated = len(response) - max_chars
+    return f"{response[:head]}\n...[{truncated} chars truncated]...\n{response[-tail:]}"
+
+
 class ThinkingTurnProcessor(BaseTurnProcessor):
     """Turn processor that generates structured reasoning via LLM call.
 
@@ -205,7 +217,13 @@ class ThinkingTurnProcessor(BaseTurnProcessor):
                 break
 
             # No reasoning block found - log warning and add guidance
-            logger.warning(f"No <reasoning> block found in LLM response (attempt {attempt_label})")
+            logger.warning(
+                "No <reasoning> block found in LLM response (attempt %s). "
+                "Raw response (len=%d):\n%s",
+                attempt_label,
+                len(response) if response else 0,
+                _format_llm_response_for_log(response),
+            )
 
             # Add format guidance (gentle for retries, critical before fallback)
             if format_attempt < max_reasoning_retries - 1:

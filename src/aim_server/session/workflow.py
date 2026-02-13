@@ -14,6 +14,7 @@ from aim.config import ChatConfig
 from aim.agents import Persona, Tool as PersonaTool
 from aim.tool.dto import Tool as DtoTool
 from aim.tool.loader import ToolLoader
+from aim.utils.tokens import count_tokens
 
 from .state import SessionState, CurrentState
 from .turn.base import BaseTurn
@@ -208,7 +209,7 @@ class SessionWorkflow:
                 self._update_chat_strategy_context()
                 
                 # Calculate content length for proper memory management
-                content_len = len(turn_config.system_message) if turn_config.system_message else 0
+                content_len = count_tokens(turn_config.system_message)
                 
                 # Use chat strategy to format messages with memory enhancements for ALL turn types
                 prompt_messages = self.chat_strategy.chat_turns_for(

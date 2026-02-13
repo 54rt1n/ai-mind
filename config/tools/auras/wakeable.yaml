@@ -1,0 +1,15 @@
+type: mud
+description: Wake sleeping agents emitting a WAKEABLE aura
+
+functions:
+  - name: wake_agent
+    description: Wake a sleeping agent in the room. Use the agent_id or dbref from the WAKEABLE aura source_id.
+    parameters:
+      type: object
+      properties:
+        target:
+          type: string
+          description: Agent_id, name, or dbref of the sleeping agent (from WAKEABLE aura source_id).
+      required: [target]
+    examples:
+      - {wake_agent: {target: "#123"}}

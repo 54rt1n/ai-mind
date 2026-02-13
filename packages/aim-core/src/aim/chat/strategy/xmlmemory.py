@@ -75,6 +75,40 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         request_overhead = getattr(config, "request_overhead_tokens", 0) or 0
         return request_overhead + (message_overhead * message_count)
 
+    def _estimate_request_tokens(self, turns: list[dict[str, str]]) -> int:
+        """Estimate total tokens for a request, including system + wrapper overhead."""
+        system_tokens = 0
+        system_message = None
+        if hasattr(self.chat, "config") and self.chat.config:
+            system_message = getattr(self.chat.config, "system_message", None)
+        if system_message and isinstance(system_message, str):
+            system_tokens = self.count_tokens(system_message)
+
+        content_tokens = system_tokens + sum(self.count_tokens(t.get("content", "")) for t in turns)
+        message_count = len(turns) + (1 if system_message else 0)
+        wrapper_tokens = self._estimate_wrapper_tokens(message_count)
+        return content_tokens + wrapper_tokens
+
+    def _trim_history_for_overage(self, history: list[dict[str, str]], overage_tokens: int) -> list[dict[str, str]]:
+        """Trim oldest history turns until estimated overage is resolved."""
+        if overage_tokens <= 0:
+            return history
+
+        history_copy = copy.deepcopy(history)
+        message_overhead = 0
+        if hasattr(self.chat, "config") and self.chat.config:
+            message_overhead = getattr(self.chat.config, "message_overhead_tokens", 0) or 0
+
+        removed_tokens = 0
+        while history_copy and removed_tokens < overage_tokens:
+            remove_count = 2 if len(history_copy) >= 2 else 1
+            for _ in range(remove_count):
+                msg = history_copy.pop(0)
+                removed_tokens += self.count_tokens(msg.get("content", ""))
+            removed_tokens += message_overhead * remove_count
+
+        return history_copy
+
     def user_turn_for(self, persona: Persona, user_input: str, history: list[dict[str, str]] = []) -> dict[str, str]:
         return {"role": "user", "content": user_input}
 
@@ -402,35 +436,86 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
 
         # --- Add back the dynamic memory search based on queries ---
         #logger.info(f"Memory before dynamic query: {formatter.current_length} chars used.")
-        thought_estimate_tokens = sum(self.count_tokens(t) for t in persona.thoughts) + 100
         current_tokens = self.count_tokens(formatter.render())
-        # Estimate tokens for workspace/scratchpad (will be added later)
-        ws_tokens_estimate = self.count_tokens(self.chat.current_workspace or "")
-        scratch_tokens_estimate = self.count_tokens(self.scratch_pad or "")
-        # Estimate tokens for thought_stream (if enabled and present)
-        thought_stream_estimate = sum(self.count_tokens(t) for t in thought_stream) if thought_stream else 0
-        # Estimate tokens for head/tail hooks
-        # Create temporary formatter to get hook content for token counting
+
+        # Count post-dynamic static sections using actual XML rendering (no estimates)
+        static_formatter = XmlFormatter()
+
+        # Persona thoughts
+        for thought in persona.thoughts:
+            static_formatter.add_element(self.hud_name, "thought", content=thought, nowrap=True, priority=2)
+
+        # Aggregated emotions/keywords so far (may expand after dynamic results)
+        emotions_content = ", ".join(e for e in aggregated_emotions.keys() if e is not None)
+        if emotions_content:
+            static_formatter.add_element(self.hud_name, "emotions", content=emotions_content, priority=1, nowrap=True)
+
+        keywords_content = ", ".join(k for k in aggregated_keywords.keys() if k is not None)
+        if keywords_content:
+            static_formatter.add_element(self.hud_name, "keywords", content=keywords_content, priority=1, nowrap=True)
+
+        # Workspace/Scratchpad (as rendered)
+        if self.chat.current_workspace is not None:
+            full_workspace_content = f"*The user is sharing a workspace with you.*\n{self.chat.current_workspace}"
+            static_formatter.add_element(
+                self.hud_name, "workspace",
+                content=full_workspace_content,
+                metadata=dict(length=ws_size),
+                priority=3,
+                noindent=True,
+            )
+
+        if self.scratch_pad:
+            full_scratchpad_content = f"*You are sharing a scratchpad with yourself.*\n{self.scratch_pad}"
+            static_formatter.add_element(
+                self.hud_name, "scratchpad",
+                content=full_scratchpad_content,
+                metadata=dict(length=scratch_pad_size),
+                priority=3,
+                noindent=True,
+            )
+
+        # Thought stream (as rendered)
+        include_thought_stream = getattr(self.chat.config, 'include_thought_stream', False)
+        if include_thought_stream and thought_stream:
+            for i, thought in enumerate(thought_stream):
+                static_formatter.add_element(
+                    self.hud_name, "Thought Stream", f"Turn {i+1}",
+                    content=thought, priority=2, noindent=True
+                )
+
+        # Memory count (current known docs)
+        static_formatter.add_element(self.hud_name, "Memory Count", content=str(len(seen_docs)), nowrap=True, priority=1)
+
+        post_static_tokens = self.count_tokens(static_formatter.render())
+
+        # Count head/tail hook tokens using actual rendering
         temp_formatter = XmlFormatter()
         temp_formatter = self.get_consciousness_head(temp_formatter)
-        head_tokens_estimate = self.count_tokens(temp_formatter.render())
+        head_tokens = self.count_tokens(temp_formatter.render())
 
         temp_formatter_tail = XmlFormatter()
         temp_formatter_tail = self.get_consciousness_tail(temp_formatter_tail)
-        tail_tokens_estimate = self.count_tokens(temp_formatter_tail.render())
+        tail_tokens = self.count_tokens(temp_formatter_tail.render())
 
         available_tokens_for_dynamic_queries = (
             usable_context_tokens
             - current_tokens
-            - thought_estimate_tokens
-            - ws_tokens_estimate
-            - scratch_tokens_estimate
-            - thought_stream_estimate
-            - head_tokens_estimate  # NEW
-            - tail_tokens_estimate  # NEW
+            - post_static_tokens
+            - head_tokens
+            - tail_tokens
             - content_len  # External tokens: history, wakeup, user_input, etc.
         )
-        logger.debug(f"Token budget: max={usable_context_tokens}, current={current_tokens}, thoughts={thought_estimate_tokens}, ws={ws_tokens_estimate}, scratch={scratch_tokens_estimate}, stream={thought_stream_estimate}, head={head_tokens_estimate}, tail={tail_tokens_estimate}, external={content_len}, available={available_tokens_for_dynamic_queries}")
+        logger.debug(
+            "Token budget: max=%d, current=%d, post_static=%d, head=%d, tail=%d, external=%d, available=%d",
+            usable_context_tokens,
+            current_tokens,
+            post_static_tokens,
+            head_tokens,
+            tail_tokens,
+            content_len,
+            available_tokens_for_dynamic_queries,
+        )
 
         if available_tokens_for_dynamic_queries > 50:  # Min threshold for dynamic querying
             # Define query sources
@@ -686,31 +771,29 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
             List[Dict[str, str]]: The chat turns, in the alternating format [{"role": "user", "content": user_input}, {"role": "assistant", "content": assistant_turn}].
         """
 
+        usable_context_tokens = self._calc_max_context_tokens(max_context_tokens, max_output_tokens)
+
         # Make a deep copy of the history
-        history = copy.deepcopy(history)
+        working_history = copy.deepcopy(history)
 
         # Build thought_stream from prior assistant think content
         thought_stream = [
-            h['think'] for h in history
+            h['think'] for h in working_history
             if h.get('role') == 'assistant' and h.get('think')
         ]
 
         # Strip think from history - LLM only gets role/content
-        for h in history:
+        for h in working_history:
             h.pop('think', None)
 
-        history_tokens = sum(self.count_tokens(h['content']) for h in history)
+        history_tokens = sum(self.count_tokens(h['content']) for h in working_history)
         thought_tokens = self.count_tokens(self.thought_content or "")
         content_tokens = content_len or 0  # Assume content_len is now in tokens
 
-        # Calculate usable context (reserve output tokens + safety margin)
-        usable_context_tokens = self._calc_max_context_tokens(max_context_tokens, max_output_tokens)
-
         content_tokens_pct = content_tokens / usable_context_tokens
         history_tokens_pct = history_tokens / usable_context_tokens
-        logger.info(f"Generating chat turns.  System: {content_tokens} tokens Thought : {thought_tokens} tokens Current History: {history_tokens} tokens ({len(history)} turns) | System: {content_tokens_pct:.2f} History: {history_tokens_pct:.2f}")
+        logger.info(f"Generating chat turns.  System: {content_tokens} tokens Thought : {thought_tokens} tokens Current History: {history_tokens} tokens ({len(working_history)} turns) | System: {content_tokens_pct:.2f} History: {history_tokens_pct:.2f}")
 
-        fold_consciousness = 4
         history_cutoff_threshold = 0.5
 
         # if our history is over 50%, we need to reduce its size
@@ -724,20 +807,20 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
 
             if strategy == "random_removal":
                 logger.info(f"Using random removal strategy")
-                history, removed = self._apply_random_removal_strategy(history, overage_tokens)
+                working_history, removed = self._apply_random_removal_strategy(working_history, overage_tokens)
                 logger.info(f"History overage removed: {removed} turns")
             elif strategy == "ai_summarize":
                 logger.info(f"Using AI summarization strategy")
-                history = self._apply_ai_summarization_strategy(history, overage_tokens, persona)
+                working_history = self._apply_ai_summarization_strategy(working_history, overage_tokens, persona)
             else:  # Default to basic sparsification
                 logger.info(f"Using basic sparsification strategy")
-                history = self._apply_sparsification_strategy(history, overage_tokens)
+                working_history = self._apply_sparsification_strategy(working_history, overage_tokens)
 
-            history_tokens = sum(self.count_tokens(h['content']) for h in history)
-            logger.info(f"After history management: {history_tokens} tokens ({len(history)} turns)")
+            history_tokens = sum(self.count_tokens(h['content']) for h in working_history)
+            logger.info(f"After history management: {history_tokens} tokens ({len(working_history)} turns)")
 
-        assistant_turn_history = [r['content'] for r in history if r['role'] == 'assistant'][::-1]
-        user_turn_history = [r['content'] for r in history if r['role'] == 'user'][::-1]
+        assistant_turn_history = [r['content'] for r in working_history if r['role'] == 'assistant'][::-1]
+        user_turn_history = [r['content'] for r in working_history if r['role'] == 'user'][::-1]
         user_turn_history.append(user_input)
 
         # Calculate tokens for items added after consciousness (wakeup, user_input)
@@ -746,8 +829,8 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
 
         # Estimate wrapper overhead based on total message count
         will_add_user = bool(user_input and user_input.strip())
-        add_wakeup = (len(history) == 0) or (history[0].get('role') != 'assistant')
-        message_count = len(history) + 1 + (1 if add_wakeup else 0) + (1 if will_add_user else 0)
+        add_wakeup = (len(working_history) == 0) or (working_history[0].get('role') != 'assistant')
+        message_count = len(working_history) + 1 + (1 if add_wakeup else 0) + (1 if will_add_user else 0)
         if hasattr(self.chat, "config") and self.chat.config and self.chat.config.system_message:
             message_count += 1
         wrapper_tokens = self._estimate_wrapper_tokens(message_count)
@@ -776,30 +859,62 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
         consciousness_tokens = self.count_tokens(consciousness)
         logger.info(f"Consciousness Tokens: {consciousness_tokens}")
 
-        consciousness_turn = {"role": "user", "content": consciousness}
+        def assemble_turns(history_local: list[dict[str, str]]) -> list[dict[str, str]]:
+            consciousness_turn = {"role": "user", "content": consciousness}
 
-        wakeup = persona.get_wakeup()
-        # Template replacement for wakeup
-        wakeup = wakeup.replace("{{memory_count}}", str(memory_count))
-        wakeup_turn = {"role": "assistant", "content": wakeup}
+            wakeup = persona.get_wakeup()
+            # Template replacement for wakeup
+            wakeup = wakeup.replace("{{memory_count}}", str(memory_count))
+            wakeup_turn = {"role": "assistant", "content": wakeup}
 
-        if len(history) > 0:
-            if history[0]['role'] == 'assistant':
-                turns = [consciousness_turn, *history]
+            if len(history_local) > 0:
+                if history_local[0]['role'] == 'assistant':
+                    turns_local = [consciousness_turn, *history_local]
+                else:
+                    turns_local = [consciousness_turn, wakeup_turn, *history_local]
             else:
-                turns = [consciousness_turn, wakeup_turn, *history]
-            
-        else:
-            turns = [consciousness_turn, wakeup_turn]
+                turns_local = [consciousness_turn, wakeup_turn]
 
-        # Only add user turn if there's actual content (avoids empty user turns)
-        if user_input and user_input.strip():
-            turns.append({"role": "user", "content": user_input + "\n\n"})
+            # Only add user turn if there's actual content (avoids empty user turns)
+            if user_input and user_input.strip():
+                turns_local.append({"role": "user", "content": user_input + "\n\n"})
 
-        if self.thought_content:
-            # Insert current thought content above the fold
-            turns = insert_at_fold(turns, f"{self.thought_content}\n\n<% End XML Thought Begin Action %>\n\n", fold_depth=4)
-            logger.info(f"Inserted thought_content above fold")
+            if self.thought_content:
+                # Insert current thought content above the fold
+                turns_local = insert_at_fold(turns_local, f"{self.thought_content}\n\n<% End XML Thought Begin Action %>\n\n", fold_depth=4)
+                logger.info(f"Inserted thought_content above fold")
+
+            return turns_local
+
+        turns = assemble_turns(working_history)
+        total_tokens = self._estimate_request_tokens(turns)
+        prev_total = total_tokens + 1
+
+        while total_tokens > usable_context_tokens and working_history:
+            overage_tokens = total_tokens - usable_context_tokens
+            trimmed_history = self._trim_history_for_overage(working_history, overage_tokens)
+
+            if len(trimmed_history) == len(working_history):
+                # Force progress by dropping oldest turn(s)
+                drop_count = 2 if len(working_history) >= 2 else 1
+                trimmed_history = working_history[drop_count:]
+
+            if len(trimmed_history) == len(working_history):
+                logger.warning("History trimming made no progress (overage=%d tokens)", overage_tokens)
+                break
+
+            logger.info("History trimmed to resolve budget overage: %d tokens", overage_tokens)
+            working_history = trimmed_history
+            turns = assemble_turns(working_history)
+            total_tokens = self._estimate_request_tokens(turns)
+
+            if total_tokens >= prev_total:
+                logger.warning("History trim did not reduce total tokens (prev=%d, now=%d)", prev_total, total_tokens)
+                break
+            prev_total = total_tokens
+
+        if total_tokens > usable_context_tokens:
+            logger.warning("Request still exceeds token budget after trimming (overage=%d tokens)", total_tokens - usable_context_tokens)
 
         return turns
 

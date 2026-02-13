@@ -19,6 +19,7 @@ from aim_mud_types import (
     TurnRequestStatus,
     RoomState,
     EntityState,
+    WorldState,
     EventType,
     ActorType,
     RedisKeys,
@@ -1509,6 +1510,29 @@ class TestGetRoomObjects:
         assert "Shelf" in objects
         assert "Kintsugi Cup" in objects  # Container contents should be included
         assert len(objects) == 2
+
+    def test_get_room_objects_includes_entity_contents(self, mud_config, mock_redis):
+        """Test _get_room_objects returns items listed in entity contents."""
+        worker = MUDAgentWorker(config=mud_config, redis_client=mock_redis)
+        worker.session = MUDSession(agent_id="test", persona_id="test")
+
+        worker.session.world_state = WorldState(
+            entities_present=[
+                EntityState(
+                    entity_id="closet_1",
+                    name="Closet",
+                    entity_type="object",
+                    contents=["Black Flare Skirt (#99)", "Silk Blouse"],
+                ),
+                EntityState(entity_id="andi_1", name="Andi", entity_type="ai", is_self=True),
+            ]
+        )
+
+        objects = worker._get_room_objects()
+
+        assert "Closet" in objects
+        assert "Black Flare Skirt" in objects
+        assert "Silk Blouse" in objects
 
     def test_get_room_objects_excludes_characters(self, mud_config, mock_redis):
         """Test _get_room_objects excludes players, AIs, and NPCs."""

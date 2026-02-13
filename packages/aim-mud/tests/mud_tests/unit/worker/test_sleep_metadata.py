@@ -51,7 +51,7 @@ class TestSleepMetadataFlow:
         # Create turn_request with agent=True metadata
         turn_request = MUDTurnRequest(
             turn_id="sleep_test_123",
-            status=TurnRequestStatus.EXECUTE,
+            status=TurnRequestStatus.ASSIGNED,
             reason=TurnReason.SLEEP,
             sequence_id=1,
             metadata={"agent": True},
@@ -82,7 +82,7 @@ class TestSleepMetadataFlow:
         # Create turn_request without agent metadata
         turn_request = MUDTurnRequest(
             turn_id="sleep_test_456",
-            status=TurnRequestStatus.EXECUTE,
+            status=TurnRequestStatus.ASSIGNED,
             reason=TurnReason.SLEEP,
             sequence_id=1,
             metadata={},  # No agent flag
@@ -110,7 +110,7 @@ class TestSleepMetadataFlow:
         # Create turn_request with agent=False
         turn_request = MUDTurnRequest(
             turn_id="sleep_test_789",
-            status=TurnRequestStatus.EXECUTE,
+            status=TurnRequestStatus.ASSIGNED,
             reason=TurnReason.SLEEP,
             sequence_id=1,
             metadata={"agent": False},
@@ -137,7 +137,7 @@ class TestSleepMetadataFlow:
         # Some code paths may pass agent as string
         turn_request = MUDTurnRequest(
             turn_id="sleep_test_str",
-            status=TurnRequestStatus.EXECUTE,
+            status=TurnRequestStatus.ASSIGNED,
             reason=TurnReason.SLEEP,
             sequence_id=1,
             metadata={"agent": "true"},  # String instead of bool
@@ -167,7 +167,7 @@ class TestSleepMetadataFlow:
         result = await cmd.execute(
             mock_worker,
             turn_id="sleep_compat_test",
-            status=TurnRequestStatus.EXECUTE.value,
+            status=TurnRequestStatus.ASSIGNED.value,
             reason=TurnReason.SLEEP.value,
             sequence_id=1,
             metadata={"agent": True},  # This was the bug - metadata lost in reconstruction

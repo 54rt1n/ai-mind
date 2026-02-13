@@ -54,6 +54,14 @@ class TestTurnReasonIsImmediateCommand:
         """Test that THINK is not an immediate command."""
         assert TurnReason.THINK.is_immediate_command() is False
 
+    def test_sleep_is_not_immediate_command(self):
+        """Test that SLEEP is not an immediate command."""
+        assert TurnReason.SLEEP.is_immediate_command() is False
+
+    def test_wake_is_not_immediate_command(self):
+        """Test that WAKE is not an immediate command."""
+        assert TurnReason.WAKE.is_immediate_command() is False
+
     def test_all_reasons_handled(self):
         """Test that all TurnReason values are covered by the method."""
         # Verify that all enum values return either True or False
@@ -62,15 +70,13 @@ class TestTurnReasonIsImmediateCommand:
             assert isinstance(result, bool), f"{reason} should return bool"
 
     def test_immediate_commands_set(self):
-        """Test that exactly five reasons are immediate commands."""
+        """Test that exactly three reasons are immediate commands."""
         immediate_commands = [r for r in TurnReason if r.is_immediate_command()]
-        assert len(immediate_commands) == 5
+        assert len(immediate_commands) == 3
         assert set(immediate_commands) == {
             TurnReason.FLUSH,
             TurnReason.CLEAR,
             TurnReason.NEW,
-            TurnReason.SLEEP,
-            TurnReason.WAKE,
         }
 
 

@@ -53,13 +53,12 @@ class TurnReason(str, Enum):
         - Execute with interrupt semantics (don't wait for earlier events)
         - Don't block other workers
         - Skip event draining and turn guard
+        - Reasons: FLUSH, CLEAR, NEW
         """
         return self in {
             TurnReason.FLUSH,
             TurnReason.CLEAR,
             TurnReason.NEW,
-            TurnReason.SLEEP,
-            TurnReason.WAKE,
         }
 
 
@@ -337,7 +336,7 @@ class DreamingState(BaseModel):
 
 
 # Thought throttle constants
-THOUGHT_THROTTLE_SECONDS = 300  # 5 minutes
+THOUGHT_THROTTLE_SECONDS = 1800  # 30 minutes
 THOUGHT_THROTTLE_ACTIONS = 5    # 5 actions
 
 
@@ -348,7 +347,7 @@ class ThoughtState(BaseModel):
     All datetime fields are serialized as Unix timestamps (integers).
 
     The throttle logic regenerates thoughts when EITHER condition is met:
-    - Time-based: (now - created_at) >= THOUGHT_THROTTLE_SECONDS (300s = 5 min)
+    - Time-based: (now - created_at) >= THOUGHT_THROTTLE_SECONDS (1800s = 30 min)
     - Conversation growth: current conversation length - last_conversation_index >= THOUGHT_THROTTLE_ACTIONS (5)
 
     Attributes:
@@ -386,7 +385,7 @@ class ThoughtState(BaseModel):
         """Check if thought should be regenerate based on throttle conditions.
 
         Returns True if EITHER condition is met:
-        - Time elapsed >= 5 minutes (300 seconds)
+        - Time elapsed >= 30 minutes (1800 seconds)
         - Conversation growth >= 5 messages since last thought
 
         Args:
