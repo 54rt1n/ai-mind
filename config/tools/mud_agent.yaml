@@ -76,6 +76,19 @@ functions:
     examples:
       - {action: "desc_room", description: "A warm, lived-in space with soft light filtering through gauzy curtains..."}
 
+  - name: desc_self
+    description: Describe yourself. Use this to set or update your own description with your personality.
+    parameters:
+      type: object
+      properties:
+        description:
+          type: string
+          description: Paragraph-length self-description, infused with your personality.
+      required:
+        - description
+    examples:
+      - {action: "desc_self", description: "A thoughtful person with kind eyes and an unhurried, observant way of moving through the world..."}
+
   - name: desc_object
     description: Describe an object in the room. Use this to set or update an object's description.
     parameters:

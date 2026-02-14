@@ -439,6 +439,14 @@ class TestMUDAction:
         )
         assert action.to_command() == "@desc here = A bright room."
 
+    def test_action_to_command_desc_self(self):
+        """Test desc_self action to command conversion."""
+        action = MUDAction(
+            tool="desc_self",
+            args={"description": "A bright presence."},
+        )
+        assert action.to_command() == "@desc me = A bright presence."
+
     def test_action_to_command_teleport(self):
         """Test teleport builder action to command conversion."""
         action = MUDAction(tool="teleport", args={"destination": "#123", "target": "me"})

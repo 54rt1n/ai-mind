@@ -269,6 +269,10 @@ Current focus will be cleared. Please refocus with a smaller scope."""
             lines.append(
                 "For desc_room, write paragraph-long room descriptions infused with your personality."
             )
+        if "desc_self" in action_names_lower:
+            lines.append(
+                "For desc_self, write paragraph-long self-descriptions infused with your personality."
+            )
         if "desc_object" in action_names_lower:
             lines.append(
                 "For desc_object, use the object ID from hints and write paragraph-long descriptions."

@@ -17,6 +17,7 @@ class InventoryItem(BaseModel):
     description: str = ""
     quantity: int = 1
     tags: list[str] = Field(default_factory=list)
+    is_worn: bool = False
 
 
 class WhoEntry(BaseModel):
@@ -34,6 +35,7 @@ class WorldState(BaseModel):
     room_state: Optional[RoomState] = None
     entities_present: list[EntityState] = Field(default_factory=list)
     inventory: list[InventoryItem] = Field(default_factory=list)
+    worn: list[InventoryItem] = Field(default_factory=list)
     who: list[WhoEntry] = Field(default_factory=list)
     time: Optional[str] = None
     home: Optional[str] = None
@@ -139,6 +141,23 @@ class WorldState(BaseModel):
                 else:
                     lines.append(f"    <item{attrs}/>")
             lines.append("  </inventory>")
+
+        if self.worn:
+            lines.append("  <worn>")
+            for item in self.worn:
+                attrs = f' name="{item.name}"'
+                if item.item_id:
+                    attrs += f' id="{item.item_id}"'
+                if item.quantity != 1:
+                    attrs += f' qty="{item.quantity}"'
+                if item.tags:
+                    tag_str = ", ".join(item.tags)
+                    attrs += f' tags="{tag_str}"'
+                if item.description:
+                    lines.append(f"    <item{attrs}>{item.description}</item>")
+                else:
+                    lines.append(f"    <item{attrs}/>")
+            lines.append("  </worn>")
 
         if self.who:
             lines.append("  <who>")

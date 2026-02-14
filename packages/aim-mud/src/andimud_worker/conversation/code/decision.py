@@ -565,6 +565,7 @@ class CodeDecisionStrategy(XMLCodeTurnStrategy):
         room_objects: list[str] = []
         present_targets: list[str] = []
         inventory_items: list[str] = []
+        worn_items: list[str] = []
         aura_descriptions: list[str] = []
         ringable_sources: list[str] = []
 
@@ -602,6 +603,13 @@ class CodeDecisionStrategy(XMLCodeTurnStrategy):
             for item in world_state.inventory:
                 if item.name:
                     inventory_items.append(item.name)
+            for item in getattr(world_state, "worn", []) or []:
+                if not item.name:
+                    continue
+                if item.item_id:
+                    worn_items.append(f"{item.name} ({item.item_id})")
+                else:
+                    worn_items.append(item.name)
 
         # Build contextual examples - one cohesive guidance section
         parts.append("Contextual Examples:")
@@ -643,7 +651,7 @@ class CodeDecisionStrategy(XMLCodeTurnStrategy):
         parts.append("")
 
         # Add world state summary section (independent of tools)
-        has_context = exits or room_objects or inventory_items or present_targets
+        has_context = exits or room_objects or inventory_items or worn_items or present_targets
         if has_context:
             if exits:
                 parts.append(f"Available exits: {', '.join(exits)}")
@@ -651,6 +659,8 @@ class CodeDecisionStrategy(XMLCodeTurnStrategy):
                 parts.append(f"Objects present: {', '.join(room_objects)}")
             if inventory_items:
                 parts.append(f"Your inventory: {', '.join(inventory_items)}")
+            if worn_items:
+                parts.append(f"Worn items: {', '.join(worn_items)}")
             if present_targets:
                 parts.append(f"People present: {', '.join(present_targets)}")
             parts.append("")

@@ -78,6 +78,12 @@ class MUDAction(BaseModel):
                 return ""
             return f"@desc here = {description}".strip()
 
+        elif self.tool == "desc_self":
+            description = self.args.get("description")
+            if not description:
+                return ""
+            return f"@desc me = {description}".strip()
+
         elif self.tool == "desc_object":
             target = self.args.get("target")
             description = self.args.get("description")

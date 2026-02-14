@@ -104,6 +104,14 @@ class ProfileMixin:
             except json.JSONDecodeError:
                 logger.warning("Invalid inventory JSON in agent profile")
 
+        worn_raw = data.get("worn")
+        worn_items_raw: list = []
+        if worn_raw:
+            try:
+                worn_items_raw = json.loads(worn_raw)
+            except json.JSONDecodeError:
+                logger.warning("Invalid worn JSON in agent profile")
+
         home = data.get("home")
         time_val = data.get("time")
 
@@ -112,15 +120,22 @@ class ProfileMixin:
             for i in inventory_items
             if isinstance(i, dict)
         ]
+        worn = [
+            InventoryItem.model_validate(i)
+            for i in worn_items_raw
+            if isinstance(i, dict)
+        ]
 
         if self.session.world_state is None:
             self.session.world_state = WorldState(
                 inventory=inventory,
+                worn=worn,
                 home=home,
                 time=time_val,
             )
         else:
             self.session.world_state.inventory = inventory
+            self.session.world_state.worn = worn
             self.session.world_state.home = home
             self.session.world_state.time = time_val
 

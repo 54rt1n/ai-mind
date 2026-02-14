@@ -323,6 +323,28 @@ class AgentTurnProcessor(BaseTurnProcessor):
                         logger.warning("Agent desc_room missing description")
                     break
 
+                if action == "desc_self":
+                    description = args.get("description")
+                    if description:
+                        action_obj = MUDAction(
+                            tool="desc_self",
+                            args={"description": description},
+                            metadata={MUDAction.META_NON_PUBLISHED: True},
+                        )
+                        actions_taken.append(action_obj)
+                        emote_text = "took a moment to redefine themself."
+                        actions_taken.append(
+                            MUDAction(
+                                tool="emote",
+                                args={"action": emote_text},
+                                metadata={MUDAction.META_NON_PUBLISHED: True},
+                            )
+                        )
+                        await self.worker._emit_actions(actions_taken)
+                    else:
+                        logger.warning("Agent desc_self missing description")
+                    break
+
                 if action == "desc_object":
                     target = args.get("target")
                     description = args.get("description")

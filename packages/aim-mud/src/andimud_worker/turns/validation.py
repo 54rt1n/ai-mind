@@ -39,6 +39,10 @@ def resolve_target_name(session: Optional[MUDSession], target_id: str) -> str:
             if getattr(item, "item_id", None) == target_id:
                 return item.name or target_id
 
+        for item in getattr(world_state, "worn", []) or []:
+            if getattr(item, "item_id", None) == target_id:
+                return item.name or target_id
+
     return target_id
 
 
