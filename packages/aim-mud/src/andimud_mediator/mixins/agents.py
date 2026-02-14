@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from aim.conversation.model import ConversationModel
-from aim_mud_types import MUDTurnRequest, TurnRequestStatus, TurnReason
+from aim_mud_types import MUDTurnRequest, TurnRequestStatus, TurnReason, normalize_agent_id
 from aim_mud_types.helper import _utc_now
 
 logger = logging.getLogger(__name__)
@@ -418,9 +418,10 @@ class AgentsMixin:
             agent_id: Unique identifier for the agent.
             initial_room: Optional initial room ID for the agent.
         """
-        self.registered_agents.add(agent_id)
+        normalized_agent_id = normalize_agent_id(str(agent_id))
+        self.registered_agents.add(normalized_agent_id)
         logger.info(
-            f"Registered agent {agent_id}"
+            f"Registered agent {normalized_agent_id}"
         )
 
     def unregister_agent(self, agent_id: str) -> None:
@@ -429,5 +430,6 @@ class AgentsMixin:
         Args:
             agent_id: Agent ID to unregister.
         """
-        self.registered_agents.discard(agent_id)
-        logger.info(f"Unregistered agent {agent_id}")
+        normalized_agent_id = normalize_agent_id(str(agent_id))
+        self.registered_agents.discard(normalized_agent_id)
+        logger.info(f"Unregistered agent {normalized_agent_id}")

@@ -373,6 +373,39 @@ class TestTerminalEventPublishing:
         # Event should not be published
         mock_client.append_mud_event.assert_not_called()
 
+    def test_display_output_clips_oversized_payload(self, mock_terminal, mock_caller):
+        """Test that terminal output is clipped when exceeding max_output_len."""
+        from typeclasses.terminals import Terminal
+
+        mock_terminal.db.max_output_len = 64
+        mock_terminal._publish_terminal_event = MagicMock()
+
+        long_output = "x" * 200
+        Terminal.display_output(mock_terminal, "visit_webpage", long_output, caller=mock_caller)
+
+        # Verify published payload is clipped with marker
+        published_output = mock_terminal._publish_terminal_event.call_args[0][1]
+        assert len(published_output) <= 64
+        assert "[output clipped:" in published_output
+
+        # Verify room sees clipped payload (second call is terminal output)
+        room_msg = mock_terminal.location.msg_contents.call_args_list[1][0][0]
+        assert "visit_webpage:" in room_msg
+        assert "[output clipped:" in room_msg
+
+    def test_display_output_escapes_braces_for_msg_contents(self, mock_terminal, mock_caller):
+        """Test that output braces are escaped before msg_contents formatting."""
+        from typeclasses.terminals import Terminal
+
+        mock_terminal.db.max_output_len = 4096
+        mock_terminal._publish_terminal_event = MagicMock()
+
+        payload = '{"title":"x","body":{"nested":true}}'
+        Terminal.display_output(mock_terminal, "visit_webpage", payload, caller=mock_caller)
+
+        room_msg = mock_terminal.location.msg_contents.call_args_list[1][0][0]
+        assert '{{"title":"x","body":{{"nested":true}}}}' in room_msg
+
 
 class TestTerminalCommandMetadataArgs:
     """Tests for terminal commands reading args from metadata.

@@ -180,15 +180,15 @@ class ThinkingTurnProcessor(BaseTurnProcessor):
 
             # Determine model role
             if format_attempt < max_reasoning_retries:
-                model_role = "chat"
+                model_role = "thought"
                 attempt_label = f"{format_attempt + 1}/{max_reasoning_retries}"
             else:
-                # Try fallback if configured and different from chat
+                # Try fallback if configured and different from thought
                 fallback_model_name = self.worker.model_set.get_model_name("fallback")
-                chat_model_name = self.worker.model_set.get_model_name("chat")
+                thought_model_name = self.worker.model_set.get_model_name("thought")
 
-                if fallback_model_name == chat_model_name:
-                    logger.warning("Fallback model not configured or same as chat; skipping")
+                if fallback_model_name == thought_model_name:
+                    logger.warning("Fallback model not configured or same as thought; skipping")
                     break
 
                 model_role = "fallback"

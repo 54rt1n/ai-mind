@@ -7,7 +7,15 @@ import json
 import logging
 from typing import Any, Optional
 
-from aim_mud_types import ActorType, EventType, MUDEvent, RedisKeys, TurnReason, TurnRequestStatus
+from aim_mud_types import (
+    ActorType,
+    EventType,
+    MUDEvent,
+    RedisKeys,
+    TurnReason,
+    TurnRequestStatus,
+    normalize_agent_id,
+)
 from aim_mud_types.models.coordination import MUDTurnRequest
 from aim_mud_types.helper import transition_turn_request
 
@@ -16,6 +24,17 @@ logger = logging.getLogger(__name__)
 
 class EventsMixin:
     """Events mixin for the mediator service."""
+
+    @staticmethod
+    def _as_bool(value: Any) -> bool:
+        """Coerce metadata flags from JSON/string forms to bool."""
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        if isinstance(value, (int, float)):
+            return value != 0
+        return bool(value)
 
     async def load_last_event_id_from_hash(self) -> None:
         """Load last processed event ID from processing hash."""
@@ -204,9 +223,15 @@ class EventsMixin:
         enriched["sequence_id"] = sequence_id
         logger.debug(f"Event {msg_id} assigned sequence_id={sequence_id}")
 
-        # Targeted events: deliver only to target_agent_id and skip turn assignment
-        target_agent_id = event.metadata.get("target_agent_id")
-        target_only = bool(event.metadata.get("target_only"))
+        # Targeted events: deliver only to target_agent_id.
+        # By default these do not assign turns unless metadata.assigns_turn is true.
+        raw_target_agent_id = event.metadata.get("target_agent_id")
+        target_agent_id = (
+            normalize_agent_id(str(raw_target_agent_id))
+            if raw_target_agent_id
+            else ""
+        )
+        target_only = self._as_bool(event.metadata.get("target_only"))
         if event.event_type in (EventType.CODE_ACTION, EventType.CODE_FILE):
             target_only = True
 
@@ -230,7 +255,26 @@ class EventsMixin:
             logger.debug(
                 f"Queued targeted event {msg_id} (seq={sequence_id}) for compilation to {target_agent_id}"
             )
-            await self._mark_event_processed(msg_id, [target_agent_id])
+
+            assigned_agent: Optional[str] = None
+            if self._as_bool(event.metadata.get("assigns_turn")):
+                assigned = await self._maybe_assign_turn(
+                    target_agent_id,
+                    reason=TurnReason.EVENTS,
+                    metadata={"room_auras": event.metadata.get("room_auras")},
+                )
+                if assigned:
+                    assigned_agent = target_agent_id
+                    logger.info(
+                        "Assigned targeted turn to %s for event %s (seq=%s)",
+                        target_agent_id,
+                        msg_id,
+                        sequence_id,
+                    )
+
+            await self._mark_event_processed(
+                msg_id, [assigned_agent] if assigned_agent else [target_agent_id]
+            )
             return
 
         # Determine which agents should receive this event

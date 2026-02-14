@@ -411,6 +411,103 @@ class TestMediatorEventRouting:
         # Event should have been queued for compilation
         assert len(queued_events) >= 1
 
+    @pytest.mark.asyncio
+    async def test_targeted_event_does_not_assign_turn_by_default(
+        self, mock_redis, mediator_config
+    ):
+        """Targeted events should remain non-reactive unless assigns_turn is set."""
+        mediator = MediatorService(mock_redis, mediator_config)
+        mediator.register_agent("andi")
+
+        targeted_event = {
+            "type": "notification",
+            "actor": "Front Door Doorbell",
+            "actor_type": "system",
+            "room_id": "#123",
+            "room_name": "The Garden",
+            "content": "You hear the bell ring.",
+            "metadata": {
+                "target_only": True,
+                "target_agent_id": "andi",
+            },
+            "timestamp": "2026-01-01T12:00:00+00:00",
+        }
+
+        with patch.object(mediator, "queue_event_for_compilation", new=AsyncMock()) as queue_mock, patch.object(
+            mediator, "_maybe_assign_turn", new=AsyncMock(return_value=True)
+        ) as assign_mock:
+            data = {b"data": json.dumps(targeted_event).encode()}
+            await mediator._process_event("1704096000000-9", data)
+
+        queue_mock.assert_awaited_once()
+        assign_mock.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_targeted_event_assigns_turn_when_flag_enabled(
+        self, mock_redis, mediator_config
+    ):
+        """Targeted events with assigns_turn should assign a turn to the target agent."""
+        mediator = MediatorService(mock_redis, mediator_config)
+        mediator.register_agent("andi")
+
+        targeted_event = {
+            "type": "notification",
+            "actor": "Front Door Doorbell",
+            "actor_type": "system",
+            "room_id": "#123",
+            "room_name": "The Garden",
+            "content": "You hear the bell ring.",
+            "metadata": {
+                "target_only": True,
+                "target_agent_id": "andi",
+                "assigns_turn": True,
+            },
+            "timestamp": "2026-01-01T12:00:00+00:00",
+        }
+
+        with patch.object(mediator, "queue_event_for_compilation", new=AsyncMock()) as queue_mock, patch.object(
+            mediator, "_maybe_assign_turn", new=AsyncMock(return_value=True)
+        ) as assign_mock:
+            data = {b"data": json.dumps(targeted_event).encode()}
+            await mediator._process_event("1704096000000-10", data)
+
+        queue_mock.assert_awaited_once()
+        assign_mock.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_targeted_event_assigns_turn_with_non_normalized_target_agent_id(
+        self, mock_redis, mediator_config
+    ):
+        """Targeted assignment should work with mixed-case/whitespace agent ids."""
+        mediator = MediatorService(mock_redis, mediator_config)
+        mediator.register_agent("andi")
+
+        targeted_event = {
+            "type": "notification",
+            "actor": "Front Door Doorbell",
+            "actor_type": "system",
+            "room_id": "#123",
+            "room_name": "The Garden",
+            "content": "You hear the bell ring.",
+            "metadata": {
+                "target_only": True,
+                "target_agent_id": " Andi ",
+                "assigns_turn": "true",
+            },
+            "timestamp": "2026-01-01T12:00:00+00:00",
+        }
+
+        with patch.object(mediator, "queue_event_for_compilation", new=AsyncMock()) as queue_mock, patch.object(
+            mediator, "_maybe_assign_turn", new=AsyncMock(return_value=True)
+        ) as assign_mock:
+            data = {b"data": json.dumps(targeted_event).encode()}
+            await mediator._process_event("1704096000000-11", data)
+
+        queue_mock.assert_awaited_once()
+        assign_mock.assert_awaited_once()
+        assert assign_mock.await_args.args[0] == "andi"
+        assert assign_mock.await_args.kwargs["metadata"] == {"room_auras": None}
+
 
 class TestMediatorEventRouter:
     """Test the event router loop."""
