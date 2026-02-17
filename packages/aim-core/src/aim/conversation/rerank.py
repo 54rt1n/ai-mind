@@ -5,6 +5,7 @@ from typing import List, Tuple, Set, Optional, Callable, Dict
 import numpy as np
 import pandas as pd
 import logging
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -57,22 +58,30 @@ class MemoryReranker:
         """
         if seen_parent_ids is None:
             seen_parent_ids = set()
+        rerank_start = time.perf_counter()
 
         # 1. Deduplicate each bucket by parent_doc_id (keep highest score)
         conv_deduped = self._deduplicate_by_parent(conversation_results)
         other_deduped = self._deduplicate_by_parent(other_results)
+        dedupe_ms = int((time.perf_counter() - rerank_start) * 1000)
 
         # 2. Filter out already-seen parent_doc_ids
+        filter_start = time.perf_counter()
         conv_filtered = self._filter_seen(conv_deduped, seen_parent_ids)
         other_filtered = self._filter_seen(other_deduped, seen_parent_ids)
+        filter_ms = int((time.perf_counter() - filter_start) * 1000)
 
         # 3. Normalize scores within each bucket
+        normalize_start = time.perf_counter()
         conv_filtered = self._normalize_scores(conv_filtered)
         other_filtered = self._normalize_scores(other_filtered)
+        normalize_ms = int((time.perf_counter() - normalize_start) * 1000)
 
         # 4. Prepare candidate data for each bucket
+        prepare_start = time.perf_counter()
         conv_candidates = self._prepare_candidates(conv_filtered)
         other_candidates = self._prepare_candidates(other_filtered)
+        prepare_ms = int((time.perf_counter() - prepare_start) * 1000)
 
         selected: List[TaggedResult] = []
         selected_embeddings: List[np.ndarray] = []
@@ -80,37 +89,65 @@ class MemoryReranker:
         tokens_used = 0
 
         # 5. First pass: Fill from conversations up to their budget share
+        conv_fill_start = time.perf_counter()
         conv_budget = int(token_budget * self.conversation_budget_ratio)
         conv_selected, conv_tokens, conv_embeddings, conv_parents = self._fill_from_bucket(
             conv_candidates, conv_budget, selected_embeddings, selected_parent_ids
         )
+        conv_fill_ms = int((time.perf_counter() - conv_fill_start) * 1000)
         selected.extend(conv_selected)
         selected_embeddings.extend(conv_embeddings)
         selected_parent_ids.update(conv_parents)
         tokens_used += conv_tokens
 
         # 6. Second pass: Fill remaining budget from other docs
+        other_fill_start = time.perf_counter()
         remaining_budget = token_budget - tokens_used
         other_selected, other_tokens, other_embeddings, other_parents = self._fill_from_bucket(
             other_candidates, remaining_budget, selected_embeddings, selected_parent_ids
         )
+        other_fill_ms = int((time.perf_counter() - other_fill_start) * 1000)
         selected.extend(other_selected)
         selected_embeddings.extend(other_embeddings)
         selected_parent_ids.update(other_parents)
         tokens_used += other_tokens
 
         # 7. If conversations didn't use their full budget, backfill with more other docs
+        backfill_ms = 0
+        backfill_selected = 0
         remaining_budget = token_budget - tokens_used
         if remaining_budget > 50 and other_candidates:
             # Filter out already-selected from other_candidates
             remaining_other = [c for c in other_candidates if c['parent_id'] not in selected_parent_ids]
+            backfill_start = time.perf_counter()
             more_selected, more_tokens, more_embeddings, more_parents = self._fill_from_bucket(
                 remaining_other, remaining_budget, selected_embeddings, selected_parent_ids
             )
+            backfill_ms = int((time.perf_counter() - backfill_start) * 1000)
+            backfill_selected = len(more_selected)
             selected.extend(more_selected)
             tokens_used += more_tokens
 
-        logger.info(f"MemoryReranker: selected {len(selected)} results ({len(conv_selected)} conv + {len(other_selected)} other) using {tokens_used}/{token_budget} tokens")
+        total_ms = int((time.perf_counter() - rerank_start) * 1000)
+        logger.info(
+            "MemoryReranker timing: total=%dms dedupe=%dms filter=%dms normalize=%dms prepare=%dms conv_fill=%dms other_fill=%dms backfill=%dms candidates=%d/%d selected=%d (%d conv + %d other + %d backfill) tokens=%d/%d",
+            total_ms,
+            dedupe_ms,
+            filter_ms,
+            normalize_ms,
+            prepare_ms,
+            conv_fill_ms,
+            other_fill_ms,
+            backfill_ms,
+            len(conv_candidates),
+            len(other_candidates),
+            len(selected),
+            len(conv_selected),
+            len(other_selected),
+            backfill_selected,
+            tokens_used,
+            token_budget,
+        )
         return selected
 
     def _prepare_candidates(self, results: List[TaggedResult]) -> List[Dict]:
@@ -156,10 +193,15 @@ class MemoryReranker:
         new_embeddings: List[np.ndarray] = []
         new_parent_ids: Set[str] = set()
         tokens_used = 0
+        fill_start = time.perf_counter()
+        loop_count = 0
+        candidate_evals = 0
+        similarity_calls = 0
 
         remaining = list(range(len(candidates)))
 
         while remaining:
+            loop_count += 1
             best_idx = None
             best_mmr = float('-inf')
             best_remaining_idx = None
@@ -175,6 +217,7 @@ class MemoryReranker:
                 if tokens_used + cand['token_cost'] > budget:
                     continue
 
+                candidate_evals += 1
                 # Calculate MMR score
                 relevance = cand['norm_score']
 
@@ -210,6 +253,7 @@ class MemoryReranker:
                         logger.debug(f"Applied source boost: source_tag={source_tag}, multiplier={source_multiplier}, boosted_relevance={relevance:.4f}")
 
                 if selected_embeddings and cand['embedding'] is not None:
+                    similarity_calls += 1
                     max_sim = self._max_similarity(cand['embedding'], selected_embeddings)
                 else:
                     max_sim = 0.0
@@ -239,6 +283,18 @@ class MemoryReranker:
 
             remaining.pop(best_remaining_idx)
 
+        elapsed_ms = int((time.perf_counter() - fill_start) * 1000)
+        logger.info(
+            "MemoryReranker fill: input=%d selected=%d loops=%d evals=%d sim_calls=%d tokens=%d/%d took=%dms",
+            len(candidates),
+            len(selected),
+            loop_count,
+            candidate_evals,
+            similarity_calls,
+            tokens_used,
+            budget,
+            elapsed_ms,
+        )
         return selected, tokens_used, new_embeddings, new_parent_ids
 
     def _safe_score(self, value) -> float:

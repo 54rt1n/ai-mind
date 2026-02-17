@@ -97,6 +97,8 @@ class ScenarioState(BaseModel):
 
     # Memory context - chunked docs from context DSL searches (refreshed per step)
     memory_refs: list[DocRef] = Field(default_factory=list)
+    seed_loaded: bool = False
+    """Whether scenario-level seed actions have been executed."""
 
     # Step outputs - doc IDs created by this scenario (for CVM persistence)
     step_doc_ids: list[str] = Field(default_factory=list)

@@ -88,6 +88,12 @@ class ScenarioBuilder:
         # Parse tools
         tools = self._parse_tools(data.get('tools', {}))
 
+        # Parse seed memory actions (scenario-level initial context)
+        seed = [
+            MemoryAction(**action) if isinstance(action, dict) else action
+            for action in data.get('seed', [])
+        ]
+
         # Parse dialogue config if present (pass context for required_aspects)
         dialogue_config = self._parse_dialogue_config(
             data.get('dialogue'), data.get('context')
@@ -113,6 +119,7 @@ class ScenarioBuilder:
             first_step=first_step or '',
             steps=steps,
             tools=tools,
+            seed=seed,
             dialogue=dialogue_config,
             required_aspects=required_aspects,
         )

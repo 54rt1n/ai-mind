@@ -210,6 +210,55 @@ class TestScenarioExecutor:
         assert result.next_step == "new_step"
         assert executor.state.current_step == "new_step"
 
+    @pytest.mark.asyncio
+    async def test_execute_runs_seed_before_first_step(self, executor):
+        """Scenario seed actions should run once before first strategy execution."""
+        executor.framework.seed = [MemoryAction(action="get_memory", top_n=2)]
+
+        mock_strategy = MagicMock(spec=BaseStepStrategy)
+        mock_strategy.execute = AsyncMock(return_value=ScenarioStepResult(
+            success=True,
+            next_step="end"
+        ))
+
+        with patch('aim.dreamer.core.memory_dsl.execute_memory_actions') as mock_exec:
+            mock_exec.return_value = ["seed-doc-1", "seed-doc-2"]
+            executor.cvm.get_by_doc_id.side_effect = [
+                {"doc_id": "seed-doc-1", "document_type": "motd", "content": "A"},
+                {"doc_id": "seed-doc-2", "document_type": "journal", "content": "B"},
+            ]
+
+            await executor.execute(mock_strategy)
+
+        assert executor.state.seed_loaded is True
+        assert [ref.doc_id for ref in executor.state.memory_refs] == ["seed-doc-1", "seed-doc-2"]
+
+    @pytest.mark.asyncio
+    async def test_execute_seed_runs_only_once(self, executor):
+        """Seed actions should not re-run on subsequent step executions."""
+        executor.framework.seed = [MemoryAction(action="get_memory", top_n=1)]
+
+        strategy1 = MagicMock(spec=BaseStepStrategy)
+        strategy1.execute = AsyncMock(return_value=ScenarioStepResult(success=True, next_step="step2"))
+
+        strategy2 = MagicMock(spec=BaseStepStrategy)
+        strategy2.execute = AsyncMock(return_value=ScenarioStepResult(success=True, next_step="end"))
+
+        with patch('aim.dreamer.core.memory_dsl.execute_memory_actions') as mock_exec:
+            mock_exec.return_value = ["seed-doc-1"]
+            executor.cvm.get_by_doc_id.return_value = {
+                "doc_id": "seed-doc-1",
+                "document_type": "motd",
+                "content": "A",
+            }
+
+            await executor.execute(strategy1)
+            await executor.execute(strategy2)
+
+        assert mock_exec.call_count == 1
+        assert executor.state.seed_loaded is True
+        assert [ref.doc_id for ref in executor.state.memory_refs] == ["seed-doc-1"]
+
 
 # --- StepFactory Tests ---
 

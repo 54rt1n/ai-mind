@@ -12,6 +12,51 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def execute_seed_actions(executor: "ScenarioExecutor") -> None:
+    """Execute scenario-level seed actions once and populate memory_refs.
+
+    Seed actions run before the first step executes. They provide baseline
+    context that step-level DSL can build on.
+
+    Args:
+        executor: The scenario executor with framework, state, and CVM
+    """
+    from ..memory_dsl import execute_memory_actions
+    from ..state import DocRef
+
+    if executor.state.seed_loaded:
+        return
+
+    if not executor.framework.seed:
+        executor.state.seed_loaded = True
+        return
+
+    doc_ids = execute_memory_actions(
+        actions=executor.framework.seed,
+        state=executor.state,
+        cvm=executor.cvm,
+        query_text=executor.state.query_text,
+    )
+
+    existing_doc_ids = {ref.doc_id for ref in executor.state.memory_refs}
+
+    for doc_id in doc_ids:
+        if doc_id in existing_doc_ids:
+            continue
+
+        doc = executor.cvm.get_by_doc_id(doc_id)
+        if doc:
+            ref = DocRef(
+                doc_id=doc_id,
+                document_type=doc.get('document_type'),
+            )
+            executor.state.memory_refs.append(ref)
+            existing_doc_ids.add(doc_id)
+
+    executor.state.seed_loaded = True
+    logger.debug(f"Loaded {len(doc_ids)} docs from scenario seed")
+
+
 def execute_context_actions(
     executor: "ScenarioExecutor",
     step_def: "NewStepDefinition",

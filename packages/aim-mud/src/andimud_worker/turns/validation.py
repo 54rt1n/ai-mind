@@ -214,21 +214,29 @@ def get_inventory_items(session: Optional[MUDSession]) -> list[str]:
         session: Current MUD session, may be None
 
     Returns:
-        List of item names in inventory
+        List of carried item names (inventory + worn).
     """
     items: list[str] = []
+    seen: set[str] = set()
+
+    def add_item(name: Optional[str]) -> None:
+        if not name:
+            return
+        cleaned = _strip_dbref_suffix(str(name).strip())
+        if not cleaned:
+            return
+        key = cleaned.lower()
+        if key in seen:
+            return
+        seen.add(key)
+        items.append(cleaned)
+
     world_state = session.world_state if session else None
     if world_state:
-        room_entity_ids = {
-            e.entity_id for e in world_state.entities_present
-            if getattr(e, "entity_id", None)
-        }
         for item in world_state.inventory:
-            # If an item id is present in the room snapshot, it is not in inventory.
-            if item.item_id and item.item_id in room_entity_ids:
-                continue
-            if item.name:
-                items.append(item.name)
+            add_item(getattr(item, "name", None))
+        for item in getattr(world_state, "worn", []) or []:
+            add_item(getattr(item, "name", None))
     return items
 
 

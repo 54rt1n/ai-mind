@@ -5,7 +5,7 @@
 from typing import Optional, Any
 from pydantic import BaseModel, Field
 
-from .models import ScenarioTool, NewStepDefinition, SpeakerType
+from .models import ScenarioTool, NewStepDefinition, SpeakerType, MemoryAction
 
 
 class DialogueConfig(BaseModel):
@@ -55,6 +55,9 @@ class ScenarioFramework(BaseModel):
 
     # Tools (tool_name -> definition)
     tools: dict[str, ScenarioTool] = Field(default_factory=dict)
+
+    # Seed memory actions (executed once before first step)
+    seed: list[MemoryAction] = Field(default_factory=list)
 
     # Dialogue configuration (only for dialogue scenarios)
     dialogue: Optional[DialogueConfig] = None

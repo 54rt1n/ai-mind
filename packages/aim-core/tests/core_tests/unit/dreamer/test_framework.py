@@ -441,6 +441,31 @@ class TestScenarioBuilder:
         assert step.context[0].top_n == 10
         assert step.context[1].action == "sort"
 
+    def test_builder_parses_seed_actions(self):
+        """Test builder parses scenario-level seed MemoryAction list."""
+        builder = ScenarioBuilder()
+
+        data = {
+            "name": "test",
+            "first_step": "step1",
+            "seed": [
+                {"action": "load_conversation", "target": "current"},
+                {"action": "get_memory", "document_types": ["motd"], "top_n": 5},
+            ],
+            "steps": {
+                "step1": {
+                    "type": "context_only",
+                    "next": ["end"]
+                }
+            }
+        }
+
+        framework = builder.from_dict(data)
+        assert len(framework.seed) == 2
+        assert framework.seed[0].action == "load_conversation"
+        assert framework.seed[1].action == "get_memory"
+        assert framework.seed[1].document_types == ["motd"]
+
     def test_builder_parses_step_config(self):
         """Test builder parses step config."""
         builder = ScenarioBuilder()

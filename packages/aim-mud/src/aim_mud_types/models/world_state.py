@@ -40,8 +40,13 @@ class WorldState(BaseModel):
     time: Optional[str] = None
     home: Optional[str] = None
 
-    def to_xml(self, include_self: bool = False) -> str:
-        """Render the world state as an XML string."""
+    def to_xml(self, include_self: bool = False, detail: bool = False) -> str:
+        """Render the world state as an XML string.
+
+        Args:
+            include_self: Whether to include self entity in `<present>`.
+            detail: Whether to include low-level room internals such as aura tags.
+        """
         lines: list[str] = ["<world_state>"]
 
         if self.room_state:
@@ -58,7 +63,7 @@ class WorldState(BaseModel):
             if room.exits:
                 exits = ", ".join(room.exits.keys())
                 lines.append(f"    Exits: {exits}")
-            if getattr(room, "auras", None):
+            if detail and getattr(room, "auras", None):
                 lines.append("    <auras>")
                 for aura in room.auras:
                     if isinstance(aura, dict):

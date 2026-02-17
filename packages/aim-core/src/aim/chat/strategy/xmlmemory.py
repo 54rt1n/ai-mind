@@ -590,6 +590,8 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
             all_broad_results: List[TaggedResult] = []
 
             if query_sources_data:
+                retrieval_start = time.perf_counter()
+                executed_query_count = 0
                 top_n_per_source = self.chat.config.memory_window * 2
                 if top_n_per_source == 0 and self.chat.config.memory_window > 0:
                     top_n_per_source = 2
@@ -614,6 +616,7 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
 
                         if not q_text or not q_text.strip():
                             continue
+                        executed_query_count += 1
 
                         conv_results, insight_results, broad_results = self._query_by_buckets(
                             queries=[q_text],
@@ -631,6 +634,18 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
 
                     logger.debug(f"Queried {source_data['name']}: {len(all_conversation_results)} conv total")
 
+                retrieval_ms = int((time.perf_counter() - retrieval_start) * 1000)
+                logger.info(
+                    "Dynamic memory retrieval: sources=%d queries=%d top_n_per_source=%d candidates=%d/%d/%d took=%dms",
+                    len(query_sources_data),
+                    executed_query_count,
+                    top_n_per_source,
+                    len(all_conversation_results),
+                    len(all_insight_results),
+                    len(all_broad_results),
+                    retrieval_ms,
+                )
+
             # Pass to reranker - conversations + insights get 60% of budget (both chunk_768), broad gets 40%
             # Combine conversations and insights as primary content (both benefit from longer context)
             all_long_context = all_conversation_results + all_insight_results
@@ -638,6 +653,14 @@ class XMLMemoryTurnStrategy(ChatTurnStrategy):
             if use_pooled_faiss_rerank and skip_faiss_rerank and query_embedding is not None:
                 pooled_candidates = all_long_context + all_broad_results
                 self._apply_pooled_faiss_rerank(pooled_candidates, query_embedding)
+
+            logger.info(
+                "Rerank handoff: long_context=%d broad=%d budget=%d pooled_enabled=%s",
+                len(all_long_context),
+                len(all_broad_results),
+                available_tokens_for_dynamic_queries,
+                use_pooled_faiss_rerank and skip_faiss_rerank and query_embedding is not None,
+            )
 
             if all_long_context or all_broad_results:
                 reranker = MemoryReranker(

@@ -53,3 +53,34 @@ def test_world_state_to_xml_includes_inventory_who_time_home():
     assert 'location="Garden"' in xml
     assert "<time>2026-01-01T12:00:00+00:00</time>" in xml
     assert "<home>#2</home>" in xml
+
+
+def test_world_state_to_xml_hides_auras_by_default():
+    room = RoomState(
+        room_id="#100",
+        name="Entryway",
+        description="A clean foyer.",
+        auras=[{"name": "SLEEPABLE", "source": "Bed", "source_id": "bed_001"}],
+    )
+    state = WorldState(room_state=room)
+
+    xml = state.to_xml()
+
+    assert "<auras>" not in xml
+    assert "<aura" not in xml
+    assert "SLEEPABLE" not in xml
+
+
+def test_world_state_to_xml_includes_auras_when_detail_enabled():
+    room = RoomState(
+        room_id="#100",
+        name="Entryway",
+        description="A clean foyer.",
+        auras=[{"name": "SLEEPABLE", "source": "Bed", "source_id": "bed_001"}],
+    )
+    state = WorldState(room_state=room)
+
+    xml = state.to_xml(detail=True)
+
+    assert "<auras>" in xml
+    assert '<aura name="SLEEPABLE" source="Bed" source_id="bed_001"/>' in xml

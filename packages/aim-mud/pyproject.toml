@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "ANDIMUD integration - mediator and worker services for AI-Mind"
 readme = "README.md"
 license = {text = "CC-BY-NC-SA-4.0"}
-requires-python = ">=3.10, <4.0"
+requires-python = ">=3.11, <4.0"
 authors = [
     { name = "Martin Bukowski" },
 ]

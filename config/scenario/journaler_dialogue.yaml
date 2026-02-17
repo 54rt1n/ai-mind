@@ -31,13 +31,16 @@ context:
     - 'This will become part of my permanent record. It matters.'
 
 seed:
-  - action: load_conversation
-    target: current
-    document_types: [conversation, analysis, summary, reflection, brainstorm, codex, daydream, pondering, understanding]
+  - action: search_memories
+    top_n: 8
+    document_types: [reflection, pondering, analysis, summary, daydream, brainstorm, codex, understanding, journal, motd]
   - action: get_memory
-    document_types: [reflection, pondering, analysis, summary, daydream, brainstorm, codex, understanding, journal]
+    document_types: [reflection, pondering, analysis, summary, daydream, brainstorm, codex, understanding, journal, motd]
     top_n: 10
     min_memories: 5
+  - action: load_conversation
+    target: current
+    document_types: [conversation, analysis, summary, reflection, brainstorm, codex, daydream, pondering, understanding, motd]
   - action: sort
     by: timestamp
     direction: ascending
@@ -65,12 +68,6 @@ steps:
     output:
       document_type: dialogue-coder
       weight: 0.3
-    context:
-      - action: search_memories
-        top_n: 10
-      - action: sort
-        by: timestamp
-        direction: descending
     next: [coder_response]
 
   coder_response:
@@ -82,9 +79,6 @@ steps:
       Be precise. This is the skeleton that will hold the flesh of feeling.
       Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
       For "Identified Entities:" and end with "Total Entities: n"
-    context:
-      - action: search_memories
-        top_n: 10
     config:
       max_tokens: 4096
       is_thought: true
@@ -118,6 +112,7 @@ steps:
       weight: 0.4
     context:
       - action: search_memories
+        document_types: [reflection, pondering, analysis, summary, daydream, brainstorm, codex, understanding, journal, motd]
         top_n: 6
     next: [dreamer_response]
 
@@ -131,6 +126,7 @@ steps:
       Begin with "[== {{ persona.name }}'s Emotional State: <list of +Emotions+> ==]"
     context:
       - action: search_memories
+        document_types: [reflection, pondering, analysis, summary, daydream, brainstorm, codex, understanding, journal, motd]
         top_n: 6
     config:
       max_tokens: 4096

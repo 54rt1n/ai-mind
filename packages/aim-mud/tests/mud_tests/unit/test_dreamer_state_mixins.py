@@ -191,6 +191,43 @@ class TestAsyncDreamerStateMixin:
             RedisKeys.agent_dreaming_state("nova")
         )
 
+    @pytest.mark.asyncio
+    async def test_abort_running_dream_aborts_and_clears_state(self, client, base_dreaming_state):
+        """abort_running_dream should archive and delete active PENDING/RUNNING dreams."""
+        base_dreaming_state["status"] = "running"
+        client.redis.hgetall.return_value = base_dreaming_state
+        client.redis.lpush = AsyncMock(return_value=1)
+        client.redis.ltrim = AsyncMock(return_value=True)
+        client.redis.delete = AsyncMock(return_value=1)
+
+        result = await client.abort_running_dream("andi", reason="manual abort")
+
+        assert result is True
+        client.redis.lpush.assert_called_once()
+        client.redis.ltrim.assert_called_once_with(
+            RedisKeys.agent_dreaming_history("andi"), 0, 99
+        )
+        client.redis.delete.assert_called_once_with(
+            RedisKeys.agent_dreaming_state("andi")
+        )
+
+    @pytest.mark.asyncio
+    async def test_abort_running_dream_returns_false_for_terminal_state(self, client, base_dreaming_state):
+        """abort_running_dream should no-op for COMPLETE/FAILED/ABORTED dreams."""
+        base_dreaming_state["status"] = "complete"
+        base_dreaming_state["completed_at"] = "1704070800"
+        client.redis.hgetall.return_value = base_dreaming_state
+        client.redis.lpush = AsyncMock(return_value=1)
+        client.redis.ltrim = AsyncMock(return_value=True)
+        client.redis.delete = AsyncMock(return_value=1)
+
+        result = await client.abort_running_dream("andi")
+
+        assert result is False
+        client.redis.lpush.assert_not_called()
+        client.redis.ltrim.assert_not_called()
+        client.redis.delete.assert_not_called()
+
 
 class TestSyncDreamerStateMixin:
     """Tests for SyncDreamerStateMixin.has_running_dream()."""
@@ -297,6 +334,35 @@ class TestSyncDreamerStateMixin:
         sync_client.redis.hgetall.assert_called_once_with(
             RedisKeys.agent_dreaming_state("tiberius")
         )
+
+    def test_abort_running_dream_aborts_and_clears_state(self, sync_client, base_dreaming_state):
+        """abort_running_dream should archive and delete active PENDING/RUNNING dreams."""
+        base_dreaming_state["status"] = "running"
+        sync_client.redis.hgetall.return_value = base_dreaming_state
+
+        result = sync_client.abort_running_dream("andi", reason="manual abort")
+
+        assert result is True
+        sync_client.redis.lpush.assert_called_once()
+        sync_client.redis.ltrim.assert_called_once_with(
+            RedisKeys.agent_dreaming_history("andi"), 0, 99
+        )
+        sync_client.redis.delete.assert_called_once_with(
+            RedisKeys.agent_dreaming_state("andi")
+        )
+
+    def test_abort_running_dream_returns_false_for_terminal_state(self, sync_client, base_dreaming_state):
+        """abort_running_dream should no-op for COMPLETE/FAILED/ABORTED dreams."""
+        base_dreaming_state["status"] = "failed"
+        base_dreaming_state["last_error"] = "timeout"
+        sync_client.redis.hgetall.return_value = base_dreaming_state
+
+        result = sync_client.abort_running_dream("andi")
+
+        assert result is False
+        sync_client.redis.lpush.assert_not_called()
+        sync_client.redis.ltrim.assert_not_called()
+        sync_client.redis.delete.assert_not_called()
 
 
 class TestDreamingStateIntegration:

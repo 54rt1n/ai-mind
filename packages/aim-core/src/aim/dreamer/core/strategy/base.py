@@ -108,6 +108,11 @@ class ScenarioExecutor:
         Returns:
             ScenarioStepResult indicating success/failure and next step
         """
+        from .functions import execute_seed_actions
+
+        # Hydrate scenario-level seed context once before first step execution.
+        execute_seed_actions(self)
+
         result = await strategy.execute()
         self.state.current_step = result.next_step
         return result
